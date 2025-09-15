@@ -8,18 +8,33 @@ import { EmbeddedAnalyticsFilters } from './EmbeddedAnalyticsFilters'
 import { EmbeddedTiles } from './EmbeddedAnalyticsTiles'
 import { EmbeddedTab } from './common'
 import { embeddedAnalyticsLogic } from './embeddedAnalyticsLogic'
+import { QueryEndpoints } from './query-endpoints/QueryEndpoints'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { router } from 'kea-router'
+import { PageHeader } from 'lib/components/PageHeader'
 
 export function EmbeddedAnalyticsDashboard(): JSX.Element {
-    const { tiles } = useValues(embeddedAnalyticsLogic)
-
     return (
         <BindLogic logic={embeddedAnalyticsLogic} props={{}}>
             <SceneContent className="EmbeddedAnalyticsDashboard w-full flex flex-col">
                 <EmbeddedAnalyticsTabs />
                 {/* <Filters tabs={<></>} /> */}
 
-                <EmbeddedAnalyticsFilters />
-                <EmbeddedTiles tiles={tiles} />
+                <PageHeader
+                    buttons={
+                        <LemonButton
+                            data-attr="new-query-endpoint"
+                            onClick={() => {
+                                router.actions.push('/sql#tab=query-endpoint')
+                            }}
+                            type="primary"
+                            tooltip="This will redirect you to the SQL Editor."
+                        >
+                            New query endpoint
+                        </LemonButton>
+                    }
+                />
+                <MainContent />
             </SceneContent>
         </BindLogic>
     )
@@ -39,4 +54,21 @@ const EmbeddedAnalyticsTabs = (): JSX.Element => {
             ]}
         />
     )
+}
+
+const MainContent = (): JSX.Element => {
+    const { activeTab } = useValues(embeddedAnalyticsLogic)
+    const { tiles } = useValues(embeddedAnalyticsLogic)
+
+    switch (activeTab) {
+        case EmbeddedTab.QUERY_ENDPOINTS:
+            return <QueryEndpoints />
+        case EmbeddedTab.USAGE_ANALYTICS:
+            return (
+                <>
+                    <EmbeddedAnalyticsFilters />
+                    <EmbeddedTiles tiles={tiles} />
+                </>
+            )
+    }
 }

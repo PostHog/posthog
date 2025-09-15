@@ -2105,6 +2105,18 @@ export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
     query: Node | null
 }
 
+export interface QueryEndpointType extends WithAccessControl {
+    id: number
+    name: string
+    description: string
+    created_at: string
+    created_by: UserBasicType | null
+    url: string
+    sql: string
+    /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
+    _highlight?: boolean
+}
+
 export interface DashboardBasicType extends WithAccessControl {
     id: number
     name: string
