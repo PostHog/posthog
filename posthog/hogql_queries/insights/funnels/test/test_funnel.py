@@ -1089,6 +1089,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     {"id": "user signed up", "type": "events", "order": 1},
                 ],
                 "insight": INSIGHT_FUNNELS,
+                "funnel_window_days": 14,
                 "funnel_window_interval": 2,
                 "funnel_window_interval_unit": "week",
             }
