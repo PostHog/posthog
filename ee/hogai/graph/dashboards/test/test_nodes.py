@@ -491,9 +491,9 @@ class TestDashboardCreatorNode(TestCase):
 
         result = self.node._create_success_response(
             mock_dashboard,
-            mock_insights,
+            mock_insights,  # type: ignore[arg-type]
             "test_call",
-            ["Query without insights"],  # type: ignore[arg-type]
+            ["Query without insights"],
         )
 
         self.assertIsInstance(result, PartialAssistantState)
