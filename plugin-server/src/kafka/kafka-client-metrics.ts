@@ -9,26 +9,26 @@ const AUTH_TIMEOUT_THRESHOLD_US = 10_000_000
 export const kafkaBrokerRtt = new Histogram({
     name: 'kafka_broker_rtt_ms',
     help: 'Round trip time to broker in milliseconds',
-    labelNames: ['broker_id', 'broker_name', 'consumer_group', 'consumer_id'],
+    labelNames: ['broker_id', 'broker_name', 'consumer_group'],
     buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000],
 })
 
 export const kafkaBrokerSslHandshakeFailures = new Counter({
     name: 'kafka_broker_ssl_handshake_failures_total',
     help: 'Total number of SSL handshake failures',
-    labelNames: ['broker_id', 'broker_name', 'consumer_group', 'consumer_id', 'error'],
+    labelNames: ['broker_id', 'broker_name', 'consumer_group', 'error'],
 })
 
 export const kafkaBrokerAuthFailures = new Counter({
     name: 'kafka_broker_auth_failures_total',
     help: 'Total number of authentication failures',
-    labelNames: ['broker_id', 'broker_name', 'consumer_group', 'consumer_id', 'mechanism'],
+    labelNames: ['broker_id', 'broker_name', 'consumer_group'],
 })
 
 export const kafkaPartitionFetchErrors = new Counter({
     name: 'kafka_partition_fetch_errors_total',
     help: 'Total number of partition fetch errors',
-    labelNames: ['broker_id', 'topic', 'partition', 'fetch_state', 'consumer_group', 'consumer_id'],
+    labelNames: ['broker_id', 'topic', 'partition', 'fetch_state', 'consumer_group'],
 })
 
 // interfaces pulled from here:
@@ -226,7 +226,6 @@ export function trackBrokerMetrics(
             broker_id: String(stats.nodeid),
             broker_name: brokerName,
             consumer_group: consumerGroup,
-            consumer_id: consumerId,
         }
 
         if (stats.rtt?.avg) {
@@ -237,6 +236,7 @@ export function trackBrokerMetrics(
         if (stats.state === 'DOWN' || stats.state === 'CONNECT') {
             logger.error('Broker connection issue', {
                 ...labels,
+                consumer_id: consumerId,
                 state: stats.state,
                 stateage: stats.stateage,
                 connects: stats.connects,
@@ -254,6 +254,7 @@ export function trackBrokerMetrics(
             })
             logger.error('SSL handshake stuck', {
                 ...labels,
+                consumer_id: consumerId,
                 stateage_ms: stats.stateage,
             })
         }
@@ -262,10 +263,10 @@ export function trackBrokerMetrics(
         if ((stats.state === 'AUTH' || stats.state === 'SASL_AUTH') && stats.stateage > AUTH_TIMEOUT_THRESHOLD_US) {
             kafkaBrokerAuthFailures.inc({
                 ...labels,
-                mechanism: 'sasl',
             })
             logger.error('Authentication stuck', {
                 ...labels,
+                consumer_id: consumerId,
                 stateage_ms: stats.stateage,
             })
         }
@@ -274,6 +275,7 @@ export function trackBrokerMetrics(
         if (stats.txerrs > 0 || stats.rxerrs > 0) {
             logger.warn('Broker communication errors', {
                 ...labels,
+                consumer_id: consumerId,
                 txerrs: stats.txerrs,
                 rxerrs: stats.rxerrs,
                 txretries: stats.txretries,
@@ -285,6 +287,7 @@ export function trackBrokerMetrics(
         if (stats.req_timeouts > 0) {
             logger.warn('Broker request timeouts', {
                 ...labels,
+                consumer_id: consumerId,
                 req_timeouts: stats.req_timeouts,
                 waitresp_cnt: stats.waitresp_cnt,
                 waitresp_msg_cnt: stats.waitresp_msg_cnt,
@@ -305,7 +308,6 @@ export function trackPartitionMetrics(
         partition: partitionId,
         leader_broker: String(partitionData.leader || 'unknown'),
         consumer_group: consumerGroup,
-        consumer_id: consumerId,
     }
 
     if (partitionData.fetch_state === 'stopped' || partitionData.fetch_state === 'stopping') {
@@ -317,6 +319,7 @@ export function trackPartitionMetrics(
 
         logger.warn('Partition fetching stopped or stopping...', {
             ...labels,
+            consumer_id: consumerId,
             fetch_state: partitionData.fetch_state,
             consumer_lag: partitionData.consumer_lag,
             leader_broker: partitionData.leader,
