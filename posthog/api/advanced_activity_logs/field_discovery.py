@@ -1,3 +1,4 @@
+import threading
 import dataclasses
 from typing import Any, TypedDict
 
@@ -17,6 +18,9 @@ class ScopeFields(TypedDict):
 
 DetailFieldsResult = dict[str, ScopeFields]
 
+# Simple in-memory lock to prevent concurrent field discovery for the same org
+_analysis_locks = {}
+
 
 class AdvancedActivityLogFieldDiscovery:
     """
@@ -28,13 +32,22 @@ class AdvancedActivityLogFieldDiscovery:
         self.query_builder = QueryBuilder()
 
     def get_available_filters(self, base_queryset: QuerySet) -> dict[str, Any]:
+        cached = get_cached_fields(str(self.organization_id))
+        if cached:
+            return cached
+
         static_filters = self._get_static_filters(base_queryset)
         detail_fields = self._analyze_detail_fields()
 
-        return {
+        result = {
             "static_filters": static_filters,
             "detail_fields": detail_fields,
         }
+
+        record_count = self._get_org_record_count()
+        cache_fields(str(self.organization_id), result, record_count)
+
+        return result
 
     def _get_static_filters(self, queryset: QuerySet) -> dict[str, list[dict[str, str]]]:
         """Get static filter options for users, scopes, and activities."""
@@ -72,24 +85,25 @@ class AdvancedActivityLogFieldDiscovery:
         return [{"value": activity} for activity in sorted(activities) if activity]
 
     def _analyze_detail_fields(self) -> DetailFieldsResult:
-        cached_data = get_cached_fields(str(self.organization_id))
-        if cached_data:
-            return cached_data
+        org_id = str(self.organization_id)
 
-        record_count = self._get_org_record_count()
+        if org_id not in _analysis_locks:
+            _analysis_locks[org_id] = threading.Lock()
 
-        result: DetailFieldsResult = {}
+        lock = _analysis_locks[org_id]
+        with lock:
+            result: DetailFieldsResult = {}
 
-        top_level_fields = self._get_top_level_fields()
-        self._merge_fields_into_result(result, top_level_fields)
+            top_level_fields = self._get_top_level_fields()
+            self._merge_fields_into_result(result, top_level_fields)
 
-        nested_fields = self._compute_nested_fields_realtime()
-        self._merge_fields_into_result(result, nested_fields)
+            nested_fields = self._compute_nested_fields_realtime()
+            self._merge_fields_into_result(result, nested_fields)
 
-        changes_fields = self._get_changes_fields()
-        self._merge_fields_into_result(result, changes_fields)
+            changes_fields = self._get_changes_fields()
+            self._merge_fields_into_result(result, changes_fields)
 
-        cache_fields(str(self.organization_id), result, record_count)
+        _analysis_locks.pop(org_id, None)
 
         return result
 
@@ -105,9 +119,8 @@ class AdvancedActivityLogFieldDiscovery:
         with connection.cursor() as cursor:
             for query, params in queries:
                 cursor.execute(query, params)
-                results.extend(
-                    [(scope, field_name, field_types) for scope, field_name, field_types in cursor.fetchall()]
-                )
+                query_results = cursor.fetchall()
+                results.extend([(scope, field_name, field_types) for scope, field_name, field_types in query_results])
 
         return results
 
