@@ -182,6 +182,7 @@ Across all questions:
 
 Output Limits (to optimize token usage and processing speed):
 - Provide maximum 5 themes (most important ones only)
+- For each theme, include 1-2 actual response examples that best illustrate the theme
 - Provide maximum 3 insights (key actionable findings)
 - Provide maximum 3 recommendations (top priority actions)
 - Do NOT calculate response_count - this will be set automatically
@@ -216,19 +217,33 @@ Responses:
 
 Analysis Output:
 {
-  "themes": ["User Experience Excellence", "Performance Issues", "Platform Expansion"],
+  "themes": [
+    {
+      "theme": "User Experience Excellence",
+      "description": "Users consistently praise the product's simplicity and ease of use",
+      "examples": ["Easy to use interface", "Simple setup process"]
+    },
+    {
+      "theme": "Performance Issues",
+      "description": "Users are experiencing speed and performance-related problems",
+      "examples": ["Loading times are slow"]
+    },
+    {
+      "theme": "Platform Expansion",
+      "description": "Users want more platform options and integrations",
+      "examples": ["Need better mobile app", "More integrations please"]
+    }
+  ],
   "sentiment": "mixed",
   "insights": [
     "Users highly value simplicity and ease of use (mentioned in 'likes' responses)",
     "Performance is the top improvement area (loading times mentioned)",
-    "Mobile experience needs attention (specific mobile app request)",
-    "Integration ecosystem expansion requested"
+    "Mobile experience needs attention (specific mobile app request)"
   ],
   "recommendations": [
     "Prioritize performance optimization, especially loading speed improvements",
     "Develop or enhance mobile application experience",
-    "Research and plan integration roadmap based on user requests",
-    "Continue focusing on simplicity as a key differentiator"
+    "Research and plan integration roadmap based on user requests"
   ],
   "question_breakdown": {
     "What do you like most": {
@@ -255,7 +270,13 @@ Responses:
 
 Analysis Output:
 {
-  "themes": ["Test data identified"],
+  "themes": [
+    {
+      "theme": "Test data identified",
+      "description": "All responses appear to be test or placeholder content rather than genuine feedback",
+      "examples": ["fasdfasdf", "abc"]
+    }
+  ],
   "sentiment": "neutral",
   "insights": [
     "All responses appear to be test or placeholder data (random keystrokes, single words)",
@@ -284,7 +305,13 @@ Responses:
 
 Analysis Output:
 {
-  "themes": ["Limited feedback available"],
+  "themes": [
+    {
+      "theme": "Limited feedback available",
+      "description": "Insufficient response volume to identify meaningful patterns",
+      "examples": ["Very satisfied"]
+    }
+  ],
   "sentiment": "positive",
   "insights": [
     "Single response indicates satisfaction, but sample size too small for meaningful analysis",

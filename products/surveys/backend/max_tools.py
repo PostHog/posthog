@@ -302,8 +302,16 @@ class QuestionBreakdown(BaseModel):
     key_insights: list[str] = Field(description="Key insights for this question")
 
 
+class ThemeWithExamples(BaseModel):
+    """Theme with supporting response examples"""
+
+    theme: str = Field(description="Main theme name")
+    description: str = Field(description="Brief explanation of the theme")
+    examples: list[str] = Field(description="1-2 actual response examples that illustrate this theme", max_length=2)
+
+
 class SurveyAnalysisOutput(BaseModel):
-    themes: list[str] = Field(description="Key themes identified from responses")
+    themes: list[ThemeWithExamples] = Field(description="Key themes with examples from actual responses")
     sentiment: Literal["positive", "negative", "mixed", "neutral"] = Field(
         description="Overall sentiment analysis", default="neutral"
     )
@@ -467,43 +475,52 @@ class SurveyAnalysisTool(MaxTool):
         header = f"✅ **Survey Analysis: '{survey_name}'**"
         lines.append(header)
         lines.append(f"*Analyzed {analysis.response_count} open-ended responses*")
-        lines.append("")
+        lines.append("\n---")
 
-        # Key themes
-        if analysis.themes:
-            lines.append("**Key Themes:**")
-            for theme in analysis.themes[:5]:  # Limit to top 5 themes
-                lines.append(f"• {theme}")
-            lines.append("")
-
-        # Sentiment
+        # Overall sentiment first for context
         sentiment_emoji = {"positive": "😊", "negative": "😞", "mixed": "🤔", "neutral": "😐"}.get(
             analysis.sentiment, "😐"
         )
-        lines.append(f"**Overall Sentiment:** {sentiment_emoji} {analysis.sentiment.title()}")
-        lines.append("")
+        lines.append(f"**📊 Overall Sentiment:** {sentiment_emoji} {analysis.sentiment.title()}")
 
-        # Key insights
+        # Key themes with examples
+        if analysis.themes:
+            lines.append("\n**🎯 Key Themes:**")
+            for i, theme in enumerate(analysis.themes[:5], 1):  # Limit to top 5 themes
+                lines.append(f"\n**{i}. {theme.theme}**")
+                lines.append(f"{theme.description}")
+                if theme.examples:
+                    lines.append("\n**Examples:**")
+                    for example in theme.examples[:2]:  # Max 2 examples per theme
+                        lines.append(f'- "{example}"')
+                if i < len(analysis.themes[:5]):  # Don't add separator after last theme
+                    lines.append("\n---")
+
+        # Key insights with better formatting
         if analysis.insights:
-            lines.append("**Key Insights:**")
-            for insight in analysis.insights[:3]:  # Limit to top 3 insights
-                lines.append(f"• {insight}")
-            lines.append("")
+            lines.append("\n**💡 Key Insights:**")
+            for i, insight in enumerate(analysis.insights[:3], 1):  # Limit to top 3 insights
+                lines.append(f"\n{i}. {insight}")
 
-        # Recommendations
+        # Recommendations with action-oriented formatting
         if analysis.recommendations:
-            lines.append("**Recommendations:**")
+            lines.append("\n**🚀 Recommendations:**")
             for i, rec in enumerate(analysis.recommendations[:3], 1):  # Top 3 recommendations
-                lines.append(f"{i}. {rec}")
-            lines.append("")
+                lines.append(f"\n**{i}.** {rec}")
 
-        # Question breakdown summary
+        # Question breakdown with improved structure
         if analysis.question_breakdown:
-            lines.append("**Question Breakdown:**")
+            lines.append("\n**📝 Question Breakdown:**")
             for question, breakdown in list(analysis.question_breakdown.items())[:3]:  # Top 3 questions
-                lines.append(f"• **{question}**: {breakdown.theme} ({breakdown.sentiment})")
-            lines.append("")
+                lines.append(f"\n**Q: {question}**")
+                lines.append(f"Theme: {breakdown.theme}")
+                lines.append(f"Sentiment: {breakdown.sentiment.title()}")
+                if breakdown.key_insights:
+                    lines.append("Key insights:")
+                    for insight in breakdown.key_insights[:2]:  # Limit to 2 insights per question
+                        lines.append(f"• {insight}")
 
+        lines.append("\n---")
         lines.append("💡 *Need more detail? Ask me to dive deeper into any specific aspect.*")
 
         return "\n".join(lines)
