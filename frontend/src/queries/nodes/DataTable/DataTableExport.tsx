@@ -233,11 +233,7 @@ export function DataTableExport({ query, fileNameForExport }: DataTableExportPro
                                     content: (closeDialog) => (
                                         <SaveToCohortModalContent closeModal={closeDialog} query={source} />
                                     ),
-                                    primaryButton: {
-                                        children: 'Remove',
-                                        status: 'danger',
-                                        onClick: () => {},
-                                    },
+                                    primaryButton: null,
                                     secondaryButton: {
                                         children: 'Cancel',
                                     },
