@@ -57,6 +57,13 @@ from posthog.tasks.tasks import (
 from posthog.tasks.team_access_cache_tasks import warm_all_team_access_caches_task
 from posthog.utils import get_crontab
 
+# Import Streamlit tasks
+try:
+    from products.streamlit.backend.tasks import check_all_streamlit_containers_health
+except ImportError:
+    # Streamlit product might not be available
+    check_all_streamlit_containers_health = None
+
 TWENTY_FOUR_HOURS = 24 * 60 * 60
 
 
@@ -347,3 +354,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         sync_all_remote_configs.s(),
         name="sync all remote configs",
     )
+
+    # Streamlit container health checks - every 5 minutes
+    if check_all_streamlit_containers_health:
+        add_periodic_task_with_expiry(
+            sender,
+            300,  # Every 5 minutes
+            check_all_streamlit_containers_health.s(),
+            name="check all streamlit containers health",
+        )

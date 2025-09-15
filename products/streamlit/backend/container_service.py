@@ -3,6 +3,7 @@ import structlog
 import socket
 import os
 import tempfile
+import requests
 from typing import Optional
 from django.conf import settings
 from django.core.files.base import ContentFile
@@ -256,3 +257,94 @@ st.slider("Pick a number", 0, 100, 50)
             logger.error("Failed to restart container", 
                         container_id=container_id, error=str(e))
             raise
+
+    def check_container_health(self, container_id: str, internal_url: str) -> bool:
+        """
+        Check if a container is healthy by making a request to it.
+        
+        Args:
+            container_id: ID of the container
+            internal_url: Internal URL to check
+            
+        Returns:
+            True if container is healthy, False otherwise
+        """
+        try:
+            # First check if container is running
+            container = self.client.containers.get(container_id)
+            if container.status != 'running':
+                logger.warning("Container is not running", 
+                             container_id=container_id, status=container.status)
+                return False
+            
+            # Make a health check request
+            health_url = f"{internal_url}/_stcore/health"
+            response = requests.get(health_url, timeout=10)
+            
+            if response.status_code == 200:
+                logger.debug("Container health check passed", 
+                           container_id=container_id)
+                return True
+            else:
+                logger.warning("Container health check failed", 
+                             container_id=container_id, status_code=response.status_code)
+                return False
+                
+        except requests.exceptions.RequestException as e:
+            logger.warning("Container health check request failed", 
+                         container_id=container_id, error=str(e))
+            return False
+        except docker.errors.NotFound:
+            logger.warning("Container not found during health check", 
+                         container_id=container_id)
+            return False
+        except Exception as e:
+            logger.error("Unexpected error during health check", 
+                        container_id=container_id, error=str(e))
+            return False
+
+    def get_container_logs(self, container_id: str, tail: int = 100) -> str:
+        """
+        Get container logs for debugging.
+        
+        Args:
+            container_id: ID of the container
+            tail: Number of lines to return from the end
+            
+        Returns:
+            Container logs as string
+        """
+        try:
+            container = self.client.containers.get(container_id)
+            logs = container.logs(tail=tail, timestamps=True).decode('utf-8')
+            return logs
+        except docker.errors.NotFound:
+            logger.warning("Container not found", container_id=container_id)
+            return "Container not found"
+        except Exception as e:
+            logger.error("Failed to get container logs", 
+                        container_id=container_id, error=str(e))
+            return f"Error getting logs: {str(e)}"
+
+    def can_recreate_container(self, app) -> bool:
+        """
+        Check if a container can be recreated based on app data.
+        
+        Args:
+            app: StreamlitApp instance
+            
+        Returns:
+            True if container can be recreated, False otherwise
+        """
+        try:
+            # Check if we have the necessary data to recreate
+            if app.app_type == "custom":
+                # For custom apps, we need the entrypoint file
+                return bool(app.entrypoint_file)
+            else:
+                # For default apps, we can always recreate
+                return True
+        except Exception as e:
+            logger.error("Failed to check if container can be recreated", 
+                        app_id=str(app.id), error=str(e))
+            return False

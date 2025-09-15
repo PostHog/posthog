@@ -56,15 +56,18 @@ export const streamlitAppsLogic = kea<streamlitAppsLogicType>([
         refreshApps: true,
         openApp: (appId: string) => ({ appId }),
         closeApp: true,
+        restartApp: (appId: string) => ({ appId }),
+        checkAppHealth: (appId: string) => ({ appId }),
+        getAppLogs: (appId: string) => ({ appId }),
     }),
 
-    loaders(({ actions }) => ({
+    loaders(() => ({
         apps: [
             [] as StreamlitApp[],
             {
                 loadApps: async () => {
                     try {
-                        const response = await api.get('/api/projects/@current/streamlit_apps/')
+                        const response = await api.streamlitApps.list()
                         return response.results || []
                     } catch (error) {
                         console.error('Failed to load apps:', error)
@@ -84,20 +87,49 @@ export const streamlitAppsLogic = kea<streamlitAppsLogicType>([
                         formData.append('requirements_file', requirementsFile)
                     }
 
-                    const newApp = await api.create('/api/projects/@current/streamlit_apps/', formData)
+                    await api.streamlitApps.create(formData)
                     // Reload apps after creation
-                    const response = await api.get('/api/projects/@current/streamlit_apps/')
+                    const response = await api.streamlitApps.list()
                     return response.results || []
                 },
                 deleteApp: async ({ appId }) => {
-                    await api.delete(`/api/projects/@current/streamlit_apps/${appId}/`)
+                    await api.streamlitApps.delete(appId)
                     // Reload apps after deletion
-                    const response = await api.get('/api/projects/@current/streamlit_apps/')
+                    const response = await api.streamlitApps.list()
                     return response.results || []
                 },
                 refreshApps: async () => {
-                    const response = await api.get('/api/projects/@current/streamlit_apps/')
+                    const response = await api.streamlitApps.list()
                     return response.results || []
+                },
+            },
+        ],
+        restartApp: [
+            null as any,
+            {
+                restartApp: async ({ appId }) => {
+                    await api.streamlitApps.restart(appId)
+                    // Reload apps after restart
+                    const response = await api.streamlitApps.list()
+                    return response.results || []
+                },
+            },
+        ],
+        appHealth: [
+            null as any,
+            {
+                checkAppHealth: async ({ appId }) => {
+                    const response = await api.streamlitApps.health(appId)
+                    return response
+                },
+            },
+        ],
+        appLogs: [
+            null as any,
+            {
+                getAppLogs: async ({ appId }) => {
+                    const response = await api.streamlitApps.logs(appId)
+                    return response
                 },
             },
         ],

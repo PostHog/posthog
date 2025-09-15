@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconPlay, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
+import { IconPlay, IconPlus, IconRefresh, IconTrash, IconServer, IconHeart, IconBug } from '@posthog/icons'
 import { LemonSelect } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -12,12 +12,12 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 
 import { StreamlitAppViewer } from './StreamlitAppViewer'
-import { streamlitAppsLogic } from './streamlitAppsLogic'
+import { streamlitAppsLogic, StreamlitApp } from './streamlitAppsLogic'
 import { streamlitLogic } from './streamlitLogic'
 
 export function StreamlitDashboard(): JSX.Element {
-    const { apps, isLoading: appsLoading, runningApps, pendingApps, failedApps } = useValues(streamlitAppsLogic)
-    const { createApp, deleteApp, refreshApps, openApp } = useActions(streamlitAppsLogic)
+    const { apps, isLoading: appsLoading, runningApps, pendingApps, failedApps, appHealth, appLogs } = useValues(streamlitAppsLogic)
+    const { createApp, deleteApp, refreshApps, openApp, restartApp, checkAppHealth, getAppLogs } = useActions(streamlitAppsLogic)
 
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
     const [newAppName, setNewAppName] = useState('')
@@ -25,6 +25,8 @@ export function StreamlitDashboard(): JSX.Element {
     const [appType, setAppType] = useState<'default' | 'custom'>('default')
     const [entrypointFile, setEntrypointFile] = useState<File | null>(null)
     const [requirementsFile, setRequirementsFile] = useState<File | null>(null)
+    const [selectedAppForHealth, setSelectedAppForHealth] = useState<StreamlitApp | null>(null)
+    const [selectedAppForLogs, setSelectedAppForLogs] = useState<StreamlitApp | null>(null)
 
     const handleCreateApp = () => {
         if (newAppName.trim()) {
@@ -42,6 +44,20 @@ export function StreamlitDashboard(): JSX.Element {
             setRequirementsFile(null)
             setIsCreateModalOpen(false)
         }
+    }
+
+    const handleRestartApp = (appId: string) => {
+        restartApp(appId)
+    }
+
+    const handleCheckHealth = (app: StreamlitApp) => {
+        setSelectedAppForHealth(app)
+        checkAppHealth(app.id)
+    }
+
+    const handleGetLogs = (app: StreamlitApp) => {
+        setSelectedAppForLogs(app)
+        getAppLogs(app.id)
     }
 
     const getStatusTag = (status: string) => {
@@ -98,18 +114,56 @@ export function StreamlitDashboard(): JSX.Element {
         {
             title: 'Actions',
             key: 'actions',
-            render: (_: any, app: any) => (
-                <div className="flex gap-2">
-                    {app.container_status === 'running' && (
-                        <LemonButton size="small" icon={<IconPlay />} onClick={() => openApp(app.id)}>
+            render: (_: any, app: any) => {
+                const canOpen = app.container_status === 'running' && app.public_url;
+                
+                return (
+                    <div className="flex gap-2">
+                        <LemonButton 
+                            size="small" 
+                            icon={<IconPlay />} 
+                            onClick={() => openApp(app.id)}
+                            disabled={!canOpen}
+                            tooltip={canOpen ? "Open app" : "App not available - container not running or no URL"}
+                        >
                             Open
                         </LemonButton>
-                    )}
-                    <LemonButton size="small" icon={<IconTrash />} status="danger" onClick={() => deleteApp(app.id)}>
-                        Delete
-                    </LemonButton>
-                </div>
-            ),
+                        <LemonButton 
+                            size="small" 
+                            icon={<IconServer />} 
+                            onClick={() => handleRestartApp(app.id)}
+                            tooltip="Restart container (will recreate if missing)"
+                        >
+                            Restart
+                        </LemonButton>
+                        <LemonButton 
+                            size="small" 
+                            icon={<IconHeart />} 
+                            onClick={() => handleCheckHealth(app)}
+                            tooltip="Check health"
+                        >
+                            Health
+                        </LemonButton>
+                        <LemonButton 
+                            size="small" 
+                            icon={<IconBug />} 
+                            onClick={() => handleGetLogs(app)}
+                            tooltip="View logs"
+                        >
+                            Logs
+                        </LemonButton>
+                        <LemonButton 
+                            size="small" 
+                            icon={<IconTrash />} 
+                            status="danger" 
+                            onClick={() => deleteApp(app.id)}
+                            tooltip="Delete app"
+                        >
+                            Delete
+                        </LemonButton>
+                    </div>
+                );
+            },
         },
     ]
 
@@ -257,6 +311,71 @@ export function StreamlitDashboard(): JSX.Element {
 
                     {/* Streamlit App Viewer */}
                     <StreamlitAppViewer />
+
+                    {/* Health Check Modal */}
+                    <LemonModal
+                        isOpen={!!selectedAppForHealth}
+                        onClose={() => setSelectedAppForHealth(null)}
+                        title={`Health Check - ${selectedAppForHealth?.name}`}
+                        footer={
+                            <div className="flex justify-end">
+                                <LemonButton onClick={() => setSelectedAppForHealth(null)}>Close</LemonButton>
+                            </div>
+                        }
+                    >
+                        {selectedAppForHealth && (
+                            <div className="space-y-4">
+                                <div className="p-4 bg-gray-50 rounded-lg">
+                                    <h3 className="font-semibold mb-2">Health Status</h3>
+                                    {appHealth ? (
+                                        <div className="space-y-2">
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-medium">Status:</span>
+                                                <LemonTag type={appHealth.healthy ? 'success' : 'danger'}>
+                                                    {appHealth.healthy ? 'Healthy' : 'Unhealthy'}
+                                                </LemonTag>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-medium">Container Status:</span>
+                                                <span className="text-sm">{appHealth.status}</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-medium">Message:</span>
+                                                <span className="text-sm">{appHealth.message}</span>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="text-sm text-gray-500">Loading health check...</div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </LemonModal>
+
+                    {/* Logs Modal */}
+                    <LemonModal
+                        isOpen={!!selectedAppForLogs}
+                        onClose={() => setSelectedAppForLogs(null)}
+                        title={`Container Logs - ${selectedAppForLogs?.name}`}
+                        width="80%"
+                        footer={
+                            <div className="flex justify-end">
+                                <LemonButton onClick={() => setSelectedAppForLogs(null)}>Close</LemonButton>
+                            </div>
+                        }
+                    >
+                        {selectedAppForLogs && (
+                            <div className="space-y-4">
+                                <div className="p-4 bg-gray-900 text-green-400 rounded-lg font-mono text-sm max-h-96 overflow-auto">
+                                    {appLogs ? (
+                                        <pre className="whitespace-pre-wrap">{appLogs.logs}</pre>
+                                    ) : (
+                                        <div className="text-gray-500">Loading logs...</div>
+                                    )}
+                                </div>
+                            </div>
+                        )}
+                    </LemonModal>
                 </div>
             </BindLogic>
         </BindLogic>

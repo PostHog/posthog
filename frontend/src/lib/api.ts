@@ -1503,6 +1503,26 @@ export class ApiRequest {
     public datasetItem(id: string, teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('dataset_items').addPathComponent(id)
     }
+
+    public streamlitApps(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('streamlit_apps')
+    }
+
+    public streamlitApp(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.streamlitApps(teamId).addPathComponent(id)
+    }
+
+    public streamlitAppRestart(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.streamlitApp(id, teamId).addPathComponent('restart')
+    }
+
+    public streamlitAppHealth(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.streamlitApp(id, teamId).addPathComponent('health')
+    }
+
+    public streamlitAppLogs(id: string, teamId?: TeamType['id']): ApiRequest {
+        return this.streamlitApp(id, teamId).addPathComponent('logs')
+    }
 }
 
 const normalizeUrl = (url: string): string => {
@@ -4175,6 +4195,40 @@ const api = {
 
         async update(datasetItemId: string, data: Partial<DatasetItem>): Promise<DatasetItem> {
             return await new ApiRequest().datasetItem(datasetItemId).update({ data })
+        },
+    },
+
+    streamlitApps: {
+        async list(teamId?: TeamType['id']): Promise<PaginatedResponse<any>> {
+            return await new ApiRequest().streamlitApps(teamId).get()
+        },
+
+        async get(id: string, teamId?: TeamType['id']): Promise<any> {
+            return await new ApiRequest().streamlitApp(id, teamId).get()
+        },
+
+        async create(data: FormData, teamId?: TeamType['id']): Promise<any> {
+            return await new ApiRequest().streamlitApps(teamId).create({ data })
+        },
+
+        async update(id: string, data: any, teamId?: TeamType['id']): Promise<any> {
+            return await new ApiRequest().streamlitApp(id, teamId).update({ data })
+        },
+
+        async delete(id: string, teamId?: TeamType['id']): Promise<void> {
+            return await new ApiRequest().streamlitApp(id, teamId).delete()
+        },
+
+        async restart(id: string, teamId?: TeamType['id']): Promise<any> {
+            return await new ApiRequest().streamlitAppRestart(id, teamId).create()
+        },
+
+        async health(id: string, teamId?: TeamType['id']): Promise<any> {
+            return await new ApiRequest().streamlitAppHealth(id, teamId).get()
+        },
+
+        async logs(id: string, teamId?: TeamType['id']): Promise<any> {
+            return await new ApiRequest().streamlitAppLogs(id, teamId).get()
         },
     },
 

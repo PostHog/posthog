@@ -1,5 +1,6 @@
 from unittest.mock import patch, MagicMock
 import docker
+import requests
 
 from posthog.test.base import BaseTest
 from products.streamlit.backend.container_service import ContainerService
@@ -134,3 +135,128 @@ class ContainerServiceTest(BaseTest):
         # Verify the container was restarted
         mock_client.containers.get.assert_called_once_with(container_id)
         mock_container.restart.assert_called_once()
+
+    @patch('products.streamlit.backend.container_service.requests.get')
+    @patch('products.streamlit.backend.container_service.docker.from_env')
+    def test_check_container_health_healthy(self, mock_docker_from_env, mock_requests_get):
+        """Test health check for healthy container"""
+        # Mock Docker client and container
+        mock_client = MagicMock()
+        mock_container = MagicMock()
+        mock_container.status = "running"
+        mock_client.containers.get.return_value = mock_container
+        mock_docker_from_env.return_value = mock_client
+        
+        # Mock successful HTTP response
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_requests_get.return_value = mock_response
+        
+        service = ContainerService()
+        service.client = mock_client
+        
+        container_id = "container-123"
+        internal_url = "http://localhost:8501"
+        
+        is_healthy = service.check_container_health(container_id, internal_url)
+        
+        self.assertTrue(is_healthy)
+        mock_client.containers.get.assert_called_once_with(container_id)
+        mock_requests_get.assert_called_once_with(f"{internal_url}/_stcore/health", timeout=10)
+
+    @patch('products.streamlit.backend.container_service.requests.get')
+    @patch('products.streamlit.backend.container_service.docker.from_env')
+    def test_check_container_health_not_running(self, mock_docker_from_env, mock_requests_get):
+        """Test health check for non-running container"""
+        # Mock Docker client and container
+        mock_client = MagicMock()
+        mock_container = MagicMock()
+        mock_container.status = "stopped"
+        mock_client.containers.get.return_value = mock_container
+        mock_docker_from_env.return_value = mock_client
+        
+        service = ContainerService()
+        service.client = mock_client
+        
+        container_id = "container-123"
+        internal_url = "http://localhost:8501"
+        
+        is_healthy = service.check_container_health(container_id, internal_url)
+        
+        self.assertFalse(is_healthy)
+        mock_client.containers.get.assert_called_once_with(container_id)
+        mock_requests_get.assert_not_called()
+
+    @patch('products.streamlit.backend.container_service.requests.get')
+    @patch('products.streamlit.backend.container_service.docker.from_env')
+    def test_check_container_health_http_error(self, mock_docker_from_env, mock_requests_get):
+        """Test health check for container with HTTP error"""
+        # Mock Docker client and container
+        mock_client = MagicMock()
+        mock_container = MagicMock()
+        mock_container.status = "running"
+        mock_client.containers.get.return_value = mock_container
+        mock_docker_from_env.return_value = mock_client
+        
+        # Mock HTTP error response
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_requests_get.return_value = mock_response
+        
+        service = ContainerService()
+        service.client = mock_client
+        
+        container_id = "container-123"
+        internal_url = "http://localhost:8501"
+        
+        is_healthy = service.check_container_health(container_id, internal_url)
+        
+        self.assertFalse(is_healthy)
+        mock_client.containers.get.assert_called_once_with(container_id)
+        mock_requests_get.assert_called_once_with(f"{internal_url}/_stcore/health", timeout=10)
+
+    @patch('products.streamlit.backend.container_service.requests.get')
+    @patch('products.streamlit.backend.container_service.docker.from_env')
+    def test_check_container_health_request_exception(self, mock_docker_from_env, mock_requests_get):
+        """Test health check for container with request exception"""
+        # Mock Docker client and container
+        mock_client = MagicMock()
+        mock_container = MagicMock()
+        mock_container.status = "running"
+        mock_client.containers.get.return_value = mock_container
+        mock_docker_from_env.return_value = mock_client
+        
+        # Mock request exception
+        mock_requests_get.side_effect = requests.exceptions.RequestException("Connection failed")
+        
+        service = ContainerService()
+        service.client = mock_client
+        
+        container_id = "container-123"
+        internal_url = "http://localhost:8501"
+        
+        is_healthy = service.check_container_health(container_id, internal_url)
+        
+        self.assertFalse(is_healthy)
+        mock_client.containers.get.assert_called_once_with(container_id)
+        mock_requests_get.assert_called_once_with(f"{internal_url}/_stcore/health", timeout=10)
+
+    @patch('products.streamlit.backend.container_service.docker.from_env')
+    def test_get_container_logs(self, mock_docker_from_env):
+        """Test getting container logs"""
+        # Mock Docker client and container
+        mock_client = MagicMock()
+        mock_container = MagicMock()
+        mock_container.logs.return_value = b"Container log output"
+        mock_client.containers.get.return_value = mock_container
+        mock_docker_from_env.return_value = mock_client
+        
+        service = ContainerService()
+        service.client = mock_client
+        
+        container_id = "container-123"
+        logs = service.get_container_logs(container_id)
+        
+        self.assertEqual(logs, "Container log output")
+        mock_client.containers.get.assert_called_once_with(container_id)
+        mock_container.logs.assert_called_once_with(tail=100, timestamps=True)
