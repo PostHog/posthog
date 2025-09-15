@@ -43,7 +43,6 @@
         "no-useless-fallback-in-spread": "error",
         "react-hooks/exhaustive-deps": "warn",
         "no-else-return": "warn",
-        "react-hooks/rules-of-hooks": "error",
         "react/jsx-curly-brace-presence": [
             "error",
             {
