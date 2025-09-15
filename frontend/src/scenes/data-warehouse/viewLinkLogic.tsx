@@ -379,7 +379,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 const joiningKey = hogql.identifier(values.selectedJoiningKey)
                 const response = await hogqlQuery(
                     hogql`
-                    SELECT ${sourceTable}.${sourceKey}, ${sourceTable}.${sourceKey}
+                    SELECT ${sourceTable}.${sourceKey}, ${joiningTable}.${joiningKey}
                     FROM ${sourceTable}
                     JOIN ${joiningTable}
                     ON ${sourceTable}.${sourceKey} = ${joiningTable}.${joiningKey}
