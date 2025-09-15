@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { PaginationManual } from '@posthog/lemon-ui'
@@ -7,7 +7,7 @@ import api, { CountedPaginatedResponse } from 'lib/api'
 
 import { CohortType } from '~/types'
 
-import type { saveToCohortModalLogicType } from './saveToCohortModalLogicType'
+import type { saveToCohortModalContentLogicType } from './saveToCohortModalContentLogicType'
 
 const COHORTS_PER_PAGE = 100
 
@@ -23,8 +23,8 @@ const DEFAULT_COHORT_FILTERS: CohortFilters = {
     type: 'static',
 }
 
-export const saveToCohortModalContentLogic = kea<saveToCohortModalLogicType>([
-    path(['lib', 'components', 'SaveToCohortModal', 'saveToCohortModalLogic']),
+export const saveToCohortModalContentLogic = kea<saveToCohortModalContentLogicType>([
+    path(['lib', 'components', 'SaveToCohortModal', 'saveToCohortModalContentLogic']),
     actions({
         setCohortFilters: (filters: Partial<CohortFilters>) => ({ filters }),
     }),
@@ -39,7 +39,7 @@ export const saveToCohortModalContentLogic = kea<saveToCohortModalLogicType>([
             },
         ],
     }),
-    loaders((values) => ({
+    loaders(({ values }) => ({
         cohorts: {
             __default: { count: 0, results: [] } as CountedPaginatedResponse<CohortType>,
             loadCohorts: async () => {
@@ -53,7 +53,7 @@ export const saveToCohortModalContentLogic = kea<saveToCohortModalLogicType>([
             },
         },
     })),
-    selectors({
+    selectors(({ actions }) => ({
         count: [(selectors) => [selectors.cohorts], (cohorts) => cohorts.count],
         paramsFromFilters: [
             (s) => [s.cohortFilters],
@@ -71,10 +71,17 @@ export const saveToCohortModalContentLogic = kea<saveToCohortModalLogicType>([
                     pageSize: COHORTS_PER_PAGE,
                     currentPage: filters.page || 1,
                     entryCount: count,
+                    onBackward: () => actions.setCohortFilters({ page: filters.page - 1 }),
+                    onForward: () => actions.setCohortFilters({ page: filters.page + 1 }),
                 }
             },
         ],
-    }),
+    })),
+    listeners(({ actions }) => ({
+        setCohortFilters: async () => {
+            actions.loadCohorts()
+        },
+    })),
     afterMount(({ actions }) => {
         actions.loadCohorts()
     }),
