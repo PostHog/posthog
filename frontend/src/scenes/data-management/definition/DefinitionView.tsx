@@ -30,7 +30,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { getFilterLabel } from '~/taxonomy/helpers'
 import { FilterLogicalOperator, PropertyDefinition, PropertyDefinitionVerificationStatus, ReplayTabs } from '~/types'
 
-import { getEventDefinitionIcon } from '../events/DefinitionHeader'
+import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
 
 export const scene: SceneExport<DefinitionLogicProps> = {
     component: DefinitionView,
@@ -215,17 +215,31 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
 
             <SceneTitleSection
                 name={definition.name}
-                description={definition.description}
-                resourceType={{
-                    type: 'definition',
-                    forceIcon: getEventDefinitionIcon(definition),
-                }}
+                resourceType={
+                    isEvent
+                        ? {
+                              type: 'event definition',
+                              forceIcon: getEventDefinitionIcon(definition),
+                          }
+                        : {
+                              type: 'property definition',
+                              forceIcon: getPropertyDefinitionIcon(definition),
+                          }
+                }
                 actions
-                forceBackTo={{
-                    path: urls.eventDefinitions(),
-                    name: 'Events definitions',
-                    key: 'events',
-                }}
+                forceBackTo={
+                    isEvent
+                        ? {
+                              path: urls.eventDefinitions(),
+                              name: 'Event definitions',
+                              key: 'events',
+                          }
+                        : {
+                              path: urls.propertyDefinitions(),
+                              name: 'Property definitions',
+                              key: 'properties',
+                          }
+                }
             />
 
             <div className="deprecated-space-y-2">
