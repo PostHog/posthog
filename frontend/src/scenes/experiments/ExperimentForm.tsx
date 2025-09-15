@@ -86,20 +86,7 @@ const ExperimentFormFields = (): JSX.Element => {
             )}
             {!newSceneLayout && (
                 <LemonField name="name" label="Name" className="max-w-120">
-                    <LemonInput
-                        placeholder="Pricing page conversion"
-                        data-attr="experiment-name"
-                        onBlur={() => {
-                            // bail if feature flag key is already set
-                            if (experiment.feature_flag_key) {
-                                return
-                            }
-
-                            setExperiment({
-                                feature_flag_key: generateFeatureFlagKey(experiment.name, unavailableFeatureFlagKeys),
-                            })
-                        }}
-                    />
+                    <LemonInput placeholder="Pricing page conversion" data-attr="experiment-name" />
                 </LemonField>
             )}
 
