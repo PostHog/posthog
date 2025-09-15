@@ -115,7 +115,7 @@ class TestNotebookCreation(APIBaseTest):
 
         # Generate content first
         content = generate_notebook_content_from_summary(
-            summary_data, session_ids, self.team.name, self.team.id, "test summary"
+            summary_data, session_ids, self.team.name, self.team.id, summary_title="test summary"
         )
         notebook = await create_notebook_from_summary_content(self.user, self.team, content, "test summary")
 
@@ -146,7 +146,7 @@ class TestNotebookCreation(APIBaseTest):
         session_ids: list[str] = ["session_1", "session_2"]
 
         content: dict[str, Any] = generate_notebook_content_from_summary(
-            summary_data, session_ids, self.team.name, self.team.id, "test summary"
+            summary_data, session_ids, self.team.name, self.team.id, summary_title="test summary"
         )
 
         # Check basic structure
@@ -168,7 +168,7 @@ class TestNotebookCreation(APIBaseTest):
         empty_summary = EnrichedSessionGroupSummaryPatternsList(patterns=[])
 
         content: dict[str, Any] = generate_notebook_content_from_summary(
-            empty_summary, session_ids, self.team.name, self.team.id, "test summary"
+            empty_summary, session_ids, self.team.name, self.team.id, summary_title="test summary"
         )
 
         # Should still create valid content
@@ -215,7 +215,7 @@ class TestNotebookCreation(APIBaseTest):
         summary_data.patterns[0].events.append(segment_context_2)
 
         content: dict[str, Any] = generate_notebook_content_from_summary(
-            summary_data, session_ids, self.team.name, self.team.id, "test summary"
+            summary_data, session_ids, self.team.name, self.team.id, summary_title="test summary"
         )
 
         # Should contain both examples
@@ -329,7 +329,7 @@ class TestNotebookCreation(APIBaseTest):
 
         summary_data = EnrichedSessionGroupSummaryPatternsList(patterns=[pattern])
         content: dict[str, Any] = generate_notebook_content_from_summary(
-            summary_data, ["test_session"], self.team.name, self.team.id, "test summary"
+            summary_data, ["test_session"], self.team.name, self.team.id, summary_title="test summary"
         )
 
         # Find the outcome section in the content
@@ -419,7 +419,7 @@ class TestNotebookCreation(APIBaseTest):
 
         summary_data = EnrichedSessionGroupSummaryPatternsList(patterns=[pattern])
         content: dict[str, Any] = generate_notebook_content_from_summary(
-            summary_data, ["test_session_id"], self.team.name, self.team.id, "test summary"
+            summary_data, ["test_session_id"], self.team.name, self.team.id, summary_title="test summary"
         )
 
         # Convert content to JSON string to search for the replay link
@@ -471,7 +471,7 @@ class TestNotebookCreation(APIBaseTest):
 
             pattern.events = [segment_context_case]
             content = generate_notebook_content_from_summary(
-                summary_data, ["test_session_id"], self.team.name, self.team.id, "test summary"
+                summary_data, ["test_session_id"], self.team.name, self.team.id, summary_title="test summary"
             )
             content_text = json.dumps(content)
 
@@ -691,7 +691,7 @@ class TestNotebookCreation(APIBaseTest):
         session_ids = ["session_1", "session_2"]
 
         content = generate_notebook_content_from_summary(
-            summary_data, session_ids, self.team.name, self.team.id, "test summary"
+            summary_data, session_ids, self.team.name, self.team.id, summary_title="test summary"
         )
 
         content_text = json.dumps(content)
@@ -713,7 +713,7 @@ class TestNotebookCreation(APIBaseTest):
         session_ids = ["session_1"]
 
         content = generate_notebook_content_from_summary(
-            summary_data, session_ids, self.team.name, self.team.id, "test summary"
+            summary_data, session_ids, self.team.name, self.team.id, summary_title="test summary"
         )
 
         content_text = json.dumps(content)
