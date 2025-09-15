@@ -17,6 +17,8 @@ import {
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
+
 import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { ErrorFilters } from '../../components/IssueFilters'
@@ -66,6 +68,9 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     }
                 />
             )}
+            <div className="mb-2 -ml-[var(--button-padding-x-lg)]">
+                <SceneBreadcrumbBackButton />
+            </div>
 
             <div className="ErrorTrackingIssue grid grid-cols-4 gap-4">
                 <div className="space-y-2 col-span-3">
