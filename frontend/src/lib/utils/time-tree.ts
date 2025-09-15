@@ -44,7 +44,6 @@ export class TimeTree<T extends { timestamp: Dayjs }> {
     }
 
     // Return the next item in the tree, or undefined if there is no next item.
-    // If there is an item with the same timestamp as the given timestamp, return that item.
     next(from: Dayjs): T | undefined {
         const needle = {
             timestamp: from,
