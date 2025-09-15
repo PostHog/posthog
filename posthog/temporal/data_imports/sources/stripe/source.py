@@ -43,6 +43,7 @@ Currently, **read permissions are required** for the following resources:
 - Under the **Core** resource type, select *read* for **Balance transaction sources**, **Charges**, **Customer**, **Product**, **Disputes**, and **Payouts**
 - Under the **Billing** resource type, select *read* for **Invoice**, **Price**, **Subscription**, and **Credit notes**
 - Under the **Connected** resource type, select *read* for the **entire resource**""",
+            iconPath="/static/services/stripe.png",
             fields=cast(
                 list[FieldType],
                 [
