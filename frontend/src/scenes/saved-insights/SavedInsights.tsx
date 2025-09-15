@@ -476,6 +476,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconAI,
         inMenu: false,
     },
+    [NodeKind.TraceQuery]: {
+        name: 'LLM Analytics Trace',
+        icon: IconAI,
+        inMenu: false,
+    },
     [NodeKind.VectorSearchQuery]: {
         name: 'Vector Search',
         icon: IconHogQL,
