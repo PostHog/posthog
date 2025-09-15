@@ -315,6 +315,7 @@ class SummarizeSingleSessionStreamWorkflow(PostHogWorkflow):
             heartbeat_timeout=timedelta(seconds=30),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+        # TODO: Remove later as it would delay streaming (or maybe replace the streaming with regular call and fuck it)
         await temporalio.workflow.execute_activity(
             validate_llm_single_session_summary_with_videos_activity,
             inputs,
