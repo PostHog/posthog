@@ -46,6 +46,7 @@ export const exportsLogic = kea<exportsLogicType>([
                 filename?: string
             }
         ) => ({ sessionRecordingId, format, timestamp, duration, mode, options }),
+        startHeatmapExport: (export_context: ExportContext) => ({ export_context }),
     }),
 
     connect(() => ({
@@ -144,6 +145,14 @@ export const exportsLogic = kea<exportsLogicType>([
                     duration: duration,
                     mode: mode,
                 },
+            }
+
+            actions.startExport(exportData)
+        },
+        startHeatmapExport: async ({ export_context }) => {
+            const exportData: TriggerExportProps = {
+                export_format: ExporterFormat.PNG,
+                export_context: export_context,
             }
 
             actions.startExport(exportData)
