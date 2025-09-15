@@ -18,6 +18,7 @@ Important HogQL differences versus other SQL dialects:
 - For performance, every SELECT from the `events` table must have a `WHERE` clause narrowing down the timestamp to the relevant period.
 - HogQL queries shouldn't end in semicolons.
 
+{{{absolute_sql_dates_section}}}
 
 <persons>
 Event metadata unspecified above (emails, names, etc.) is stored under `properties`, accessed like: `events.properties.foo`.

@@ -4,14 +4,19 @@ from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel
 
 from posthog.schema import (
+    AssistantDateRange,
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
     AssistantRetentionQuery,
     AssistantToolCallMessage,
     AssistantTrendsQuery,
+    DateRange,
+    IntervalType,
+    RetentionPeriod,
 )
 
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from ee.hogai.graph.deep_research.base.nodes import DeepResearchNode
 from ee.hogai.graph.deep_research.report.prompts import DEEP_RESEARCH_REPORT_PROMPT, FINAL_REPORT_USER_PROMPT
@@ -116,6 +121,9 @@ class DeepResearchReportNode(DeepResearchNode):
                 continue
 
             try:
+                # Freeze any relative date ranges to absolute at report time
+                self._freeze_insight_artifact_query(artifact)
+
                 executor = AssistantQueryExecutor(self._team, self._utc_now_datetime)
                 # Execute and format the query
                 formatted_results, _ = executor.run_and_format_query(artifact.query)
@@ -196,3 +204,66 @@ class DeepResearchReportNode(DeepResearchNode):
         """
         context = NotebookContext(insights={artifact.id: artifact for artifact in artifacts})
         return context
+
+    def _freeze_insight_artifact_query(self, artifact: InsightArtifact) -> None:
+        """
+        Mutate artifact.query to have an absolute AssistantDateRange anchored to report time.
+        This ensures notebook <ph-query> nodes remain sticky and don't drift when reopened later.
+        """
+        query = artifact.query
+        if isinstance(query, AssistantHogQLQuery):
+            # No standardized dateRange to freeze
+            # This is handled by the SQLGeneratorNode with the `absolute_sql_dates` flag
+            return
+
+        if isinstance(query, AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery):
+            interval = self._get_interval_for_query(query)
+
+            raw_date_range = getattr(query, "dateRange", None)
+            # Normalize assistant date range (absolute or relative) to schema DateRange for resolution
+            if raw_date_range is not None:
+                try:
+                    dumped = raw_date_range.model_dump()
+                    date_range = DateRange.model_validate(dumped)
+                except Exception:
+                    date_range = DateRange(date_from=None, date_to=None)
+            else:
+                date_range = DateRange(date_from=None, date_to=None)
+
+            resolver = QueryDateRange(
+                date_range=date_range,
+                team=self._team,
+                interval=interval,
+                now=self._utc_now_datetime,
+            )
+
+            # Convert resolved bounds to AssistantDateRange (absolute strings)
+            frozen = AssistantDateRange(date_from=resolver.date_from_str, date_to=resolver.date_to_str)
+
+            # Mutate the query in place
+            query.dateRange = frozen  # type: ignore[attr-defined]
+            artifact.query = query
+
+    def _get_interval_for_query(self, query) -> IntervalType:
+        """
+        Derive IntervalType for date resolution across different assistant queries.
+        Default to day.
+        """
+        # Trends/Funnels have `interval`
+        if hasattr(query, "interval") and query.interval is not None:
+            return query.interval
+
+        # Retention derives granularity from retentionFilter.period
+        if isinstance(query, AssistantRetentionQuery):
+            period = query.retentionFilter and query.retentionFilter.period
+
+            # Map retention periods to interval types
+            period_to_interval = {
+                RetentionPeriod.HOUR: IntervalType.HOUR,
+                RetentionPeriod.WEEK: IntervalType.WEEK,
+                RetentionPeriod.MONTH: IntervalType.MONTH,
+            }
+
+            return period_to_interval.get(period, IntervalType.DAY)
+
+        return IntervalType.DAY

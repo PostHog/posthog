@@ -18,9 +18,14 @@ class SQLGeneratorNode(HogQLGeneratorMixin, SchemaGeneratorNode[AssistantHogQLQu
     OUTPUT_SCHEMA = SQL_SCHEMA
 
     hogql_context: HogQLContext
+    absolute_sql_dates: bool = False
+
+    def __init__(self, team, user, absolute_sql_dates: bool = False, **kwargs):
+        super().__init__(team, user, **kwargs)
+        self.absolute_sql_dates = absolute_sql_dates
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        prompt = await self._construct_system_prompt()
+        prompt = await self._construct_system_prompt(absolute_sql_dates=self.absolute_sql_dates)
         return await super()._run_with_prompt(state, prompt, config=config)
 
 

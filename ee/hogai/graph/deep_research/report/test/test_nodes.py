@@ -7,6 +7,7 @@ from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 from posthog.schema import (
+    AssistantDateRange,
     AssistantFunnelsEventsNode,
     AssistantFunnelsFilter,
     AssistantFunnelsQuery,
@@ -18,8 +19,10 @@ from posthog.schema import (
     AssistantToolCallMessage,
     AssistantTrendsEventsNode,
     AssistantTrendsQuery,
+    IntervalType,
     NotebookUpdateMessage,
     ProsemirrorJSONContent,
+    RetentionPeriod,
     TaskExecutionStatus,
 )
 
@@ -185,8 +188,17 @@ class TestDeepResearchReportNode:
         assert result == "Query"
 
     @patch("ee.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor")
-    def test_format_insights_success(self, mock_executor_class):
+    @patch("ee.hogai.graph.deep_research.report.nodes.QueryDateRange")
+    @patch("ee.hogai.graph.mixins.timezone.now")
+    def test_format_insights_success(self, mock_now, mock_resolver_class, mock_executor_class):
         """Test that insights are formatted correctly when query execution is successful."""
+        mock_now.return_value.astimezone.return_value = "2024-01-15T10:00:00Z"
+
+        mock_resolver = MagicMock()
+        mock_resolver.date_from_str = "2024-01-15"
+        mock_resolver.date_to_str = "2024-01-15"
+        mock_resolver_class.return_value = mock_resolver
+
         mock_executor = MagicMock()
         mock_executor.run_and_format_query.return_value = ("Formatted results", False)
         mock_executor_class.return_value = mock_executor
@@ -204,8 +216,19 @@ class TestDeepResearchReportNode:
 
     @patch("ee.hogai.graph.deep_research.report.nodes.AssistantQueryExecutor")
     @patch("ee.hogai.graph.deep_research.report.nodes.capture_exception")
-    def test_format_insights_handles_execution_error(self, mock_capture_exception, mock_executor_class):
+    @patch("ee.hogai.graph.deep_research.report.nodes.QueryDateRange")
+    @patch("ee.hogai.graph.mixins.timezone.now")
+    def test_format_insights_handles_execution_error(
+        self, mock_now, mock_resolver_class, mock_capture_exception, mock_executor_class
+    ):
         """Test that insights formatting handles query execution errors gracefully."""
+        mock_now.return_value.astimezone.return_value = "2024-01-15T10:00:00Z"
+
+        mock_resolver = MagicMock()
+        mock_resolver.date_from_str = "2024-01-15"
+        mock_resolver.date_to_str = "2024-01-15"
+        mock_resolver_class.return_value = mock_resolver
+
         mock_executor = MagicMock()
         mock_executor.run_and_format_query.side_effect = Exception("Query execution failed")
         mock_executor_class.return_value = mock_executor
@@ -597,3 +620,167 @@ class TestDeepResearchReportNode:
             assert formatted_insights[0].id == "artifact_1"
             assert formatted_insights[1].id == "artifact_2"
             assert formatted_insights[2].id == "artifact_3"
+
+    def test_freeze_insight_artifact_query_trends_with_relative_dates(self):
+        """Test freezing a trends query with relative date range."""
+        trends_query = AssistantTrendsQuery(
+            series=[AssistantTrendsEventsNode()],
+            dateRange=AssistantDateRange(date_from="-7d", date_to="-1d"),
+            interval=IntervalType.DAY,
+        )
+        artifact = InsightArtifact(id="trends_artifact", query=trends_query, description="Test trends query")
+
+        with (
+            patch("ee.hogai.graph.mixins.timezone.now") as mock_now,
+            patch("ee.hogai.graph.deep_research.report.nodes.QueryDateRange") as mock_resolver_class,
+        ):
+            mock_now.return_value.astimezone.return_value = "2024-01-15T10:00:00Z"
+
+            mock_resolver = MagicMock()
+            mock_resolver.date_from_str = "2024-01-08"
+            mock_resolver.date_to_str = "2024-01-14"
+            mock_resolver_class.return_value = mock_resolver
+
+            self.node._freeze_insight_artifact_query(artifact)
+
+            # Verify the dateRange was frozen to absolute dates
+            assert isinstance(artifact.query.dateRange, AssistantDateRange)
+            assert artifact.query.dateRange.date_from == "2024-01-08"
+            assert artifact.query.dateRange.date_to == "2024-01-14"
+
+            mock_resolver_class.assert_called_once()
+            call_args = mock_resolver_class.call_args
+            assert call_args[1]["team"] == self.team
+            assert call_args[1]["interval"] == IntervalType.DAY
+            assert call_args[1]["now"] == "2024-01-15T10:00:00Z"
+
+    def test_freeze_insight_artifact_query_funnels_with_absolute_dates(self):
+        """Test freezing a funnels query that already has absolute dates."""
+        funnels_query = AssistantFunnelsQuery(
+            series=[AssistantFunnelsEventsNode(event="$pageview")],
+            dateRange=AssistantDateRange(date_from="2024-01-01", date_to="2024-01-31"),
+            interval=IntervalType.DAY,
+        )
+        artifact = InsightArtifact(id="funnels_artifact", query=funnels_query, description="Test funnels query")
+
+        with (
+            patch("ee.hogai.graph.mixins.timezone.now") as mock_now,
+            patch("ee.hogai.graph.deep_research.report.nodes.QueryDateRange") as mock_resolver_class,
+        ):
+            mock_now.return_value.astimezone.return_value = "2024-01-15T10:00:00Z"
+
+            mock_resolver = MagicMock()
+            mock_resolver.date_from_str = "2024-01-01"
+            mock_resolver.date_to_str = "2024-01-31"
+            mock_resolver_class.return_value = mock_resolver
+
+            self.node._freeze_insight_artifact_query(artifact)
+
+            assert isinstance(artifact.query.dateRange, AssistantDateRange)
+            assert artifact.query.dateRange.date_from == "2024-01-01"
+            assert artifact.query.dateRange.date_to == "2024-01-31"
+
+    def test_freeze_insight_artifact_query_retention_with_period(self):
+        """Test freezing a retention query with period-based interval."""
+        retention_query = AssistantRetentionQuery(
+            dateRange=AssistantDateRange(date_from="-30d", date_to="-1d"),
+            retentionFilter=AssistantRetentionFilter(
+                period=RetentionPeriod.WEEK,
+                returningEntity=AssistantRetentionEventsNode(name="pageview"),
+                targetEntity=AssistantRetentionEventsNode(name="signup"),
+            ),
+        )
+        artifact = InsightArtifact(id="retention_artifact", query=retention_query, description="Test retention query")
+
+        with (
+            patch("ee.hogai.graph.mixins.timezone.now") as mock_now,
+            patch("ee.hogai.graph.deep_research.report.nodes.QueryDateRange") as mock_resolver_class,
+        ):
+            mock_now.return_value.astimezone.return_value = "2024-01-15T10:00:00Z"
+
+            mock_resolver = MagicMock()
+            mock_resolver.date_from_str = "2023-12-16"
+            mock_resolver.date_to_str = "2024-01-14"
+            mock_resolver_class.return_value = mock_resolver
+
+            self.node._freeze_insight_artifact_query(artifact)
+
+            assert isinstance(artifact.query.dateRange, AssistantDateRange)
+            assert artifact.query.dateRange.date_from == "2023-12-16"
+            assert artifact.query.dateRange.date_to == "2024-01-14"
+
+            call_args = mock_resolver_class.call_args
+            assert call_args[1]["interval"] == IntervalType.WEEK
+
+    def test_freeze_insight_artifact_query_no_date_range(self):
+        """Test freezing a query with no date range."""
+        trends_query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode()], interval=IntervalType.DAY)
+        artifact = InsightArtifact(
+            id="no_date_artifact", query=trends_query, description="Test query without date range"
+        )
+
+        with (
+            patch("ee.hogai.graph.mixins.timezone.now") as mock_now,
+            patch("ee.hogai.graph.deep_research.report.nodes.QueryDateRange") as mock_resolver_class,
+        ):
+            mock_now.return_value.astimezone.return_value = "2024-01-15T10:00:00Z"
+
+            mock_resolver = MagicMock()
+            mock_resolver.date_from_str = "2024-01-15"
+            mock_resolver.date_to_str = "2024-01-15"
+            mock_resolver_class.return_value = mock_resolver
+
+            self.node._freeze_insight_artifact_query(artifact)
+
+            assert hasattr(artifact.query, "dateRange")
+            assert isinstance(artifact.query.dateRange, AssistantDateRange)
+            assert artifact.query.dateRange.date_from == "2024-01-15"
+            assert artifact.query.dateRange.date_to == "2024-01-15"
+
+    def test_freeze_insight_artifact_query_invalid_date_range(self):
+        """Test freezing a query with invalid date range (should fallback to default)."""
+        trends_query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode()], interval=IntervalType.DAY)
+        trends_query.dateRange = "invalid_date_range"  # type: ignore
+
+        artifact = InsightArtifact(
+            id="invalid_date_artifact", query=trends_query, description="Test query with invalid date range"
+        )
+
+        with (
+            patch("ee.hogai.graph.mixins.timezone.now") as mock_now,
+            patch("ee.hogai.graph.deep_research.report.nodes.QueryDateRange") as mock_resolver_class,
+        ):
+            mock_now.return_value.astimezone.return_value = "2024-01-15T10:00:00Z"
+
+            mock_resolver = MagicMock()
+            mock_resolver.date_from_str = "2024-01-15"
+            mock_resolver.date_to_str = "2024-01-15"
+            mock_resolver_class.return_value = mock_resolver
+
+            self.node._freeze_insight_artifact_query(artifact)
+
+            assert hasattr(artifact.query, "dateRange")
+            assert isinstance(artifact.query.dateRange, AssistantDateRange)
+
+    def test_get_interval_for_query_trends(self):
+        """Test interval derivation for trends queries."""
+        trends_query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode()], interval=IntervalType.HOUR)
+        interval = self.node._get_interval_for_query(trends_query)
+        assert interval == IntervalType.HOUR
+
+        trends_query_no_interval = AssistantTrendsQuery(series=[AssistantTrendsEventsNode()])
+        interval = self.node._get_interval_for_query(trends_query_no_interval)
+        assert interval == IntervalType.DAY
+
+    def test_get_interval_for_query_funnels(self):
+        """Test interval derivation for funnels queries."""
+        funnels_query = AssistantFunnelsQuery(
+            series=[AssistantFunnelsEventsNode(event="$pageview")], interval=IntervalType.WEEK
+        )
+        interval = self.node._get_interval_for_query(funnels_query)
+        assert interval == IntervalType.WEEK
+
+        # Test with None interval (should default to DAY)
+        funnels_query_no_interval = AssistantFunnelsQuery(series=[AssistantFunnelsEventsNode(event="$pageview")])
+        interval = self.node._get_interval_for_query(funnels_query_no_interval)
+        assert interval == IntervalType.DAY

@@ -216,8 +216,10 @@ class InsightsAssistantGraph(BaseAssistantGraph[AssistantState]):
 
         return self
 
-    def add_sql_generator(self, next_node: AssistantNodeName = AssistantNodeName.QUERY_EXECUTOR):
-        sql_generator = SQLGeneratorNode(self._team, self._user)
+    def add_sql_generator(
+        self, next_node: AssistantNodeName = AssistantNodeName.QUERY_EXECUTOR, absolute_sql_dates: bool = False
+    ):
+        sql_generator = SQLGeneratorNode(self._team, self._user, absolute_sql_dates=absolute_sql_dates)
         self.add_node(AssistantNodeName.SQL_GENERATOR, sql_generator)
 
         sql_generator_tools = SQLGeneratorToolsNode(self._team, self._user)
@@ -241,7 +243,9 @@ class InsightsAssistantGraph(BaseAssistantGraph[AssistantState]):
         self._graph.add_edge(AssistantNodeName.QUERY_EXECUTOR, next_node)
         return self
 
-    def add_query_creation_flow(self, next_node: AssistantNodeName = AssistantNodeName.QUERY_EXECUTOR):
+    def add_query_creation_flow(
+        self, next_node: AssistantNodeName = AssistantNodeName.QUERY_EXECUTOR, absolute_sql_dates: bool = False
+    ):
         """Add all nodes and edges EXCEPT query execution."""
         return (
             self.add_rag_context()
@@ -249,11 +253,15 @@ class InsightsAssistantGraph(BaseAssistantGraph[AssistantState]):
             .add_trends_generator(next_node=next_node)
             .add_funnel_generator(next_node=next_node)
             .add_retention_generator(next_node=next_node)
-            .add_sql_generator(next_node=next_node)
+            .add_sql_generator(next_node=next_node, absolute_sql_dates=absolute_sql_dates)
         )
 
-    def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None):
-        return self.add_query_creation_flow().add_query_executor().compile(checkpointer=checkpointer)
+    def compile_full_graph(self, checkpointer: DjangoCheckpointer | None = None, absolute_sql_dates: bool = False):
+        return (
+            self.add_query_creation_flow(absolute_sql_dates=absolute_sql_dates)
+            .add_query_executor()
+            .compile(checkpointer=checkpointer)
+        )
 
 
 class AssistantGraph(BaseAssistantGraph[AssistantState]):
