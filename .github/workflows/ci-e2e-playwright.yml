@@ -124,7 +124,7 @@ jobs:
               if: needs.changes.outputs.shouldRun == 'true'
               uses: actions/setup-node@v4
               with:
-                  node-version: 22.18.0
+                  node-version: 22.19.0
                   cache: 'pnpm'
 
             - name: Get pnpm cache directory path
@@ -349,7 +349,7 @@ jobs:
               if: needs.changes.outputs.shouldRun == 'true'
               uses: actions/setup-node@v4
               with:
-                  node-version: 22.18.0
+                  node-version: 22.19.0
                   cache: pnpm
 
             # tests would intermittently fail in GH actions

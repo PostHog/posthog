@@ -24,7 +24,7 @@ jobs:
             - name: Set up Node.js
               uses: actions/setup-node@v4
               with:
-                  node-version: 22.18.0
+                  node-version: 22.19.0
                   cache: pnpm
                   cache-dependency-path: posthog/pnpm-lock.yaml
 
