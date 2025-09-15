@@ -21,7 +21,7 @@
 #
 # ---------------------------------------------------------
 #
-FROM node:22.18.0-bookworm-slim AS frontend-build
+FROM node:22.17.0-bookworm-slim AS frontend-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
@@ -48,7 +48,7 @@ RUN cp frontend/node_modules/@posthog/rrweb/dist/image-bitmap-data-url-worker-*.
 #
 # ---------------------------------------------------------
 #
-FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.88-node_22.18.0 AS plugin-server-build
+FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.88-node_22.17.0 AS plugin-server-build
 
 # Compile and install system dependencies
 RUN apt-get update && \
@@ -190,7 +190,7 @@ RUN curl https://packages.microsoft.com/config/debian/11/prod.list | tee /etc/ap
 RUN apt-get update
 RUN ACCEPT_EULA=Y apt-get install -y msodbcsql18
 
-# Install NodeJS 18.
+# Install NodeJS 22.17.x
 RUN apt-get install -y --no-install-recommends \
     "curl" \
     && \
