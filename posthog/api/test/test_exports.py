@@ -608,29 +608,29 @@ class TestExports(APIBaseTest):
 
         png_export_ids = {png_export.id, self.exported_asset.id}
         returned_ids = {result["id"] for result in results}
-        self.assertEqual(returned_ids, png_export_ids)
+        assert returned_ids == png_export_ids
 
         for result in results:
-            self.assertEqual(result["export_format"], "image/png")
+            assert result["export_format"] == "image/png"
 
         response = self.client.get(f"/api/projects/{self.team.id}/exports?export_format=text/csv")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
 
-        self.assertEqual(len(results), 1)
-        self.assertEqual(results[0]["id"], csv_export.id)
-        self.assertEqual(results[0]["export_format"], "text/csv")
+        assert len(results) == 1
+        assert results[0]["id"] == csv_export.id
+        assert results[0]["export_format"] == "text/csv"
 
         # Unsupported format should return all exports since filter is ignored
         response = self.client.get(f"/api/projects/{self.team.id}/exports?export_format=blahblah")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
-        self.assertEqual(len(results), 3)
+        assert len(results) == 3
 
         response = self.client.get(f"/api/projects/{self.team.id}/exports")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
-        self.assertEqual(len(results), 3)
+        assert len(results) == 3
 
 
 class TestExportMixin(APIBaseTest):
