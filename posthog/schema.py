@@ -1329,13 +1329,13 @@ class FileSystemIconType(StrEnum):
     PERSON = "person"
     COHORT = "cohort"
     GROUP = "group"
-    INSIGHT_FUNNEL = "insight_funnel"
-    INSIGHT_TRENDS = "insight_trends"
-    INSIGHT_RETENTION = "insight_retention"
-    INSIGHT_PATHS = "insight_paths"
-    INSIGHT_LIFECYCLE = "insight_lifecycle"
-    INSIGHT_STICKINESS = "insight_stickiness"
-    INSIGHT_HOG = "insight_hog"
+    INSIGHT_FUNNELS = "insight/funnels"
+    INSIGHT_TRENDS = "insight/trends"
+    INSIGHT_RETENTION = "insight/retention"
+    INSIGHT_PATHS = "insight/paths"
+    INSIGHT_LIFECYCLE = "insight/lifecycle"
+    INSIGHT_STICKINESS = "insight/stickiness"
+    INSIGHT_HOG = "insight/hog"
 
 
 class FileSystemImport(BaseModel):
