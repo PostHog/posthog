@@ -182,7 +182,7 @@ RUN apt-get update && \
     "libxmlsec1-dev" \
     "libxml2" \
     "gettext-base" \
-    "ffmpeg"
+    "ffmpeg=7:5.1.7-0+deb12u1"
 
 # Install MS SQL dependencies
 RUN curl https://packages.microsoft.com/keys/microsoft.asc | tee /etc/apt/trusted.gpg.d/microsoft.asc
@@ -190,7 +190,7 @@ RUN curl https://packages.microsoft.com/config/debian/11/prod.list | tee /etc/ap
 RUN apt-get update
 RUN ACCEPT_EULA=Y apt-get install -y msodbcsql18
 
-# Install NodeJS 18.
+# Install NodeJS 22.17.1
 RUN apt-get install -y --no-install-recommends \
     "curl" \
     && \
