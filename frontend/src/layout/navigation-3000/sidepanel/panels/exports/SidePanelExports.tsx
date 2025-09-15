@@ -50,27 +50,10 @@ const ExportsContent = (): JSX.Element => {
                                 label: 'All',
                                 value: null,
                             },
-                            {
-                                label: 'MP4',
-                                value: ExporterFormat.MP4,
-                            },
-                            {
-                                label: 'GIF',
-                                value: ExporterFormat.GIF,
-                            },
-                            {
-                                label: 'PNG',
-                                value: ExporterFormat.PNG,
-                            },
-                            {
-                                label: 'CSV',
-                                value: ExporterFormat.CSV,
-                            },
-
-                            {
-                                label: 'PDF',
-                                value: ExporterFormat.PDF,
-                            },
+                            ...Object.entries(ExporterFormat).map(([key, value]) => ({
+                                label: key,
+                                value: value,
+                            })),
                         ]}
                         value={assetFormat}
                         onChange={setAssetFormat}
