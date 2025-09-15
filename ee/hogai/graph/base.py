@@ -42,7 +42,8 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
         try:
             return await self.arun(state, config)
         except NotImplementedError:
-            return await database_sync_to_async(self.run, thread_sensitive=False)(state, config)
+            pass
+        return await database_sync_to_async(self.run, thread_sensitive=False)(state, config)
 
     # DEPRECATED: Use `arun` instead
     def run(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:

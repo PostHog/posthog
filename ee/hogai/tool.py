@@ -200,14 +200,16 @@ class MaxTool(AssistantContextMixin, BaseTool):
         try:
             return self._run_impl(*args, **kwargs)
         except NotImplementedError:
-            return async_to_sync(self._arun_impl)(*args, **kwargs)
+            pass
+        return async_to_sync(self._arun_impl)(*args, **kwargs)
 
     async def _arun(self, *args, config: RunnableConfig, **kwargs):
         self._init_run(config)
         try:
             return await self._arun_impl(*args, **kwargs)
         except NotImplementedError:
-            return await super()._arun(*args, config=config, **kwargs)
+            pass
+        return await super()._arun(*args, config=config, **kwargs)
 
     def _init_run(self, config: RunnableConfig):
         self._context = config["configurable"].get("contextual_tools", {}).get(self.get_name(), {})
