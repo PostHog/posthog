@@ -230,7 +230,7 @@ export function DataTableExport({ query, fileNameForExport }: DataTableExportPro
                                 LemonDialog.open({
                                     title: 'Save as static cohort',
                                     description: 'This will create a cohort with the current list of people.',
-                                    content: <SaveToCohortModalContent />,
+                                    content: (closeDialog) => <SaveToCohortModalContent closeModal={closeDialog} />,
                                     primaryButton: {
                                         children: 'Remove',
                                         status: 'danger',
