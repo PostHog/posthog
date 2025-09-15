@@ -13,7 +13,7 @@ import {
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { ISSUE_STATUS_OPTIONS } from '../utils'
-import { StatusIndicator } from './Indicator'
+import { StatusIndicator } from './Indicators'
 
 export const IssueStatusSelect = ({
     status,

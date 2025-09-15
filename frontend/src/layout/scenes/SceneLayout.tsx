@@ -1,26 +1,25 @@
 import './SceneLayout.css'
 
 import { useActions, useValues } from 'kea'
-import React, { PropsWithChildren, useEffect, useRef } from 'react'
+import React, { PropsWithChildren, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IconListCheck, IconX } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label, LabelProps } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
 import { SceneConfig } from 'scenes/sceneTypes'
 
-import { SceneHeader } from './SceneHeader'
+import { SceneTabs } from './SceneTabs'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
 
 type SceneLayoutProps = {
     children: React.ReactNode
     className?: string
-    layoutConfig?: SceneConfig | null
+    sceneConfig?: SceneConfig | null
 }
 
 export function ScenePanel({ children }: { children: React.ReactNode }): JSX.Element {
@@ -93,81 +92,54 @@ export function ScenePanelLabel({ children, title, ...props }: PropsWithChildren
 }
 8
 
-export function SceneLayout({ children, className, layoutConfig }: SceneLayoutProps): JSX.Element {
-    const {
-        registerScenePanelElement,
-        setScenePanelOpen,
-        setSceneContainerRef,
-        setForceScenePanelClosedWhenRelative,
-        setSceneLayoutConfig,
-    } = useActions(sceneLayoutLogic)
-    const { scenePanelIsPresent, scenePanelOpen, scenePanelIsRelative, sceneContainerRect } =
-        useValues(sceneLayoutLogic)
-    const sceneLayoutContainer = useRef<HTMLDivElement>(null)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
+export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.Element {
+    const { registerScenePanelElement, setScenePanelOpen, setForceScenePanelClosedWhenRelative, setSceneLayoutConfig } =
+        useActions(sceneLayoutLogic)
+    const { useSceneTabs, forceScenePanelClosedWhenRelative } = useValues(sceneLayoutLogic)
 
-    // Set container ref so we can measure the width of the scene layout in logic
-    useEffect(() => {
-        if (sceneLayoutContainer.current) {
-            setSceneContainerRef(sceneLayoutContainer)
-        }
-    }, [sceneLayoutContainer, setSceneContainerRef])
+    const { scenePanelIsPresent, scenePanelOpen, scenePanelIsRelative } = useValues(sceneLayoutLogic)
 
     // Set layout config
     useEffect(() => {
-        if (layoutConfig) {
-            setSceneLayoutConfig(layoutConfig)
+        if (sceneConfig) {
+            setSceneLayoutConfig(sceneConfig)
         }
-    }, [layoutConfig, setSceneLayoutConfig])
+    }, [sceneConfig, setSceneLayoutConfig])
 
     return (
-        <div
-            className={cn('scene-layout', className)}
-            ref={sceneLayoutContainer}
-            style={
-                {
-                    '--scene-layout-rect-right': sceneContainerRect?.right + 'px',
-                } as React.CSSProperties
-            }
-        >
+        <>
             <div
                 className={cn(
-                    'flex flex-1 flex-col pt-0 pb-16 w-full order-1 row-span-1 col-span-1 col-start-1 relative min-w-0',
+                    'col-span-2 h-[var(--scene-layout-header-height)] sticky top-0 z-[var(--z-main-nav)] flex justify-center items-start',
                     {
-                        'p-0 h-screen':
-                            layoutConfig?.layout === 'app-raw-no-header' || layoutConfig?.layout === 'app-raw',
-                        'w-[calc(100%-var(--scene-layout-panel-width))]':
-                            scenePanelIsPresent && scenePanelIsRelative && scenePanelOpen,
-                        block: layoutConfig?.layout === 'app-raw-no-header',
+                        'col-start-1 col-span-1': scenePanelIsRelative && !forceScenePanelClosedWhenRelative,
                     }
                 )}
             >
-                {layoutConfig?.layout !== 'app-raw-no-header' && (
-                    <SceneHeader className="row-span-1 col-span-1 min-w-0" />
-                )}
-                <ScrollableShadows
-                    direction="vertical"
-                    className={cn(
-                        'h-[calc(100vh-var(--scene-layout-header-height))]',
-                        newSceneLayout && 'h-[calc(100vh-var(--scene-layout-header-height-with-tabs))]',
-                        layoutConfig?.layout === 'app-raw-no-header' && 'h-screen'
-                    )}
-                    innerClassName={cn(
-                        'bg-primary px-4 pb-4',
-                        (layoutConfig?.layout === 'app-raw-no-header' || layoutConfig?.layout === 'app-raw') && 'p-0'
-                    )}
-                >
-                    {children}
-                </ScrollableShadows>
+                {useSceneTabs ? <SceneTabs /> : null}
+            </div>
+
+            <div
+                className={cn('relative p-4', {
+                    'col-start-1 col-span-1 w-[calc(100%-var(--scene-layout-panel-width))]':
+                        scenePanelIsPresent && scenePanelIsRelative && !forceScenePanelClosedWhenRelative,
+                    'p-0': sceneConfig?.layout === 'app-raw-no-header' || sceneConfig?.layout === 'app-raw',
+                    'h-[calc(100vh-var(--scene-layout-header-height))]':
+                        sceneConfig?.layout === 'app-full-scene-height',
+                })}
+            >
+                {children}
             </div>
 
             {scenePanelIsPresent && (
                 <>
                     <div
                         className={cn(
-                            'scene-layout__content-panel order-2 fixed left-[calc(var(--scene-layout-rect-right)-var(--scene-layout-panel-width))] bg-surface-secondary flex flex-col overflow-hidden row-span-2 col-span-2 row-start-1 col-start-2 top-0 h-screen min-w-0',
+                            'scene-layout__content-panel fixed left-[calc(var(--scene-layout-rect-right)-var(--scene-layout-panel-width)+var(--scene-layout-scrollbar-width))] bg-surface-secondary flex flex-col overflow-hidden h-[calc(var(--scene-layout-rect-height)-var(--scene-layout-header-height))] top-[var(--scene-layout-header-height)] min-w-0',
                             {
                                 hidden: !scenePanelOpen,
+                                'col-start-2 col-span-1 row-start-1 row-span-2':
+                                    scenePanelIsRelative && !forceScenePanelClosedWhenRelative,
                             }
                         )}
                     >
@@ -225,6 +197,6 @@ export function SceneLayout({ children, className, layoutConfig }: SceneLayoutPr
                     )}
                 </>
             )}
-        </div>
+        </>
     )
 }

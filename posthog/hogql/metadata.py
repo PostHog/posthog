@@ -96,8 +96,11 @@ def get_hogql_metadata(
                 response.errors.append(HogQLNotice(message=error, start=e.end, end=e.start))
             else:
                 response.errors.append(HogQLNotice(message=error, start=e.start, end=e.end))
-        elif not settings.DEBUG:
-            # We don't want to accidentally expose too much data via errors
+        elif (
+            settings.DEBUG
+        ):  # We don't want to accidentally expose too much data via errors, so expose only when debug is enabled
+            response.errors.append(HogQLNotice(message=f"Unexpected {e.__class__.__name__}: {str(e)}"))
+        else:
             response.errors.append(HogQLNotice(message=f"Unexpected {e.__class__.__name__}"))
 
     # We add a magic "F'" start prefix to get Antlr into the right parsing mode, subtract it now

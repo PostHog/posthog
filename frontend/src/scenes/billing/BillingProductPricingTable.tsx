@@ -13,7 +13,7 @@ import {
 } from '~/types'
 
 import { getTierDescription } from './BillingProduct'
-import { isProductVariantPrimary } from './billing-utils'
+import { formatWithDecimals, isProductVariantPrimary } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 
@@ -94,7 +94,7 @@ export const BillingProductPricingTable = ({
                                         {
                                             productName: 'Base price',
                                             usage: compactNumber(tier.current_usage),
-                                            price: `$${tier.unit_amount_usd}`,
+                                            price: `$${formatWithDecimals(parseFloat(tier.unit_amount_usd || '0'))}`,
                                             total: `$${tier.current_amount_usd || '0.00'}`,
                                             projectedTotal: `$${parseFloat(
                                                 tier.projected_amount_usd === 'None'
@@ -106,7 +106,7 @@ export const BillingProductPricingTable = ({
                                             return {
                                                 productName: addon.name,
                                                 usage: compactNumber(addon.tiers?.[i]?.current_usage || 0),
-                                                price: `$${addon.tiers?.[i]?.unit_amount_usd || '0.00'}`,
+                                                price: `$${formatWithDecimals(parseFloat(addon.tiers?.[i]?.unit_amount_usd || '0'))}`,
                                                 total: `$${addon.tiers?.[i]?.current_amount_usd || '0.00'}`,
                                                 projectedTotal: `$${parseFloat(
                                                     addon.tiers?.[i]?.projected_amount_usd === 'None'
@@ -163,7 +163,7 @@ export const BillingProductPricingTable = ({
                               : '',
                           basePrice:
                               tier.unit_amount_usd !== '0'
-                                  ? `$${tier.unit_amount_usd}${
+                                  ? `$${formatWithDecimals(parseFloat(tier.unit_amount_usd || '0'))}${
                                         product.type !== 'session_replay' && subscribedAddons?.length > 0
                                             ? ' + addons'
                                             : ''
