@@ -79,7 +79,7 @@ export function IframeHeatmapBrowser({
                 heatmap_fixed_position_mode: heatmapFixedPositionMode,
                 common_filters: commonFilters,
                 heatmap_filters: heatmapFilters,
-                filename: `heatmap-${browserUrl.slice(0, 10)}-${dayjs().format('YYYY-MM-DD')}`,
+                filename: `heatmap-${new URL(browserUrl).hostname}/${new URL(browserUrl).pathname.slice(1, 11)}-${dayjs().format('YYYY-MM-DD-HH-mm')}`,
             })
         }
     }
