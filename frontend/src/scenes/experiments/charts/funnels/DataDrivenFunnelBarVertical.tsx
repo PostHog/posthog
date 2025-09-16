@@ -32,22 +32,17 @@ interface FunnelBarVerticalCSSProperties extends React.CSSProperties {
     '--bar-row-height': string
 }
 
-export function DataDrivenFunnelBarVertical({
-    showPersonsModal: showPersonsModalProp = true,
-    inCardView = false,
-}: ChartParams): JSX.Element {
+export function DataDrivenFunnelBarVertical({ inCardView = false }: ChartParams): JSX.Element {
     const { visibleStepsWithConversionMetrics } = useFunnelData()
-    const showPersonsModal = showPersonsModalProp // Simplified - no person modal logic for now
-    const { vizRef, showTooltip, hideTooltip } = useDataDrivenFunnelTooltip(showPersonsModal)
+    const { vizRef, showTooltip, hideTooltip } = useDataDrivenFunnelTooltip()
 
     const { height: availableHeight } = useResizeObserver({ ref: vizRef })
     const [scrollbarHeightPx, setScrollbarHeightPx] = useState(0)
     const [stepLegendRowHeightPx, setStepLegendRowHeightPx] = useState(0)
 
-    // Calculate the maximum number of series in any step (for width calculations)
     const seriesCount = Math.max(
         ...visibleStepsWithConversionMetrics.map((step) => step.nested_breakdown?.length || 1),
-        1 // Ensure at least 1 even if no steps
+        1
     )
     // Calculate base bar width based on series count
     const baseBarWidthPx =
@@ -128,11 +123,7 @@ export function DataDrivenFunnelBarVertical({
                                 </td>
                                 {visibleStepsWithConversionMetrics.map((step, stepIndex) => (
                                     <td key={stepIndex}>
-                                        <DataDrivenStepBars
-                                            step={step}
-                                            stepIndex={stepIndex}
-                                            showPersonsModal={showPersonsModal}
-                                        />
+                                        <DataDrivenStepBars step={step} stepIndex={stepIndex} />
                                     </td>
                                 ))}
                             </tr>
@@ -140,12 +131,7 @@ export function DataDrivenFunnelBarVertical({
                                 <td />
                                 {visibleStepsWithConversionMetrics.map((step, stepIndex) => (
                                     <td key={stepIndex}>
-                                        <DataDrivenStepLegend
-                                            step={step}
-                                            stepIndex={stepIndex}
-                                            showTime={showTime}
-                                            showPersonsModal={showPersonsModal}
-                                        />
+                                        <DataDrivenStepLegend step={step} stepIndex={stepIndex} showTime={showTime} />
                                     </td>
                                 ))}
                             </tr>

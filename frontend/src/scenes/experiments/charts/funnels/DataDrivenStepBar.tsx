@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { useRef } from 'react'
 
 import { percentage } from 'lib/utils'
@@ -12,7 +11,6 @@ export interface StepBarProps {
     step: FunnelStepWithConversionMetrics
     series: FunnelStepWithConversionMetrics
     stepIndex: number
-    showPersonsModal: boolean
 }
 
 interface StepBarCSSProperties extends React.CSSProperties {
@@ -20,16 +18,15 @@ interface StepBarCSSProperties extends React.CSSProperties {
     '--conversion-rate': string
 }
 
-export function DataDrivenStepBar({ stepIndex, series, showPersonsModal }: StepBarProps): JSX.Element {
+export function DataDrivenStepBar({ stepIndex, series }: StepBarProps): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
     const { showTooltip, hideTooltip } = useDataDrivenTooltip()
 
-    // Get color for this series
     const seriesColor = getSeriesColor(series)
 
     return (
         <div
-            className={clsx('StepBar', !showPersonsModal && 'StepBar__unclickable')}
+            className="StepBar StepBar__unclickable"
             /* eslint-disable-next-line react/forbid-dom-props */
             style={
                 {
@@ -46,8 +43,8 @@ export function DataDrivenStepBar({ stepIndex, series, showPersonsModal }: StepB
             }}
             onMouseLeave={() => hideTooltip()}
         >
-            <div className="StepBar__backdrop" onClick={showPersonsModal ? () => undefined : undefined} />
-            <div className="StepBar__fill" onClick={showPersonsModal ? () => undefined : undefined} />
+            <div className="StepBar__backdrop" />
+            <div className="StepBar__fill" />
         </div>
     )
 }

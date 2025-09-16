@@ -50,29 +50,21 @@ function convertExperimentResultToFunnelSteps(
 ): FunnelStepWithNestedBreakdown[] {
     const variants = experiment.parameters?.feature_flag_variants || []
 
-    // Combine baseline and variant results
     const allResults = [result.baseline, ...(result.variant_results || [])]
-
-    // Determine number of steps (exposure + metric steps)
     const numSteps = (result.baseline.step_counts?.length || 0) + 1
-
-    // Build the funnel steps
     const funnelSteps: FunnelStepWithNestedBreakdown[] = []
 
     for (let stepIndex = 0; stepIndex < numSteps; stepIndex++) {
         const variantSteps: FunnelStep[] = allResults.map((variantResult, variantIndex) => {
             const variantKey = variants[variantIndex]?.key || (variantIndex === 0 ? 'control' : `test_${variantIndex}`)
 
-            // First step is exposure
             let count: number
             if (stepIndex === 0) {
                 count = variantResult.number_of_samples
             } else {
-                // Subsequent steps from step_counts array
                 count = variantResult.step_counts?.[stepIndex - 1] || 0
             }
 
-            // Get step name from metric series
             let stepName: string
             if (stepIndex === 0) {
                 stepName = 'Experiment exposure'
@@ -81,7 +73,6 @@ function convertExperimentResultToFunnelSteps(
                 if (series.kind === NodeKind.EventsNode) {
                     stepName = series.name || series.event || `Step ${stepIndex}`
                 } else {
-                    // ActionsNode
                     stepName = series.name || `Action ${series.id}`
                 }
             } else {
@@ -100,18 +91,16 @@ function convertExperimentResultToFunnelSteps(
                 converted_people_url: '',
                 dropped_people_url: null,
                 breakdown_value: variantKey,
-                // Add a custom property to track the variant index for color matching
                 breakdownIndex: variantIndex,
             } as FunnelStep & { breakdownIndex: number }
         })
 
-        // Use the first variant's step as the base, but sum up counts from all variants
         const baseStep = variantSteps[0]
         const totalCount = variantSteps.reduce((sum, step) => sum + step.count, 0)
 
         funnelSteps.push({
             ...baseStep,
-            count: totalCount, // Use total count from all variants
+            count: totalCount,
             nested_breakdown: variantSteps,
         })
     }
