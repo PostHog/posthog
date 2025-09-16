@@ -141,5 +141,12 @@ function RepositoryPicker({ integrationId }: { integrationId: number }): JSX.Ele
         }
     }, [options, release])
 
-    return <GitHubRepositoryPicker integrationId={integrationId} value={repository} onChange={() => {}} />
+    return (
+        <GitHubRepositoryPicker
+            integrationId={integrationId}
+            value={repository}
+            onChange={() => {}}
+            keepParentPopoverOpenOnClick
+        />
+    )
 }
