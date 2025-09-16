@@ -138,7 +138,7 @@ export function DataDrivenFunnelExample(): JSX.Element {
  * Helper function to convert experiment data to funnel steps format.
  * This shows how you might transform experiment results into the format needed by DataDrivenFunnel.
  */
-export function convertExperimentDataToFunnelSteps(_experimentData: any): any[] {
+export function convertExperimentDataToFunnelSteps(): any[] {
     // This is a placeholder - you would implement the actual conversion logic
     // based on your experiment data structure
     return [

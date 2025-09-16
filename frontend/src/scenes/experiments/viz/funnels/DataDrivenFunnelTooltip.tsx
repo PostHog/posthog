@@ -1,14 +1,16 @@
 import clsx from 'clsx'
 import { useEffect, useRef, useState } from 'react'
+
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
-import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
-import { FunnelStepWithConversionMetrics } from '~/types'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
+
+import { FunnelStepWithConversionMetrics } from '~/types'
 
 const FUNNEL_TOOLTIP_OFFSET_PX = 4
 
@@ -24,12 +26,7 @@ interface FunnelTooltipProps {
     embedded?: boolean
 }
 
-function DataDrivenFunnelTooltipContent({
-    showPersonsModal: _showPersonsModal,
-    stepIndex,
-    series,
-    embedded = false,
-}: FunnelTooltipProps): JSX.Element {
+function DataDrivenFunnelTooltipContent({ stepIndex, series, embedded = false }: FunnelTooltipProps): JSX.Element {
     return (
         <div
             className={clsx('FunnelTooltip InsightTooltip', {
@@ -44,12 +41,7 @@ function DataDrivenFunnelTooltipContent({
                     {series.breakdown_value && (
                         <>
                             <span className="mx-1">•</span>
-                            {formatBreakdownLabel(
-                                series.breakdown_value,
-                                null,
-                                [],
-                                (value) => value?.toString() || ''
-                            )}
+                            {formatBreakdownLabel(series.breakdown_value, null, [], (value) => value?.toString() || '')}
                         </>
                     )}
                 </strong>
@@ -107,13 +99,17 @@ export function useDataDrivenFunnelTooltip(showPersonsModal: boolean): {
     const [currentTooltip, setCurrentTooltip] = useState<FunnelTooltipData | null>(null)
     const [tooltipOrigin, setTooltipOrigin] = useState<[number, number, number] | null>(null)
 
-    const showTooltip = (rect: [number, number, number], stepIndex: number, series: FunnelStepWithConversionMetrics) => {
+    const showTooltip = (
+        rect: [number, number, number],
+        stepIndex: number,
+        series: FunnelStepWithConversionMetrics
+    ): void => {
         setIsTooltipShown(true)
         setCurrentTooltip({ stepIndex, series })
         setTooltipOrigin(rect)
     }
 
-    const hideTooltip = () => {
+    const hideTooltip = (): void => {
         setIsTooltipShown(false)
         setCurrentTooltip(null)
         setTooltipOrigin(null)

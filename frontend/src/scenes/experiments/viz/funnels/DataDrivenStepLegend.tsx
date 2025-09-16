@@ -1,9 +1,11 @@
 import { IconClock } from '@posthog/icons'
+
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
+
 import { FunnelStepWithConversionMetrics } from '~/types'
 
 interface DataDrivenStepLegendProps {
@@ -13,12 +15,7 @@ interface DataDrivenStepLegendProps {
     showPersonsModal: boolean
 }
 
-export function DataDrivenStepLegend({
-    step,
-    stepIndex,
-    showTime,
-    showPersonsModal: _showPersonsModal
-}: DataDrivenStepLegendProps): JSX.Element {
+export function DataDrivenStepLegend({ step, stepIndex, showTime }: DataDrivenStepLegendProps): JSX.Element {
     const isOptional = false // For simplicity
     const aggregationTargetLabel = { singular: 'user', plural: 'users' }
 
@@ -48,17 +45,11 @@ export function DataDrivenStepLegend({
 
     return (
         <div className="StepLegend" style={{ opacity: isOptional ? 0.6 : 1 }}>
-            <LemonRow
-                icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}
-            >
+            <LemonRow icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}>
                 <span title={step.name}>{step.custom_name || step.name}</span>
                 {isOptional ? <div className="ml-1 text-xs font-normal">(optional)</div> : null}
             </LemonRow>
-            <LemonRow
-                icon={<IconTrendingFlat />}
-                status="success"
-                style={{ color: 'unset' }}
-            >
+            <LemonRow icon={<IconTrendingFlat />} status="success" style={{ color: 'unset' }}>
                 <Tooltip
                     title={
                         <>
@@ -74,11 +65,7 @@ export function DataDrivenStepLegend({
             </LemonRow>
             {stepIndex > 0 && (
                 <>
-                    <LemonRow
-                        icon={<IconTrendingFlatDown />}
-                        status="danger"
-                        style={{ color: 'unset' }}
-                    >
+                    <LemonRow icon={<IconTrendingFlatDown />} status="danger" style={{ color: 'unset' }}>
                         <Tooltip
                             title={
                                 <>
