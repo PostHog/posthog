@@ -1,6 +1,6 @@
 import pytest
 
-from ee.hogai.graph.session_summaries.parsers import YamlOutputParser
+from ee.hogai.utils.yaml import YamlOutputParser
 
 
 class TestYamlOutputParser:

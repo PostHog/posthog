@@ -10,6 +10,7 @@ from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph import AssistantGraph
 from ee.hogai.graph.session_summaries.nodes import _SessionSearch
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantNodeName, AssistantState
+from ee.hogai.utils.yaml import load_yaml_from_raw_llm_content
 from ee.models.assistant import Conversation
 
 from ..base import MaxPublicEval
@@ -324,10 +325,9 @@ async def eval_filter_query_generation(filter_query_tester, pytestconfig):
 @pytest.fixture
 def yaml_fix_tester():
     """Test that load_yaml_from_raw_llm_content fixes malformed YAML."""
-    from ee.hogai.graph.session_summaries.parsers import load_yaml_from_raw_llm_content
 
     def test(malformed_yaml: str) -> dict | list:
-        return load_yaml_from_raw_llm_content(malformed_yaml)
+        return load_yaml_from_raw_llm_content(malformed_yaml, final_validation=True)
 
     return test
 
