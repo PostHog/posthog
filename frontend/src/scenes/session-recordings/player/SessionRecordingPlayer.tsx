@@ -100,9 +100,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     } = useActions(sessionRecordingPlayerLogic(logicProps))
     const { isNotFound, isRecentAndInvalid, isLikelyPastTTL } = useValues(sessionRecordingDataLogic(logicProps))
     const { loadSnapshots } = useActions(sessionRecordingDataLogic(logicProps))
-    const { isFullScreen, explorerMode, isBuffering, isCommenting, quickEmojiIsOpen, showingClipParams } = useValues(
-        sessionRecordingPlayerLogic(logicProps)
-    )
+    const { isFullScreen, explorerMode, isBuffering, isCommenting, quickEmojiIsOpen, showingClipParams, resolution } =
+        useValues(sessionRecordingPlayerLogic(logicProps))
     const {
         setPlayNextAnimationInterrupted,
         setIsCommenting,
@@ -144,7 +143,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
             // Not the maximum, but 4 for a balance between speed and quality
             setSpeed(MAX_PLAYBACK_SPEED)
         }
-    }, [mode, setSkipInactivitySetting, setSpeed, hidePlayerElements])
+    }, [mode, setSkipInactivitySetting, setSpeed, hidePlayerElements, resolution])
 
     useEffect(
         () => {

@@ -281,6 +281,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         COOKIELESS_REDIS_HOST: '',
         COOKIELESS_REDIS_PORT: 6379,
 
+        // Timestamp comparison logging (0.0 = disabled, 1.0 = 100% sampling)
+        TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: isDevEnv() || isTestEnv() ? 1.0 : 0.0,
+
         PERSON_BATCH_WRITING_DB_WRITE_MODE: 'NO_ASSERT',
         PERSON_BATCH_WRITING_OPTIMISTIC_UPDATES_ENABLED: false,
         PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,

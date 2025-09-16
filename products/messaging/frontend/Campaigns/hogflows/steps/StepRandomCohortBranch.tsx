@@ -2,13 +2,14 @@ import { Node } from '@xyflow/react'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconPlus, IconX } from '@posthog/icons'
+import { IconBalance, IconPlus, IconX } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
+import { StepSchemaErrors } from './components/StepSchemaErrors'
 
 export function StepRandomCohortBranchConfiguration({
     node,
@@ -76,10 +77,26 @@ export function StepRandomCohortBranchConfiguration({
         setCohorts(cohorts.map((cohort, i) => (i === index ? { percentage } : cohort)))
     }
 
+    const normalizePercentages = (): void => {
+        const count = cohorts.length
+        if (count === 0) {
+            return
+        }
+        const base = Math.floor(100 / count)
+        const remainder = 100 - base * count
+        const normalized = cohorts.map((_, i) => {
+            // Distribute remainder to the first cohorts
+            return { percentage: base + (i < remainder ? 1 : 0) }
+        })
+        setCohorts(normalized)
+    }
+
     const totalPercentage = cohorts.reduce((sum, cohort) => sum + cohort.percentage, 0)
 
     return (
         <>
+            <StepSchemaErrors />
+
             {cohorts.map((cohort, index) => (
                 <div key={index} className="flex flex-col gap-2 p-2 rounded border">
                     <div className="flex justify-between items-center">
@@ -105,9 +122,14 @@ export function StepRandomCohortBranchConfiguration({
                 <div className="text-sm text-orange-600">Total percentage: {totalPercentage}% (should equal 100%)</div>
             )}
 
-            <LemonButton type="secondary" icon={<IconPlus />} onClick={() => addCohort()}>
-                Add cohort
-            </LemonButton>
+            <div className="flex gap-2">
+                <LemonButton type="secondary" icon={<IconPlus />} onClick={() => addCohort()} className="flex-1">
+                    Add cohort
+                </LemonButton>
+                <LemonButton type="secondary" onClick={normalizePercentages} tooltip="Normalize cohort percentages">
+                    <IconBalance />
+                </LemonButton>
+            </div>
         </>
     )
 }

@@ -152,6 +152,7 @@ export enum NodeKind {
     EventTaxonomyQuery = 'EventTaxonomyQuery',
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
     TracesQuery = 'TracesQuery',
+    TraceQuery = 'TraceQuery',
     VectorSearchQuery = 'VectorSearchQuery',
 }
 
@@ -195,6 +196,7 @@ export type AnyDataNode =
     | CalendarHeatmapQuery
     | RecordingsQuery
     | TracesQuery
+    | TraceQuery
     | VectorSearchQuery
 
 /**
@@ -272,6 +274,7 @@ export type QuerySchema =
     | EventTaxonomyQuery
     | ActorsPropertyTaxonomyQuery
     | TracesQuery
+    | TraceQuery
     | VectorSearchQuery
 
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
@@ -652,6 +655,7 @@ export interface EntityNode extends Node {
     properties?: AnyPropertyFilter[]
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
     fixedProperties?: AnyPropertyFilter[]
+    optionalInFunnel?: boolean
 }
 
 export interface EventsNode extends EntityNode {
@@ -829,6 +833,7 @@ export interface DataTableNode
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
         | TracesQuery
+        | TraceQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -2364,6 +2369,9 @@ export type FileSystemIconType =
     | 'llm_analytics'
     | 'product_analytics'
     | 'revenue_analytics'
+    | 'revenue_analytics_metadata'
+    | 'marketing_settings'
+    | 'embedded_analytics'
     | 'sql_editor'
     | 'web_analytics'
     | 'error_tracking'
@@ -2375,6 +2383,7 @@ export type FileSystemIconType =
     | 'experiment'
     | 'feature_flag'
     | 'data_pipeline'
+    | 'data_pipeline_metadata'
     | 'data_warehouse'
     | 'task'
     | 'link'
@@ -2390,13 +2399,13 @@ export type FileSystemIconType =
     | 'person'
     | 'cohort'
     | 'group'
-    | 'insight_funnel'
-    | 'insight_trend'
-    | 'insight_retention'
-    | 'insight_user_path'
-    | 'insight_lifecycle'
-    | 'insight_stickiness'
-    | 'insight_hogql'
+    | 'insight/funnels'
+    | 'insight/trends'
+    | 'insight/retention'
+    | 'insight/paths'
+    | 'insight/lifecycle'
+    | 'insight/stickiness'
+    | 'insight/hog'
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType
@@ -3050,6 +3059,13 @@ export interface DashboardFilter {
     breakdown_filter?: BreakdownFilter | null
 }
 
+export interface TileFilters {
+    date_from?: string | null | undefined
+    date_to?: string | null | undefined
+    properties?: AnyPropertyFilter[] | null | undefined
+    breakdown_filter?: BreakdownFilter | null | undefined
+}
+
 export interface InsightsThresholdBounds {
     lower?: number
     upper?: number
@@ -3291,12 +3307,20 @@ export interface TracesQueryResponse extends AnalyticsQueryResponseBase {
 
 export interface TracesQuery extends DataNode<TracesQueryResponse> {
     kind: NodeKind.TracesQuery
-    traceId?: string
     dateRange?: DateRange
     limit?: integer
     offset?: integer
     filterTestAccounts?: boolean
     showColumnConfigurator?: boolean
+    /** Properties configurable in the interface */
+    properties?: AnyPropertyFilter[]
+}
+
+export interface TraceQuery extends DataNode<TracesQueryResponse> {
+    kind: NodeKind.TraceQuery
+    traceId: string
+    dateRange?: DateRange
+    filterTestAccounts?: boolean
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
 }
@@ -3863,6 +3887,8 @@ export interface SourceConfig {
     existingSource?: boolean
     unreleasedSource?: boolean
     betaSource?: boolean
+    iconPath: string
+    featureFlag?: string
 }
 
 export const externalDataSources = [

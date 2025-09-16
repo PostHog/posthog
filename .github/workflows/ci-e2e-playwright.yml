@@ -314,9 +314,7 @@ jobs:
               if: needs.changes.outputs.shouldRun == 'true'
               uses: actions/setup-python@v5
               with:
-                  python-version: 3.11.9
-                  cache: pip
-                  cache-dependency-path: '**/requirements*.txt'
+                  python-version: 3.11.13
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Install uv

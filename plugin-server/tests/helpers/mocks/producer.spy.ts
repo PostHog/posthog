@@ -4,6 +4,8 @@
  *
  * It does not mock the producer itself, for that see `producer.mock.ts`
  */
+import { uncompressSync } from 'snappy'
+
 import { KafkaProducerWrapper, TopicMessage } from '../../../src/kafka/producer'
 import { parseJSON } from '../../../src/utils/json-parse'
 
@@ -21,6 +23,14 @@ export type DecodedKafkaMessage = {
     key?: TopicMessage['messages'][number]['key']
     value: Record<string, unknown>
     headers?: TopicMessage['messages'][number]['headers']
+}
+
+const tryDecompress = (value: string | Buffer): string => {
+    try {
+        return uncompressSync(value).toString()
+    } catch (error) {
+        return value.toString()
+    }
 }
 
 export class KafkaProducerObserver {
@@ -57,7 +67,7 @@ export class KafkaProducerObserver {
             topic: topicMessage.topic,
             messages: topicMessage.messages.map((message) => ({
                 key: message.key?.toString() ?? null,
-                value: message.value ? parseJSON(message.value.toString()) : null,
+                value: message.value ? parseJSON(tryDecompress(message.value)) : null,
                 headers: message.headers,
             })),
         }))

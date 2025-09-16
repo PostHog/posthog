@@ -449,9 +449,9 @@ export const WithAccessControl = (): JSX.Element => {
             <LemonButton
                 type="primary"
                 accessControl={{
-                    userLevel: AccessControlLevel.Admin,
-                    minLevel: AccessControlLevel.Admin,
-                    resource: AccessControlResourceType.Project,
+                    resourceType: AccessControlResourceType.Project,
+                    minAccessLevel: AccessControlLevel.Admin,
+                    userAccessLevel: AccessControlLevel.Admin,
                 }}
             >
                 Enabled (admin ≥ admin)
@@ -459,9 +459,9 @@ export const WithAccessControl = (): JSX.Element => {
             <LemonButton
                 type="primary"
                 accessControl={{
-                    userLevel: AccessControlLevel.Viewer,
-                    minLevel: AccessControlLevel.Admin,
-                    resource: AccessControlResourceType.Project,
+                    resourceType: AccessControlResourceType.Project,
+                    minAccessLevel: AccessControlLevel.Admin,
+                    userAccessLevel: AccessControlLevel.Viewer,
                 }}
             >
                 Disabled (viewer {'<'} admin)

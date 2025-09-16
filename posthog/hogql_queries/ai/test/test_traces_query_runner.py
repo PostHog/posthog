@@ -278,7 +278,8 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             },
         )
         self.assertEqual(trace.person.distinct_id, "person1")
-        self.assertFalse(trace.events)
+        # Since these generation events don't have parent_id = trace_id, they are not root-level
+        self.assertEqual(len(trace.events), 0)
 
         trace = response.results[1]
         self.assertTraceEqual(
@@ -295,101 +296,11 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             },
         )
         self.assertEqual(trace.person.distinct_id, "person2")
-        self.assertFalse(trace.events)
+        # List view only returns summary events (metrics, feedback, and root-level events)
+        # Since these generation events don't have parent_id = trace_id, they are not root-level
+        self.assertEqual(len(trace.events), 0)
 
-        response = TracesQueryRunner(team=self.team, query=TracesQuery(traceId="trace1")).calculate()
-        self.assertEqual(len(response.results), 1)
-        trace = response.results[0]
-        self.assertEqual(len(trace.events), 2)
-        event = trace.events[0]
-        self.assertIsNotNone(event.id)
-        self.assertEventEqual(
-            event,
-            {
-                "createdAt": datetime(2025, 1, 15, 0, tzinfo=UTC).isoformat(),
-                "properties": {
-                    "$ai_input": [{"role": "user", "content": "Foo"}],
-                    "$ai_output_choices": [{"role": "assistant", "content": "Bar"}],
-                    "$ai_latency": 1,
-                    "$ai_input_tokens": 3,
-                    "$ai_output_tokens": 3,
-                    "$ai_input_cost_usd": 3,
-                    "$ai_output_cost_usd": 3,
-                    "$ai_total_cost_usd": 6,
-                    "$ai_trace_id": "trace1",
-                },
-            },
-        )
-
-        event = trace.events[1]
-        self.assertIsNotNone(event.id)
-        self.assertEventEqual(
-            event,
-            {
-                "createdAt": datetime(2025, 1, 15, 1, tzinfo=UTC).isoformat(),
-                "properties": {
-                    "$ai_input": [{"role": "user", "content": "Bar"}],
-                    "$ai_output_choices": [{"role": "assistant", "content": "Baz"}],
-                    "$ai_latency": 1,
-                    "$ai_input_tokens": 3,
-                    "$ai_output_tokens": 3,
-                    "$ai_input_cost_usd": 3,
-                    "$ai_output_cost_usd": 3,
-                    "$ai_total_cost_usd": 6,
-                    "$ai_trace_id": "trace1",
-                },
-            },
-        )
-
-        response = TracesQueryRunner(team=self.team, query=TracesQuery(traceId="trace2")).calculate()
-        self.assertEqual(len(response.results), 1)
-        trace = response.results[0]
-        self.assertTraceEqual(
-            trace,
-            {
-                "id": "trace2",
-                "createdAt": datetime(2025, 1, 14, tzinfo=UTC).isoformat(),
-                "totalLatency": 1,
-                "inputTokens": 3,
-                "outputTokens": 3,
-                "inputCost": 3,
-                "outputCost": 3,
-                "totalCost": 6,
-            },
-        )
-        self.assertEqual(trace.person.distinct_id, "person2")
-        self.assertEqual(len(trace.events), 1)
-        event = trace.events[0]
-        self.assertIsNotNone(event.id)
-        self.assertEventEqual(
-            event,
-            {
-                "createdAt": datetime(2025, 1, 14, tzinfo=UTC).isoformat(),
-                "properties": {
-                    "$ai_input": [{"role": "user", "content": "Foo"}],
-                    "$ai_output_choices": [{"role": "assistant", "content": "Bar"}],
-                    "$ai_latency": 1,
-                    "$ai_input_tokens": 3,
-                    "$ai_output_tokens": 3,
-                    "$ai_input_cost_usd": 3,
-                    "$ai_output_cost_usd": 3,
-                    "$ai_total_cost_usd": 6,
-                    "$ai_trace_id": "trace2",
-                },
-            },
-        )
-
-    @freeze_time("2025-01-16T00:00:00Z")
-    @snapshot_clickhouse_queries
-    def test_trace_id_filter(self):
-        _create_person(distinct_ids=["person1"], team=self.team)
-        _create_person(distinct_ids=["person2"], team=self.team)
-        _create_ai_generation_event(distinct_id="person1", trace_id="trace1", team=self.team)
-        _create_ai_generation_event(distinct_id="person2", trace_id="trace2", team=self.team)
-
-        response = TracesQueryRunner(team=self.team, query=TracesQuery(traceId="trace1")).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "trace1")
+    # test_trace_id_filter removed - TracesQuery no longer supports traceId parameter
 
     @freeze_time("2025-01-16T00:00:00Z")
     @snapshot_clickhouse_queries
@@ -439,13 +350,15 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 "$ai_model": "hog-destroyer",
                 "$ai_http_status": 200,
                 "$ai_base_url": "https://us.posthog.com",
+                "$ai_parent_id": "trace1",
             },
         )
 
-        response = TracesQueryRunner(team=self.team, query=TracesQuery(traceId="trace1")).calculate()
+        response = TracesQueryRunner(team=self.team, query=TracesQuery()).calculate()
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, "trace1")
         self.assertEqual(response.results[0].totalLatency, 10.5)
+        self.assertEqual(len(response.results[0].events), 1)
         self.assertDictContainsSubset(
             {
                 "$ai_latency": 10.5,
@@ -453,6 +366,7 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
                 "$ai_model": "hog-destroyer",
                 "$ai_http_status": 200,
                 "$ai_base_url": "https://us.posthog.com",
+                "$ai_parent_id": "trace1",
             },
             response.results[0].events[0].properties,
         )
@@ -633,147 +547,22 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             trace_id="trace1",
             team=self.team,
             timestamp=datetime(2024, 12, 1, 0, 0),
-            properties={"$ai_model_parameters": {"temperature": 0.5}},
+            properties={
+                "$ai_model_parameters": {"temperature": 0.5},
+                "$ai_parent_id": "trace1",
+            },
         )
 
         response = TracesQueryRunner(
             team=self.team,
             query=TracesQuery(
-                traceId="trace1",
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
         ).calculate()
         self.assertEqual(len(response.results), 1)
         self.assertEqual(response.results[0].id, "trace1")
+        self.assertEqual(len(response.results[0].events), 1)
         self.assertEqual(response.results[0].events[0].properties["$ai_model_parameters"], {"temperature": 0.5})
-
-    def test_embedding_events_in_trace(self):
-        _create_person(distinct_ids=["person1"], team=self.team)
-        trace_id = "trace_with_embeddings"
-
-        # Create a trace with both generation and embedding events
-        _create_ai_trace_event(
-            trace_id=trace_id,
-            trace_name="embedding_test",
-            input_state={"text": "Document to embed"},
-            output_state={"embeddings": "generated"},
-            team=self.team,
-            timestamp=datetime(2024, 12, 1, 0, 0),
-        )
-
-        _create_ai_generation_event(
-            distinct_id="person1",
-            trace_id=trace_id,
-            input="Generate text",
-            output="Generated output",
-            team=self.team,
-            timestamp=datetime(2024, 12, 1, 0, 1),
-        )
-
-        _create_ai_embedding_event(
-            distinct_id="person1",
-            trace_id=trace_id,
-            input="First document to embed",
-            team=self.team,
-            timestamp=datetime(2024, 12, 1, 0, 2),
-        )
-
-        _create_ai_embedding_event(
-            distinct_id="person1",
-            trace_id=trace_id,
-            input="Second document to embed",
-            team=self.team,
-            timestamp=datetime(2024, 12, 1, 0, 3),
-        )
-
-        # Query for the trace
-        response = TracesQueryRunner(
-            team=self.team,
-            query=TracesQuery(
-                traceId=trace_id,
-                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T01:00:00Z"),
-            ),
-        ).calculate()
-
-        # Verify the trace contains embedding events
-        self.assertEqual(len(response.results), 1)
-        trace = response.results[0]
-        self.assertEqual(trace.id, trace_id)
-        self.assertEqual(trace.traceName, "embedding_test")
-
-        # Check that all events are present (1 generation + 2 embeddings = 3 events)
-        self.assertEqual(len(trace.events), 3)
-
-        # Verify event types
-        event_types = [event.event for event in trace.events]
-        self.assertIn("$ai_generation", event_types)
-        self.assertEqual(event_types.count("$ai_embedding"), 2)
-
-        # Verify embedding events have correct properties
-        embedding_events = [e for e in trace.events if e.event == "$ai_embedding"]
-        self.assertEqual(len(embedding_events), 2)
-        for event in embedding_events:
-            self.assertEqual(event.properties["$ai_trace_id"], trace_id)
-            self.assertIn("$ai_input_tokens", event.properties)
-            self.assertIn("$ai_total_cost_usd", event.properties)
-
-    def test_full_trace(self):
-        _create_person(distinct_ids=["person1"], team=self.team, properties={"foo": "bar"})
-        _create_ai_span_event(
-            trace_id="trace1",
-            span_name="runnable",
-            input_state={"messages": [{"role": "user", "content": "Foo"}]},
-            output_state={"messages": [{"role": "user", "content": "Foo"}, {"role": "assistant", "content": "Bar"}]},
-            team=self.team,
-            timestamp=datetime(2024, 12, 1, 0, 9),
-        )
-        _create_ai_generation_event(
-            distinct_id="person1",
-            trace_id="trace1",
-            team=self.team,
-            timestamp=datetime(2024, 12, 1, 0, 9, 30),
-        )
-        _create_ai_generation_event(
-            distinct_id="person1",
-            trace_id="trace1",
-            team=self.team,
-            timestamp=datetime(2024, 12, 1, 0, 10),
-        )
-        _create_ai_trace_event(
-            trace_id="trace1",
-            trace_name="runnable",
-            input_state={"messages": [{"role": "user", "content": "Foo"}]},
-            output_state={"messages": [{"role": "user", "content": "Foo"}, {"role": "assistant", "content": "Bar"}]},
-            team=self.team,
-            timestamp=datetime(2024, 12, 1, 0, 11),
-        )
-
-        response = TracesQueryRunner(
-            team=self.team,
-            query=TracesQuery(
-                traceId="trace1",
-                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
-            ),
-        ).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].id, "trace1")
-        self.assertEqual(response.results[0].traceName, "runnable")
-        self.assertEqual(response.results[0].inputState, {"messages": [{"role": "user", "content": "Foo"}]})
-        self.assertEqual(
-            response.results[0].outputState,
-            {"messages": [{"role": "user", "content": "Foo"}, {"role": "assistant", "content": "Bar"}]},
-        )
-        self.assertEqual(len(response.results[0].events), 3)
-
-        self.assertEqual(response.results[0].events[0].event, "$ai_span")
-        self.assertEqual(response.results[0].events[0].properties["$ai_trace_id"], "trace1")
-        self.assertEqual(response.results[0].events[0].properties["$ai_span_name"], "runnable")
-
-        self.assertEqual(response.results[0].events[1].event, "$ai_generation")
-        self.assertEqual(response.results[0].events[1].properties["$ai_trace_id"], "trace1")
-
-        self.assertEqual(response.results[0].events[2].event, "$ai_generation")
-        self.assertEqual(response.results[0].events[2].properties["$ai_trace_id"], "trace1")
 
     @snapshot_clickhouse_queries
     def test_properties_filter_with_multiple_events_in_group(self):
@@ -796,7 +585,6 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         response = TracesQueryRunner(
             team=self.team,
             query=TracesQuery(
-                traceId="trace1",
                 properties=[EventPropertyFilter(key="foo", value="bar", operator=PropertyOperator.EXACT)],
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
@@ -806,7 +594,6 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         response = TracesQueryRunner(
             team=self.team,
             query=TracesQuery(
-                traceId="trace1",
                 properties=[EventPropertyFilter(key="foo", value="baz", operator=PropertyOperator.EXACT)],
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
@@ -816,7 +603,6 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         response = TracesQueryRunner(
             team=self.team,
             query=TracesQuery(
-                traceId="trace1",
                 properties=[EventPropertyFilter(key="foo", value="barz", operator=PropertyOperator.EXACT)],
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
@@ -904,7 +690,6 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         response = TracesQueryRunner(
             team=self.team,
             query=TracesQuery(
-                traceId="trace1",
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
         ).calculate()
@@ -929,12 +714,14 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         response = TracesQueryRunner(
             team=self.team,
             query=TracesQuery(
-                traceId="trace2",
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
         ).calculate()
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].traceName, "bar")
+        self.assertEqual(len(response.results), 2)  # Should return both traces
+        # Find trace2 in the results
+        trace2 = next((r for r in response.results if r.id == "trace2"), None)
+        assert trace2 is not None
+        self.assertEqual(trace2.traceName, "bar")
 
     def test_returns_metrics_and_feedback_events(self):
         _create_person(distinct_ids=["person1"], team=self.team)
@@ -966,23 +753,12 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         response = TracesQueryRunner(
             team=self.team,
             query=TracesQuery(
-                traceId="trace1",
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
         ).calculate()
         self.assertEqual(len(response.results), 1)
-        self.assertEqual(len(response.results[0].events), 3)
-        self.assertEqual(response.results[0].events[0].event, "$ai_generation")
-        self.assertEqual(response.results[0].events[1].event, "$ai_metric")
-        self.assertEqual(response.results[0].events[2].event, "$ai_feedback")
-
-        response = TracesQueryRunner(
-            team=self.team,
-            query=TracesQuery(
-                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
-            ),
-        ).calculate()
-        self.assertEqual(len(response.results), 1)
+        # List view only returns metrics, feedback, and root-level events
+        # The generation event is not root-level (no parent_id = trace_id)
         self.assertEqual(len(response.results[0].events), 2)
         self.assertEqual(response.results[0].events[0].event, "$ai_metric")
         self.assertEqual(response.results[0].events[1].event, "$ai_feedback")
@@ -1071,16 +847,15 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
             distinct_id="person1",
         )
 
-        # Should return total latency of 2
         response = TracesQueryRunner(
             team=self.team,
             query=TracesQuery(
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
-                traceId=trace_id,
             ),
         ).calculate()
         self.assertEqual(len(response.results), 1)
-        self.assertEqual(len(response.results[0].events), 1)
+        # Generation events without parent_id = trace_id are not root-level, so not included
+        self.assertEqual(len(response.results[0].events), 0)
 
     def test_trace_name_from_trace_event(self):
         """Test that trace_name comes from $ai_trace events when they exist."""
@@ -1110,7 +885,6 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         response = TracesQueryRunner(
             team=self.team,
             query=TracesQuery(
-                traceId=trace_id,
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
         ).calculate()
@@ -1136,7 +910,6 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         response = TracesQueryRunner(
             team=self.team,
             query=TracesQuery(
-                traceId=trace_id,
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
         ).calculate()
@@ -1172,7 +945,6 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         response = TracesQueryRunner(
             team=self.team,
             query=TracesQuery(
-                traceId=trace_id,
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
         ).calculate()
@@ -1204,7 +976,6 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         response = TracesQueryRunner(
             team=self.team,
             query=TracesQuery(
-                traceId=trace_id,
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
             ),
         ).calculate()
@@ -1284,7 +1055,6 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         response = TracesQueryRunner(
             team=self.team,
             query=TracesQuery(
-                traceId=trace_id,
                 dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T01:00:00Z"),
             ),
         ).calculate()
