@@ -47,6 +47,7 @@ class PostgresSource(BaseSource[PostgresSourceConfig], SSHTunnelMixin, ValidateD
             name=SchemaExternalDataSourceType.POSTGRES,
             caption="Enter your Postgres credentials to automatically pull your Postgres data into the PostHog Data warehouse",
             iconPath="/static/services/postgres.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/postgres",
             fields=cast(
                 list[FieldType],
                 [

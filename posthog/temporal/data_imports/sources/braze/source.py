@@ -21,9 +21,7 @@ class BrazeSource(BaseSource[BrazeSourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.BRAZE,
-            label="Braze",
             iconPath="/static/services/braze.png",
-            caption="",
             fields=cast(list[FieldType], []),
             unreleasedSource=True,
         )

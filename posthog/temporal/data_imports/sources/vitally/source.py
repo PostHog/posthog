@@ -84,8 +84,8 @@ class VitallySource(BaseSource[VitallySourceConfig]):
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.VITALLY,
-            caption="",
             iconPath="/static/services/vitally.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/vitally",
             fields=cast(
                 list[FieldType],
                 [

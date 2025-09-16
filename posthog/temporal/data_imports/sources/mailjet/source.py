@@ -22,8 +22,8 @@ class MailJetSource(BaseSource[MailjetSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.MAILJET,
             label="Mailjet",
-            caption="",
             iconPath="/static/services/mailjet.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/mailjet",
             fields=cast(list[FieldType], []),
             unreleasedSource=True,
         )

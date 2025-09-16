@@ -52,8 +52,9 @@ class TemplateSource(BaseSource[Config]): # Replace this after config generation
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.SOURCE_TYPE, # Replace this
-            label="Template", # Replace this
-            caption="",
+            label="Template", # Only needed if the readable name is complex
+            caption=None, # Only needed if you wanna inline docs
+            docsUrl=None, # Link to the docs in the website, full path including https://
             fields=cast(list[FieldType], []), # Add source fields here
         )
     def validate_credentials(self, config: Config, team_id: int) -> tuple[bool, str | None]: # Replace `Config` with your config class

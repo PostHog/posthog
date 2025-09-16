@@ -3887,7 +3887,8 @@ export type SourceFieldConfig =
 export interface SourceConfig {
     name: ExternalDataSourceType
     label?: string
-    caption: string | any
+    docsUrl?: string
+    caption?: string | any
     fields: SourceFieldConfig[]
     disabledReason?: string | null
     existingSource?: boolean
