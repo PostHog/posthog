@@ -16,7 +16,6 @@ class SSOTokenResponse:
     access_token: str
     token_type: str
     id_token: str | None = None
-    expires_in: int | None = None
     scope: str | None = None
     refresh_token: str | None = None
     error: str | None = None
@@ -44,15 +43,19 @@ class ExperimentationResult:
 
 
 class VercelAPIClient:
-    def __init__(self, bearer_token: str, timeout: int = 30, base_url: str = "https://api.vercel.com/v1"):
-        if not bearer_token or not bearer_token.strip():
-            raise ValueError("Bearer token is required")
-
+    def __init__(self, bearer_token: str | None, timeout: int = 30, base_url: str = "https://api.vercel.com/v1"):
         self.bearer_token = bearer_token
         self.timeout = timeout
         self.base_url = base_url
         self.session = requests.Session()
-        self.session.headers.update({"Content-Type": "application/json", "Authorization": f"Bearer {bearer_token}"})
+
+        # Not all endpoints (Such as SSO token exchange) require authorization
+        if bearer_token and bearer_token.strip():
+            headers = {
+                "Authorization": f"Bearer {bearer_token}",
+                "Content-Type": "application/json",
+            }
+            self.session.headers.update(headers)
 
     @staticmethod
     def _should_retry_request(exc: BaseException) -> bool:
@@ -168,25 +171,18 @@ class VercelAPIClient:
                 error_description=json_data.get("error_description"),
             )
 
-        if not json_data.get("access_token") or not json_data.get("token_type"):
+        # AFAIK we can miss either access_token or id_token, but not both.
+        if not json_data.get("access_token") and not json_data.get("id_token"):
             logger.warning("SSO token exchange missing required fields", integration="vercel")
             return SSOTokenResponse(
                 access_token="", token_type="", error="invalid_response", error_description="Missing required fields"
             )
-
-        expires_in = json_data.get("expires_in")
-        if expires_in is not None and not isinstance(expires_in, int):
-            try:
-                expires_in = int(expires_in)
-            except (ValueError, TypeError):
-                expires_in = None
 
         logger.info("Successfully exchanged SSO token", integration="vercel")
         return SSOTokenResponse(
             access_token=str(json_data["access_token"]),
             token_type=str(json_data["token_type"]),
             id_token=json_data.get("id_token"),
-            expires_in=expires_in,
             scope=json_data.get("scope"),
             refresh_token=json_data.get("refresh_token"),
         )
@@ -214,7 +210,8 @@ class VercelAPIClient:
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
             json_data = self._parse_json_response(response)
-
             return self._validate_sso_response(json_data)
-        except APIError:
+        except APIError as e:
+            logger.exception("SSO token exchange failed", error=str(e), integration="vercel")
+
             return None

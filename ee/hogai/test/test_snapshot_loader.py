@@ -31,6 +31,7 @@ from ee.hogai.eval.schema import (
     ActorsPropertyTaxonomySnapshot,
     ClickhouseTeamDataSnapshot,
     DataWarehouseTableSnapshot,
+    EvalsDockerImageConfig,
     GroupTypeMappingSnapshot,
     PostgresTeamDataSnapshot,
     PropertyDefinitionSnapshot,
@@ -75,6 +76,11 @@ class TestSnapshotLoader(BaseTest):
                 }
             ],
             "dataset": [],
+            "experiment_id": "test_experiment_id",
+            "experiment_name": "test_experiment_name",
+            "dataset_id": "test_dataset_id",
+            "dataset_name": "test_dataset_name",
+            "dataset_inputs": [],
         }
 
     def _fake_parse(self, schema, _buffer):
@@ -160,9 +166,10 @@ class TestSnapshotLoader(BaseTest):
 
         with patch.object(SnapshotLoader, "_get_snapshot_from_s3", new=async_get):
             with patch.object(SnapshotLoader, "_parse_snapshot_to_schema", new=self._fake_parse):
-                loader = SnapshotLoader(ctx)
-                org, user, dataset = async_to_sync(loader.load_snapshots)()
-        return org, user, dataset, Team.objects.get(id=9990)
+                config = EvalsDockerImageConfig.model_validate(ctx.extras)
+                loader = SnapshotLoader(ctx, config)
+                org, user = async_to_sync(loader.load_snapshots)()
+        return org, user, config.dataset_inputs, Team.objects.get(id=9990)
 
     def test_loads_data_from_s3(self):
         team_id = 99990
@@ -177,7 +184,8 @@ class TestSnapshotLoader(BaseTest):
 
         with patch.object(SnapshotLoader, "_get_snapshot_from_s3", new=record_call):
             with patch.object(SnapshotLoader, "_parse_snapshot_to_schema", new=self._fake_parse):
-                loader = SnapshotLoader(ctx)
+                config = EvalsDockerImageConfig.model_validate(ctx.extras)
+                loader = SnapshotLoader(ctx, config)
                 async_to_sync(loader.load_snapshots)()
 
         keys = [k for _, k in calls]

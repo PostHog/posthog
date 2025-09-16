@@ -131,6 +131,7 @@ def build_function_call(
 
 
 class S3Table(FunctionCallTable):
+    requires_args: bool = False
     url: str
     format: str = "CSVWithNames"
     access_key: Optional[str] = None
@@ -150,3 +151,9 @@ class S3Table(FunctionCallTable):
             structure=self.structure,
             context=context,
         )
+
+
+class DataWarehouseTable(S3Table):
+    """A table placeholder for checking warehouse tables"""
+
+    pass

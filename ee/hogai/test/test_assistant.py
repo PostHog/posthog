@@ -239,7 +239,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         ),
     )
     @patch(
-        "ee.hogai.graph.query_executor.nodes.QueryExecutorNode.run",
+        "ee.hogai.graph.query_executor.nodes.QueryExecutorNode.arun",
         return_value=PartialAssistantState(
             messages=[AssistantMessage(content="Foobar")],
         ),
@@ -1337,7 +1337,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
-    @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.run")
+    @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.arun")
     async def test_insights_tool_mode_flow(
         self, query_executor_mock, planner_mock, generator_mock, title_generator_mock
     ):
@@ -1590,7 +1590,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         second_message = human_messages[1]
         self.assertEqual(second_message.ui_context, ui_context_2)
 
-    @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.run")
+    @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.arun")
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
     @patch("ee.hogai.graph.rag.nodes.InsightRagContextNode.run")
@@ -1813,9 +1813,42 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         assistant._reasoning_headline_chunk = None
         reasoning = {"summary": [{"text": "****"}]}
         result = assistant._chunk_reasoning_headline(reasoning)
-        self.assertEqual(result, "")  # Should return empty headline
+        self.assertEqual(result, "")  # Should return empty string
         self.assertIsNone(assistant._reasoning_headline_chunk)
         self.assertEqual(assistant._last_reasoning_headline, "")
+
+        # Test 11: Multiple bold sections - should capture everything between first and last markers, filtering internal markers
+        assistant._reasoning_headline_chunk = None
+        assistant._last_reasoning_headline = None
+        reasoning = {"summary": [{"text": "**I'm** analyzing data and **considering multiple options**"}]}
+        result = assistant._chunk_reasoning_headline(reasoning)
+        self.assertEqual(result, "I'm analyzing data and considering multiple options")
+        self.assertIsNone(assistant._reasoning_headline_chunk)
+        self.assertEqual(assistant._last_reasoning_headline, "I'm analyzing data and considering multiple options")
+
+        # Test 12: Simple headline
+        assistant._reasoning_headline_chunk = None
+        assistant._last_reasoning_headline = None
+        reasoning = {"summary": [{"text": "**OK**"}]}
+        result = assistant._chunk_reasoning_headline(reasoning)
+        self.assertEqual(result, "OK")
+        self.assertIsNone(assistant._reasoning_headline_chunk)
+
+        # Test 13: Headline with exactly 3 words
+        assistant._reasoning_headline_chunk = None
+        assistant._last_reasoning_headline = None
+        reasoning = {"summary": [{"text": "**Three word headline**"}]}
+        result = assistant._chunk_reasoning_headline(reasoning)
+        self.assertEqual(result, "Three word headline")
+        self.assertEqual(assistant._last_reasoning_headline, "Three word headline")
+
+        # Test 14: Text with nested bold for emphasis - captures everything between outermost markers, filters internal markers
+        assistant._reasoning_headline_chunk = None
+        assistant._last_reasoning_headline = None
+        reasoning = {"summary": [{"text": "**I'm considering **multiple** important options**"}]}
+        result = assistant._chunk_reasoning_headline(reasoning)
+        self.assertEqual(result, "I'm considering multiple important options")
+        self.assertEqual(assistant._last_reasoning_headline, "I'm considering multiple important options")
 
     def test_process_value_update_returns_ack_event(self):
         """Test that _process_value_update returns an ACK event for state updates."""
