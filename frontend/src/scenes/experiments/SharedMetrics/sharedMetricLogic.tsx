@@ -5,7 +5,6 @@ import { router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
@@ -111,11 +110,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
             if (response.id) {
                 lemonToast.success('Shared metric updated successfully')
                 actions.loadSharedMetrics()
-                if (values.featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]) {
-                    router.actions.push('/experiments?tab=shared-metrics')
-                } else {
-                    router.actions.push('/experiments/shared-metrics')
-                }
+                router.actions.push('/experiments?tab=shared-metrics')
             }
         },
         deleteSharedMetric: async () => {
@@ -123,11 +118,7 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
                 await api.delete(`api/projects/@current/experiment_saved_metrics/${values.sharedMetricId}`)
                 lemonToast.success('Shared metric deleted successfully')
                 actions.loadSharedMetrics()
-                if (values.featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]) {
-                    router.actions.push('/experiments?tab=shared-metrics')
-                } else {
-                    router.actions.push('/experiments/shared-metrics')
-                }
+                router.actions.push('/experiments?tab=shared-metrics')
             } catch (error) {
                 lemonToast.error('Failed to delete shared metric')
                 console.error(error)
