@@ -99,6 +99,7 @@ class TeamAdmin(admin.ModelAdmin):
                     "session_recording_version",
                     "inject_web_apps",
                     "web_analytics_pre_aggregated_tables_enabled",
+                    "web_analytics_pre_aggregated_tables_version",
                     "extra_settings",
                     "modifiers",
                     "drop_events_older_than",
