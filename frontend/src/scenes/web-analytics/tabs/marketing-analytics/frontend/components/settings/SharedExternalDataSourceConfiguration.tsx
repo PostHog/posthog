@@ -4,9 +4,7 @@ import { useState } from 'react'
 import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { cn } from 'lib/utils/css-classes'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -51,7 +49,6 @@ export function SharedExternalDataSourceConfiguration<T extends string>({
 }: SharedExternalDataSourceConfigurationProps<T>): JSX.Element {
     const { updateSourceMapping } = useActions(marketingAnalyticsSettingsLogic)
     const [editingTable, setEditingTable] = useState<ExternalTable | null>(null)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     const requiredFields = Object.values(MarketingAnalyticsColumnsSchemaNames).filter(
         (field) => MARKETING_ANALYTICS_SCHEMA[field].required
     )
@@ -142,18 +139,7 @@ export function SharedExternalDataSourceConfiguration<T extends string>({
     }
 
     return (
-        <SceneSection
-            title={title}
-            description={description}
-            className={cn(!newSceneLayout && 'gap-y-0')}
-            hideTitleAndDescription={!newSceneLayout}
-        >
-            {!newSceneLayout && (
-                <>
-                    {title && <h3 className="mb-2">{title}</h3>}
-                    {description && <p className="mb-4">{description}</p>}
-                </>
-            )}
+        <SceneSection title={title} description={description}>
             <PaginationControls
                 hasMoreItems={hasMoreTables}
                 showAll={showAll}
