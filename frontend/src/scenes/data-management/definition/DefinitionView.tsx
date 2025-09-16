@@ -23,11 +23,14 @@ import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { getFilterLabel } from '~/taxonomy/helpers'
 import { FilterLogicalOperator, PropertyDefinition, PropertyDefinitionVerificationStatus, ReplayTabs } from '~/types'
+
+import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
 
 export const scene: SceneExport<DefinitionLogicProps> = {
     component: DefinitionView,
@@ -207,6 +210,35 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                             </LemonButton>
                         )}
                     </>
+                }
+            />
+
+            <SceneTitleSection
+                name={definition.name}
+                resourceType={
+                    isEvent
+                        ? {
+                              type: 'event definition',
+                              forceIcon: getEventDefinitionIcon(definition),
+                          }
+                        : {
+                              type: 'property definition',
+                              forceIcon: getPropertyDefinitionIcon(definition),
+                          }
+                }
+                actions
+                forceBackTo={
+                    isEvent
+                        ? {
+                              path: urls.eventDefinitions(),
+                              name: 'Event definitions',
+                              key: 'events',
+                          }
+                        : {
+                              path: urls.propertyDefinitions(),
+                              name: 'Property definitions',
+                              key: 'properties',
+                          }
                 }
             />
 

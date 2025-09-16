@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconExternal } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonCollapse, LemonDivider, LemonLabel } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonCollapse, LemonDivider, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { urls } from 'scenes/urls'
@@ -96,7 +96,6 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                             </>
                                         ),
                                     },
-                                    className: '',
                                     content: (
                                         <div>
                                             <>
@@ -110,6 +109,39 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                         setCampaignAction(action.id, { ...action, filters })
                                                     }
                                                     buttonCopy="Add filter conditions"
+                                                />
+                                            </>
+                                        </div>
+                                    ),
+                                },
+                                {
+                                    key: 'on_error',
+                                    header: {
+                                        children: (
+                                            <>
+                                                <span className="flex-1">Error handling</span>
+                                            </>
+                                        ),
+                                    },
+                                    content: (
+                                        <div>
+                                            <>
+                                                <p>
+                                                    What to do if this step fails (e.g. message could not be sent). By
+                                                    default, the user will continue to the next step.
+                                                </p>
+                                                <LemonSelect
+                                                    options={[
+                                                        { value: 'continue', label: 'Continue to next step' },
+                                                        { value: 'abort', label: 'Exit the campaign' },
+                                                    ]}
+                                                    value={action.on_error || 'continue'}
+                                                    onChange={(value) =>
+                                                        setCampaignAction(action.id, {
+                                                            ...action,
+                                                            on_error: value,
+                                                        })
+                                                    }
                                                 />
                                             </>
                                         </div>
