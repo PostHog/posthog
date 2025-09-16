@@ -1,17 +1,20 @@
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from braintrust import EvalCase
+from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph import AssistantGraph
+from ee.hogai.graph.session_summaries.nodes import _SessionSearch
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantNodeName, AssistantState
+from ee.hogai.utils.yaml import load_yaml_from_raw_llm_content
 from ee.models.assistant import Conversation
 
 from ..base import MaxPublicEval
-from ..scorers import ToolRelevance
+from ..scorers import ExactMatch, SemanticSimilarity, ToolRelevance
 
 
 @pytest.fixture
@@ -263,6 +266,120 @@ async def eval_session_summarization_no_context(patch_feature_enabled, call_root
                         "summary_title": "All session recordings",
                     },
                 ),
+            ),
+        ],
+        pytestconfig=pytestconfig,
+    )
+
+
+@pytest.fixture
+def filter_query_tester(demo_org_team_user):
+    """Simple fixture to test filter query generation."""
+
+    async def test(input_query: str) -> str:
+        # Minimal mock setup
+        mock_node = MagicMock()
+        mock_node._team = demo_org_team_user[1]
+        mock_node._user = demo_org_team_user[2]
+        search = _SessionSearch(mock_node)
+        return await search._generate_filter_query(input_query, RunnableConfig())
+
+    return test
+
+
+async def eval_filter_query_generation(filter_query_tester, pytestconfig):
+    """Test that filter query generation preserves search intent while removing fluff."""
+
+    await MaxPublicEval(
+        experiment_name="filter_query_generation",
+        task=filter_query_tester,
+        scores=[SemanticSimilarity()],
+        data=[
+            EvalCase(input="summarize sessions from yesterday", expected="sessions from yesterday"),
+            EvalCase(input="analyze mobile user sessions from last week", expected="mobile user sessions last week"),
+            EvalCase(
+                input="watch last 100 sessions, I want to understand what users did in checkout flow",
+                expected="last 100 sessions",
+            ),
+            EvalCase(
+                input="hey Max,show me sessions longer than 5 minutes from Chrome users",
+                expected="sessions longer than 5 minutes fromChrome users",
+            ),
+            EvalCase(
+                input="watch recordings of user ID 12345 from past week, I want to see the UX issues they are facing",
+                expected="recordings of user ID 12345 from past week",
+            ),
+            EvalCase(
+                input="summarize iOS sessions from California with purchase events over $100, do we have a lot of these?",
+                expected="iOS sessions from California with purchase events over $100",
+            ),
+            EvalCase(
+                input="Max, I need you to watch replays of German desktop Linux users from 21.03.2024 till 24.03.2024, and tell me what problems did they encounter",
+                expected="replays of German desktop Linux users from 21.03.2024 till 24.03.2024",
+            ),
+        ],
+        pytestconfig=pytestconfig,
+    )
+
+
+@pytest.fixture
+def yaml_fix_tester():
+    """Test that load_yaml_from_raw_llm_content fixes malformed YAML."""
+
+    def test(malformed_yaml: str) -> dict | list:
+        return load_yaml_from_raw_llm_content(malformed_yaml, final_validation=True)
+
+    return test
+
+
+async def eval_yaml_fixing(yaml_fix_tester, pytestconfig):
+    """Test that load_yaml_from_raw_llm_content can fix slightly malformed YAML."""
+
+    await MaxPublicEval(
+        experiment_name="yaml_fixing",
+        task=yaml_fix_tester,
+        scores=[ExactMatch()],
+        data=[
+            # Missing closing quote
+            EvalCase(
+                input='key: "value with missing quote',
+                expected={"key": "value with missing quote"},
+            ),
+            # Mixed symbols in list items with malformed quotes
+            EvalCase(
+                input="""
+- item: 'value's with apostrophe'
+  description: "unclosed quote here
+- item: "double quoted "value" inside"
+  description: "some text with ```backticks around it```, maybe code"
+""",
+                expected=[
+                    {"description": "unclosed quote here", "item": "value's with apostrophe"},
+                    {
+                        "description": "some text with ```backticks around it```, maybe code",
+                        "item": 'double quoted "value" inside',
+                    },
+                ],
+            ),
+            # Mixed indentation (tabs and spaces)
+            EvalCase(
+                input="parent:\n\tchild: value",
+                expected={"parent": {"child": "value"}},
+            ),
+            # Unquoted string with special chars that should be quoted
+            EvalCase(
+                input="url: http://example.com?param=value&other=test",
+                expected={"url": "http://example.com?param=value&other=test"},
+            ),
+            # Missing dash for list item
+            EvalCase(
+                input="- item1\nitem2",
+                expected=["item1", "item2"],
+            ),
+            # Inconsistent list/dict mixing
+            EvalCase(
+                input="- key: value\nother: data",
+                expected={"key": "value", "other": "data"},
             ),
         ],
         pytestconfig=pytestconfig,
