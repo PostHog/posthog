@@ -129,7 +129,7 @@ export function PlayerController({ playerIsHovering }: { playerIsHovering: boole
     const { isCinemaMode } = useValues(playerSettingsLogic)
 
     const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
-    const hoverUIEnabled = useFeatureFlag('REPLAY_HOVER_UI')
+    const hoverUIEnabled = useFeatureFlag('REPLAY_HOVER_UI', 'test')
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
