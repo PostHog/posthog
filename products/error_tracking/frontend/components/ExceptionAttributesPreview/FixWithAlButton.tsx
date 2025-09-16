@@ -105,17 +105,13 @@ export function FixWithAIPopoverContent({
                                 label: `${integration.display_name} (${integration.config?.account?.name || 'GitHub'})`,
                             }))}
                             placeholder="Select GitHub integration..."
+                            fullWidth
                         />
                     </div>
 
                     {integrationId != null && (
                         <div>
                             <label className="block text-sm font-medium mb-1">Repository</label>
-                            <LemonSelect
-                                value="asd"
-                                options={[{ value: 'asd', label: 'asd' }]}
-                                placeholder="Select GitHub integration..."
-                            />
                             <GitHubRepositoryPicker
                                 integrationId={integrationId}
                                 value={repository}
