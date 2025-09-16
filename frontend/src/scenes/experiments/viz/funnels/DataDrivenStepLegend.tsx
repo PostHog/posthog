@@ -1,5 +1,9 @@
-import { humanFriendlyNumber, percentage } from 'lib/utils'
-
+import { IconClock } from '@posthog/icons'
+import { LemonRow } from 'lib/lemon-ui/LemonRow'
+import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
+import { capitalizeFirstLetter, humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
 import { FunnelStepWithConversionMetrics } from '~/types'
 
 interface DataDrivenStepLegendProps {
@@ -15,50 +19,86 @@ export function DataDrivenStepLegend({
     showTime,
     showPersonsModal: _showPersonsModal
 }: DataDrivenStepLegendProps): JSX.Element {
+    const isOptional = false // For simplicity
+    const aggregationTargetLabel = { singular: 'user', plural: 'users' }
+
+    const convertedCountPresentation = pluralize(
+        step.count ?? 0,
+        aggregationTargetLabel.singular,
+        aggregationTargetLabel.plural
+    )
+    const droppedOffCountPresentation = pluralize(
+        step.droppedOffFromPrevious ?? 0,
+        aggregationTargetLabel.singular,
+        aggregationTargetLabel.plural
+    )
+
+    const convertedCountPresentationWithPercentage = (
+        <>
+            {convertedCountPresentation}{' '}
+            <span className="text-secondary">({percentage(step.conversionRates.fromBasisStep, 2)})</span>
+        </>
+    )
+    const droppedOffCountPresentationWithPercentage = (
+        <>
+            {droppedOffCountPresentation}{' '}
+            <span className="text-secondary">({percentage(1 - step.conversionRates.fromPrevious, 2)})</span>
+        </>
+    )
+
     return (
-        <div className="StepLegend">
-            <div className="StepLegend--header">
-                <span className="StepLegend--step-number">{stepIndex + 1}</span>
-                <span className="StepLegend--step-name" title={step.name}>
-                    {step.custom_name || step.name}
-                </span>
-            </div>
-            
-            <div className="StepLegend--count">
-                <span className="StepLegend--count-value">
-                    {humanFriendlyNumber(step.count)}
-                </span>
-                <span className="StepLegend--count-label">users</span>
-            </div>
-
+        <div className="StepLegend" style={{ opacity: isOptional ? 0.6 : 1 }}>
+            <LemonRow
+                icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}
+            >
+                <span title={step.name}>{step.custom_name || step.name}</span>
+                {isOptional ? <div className="ml-1 text-xs font-normal">(optional)</div> : null}
+            </LemonRow>
+            <LemonRow
+                icon={<IconTrendingFlat />}
+                status="success"
+                style={{ color: 'unset' }}
+            >
+                <Tooltip
+                    title={
+                        <>
+                            {capitalizeFirstLetter(aggregationTargetLabel.plural)} who completed this step,
+                            <br />
+                            with conversion rate relative to the first step
+                        </>
+                    }
+                    placement="right"
+                >
+                    <span>{convertedCountPresentationWithPercentage}</span>
+                </Tooltip>
+            </LemonRow>
             {stepIndex > 0 && (
-                <div className="StepLegend--conversion">
-                    <span className="StepLegend--conversion-rate">
-                        {percentage(step.conversionRates.fromPrevious, 1, true)}
-                    </span>
-                    <span className="StepLegend--conversion-label">converted</span>
-                </div>
-            )}
-
-            {stepIndex > 0 && (
-                <div className="StepLegend--dropped">
-                    <span className="StepLegend--dropped-value">
-                        {humanFriendlyNumber(step.droppedOffFromPrevious)}
-                    </span>
-                    <span className="StepLegend--dropped-label">dropped off</span>
-                </div>
-            )}
-
-            {showTime && step.average_conversion_time != null && (
-                <div className="StepLegend--time">
-                    <span className="StepLegend--time-value">
-                        {step.average_conversion_time > 60
-                            ? `${Math.round(step.average_conversion_time / 60)}m`
-                            : `${Math.round(step.average_conversion_time)}s`
-                        }
-                    </span>
-                    <span className="StepLegend--time-label">avg time</span>
-                </div>
+                <>
+                    <LemonRow
+                        icon={<IconTrendingFlatDown />}
+                        status="danger"
+                        style={{ color: 'unset' }}
+                    >
+                        <Tooltip
+                            title={
+                                <>
+                                    {capitalizeFirstLetter(aggregationTargetLabel.plural)} who didn't complete this
+                                    step,
+                                    <br />
+                                    with drop-off rate relative to the previous step
+                                </>
+                            }
+                            placement="right"
+                        >
+                            <span>{droppedOffCountPresentationWithPercentage}</span>
+                        </Tooltip>
+                    </LemonRow>
+                    {showTime && (
+                        <LemonRow icon={<IconClock />} title="Median time of conversion from previous step">
+                            {humanFriendlyDuration(step.median_conversion_time, { maxUnits: 3 }) || '–'}
+                        </LemonRow>
+                    )}
+                </>
             )}
         </div>
     )

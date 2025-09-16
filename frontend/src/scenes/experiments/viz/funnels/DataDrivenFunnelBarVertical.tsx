@@ -25,6 +25,7 @@ export function DataDrivenFunnelBarVertical({
 
     const { height: availableHeight } = useResizeObserver({ ref: vizRef })
     const [scrollbarHeightPx, setScrollbarHeightPx] = useState(0)
+    const [stepLegendRowHeightPx, setStepLegendRowHeightPx] = useState(0)
 
     const seriesCount = visibleStepsWithConversionMetrics[0]?.nested_breakdown?.length ?? 0
     const barWidthPx =
@@ -51,10 +52,16 @@ export function DataDrivenFunnelBarVertical({
             : 192
 
     const scrollRef = useRef<HTMLDivElement | null>(null)
+    const stepLegendRowRef = useRef<HTMLTableRowElement | null>(null)
 
     useLayoutEffect(() => {
         if (scrollRef.current) {
             setScrollbarHeightPx(scrollRef.current.offsetHeight - scrollRef.current.clientHeight)
+        }
+    }, [availableHeight])
+    useLayoutEffect(() => {
+        if (stepLegendRowRef.current) {
+            setStepLegendRowHeightPx(stepLegendRowRef.current.clientHeight)
         }
     }, [availableHeight])
 
@@ -62,14 +69,11 @@ export function DataDrivenFunnelBarVertical({
     // != is intentional to catch undefined too
     const showTime = visibleStepsWithConversionMetrics.some((step) => step.average_conversion_time != null)
 
-    const stepLegendRows = showTime ? 4 : 3
-
-    // rows * (row height + gap between rows) - no gap for first row + padding top and bottom
-    const stepLegendHeightRem = stepLegendRows * (1.5 + 0.25) - 0.25 + 2 * 0.75
+    const minimumBarHeightPx = 150
     const borderHeightPx = 1
 
     // available height - border - legend - (maybe) scrollbar
-    const barRowHeight = `calc(${availableHeight}px - ${borderHeightPx}px - ${stepLegendHeightRem}rem  - ${scrollbarHeightPx}px)`
+    const barRowHeight = `max(${minimumBarHeightPx}px, calc(${availableHeight}px - ${borderHeightPx}px - ${stepLegendRowHeightPx}px - ${scrollbarHeightPx}px))`
 
     return (
         <div className="FunnelBarVertical" ref={vizRef} data-attr="funnel-bar-vertical">
@@ -105,7 +109,7 @@ export function DataDrivenFunnelBarVertical({
                                 </td>
                             ))}
                         </tr>
-                        <tr>
+                        <tr ref={stepLegendRowRef}>
                             <td />
                             {visibleStepsWithConversionMetrics.map((step, stepIndex) => (
                                 <td key={stepIndex}>

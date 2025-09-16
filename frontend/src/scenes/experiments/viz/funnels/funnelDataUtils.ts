@@ -27,6 +27,22 @@ export interface ProcessedFunnelData {
 }
 
 /**
+ * Get a consistent color for a funnel series based on breakdown value.
+ * This ensures the same breakdown value always gets the same color.
+ */
+export function getSeriesColor(series: FunnelStepWithConversionMetrics): string {
+    // Use a hash of the breakdown value to generate a consistent color
+    const breakdownKey = series.breakdown_value?.toString() || series.order?.toString() || '0'
+    const hash = breakdownKey.split('').reduce((acc, char) => {
+        return char.charCodeAt(0) + ((acc << 5) - acc)
+    }, 0)
+
+    // Generate HSL color - use the hash to determine hue
+    const hue = Math.abs(hash) % 360
+    return `hsl(${hue}, 70%, 50%)`
+}
+
+/**
  * Processes raw funnel step data into the format needed for visualization components.
  * This extracts the core data processing logic from funnelDataLogic.
  */
