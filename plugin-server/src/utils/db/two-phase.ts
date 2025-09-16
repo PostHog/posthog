@@ -1,7 +1,10 @@
 import { PoolClient } from 'pg'
 
 import { withSpan } from '~/common/tracing/tracing-utils'
-import { twoPhaseCommitFailuresCounter } from '~/worker/ingestion/persons/metrics'
+import {
+    maxPreparedTransactionsExceededCounter,
+    twoPhaseCommitFailuresCounter,
+} from '~/worker/ingestion/persons/metrics'
 
 import { logger } from '../logger'
 import { PostgresRouter, PostgresUse, TransactionClient } from './postgres'
@@ -20,6 +23,18 @@ export class TwoPhaseCommitCoordinator {
 
         // GID must <= 200 chars
         return `dualwrite:${tag}:${ts}:${rand}`
+    }
+
+    private isMaxPreparedTransactionsExceeded(error: any): boolean {
+        // this is the code for a configuration limit being exceeded
+        if (error?.code === '53400') {
+            return true
+        }
+        // this is the message for our configurlation limit of max prepared transactions
+        if (error?.message?.includes('maximum number of prepared transactions reached')) {
+            return true
+        }
+        return false
     }
 
     async run<T>(tag: string, fn: (leftTx: TransactionClient, rightTx: TransactionClient) => Promise<T>): Promise<T> {
@@ -58,17 +73,43 @@ export class TwoPhaseCommitCoordinator {
                 ])
 
                 if (prepareResults[0].status === 'rejected') {
+                    const error = prepareResults[0].reason
                     twoPhaseCommitFailuresCounter.labels(tag, 'prepare_left_failed').inc()
+
+                    if (this.isMaxPreparedTransactionsExceeded(error)) {
+                        maxPreparedTransactionsExceededCounter.labels(tag, 'left').inc()
+                        logger.error('Max prepared transactions exceeded on left side', {
+                            tag,
+                            gid: gidRoot,
+                            side: this.sides.left.name ?? 'left',
+                            errorCode: error?.code,
+                            errorMessage: error?.message,
+                        })
+                    }
+
                     if (prepareResults[1].status === 'fulfilled') {
                         preparedRight = true
                     }
-                    throw prepareResults[0].reason
+                    throw error
                 }
                 preparedLeft = true
 
                 if (prepareResults[1].status === 'rejected') {
+                    const error = prepareResults[1].reason
                     twoPhaseCommitFailuresCounter.labels(tag, 'prepare_right_failed').inc()
-                    throw prepareResults[1].reason
+
+                    if (this.isMaxPreparedTransactionsExceeded(error)) {
+                        maxPreparedTransactionsExceededCounter.labels(tag, 'right').inc()
+                        logger.error('Max prepared transactions exceeded on right side', {
+                            tag,
+                            gid: gidRoot,
+                            side: this.sides.right.name ?? 'right',
+                            errorCode: error?.code,
+                            errorMessage: error?.message,
+                        })
+                    }
+
+                    throw error
                 }
                 preparedRight = true
 
