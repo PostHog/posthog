@@ -117,9 +117,9 @@ export function DataDrivenFunnel({
     } else if (vizType === FunnelVizType.TimeToConvert) {
         viz = <DataDrivenFunnelHistogram {...chartParams} />
     } else if (layout === FunnelLayout.vertical) {
-        viz = <DataDrivenFunnelBarVertical {...chartParams} />
+        viz = <DataDrivenFunnelBarVertical {...chartParams} inCardView={inCardView} />
     } else {
-        viz = <DataDrivenFunnelBarHorizontal {...chartParams} />
+        viz = <DataDrivenFunnelBarHorizontal {...chartParams} inCardView={inCardView} />
     }
 
     return (
