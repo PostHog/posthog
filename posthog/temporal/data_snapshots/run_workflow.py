@@ -66,12 +66,15 @@ async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> None:
     team = await database_sync_to_async(Team.objects.get)(id=inputs.team_id)
     delta_snapshot = DeltaSnapshot(saved_query)
 
+    stringified_hashed_columns = [f"toString({column})" for column in saved_query.snapshot_config.get("fields", [])]
+
     async for _, res in asyncstdlib.enumerate(
         hogql_table(
             f"""
         SELECT
+            *,
             id AS merge_key,
-            toString(cityHash64(concatWithSeparator('_', toString(number)))) AS row_hash,
+            toString(cityHash64(concatWithSeparator('_', {', '.join(stringified_hashed_columns)}))) AS row_hash,
             now() AS snapshot_ts
         FROM ({hogql_query})
     """,
