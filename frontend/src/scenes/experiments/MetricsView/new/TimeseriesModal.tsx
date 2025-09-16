@@ -31,7 +31,7 @@ export function TimeseriesModal({
 
     useEffect(() => {
         if (isOpen && metric.uuid) {
-            loadTimeseries(metric.uuid)
+            loadTimeseries({ metricUuid: metric.uuid })
         }
         return () => {
             clearTimeseries()

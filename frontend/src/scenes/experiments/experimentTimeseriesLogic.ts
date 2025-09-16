@@ -1,4 +1,4 @@
-import { actions, kea, path, props, reducers, selectors } from 'kea'
+import { actions, kea, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -54,16 +54,15 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
     path(['scenes', 'experiments', 'experimentTimeseriesLogic']),
     props({} as ExperimentTimeseriesLogicProps),
 
-    actions({
-        loadTimeseries: (metricUuid: string) => ({ metricUuid }),
+    actions(() => ({
         clearTimeseries: true,
-    }),
+    })),
 
     loaders(({ props }) => ({
         timeseries: [
             null as ExperimentTimeseriesResult | null,
             {
-                loadTimeseries: async ({ metricUuid }) => {
+                loadTimeseries: async ({ metricUuid }: { metricUuid: string }) => {
                     const response = await api.get(
                         `api/projects/@current/experiments/${props.experimentId}/timeseries_results/?metric_uuid=${metricUuid}`
                     )
@@ -73,16 +72,6 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
             },
         ],
     })),
-
-    reducers({
-        currentMetricUuid: [
-            null as string | null,
-            {
-                loadTimeseries: (_, { metricUuid }) => metricUuid,
-                clearTimeseries: () => null,
-            },
-        ],
-    }),
 
     selectors({
         // Extract and process timeseries data for a specific variant
