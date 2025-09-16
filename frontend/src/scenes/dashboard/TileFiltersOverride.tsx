@@ -1,4 +1,6 @@
 // scenes/dashboard/TileFiltersOverride.tsx
+import './TileFiltersOverride.scss'
+
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconCalendar } from '@posthog/icons'
@@ -40,7 +42,7 @@ export function TileFiltersOverride({
     }
 
     return (
-        <div className="space-y-4">
+        <div className="space-y-4 tile-filters-override">
             <div>
                 <p className="text-sm text-muted mb-4">
                     Set custom filters for this tile that will override the dashboard's global filters.
