@@ -12567,6 +12567,7 @@ class FunnelsQuery(BaseModel):
     )
     aggregation_group_type_index: Optional[int] = Field(default=None, description="Groups aggregation")
     breakdownFilter: Optional[BreakdownFilter] = Field(default=None, description="Breakdown of the events and actions")
+    compareFilter: Optional[CompareFilter] = Field(default=None, description="Compare to date range")
     dataColorTheme: Optional[float] = Field(default=None, description="Colors used in the insight's visualization")
     dateRange: Optional[DateRange] = Field(default=None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
