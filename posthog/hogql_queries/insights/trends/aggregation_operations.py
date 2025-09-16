@@ -207,7 +207,7 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                         name="ifNull",
                         args=[
                             ast.Field(chain=[self.series.timestamp_field]),
-                            ast.Call(name="toDateTime", args=[ast.Constant(value=0), ast.Constant(value="UTC")]),
+                            ast.Call(name="toDate", args=[ast.Constant(value="1970-01-01")]),
                         ],
                     )
             else:
