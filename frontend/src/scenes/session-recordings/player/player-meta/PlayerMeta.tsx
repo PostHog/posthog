@@ -70,6 +70,7 @@ function URLOrScreen({ url }: { url: unknown }): JSX.Element | null {
                         explicitValue={urlToUse}
                         iconStyle={{ color: 'var(--color-text-secondary)' }}
                         selectable={true}
+                        data-attr="player-meta-copy-url"
                     />
                 </span>
                 {isValidUrl ? (
@@ -191,6 +192,7 @@ export function PlayerMeta(): JSX.Element {
                                 value={trackedWindow}
                                 disabledReason={windowIds.length <= 1 ? "There's only one window" : undefined}
                                 onSelect={(value) => setTrackedWindow(value)}
+                                data-attr="player-meta-window-select"
                             />
 
                             <URLOrScreen url={currentURL} />
