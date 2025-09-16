@@ -730,6 +730,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         adapter = BigQueryAdapter(config=config, context=self.context)
         query = adapter.build_query()
 
+        assert query is not None, "BigQueryAdapter should generate a query"
         self._validate_query_structure(query, "BigQueryAdapter")
         assert self._execute_and_snapshot(query) == self.snapshot
 
@@ -748,6 +749,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         adapter = GoogleAdsAdapter(config=config, context=self.context)
         query = adapter.build_query()
 
+        assert query is not None, "GoogleAdsAdapter should generate a query"
         self._validate_query_structure(query, "GoogleAdsAdapter")
         assert self._execute_and_snapshot(query) == self.snapshot
 
@@ -766,6 +768,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         adapter = RedditAdsAdapter(config=config, context=self.context)
         query = adapter.build_query()
 
+        assert query is not None, "RedditAdsAdapter should generate a query"
         self._validate_query_structure(query, "RedditAdsAdapter")
         assert self._execute_and_snapshot(query) == self.snapshot
 
@@ -793,6 +796,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         adapter = AWSAdapter(config=config, context=self.context)
         query = adapter.build_query()
 
+        assert query is not None, "AWSAdapter should generate a query"
         self._validate_query_structure(query, "AWSAdapter")
         assert self._execute_and_snapshot(query) == self.snapshot
 
@@ -811,6 +815,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         adapter = LinkedinAdsAdapter(config=config, context=self.context)
         query = adapter.build_query()
 
+        assert query is not None, "LinkedinAdsAdapter should generate a query"
         self._validate_query_structure(query, "LinkedinAdsAdapter")
         assert self._execute_and_snapshot(query) == self.snapshot
 
@@ -838,6 +843,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         adapter = AzureAdapter(config=config, context=self.context)
         query = adapter.build_query()
 
+        assert query is not None, "AzureAdapter should generate a query"
         self._validate_query_structure(query, "AzureAdapter")
         assert self._execute_and_snapshot(query) == self.snapshot
 
@@ -865,6 +871,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         adapter = CloudflareR2Adapter(config=config, context=self.context)
         query = adapter.build_query()
 
+        assert query is not None, "CloudflareR2Adapter should generate a query"
         self._validate_query_structure(query, "CloudflareR2Adapter")
         assert self._execute_and_snapshot(query) == self.snapshot
 
@@ -897,6 +904,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         for adapter_class, config in configs:
             adapter = adapter_class(config=config, context=self.context)
             query = adapter.build_query()
+            assert query is not None, f"{adapter_class.__name__} should generate a query"
             self._validate_query_structure(query, adapter_class.__name__)
             queries.append(query)
 
@@ -935,6 +943,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         adapter = BigQueryAdapter(config=config, context=self.context)
         query = adapter.build_query()
 
+        assert query is not None, "BigQueryAdapter should generate a query"
         self._validate_query_structure(query, "BigQueryAdapter")
 
         cost_select = next((col for col in query.select if hasattr(col, "alias") and col.alias == "cost"), None)
@@ -975,6 +984,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         adapter = BigQueryAdapter(config=config, context=self.context)
         query = adapter.build_query()
 
+        assert query is not None, "BigQueryAdapter should generate a query"
         results = self._execute_query_and_validate(query)
 
         total_cost = sum(float(row[4] or 0) for row in results)
@@ -1007,6 +1017,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert validation_result.is_valid, f"Validation failed: {validation_result.errors}"
 
         query = adapter.build_query()
+        assert query is not None, "GoogleAdsAdapter should generate a query"
         results = self._execute_query_and_validate(query)
 
         total_cost = sum(float(row[4] or 0) for row in results)
@@ -1072,6 +1083,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert validation_result.is_valid, f"Validation failed: {validation_result.errors}"
 
         query = adapter.build_query()
+        assert query is not None, "RedditAdsAdapter should generate a query"
         results = self._execute_query_and_validate(query)
 
         total_cost = sum(float(row[4] or 0) for row in results)
