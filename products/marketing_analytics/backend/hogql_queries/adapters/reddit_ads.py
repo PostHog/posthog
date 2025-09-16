@@ -60,6 +60,15 @@ class RedditAdsAdapter(MarketingSourceAdapter[RedditAdsConfig]):
         div = ast.ArithmeticOperation(left=sum, op=ast.ArithmeticOperationOp.Div, right=ast.Constant(value=1000000))
         return ast.Call(name="toFloat", args=[div])
 
+    def _get_reported_conversion_field(self) -> ast.Expr:
+        stats_table_name = self.config.stats_table.name
+        sum_signup = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "conversion_signup_total_value"])])
+        sum_purchase = ast.Call(
+            name="SUM", args=[ast.Field(chain=[stats_table_name, "conversion_purchase_total_items"])]
+        )
+        sum = ast.ArithmeticOperation(left=sum_signup, op=ast.ArithmeticOperationOp.Add, right=sum_purchase)
+        return ast.Call(name="toFloat", args=[sum])
+
     def _get_from(self) -> ast.JoinExpr:
         """Build FROM and JOIN clauses"""
         campaign_table_name = self.config.campaign_table.name
