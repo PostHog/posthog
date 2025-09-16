@@ -44,6 +44,8 @@ export type SparklineOptions = {
     minBarHeight: number // Minimum height of a bar in the sparkline chart (in pixels)
 }
 
+const fallbackExtent = [new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), new Date()] // from -7 days ago to now
+
 export function SparklineChart({ data, events = [], options, className }: SparklineProps): JSX.Element {
     const svgRef = useRef<SVGSVGElement>(null)
     const { height: contentHeight, width: contentWidth, ref: contentRef } = useResizeObserver({ box: 'content-box' })
@@ -57,13 +59,12 @@ export function SparklineChart({ data, events = [], options, className }: Sparkl
                 throw new Error('Not enough data to render chart')
             }
 
-            const allZero = occurrences.every((d) => d.value === 0)
-            if (allZero) {
-                return
-            }
+            const hasEnoughtDataToDisplay = !occurrences.every((d) => d.value === 0)
 
             const timeDiff = Math.abs(occurrences[1].date.getTime() - occurrences[0].date.getTime())
-            const extent = d3.extent(occurrences.map((d) => d.date)) as [Date, Date]
+            const extent = hasEnoughtDataToDisplay
+                ? (d3.extent(occurrences.map((d) => d.date)) as [Date, Date])
+                : fallbackExtent
             const maxDate = new Date(extent[1])
             maxDate.setTime(extent[1].getTime() + timeDiff)
             const xTicks = d3.timeTicks(extent[0], maxDate, 8)
@@ -77,17 +78,21 @@ export function SparklineChart({ data, events = [], options, className }: Sparkl
 
             const xAxis = d3.axisBottom(xScale).tickValues(xTicks).tickSize(0).tickPadding(5)
 
+            svg.append('g')
+                .attr('transform', `translate(0,${contentHeight})`)
+                .style('color', options.axisColor)
+                .call(xAxis)
+
+            if (!hasEnoughtDataToDisplay) {
+                return
+            }
+
             svg.selectAll('g.datum')
                 .data(occurrences)
                 .enter()
                 .append('g')
                 .attr('class', 'datum')
                 .call(buildBarGroup, xScale, yScale, contentHeight, occurrences, options)
-
-            svg.append('g')
-                .attr('transform', `translate(0,${contentHeight})`)
-                .style('color', options.axisColor)
-                .call(xAxis)
 
             svg.selectAll('g.event')
                 .data(events || [])
