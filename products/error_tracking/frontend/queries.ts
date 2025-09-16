@@ -3,19 +3,12 @@ import {
     DateRange,
     ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingQuery,
+    ErrorTrackingRelationalIssue,
     EventsQuery,
-    InsightVizNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
-import {
-    AnyPropertyFilter,
-    BaseMathType,
-    ChartDisplayType,
-    ProductKey,
-    PropertyGroupFilter,
-    UniversalFiltersGroup,
-} from '~/types'
+import { HogQLQueryString, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
+import { AnyPropertyFilter, ProductKey, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
 
 import {
     ERROR_TRACKING_DETAILS_RESOLUTION,
@@ -158,43 +151,6 @@ export const errorTrackingIssueEventsQuery = ({
     return eventsQuery
 }
 
-export const errorTrackingIssueBreakdownQuery = ({
-    breakdownProperty,
-    dateRange,
-    filterTestAccounts,
-    filterGroup,
-}: {
-    breakdownProperty: string
-    dateRange: DateRange
-    filterTestAccounts: boolean
-    filterGroup: UniversalFiltersGroup
-}): InsightVizNode => {
-    return {
-        kind: NodeKind.InsightVizNode,
-        source: {
-            kind: NodeKind.TrendsQuery,
-            trendsFilter: {
-                display: ChartDisplayType.ActionsBarValue,
-            },
-            breakdownFilter: {
-                breakdown_type: 'event',
-                breakdown: breakdownProperty,
-                breakdown_limit: 10,
-            },
-            series: [
-                {
-                    kind: NodeKind.EventsNode,
-                    event: '$exception',
-                    math: BaseMathType.TotalCount,
-                },
-            ],
-            dateRange: dateRange,
-            properties: filterGroup.values as AnyPropertyFilter[],
-            filterTestAccounts,
-        },
-    }
-}
-
 export const errorTrackingIssueCorrelationQuery = ({
     events,
 }: {
@@ -205,4 +161,12 @@ export const errorTrackingIssueCorrelationQuery = ({
         events,
         tags: { productKey: ProductKey.ERROR_TRACKING },
     })
+}
+
+export const errorTrackingIssueFingerprintsQuery = (issue: ErrorTrackingRelationalIssue): HogQLQueryString => {
+    return hogql`SELECT properties.$exception_fingerprint, count(), groupUniqArray(properties.$exception_types[1]), groupUniqArray(properties.$exception_values[1])
+FROM events
+WHERE event = '$exception' and issue_id = ${issue.id} and timestamp >= toDateTime(${issue.first_seen})
+GROUP BY properties.$exception_fingerprint
+`
 }

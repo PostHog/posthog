@@ -9,12 +9,61 @@ import { ModelRow } from './providers/types'
 // Work around for new gemini models that require special cost calculations
 const SPECIAL_COST_MODELS = ['gemini-2.5-pro-preview']
 
+// Models where reasoning is charged separately as output tokens
+const REASONING_COST_MODELS = [/^gemini-2.5-/]
+
+export const AI_EVENT_TYPES = new Set([
+    '$ai_generation',
+    '$ai_embedding',
+    '$ai_span',
+    '$ai_trace',
+    '$ai_metric',
+    '$ai_feedback',
+])
+
+export const normalizeTraceProperties = (event: PluginEvent): PluginEvent => {
+    if (!event.properties) {
+        return event
+    }
+
+    // List of properties that should always be strings
+    const keys = ['$ai_trace_id', '$ai_parent_id', '$ai_span_id', '$ai_generation_id']
+
+    for (const key of keys) {
+        const value: unknown = event.properties[key]
+
+        if (value === null || value === undefined) {
+            continue
+        }
+
+        const valueType = typeof value
+
+        if (valueType === 'string' || valueType === 'number' || valueType === 'boolean' || valueType === 'bigint') {
+            event.properties[key] = String(value)
+        } else {
+            event.properties[key] = undefined
+
+            logger.warn(`Unexpected type for trace property ${key}: ${valueType}`)
+        }
+    }
+
+    return event
+}
+
 export const processAiEvent = (event: PluginEvent): PluginEvent => {
+    // First, normalize trace properties for ALL AI events
+    if (AI_EVENT_TYPES.has(event.event)) {
+        event = normalizeTraceProperties(event)
+    }
+
+    // Then continue with existing cost processing for generation/embedding
     if ((event.event !== '$ai_generation' && event.event !== '$ai_embedding') || !event.properties) {
         return event
     }
+
     event = processCost(event)
     event = extractCoreModelParams(event)
+
     return event
 }
 
@@ -54,6 +103,19 @@ const calculateInputCost = (event: PluginEvent, cost: ModelRow) => {
         const totalCacheCost = bigDecimal.add(writeCost, cacheReadCost)
         const uncachedCost = bigDecimal.multiply(cost.cost.prompt_token, inputTokens)
         return bigDecimal.add(totalCacheCost, uncachedCost)
+    } else if (event.properties['$ai_provider'] && event.properties['$ai_provider'].toLowerCase() === 'gemini') {
+        const cacheReadTokens = event.properties['$ai_cache_read_input_tokens'] || 0
+        const inputTokens = event.properties['$ai_input_tokens'] || 0
+        const regularTokens = bigDecimal.subtract(inputTokens, cacheReadTokens)
+
+        // Use actual cache read cost if available, otherwise fall back to 0.25 multiplier
+        const cacheReadCost =
+            cost.cost.cache_read_token !== undefined
+                ? bigDecimal.multiply(cost.cost.cache_read_token, cacheReadTokens)
+                : bigDecimal.multiply(bigDecimal.multiply(cost.cost.prompt_token, 0.25), cacheReadTokens)
+
+        const regularCost = bigDecimal.multiply(cost.cost.prompt_token, regularTokens)
+        return bigDecimal.add(cacheReadCost, regularCost)
     }
     return bigDecimal.multiply(cost.cost.prompt_token, event.properties['$ai_input_tokens'] || 0)
 }
@@ -62,7 +124,11 @@ const calculateOutputCost = (event: PluginEvent, cost: ModelRow) => {
     if (!event.properties) {
         return '0'
     }
-    return bigDecimal.multiply(cost.cost.completion_token, event.properties['$ai_output_tokens'] || 0)
+    let outputTokens = event.properties['$ai_output_tokens'] || 0
+    if (event.properties['$ai_reasoning_tokens'] && mustAddReasoningCost(event.properties['$ai_model'])) {
+        outputTokens = bigDecimal.add(outputTokens, event.properties['$ai_reasoning_tokens'])
+    }
+    return bigDecimal.multiply(cost.cost.completion_token, outputTokens)
 }
 
 const processCost = (event: PluginEvent) => {
@@ -208,4 +274,8 @@ const getNewModelName = (properties: Properties): string => {
         return tokenCountExceeded ? 'gemini-2.5-pro-preview:large' : 'gemini-2.5-pro-preview'
     }
     return model
+}
+
+const mustAddReasoningCost = (model: string): boolean => {
+    return REASONING_COST_MODELS.some((candidate) => candidate.test(model.toLowerCase()))
 }

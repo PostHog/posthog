@@ -136,6 +136,7 @@ class S3Table(FunctionCallTable):
     access_key: Optional[str] = None
     access_secret: Optional[str] = None
     structure: Optional[str] = None
+    table_id: Optional[str] = None
 
     def to_printed_hogql(self):
         return escape_hogql_identifier(self.name)
@@ -149,3 +150,9 @@ class S3Table(FunctionCallTable):
             structure=self.structure,
             context=context,
         )
+
+
+class DataWarehouseTable(S3Table):
+    """A table placeholder for checking warehouse tables"""
+
+    pass

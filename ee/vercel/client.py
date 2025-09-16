@@ -1,82 +1,120 @@
 import json
-from typing import Any, NotRequired, Required, TypedDict, cast
+from dataclasses import dataclass
+from typing import Any
 from urllib.parse import urlencode
 
 import requests
 import structlog
 from requests import HTTPError, RequestException, Timeout
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 logger = structlog.get_logger(__name__)
 
 
-class SSOTokenResponse(TypedDict):
-    access_token: Required[str]
-    token_type: Required[str]
-    id_token: NotRequired[str]
-    expires_in: NotRequired[int]
-    scope: NotRequired[str]
-    refresh_token: NotRequired[str]
-    error: NotRequired[str]
-    error_description: NotRequired[str]
+@dataclass
+class SSOTokenResponse:
+    access_token: str
+    token_type: str
+    id_token: str | None = None
+    scope: str | None = None
+    refresh_token: str | None = None
+    error: str | None = None
+    error_description: str | None = None
 
 
-class ExperimentationResult(TypedDict):
+@dataclass
+class APIError(Exception):
+    message: str
+    status_code: int | None = None
+    detail: str | None = None
+
+    def __str__(self) -> str:
+        return f"{self.message} (status: {self.status_code})"
+
+
+@dataclass
+class ExperimentationResult:
     success: bool
-    item_id: NotRequired[str]
-    item_count: NotRequired[int]
-    error: NotRequired[str]
-    status_code: NotRequired[int]
-    error_detail: NotRequired[str]
+    item_id: str | None = None
+    item_count: int | None = None
+    error: str | None = None
+    status_code: int | None = None
+    error_detail: str | None = None
 
 
 class VercelAPIClient:
-    def __init__(self, bearer_token: str, timeout: int = 30, base_url: str = "https://api.vercel.com/v1"):
-        if not bearer_token or not bearer_token.strip():
-            raise ValueError("Bearer token is required")
-
+    def __init__(self, bearer_token: str | None, timeout: int = 30, base_url: str = "https://api.vercel.com/v1"):
         self.bearer_token = bearer_token
         self.timeout = timeout
         self.base_url = base_url
         self.session = requests.Session()
-        self.session.headers.update({"Content-Type": "application/json", "Authorization": f"Bearer {bearer_token}"})
 
-    def _get_status_code_from_exception(self, exc: Exception) -> int | None:
-        if isinstance(exc, HTTPError) and hasattr(exc, "response") and exc.response:
-            return exc.response.status_code
-        return None
+        # Not all endpoints (Such as SSO token exchange) require authorization
+        if bearer_token and bearer_token.strip():
+            headers = {
+                "Authorization": f"Bearer {bearer_token}",
+                "Content-Type": "application/json",
+            }
+            self.session.headers.update(headers)
 
-    def _request(
-        self, method: str, url: str, operation_name: str, **kwargs
-    ) -> tuple[requests.Response | None, dict[str, Any]]:
+    @staticmethod
+    def _should_retry_request(exc: BaseException) -> bool:
+        is_transient_error = isinstance(exc, (Timeout | requests.ConnectionError))
+
+        if isinstance(exc, HTTPError):
+            has_response = exc.response is not None
+            is_server_error = has_response and exc.response.status_code >= 500
+        else:
+            is_server_error = False
+
+        return is_transient_error or is_server_error
+
+    def _parse_json_response(self, response: requests.Response) -> dict[str, Any]:
+        try:
+            return response.json()
+        except json.JSONDecodeError as e:
+            logger.exception("Failed to parse JSON response", integration="vercel")
+            raise APIError("Invalid JSON response", detail=str(e))
+
+    def _crud_operation(
+        self,
+        method: str,
+        url: str,
+        success_msg: str,
+        log_kwargs: dict[str, Any],
+        result_kwargs: dict[str, Any],
+        **request_kwargs,
+    ) -> ExperimentationResult:
+        try:
+            self._request(method, url, **request_kwargs)
+            logger.info(success_msg, integration="vercel", **log_kwargs)
+            return ExperimentationResult(success=True, **result_kwargs)
+        except APIError as e:
+            return ExperimentationResult(
+                success=False, error=e.message, status_code=e.status_code, error_detail=e.detail
+            )
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=2, max=10),
+        retry=retry_if_exception(lambda exc: VercelAPIClient._should_retry_request(exc)),
+    )
+    def _request(self, method: str, url: str, **kwargs) -> requests.Response:
         try:
             response = self.session.request(method, url, timeout=self.timeout, **kwargs)
             response.raise_for_status()
-            return response, {}
-        except Timeout:
-            logger.exception(f"Timeout occurred during {operation_name}", method=method, url=url)
-            return None, {"error": "Request timed out", "error_detail": "The request exceeded the configured timeout"}
+            return response
+        except Timeout as e:
+            logger.exception("Request timeout", method=method, url=url, integration="vercel")
+            raise APIError("Request timed out", detail=str(e))
         except HTTPError as e:
-            status_code = self._get_status_code_from_exception(e)
-            error_detail = getattr(e.response, "text", "") if hasattr(e, "response") and e.response else ""
-            logger.exception(
-                f"HTTP error occurred during {operation_name}",
-                method=method,
-                url=url,
-                status_code=status_code,
-            )
-            result = {
-                "error": "HTTP error",
-                "error_detail": error_detail[:200] if error_detail else f"HTTP {status_code or 0} error",
-            }
-            if status_code is not None:
-                result["status_code"] = status_code
-            return None, result
+            status_code = e.response.status_code if e.response else None
+            detail = e.response.text if e.response else str(e)
+            logger.exception("HTTP error", method=method, url=url, status_code=status_code, integration="vercel")
+            raise APIError("HTTP error", status_code=status_code, detail=detail)
         except RequestException as e:
-            logger.exception(f"Network error occurred during {operation_name}", method=method, url=url)
-            return None, {"error": "Network error", "error_detail": str(e)[:200]}
-        except Exception as e:
-            logger.exception(f"Unexpected error occurred during {operation_name}", method=method, url=url)
-            return None, {"error": "Unexpected error", "error_detail": str(e)[:200]}
+            logger.exception("Network error", method=method, url=url, integration="vercel")
+            raise APIError("Network error", detail=str(e))
 
     def create_experimentation_items(
         self, integration_config_id: str, resource_id: str, items: list[dict[str, Any]]
@@ -85,23 +123,14 @@ class VercelAPIClient:
             raise ValueError("items list cannot be empty")
 
         url = f"{self.base_url}/installations/{integration_config_id}/resources/{resource_id}/experimentation/items"
-
-        response, error_info = self._request(
-            "POST", url, "Vercel experimentation items creation", json={"items": items}
+        return self._crud_operation(
+            "POST",
+            url,
+            "Successfully created experimentation items",
+            {"integration_config_id": integration_config_id, "resource_id": resource_id, "item_count": len(items)},
+            {"item_count": len(items)},
+            json={"items": items},
         )
-
-        if response:
-            logger.info(
-                "Successfully created Vercel experimentation items",
-                integration_config_id=integration_config_id,
-                resource_id=resource_id,
-                item_count=len(items),
-            )
-            return {"success": True, "item_count": len(items)}
-
-        result: ExperimentationResult = {"success": False}
-        result.update(cast(ExperimentationResult, error_info))
-        return result
 
     def update_experimentation_item(
         self, integration_config_id: str, resource_id: str, item_id: str, data: dict[str, Any]
@@ -110,41 +139,53 @@ class VercelAPIClient:
             raise ValueError("data dictionary cannot be empty")
 
         url = f"{self.base_url}/installations/{integration_config_id}/resources/{resource_id}/experimentation/items/{item_id}"
-
-        response, error_info = self._request("PATCH", url, "Vercel experimentation item update", json=data)
-
-        if response:
-            logger.info(
-                "Successfully updated Vercel experimentation item",
-                integration_config_id=integration_config_id,
-                resource_id=resource_id,
-                item_id=item_id,
-            )
-            return {"success": True, "item_id": item_id}
-
-        result: ExperimentationResult = {"success": False}
-        result.update(cast(ExperimentationResult, error_info))
-        return result
+        return self._crud_operation(
+            "PATCH",
+            url,
+            "Successfully updated experimentation item",
+            {"integration_config_id": integration_config_id, "resource_id": resource_id, "item_id": item_id},
+            {"item_id": item_id},
+            json=data,
+        )
 
     def delete_experimentation_item(
         self, integration_config_id: str, resource_id: str, item_id: str
     ) -> ExperimentationResult:
         url = f"{self.base_url}/installations/{integration_config_id}/resources/{resource_id}/experimentation/items/{item_id}"
+        return self._crud_operation(
+            "DELETE",
+            url,
+            "Successfully deleted experimentation item",
+            {"integration_config_id": integration_config_id, "resource_id": resource_id, "item_id": item_id},
+            {"item_id": item_id},
+        )
 
-        response, error_info = self._request("DELETE", url, "Vercel experimentation item deletion")
-
-        if response:
-            logger.info(
-                "Successfully deleted Vercel experimentation item",
-                integration_config_id=integration_config_id,
-                resource_id=resource_id,
-                item_id=item_id,
+    def _validate_sso_response(self, json_data: dict[str, Any]) -> SSOTokenResponse:
+        """Validate and convert SSO token response."""
+        if "error" in json_data:
+            logger.warning("SSO token exchange API error", error=json_data["error"], integration="vercel")
+            return SSOTokenResponse(
+                access_token="",
+                token_type="",
+                error=json_data["error"],
+                error_description=json_data.get("error_description"),
             )
-            return {"success": True, "item_id": item_id}
 
-        result: ExperimentationResult = {"success": False}
-        result.update(cast(ExperimentationResult, error_info))
-        return result
+        # AFAIK we can miss either access_token or id_token, but not both.
+        if not json_data.get("access_token") and not json_data.get("id_token"):
+            logger.warning("SSO token exchange missing required fields", integration="vercel")
+            return SSOTokenResponse(
+                access_token="", token_type="", error="invalid_response", error_description="Missing required fields"
+            )
+
+        logger.info("Successfully exchanged SSO token", integration="vercel")
+        return SSOTokenResponse(
+            access_token=str(json_data["access_token"]),
+            token_type=str(json_data["token_type"]),
+            id_token=json_data.get("id_token"),
+            scope=json_data.get("scope"),
+            refresh_token=json_data.get("refresh_token"),
+        )
 
     def sso_token_exchange(
         self,
@@ -155,33 +196,22 @@ class VercelAPIClient:
         redirect_uri: str | None = None,
         grant_type: str = "authorization_code",
     ) -> SSOTokenResponse | None:
-        url = f"{self.base_url}/integrations/sso/token"
-
-        data = {
-            "code": code,
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "grant_type": grant_type,
-        }
-
-        if state is not None:
+        data = {"code": code, "client_id": client_id, "client_secret": client_secret, "grant_type": grant_type}
+        if state:
             data["state"] = state
-        if redirect_uri is not None:
+        if redirect_uri:
             data["redirect_uri"] = redirect_uri
 
-        response, error_info = self._request(
-            "POST",
-            url,
-            "Vercel SSO token exchange",
-            data=urlencode(data),
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-        )
+        try:
+            response = self._request(
+                "POST",
+                f"{self.base_url}/integrations/sso/token",
+                data=urlencode(data),
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            json_data = self._parse_json_response(response)
+            return self._validate_sso_response(json_data)
+        except APIError as e:
+            logger.exception("SSO token exchange failed", error=str(e), integration="vercel")
 
-        if response:
-            logger.info("Successfully exchanged Vercel SSO token", has_state=state is not None)
-            try:
-                return response.json()
-            except json.JSONDecodeError:
-                logger.exception("Failed to parse JSON response during Vercel SSO token exchange")
-
-        return None
+            return None

@@ -6,21 +6,66 @@ import { LemonButton, Popover, Tooltip } from '@posthog/lemon-ui'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
+import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
+import {
+    TaxonomicDefinitionTypes,
+    TaxonomicFilterGroupType,
+    TaxonomicFilterRenderProps,
+} from 'lib/components/TaxonomicFilter/types'
 import { universalFiltersLogic } from 'lib/components/UniversalFilters/universalFiltersLogic'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import { getFilterLabel } from '~/taxonomy/helpers'
 import { PropertyFilterType } from '~/types'
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 
-export interface ReplayTaxonomicFiltersProps {
-    onChange: (value: TaxonomicFilterValue, item?: any) => void
+export const isReplayTaxonomicFilterProperty = (x: TaxonomicDefinitionTypes): x is ReplayTaxonomicFilterProperty => {
+    return (x as ReplayTaxonomicFilterProperty).taxonomicFilterGroup !== undefined
 }
 
-export function ReplayTaxonomicFilters({ onChange }: ReplayTaxonomicFiltersProps): JSX.Element {
-    const showCommentText = useFeatureFlag('COMMENT_TEXT_FILTERING')
+export type ReplayTaxonomicFiltersProps = Pick<TaxonomicFilterRenderProps, 'onChange' | 'infiniteListLogicProps'>
+
+export interface ReplayTaxonomicFilterProperty {
+    key: string
+    name: string
+    propertyFilterType: PropertyFilterType
+    taxonomicFilterGroup: TaxonomicFilterGroupType
+}
+
+export const replayTaxonomicFiltersProperties: ReplayTaxonomicFilterProperty[] = [
+    {
+        key: 'visited_page',
+        name: getFilterLabel('visited_page', TaxonomicFilterGroupType.Replay),
+        propertyFilterType: PropertyFilterType.Recording,
+        taxonomicFilterGroup: TaxonomicFilterGroupType.Replay,
+    },
+    {
+        key: 'snapshot_source',
+        name: getFilterLabel('snapshot_source', TaxonomicFilterGroupType.Replay),
+        propertyFilterType: PropertyFilterType.Recording,
+        taxonomicFilterGroup: TaxonomicFilterGroupType.Replay,
+    },
+    {
+        key: 'level',
+        name: getFilterLabel('level', TaxonomicFilterGroupType.LogEntries),
+        propertyFilterType: PropertyFilterType.LogEntry,
+        taxonomicFilterGroup: TaxonomicFilterGroupType.LogEntries,
+    },
+    {
+        key: 'message',
+        name: getFilterLabel('message', TaxonomicFilterGroupType.LogEntries),
+        propertyFilterType: PropertyFilterType.LogEntry,
+        taxonomicFilterGroup: TaxonomicFilterGroupType.LogEntries,
+    },
+    {
+        key: 'comment_text',
+        name: getFilterLabel('comment_text', TaxonomicFilterGroupType.Replay),
+        propertyFilterType: PropertyFilterType.Recording,
+        taxonomicFilterGroup: TaxonomicFilterGroupType.Replay,
+    },
+]
+
+export function ReplayTaxonomicFilters({ onChange, infiniteListLogicProps }: ReplayTaxonomicFiltersProps): JSX.Element {
     const {
         filterGroup: { values: filters },
     } = useValues(universalFiltersLogic)
@@ -29,43 +74,19 @@ export function ReplayTaxonomicFilters({ onChange }: ReplayTaxonomicFiltersProps
         return !!filters.find((f) => f.type === PropertyFilterType.Recording && f.key === key)
     }
 
-    const properties = [
-        {
-            key: 'visited_page',
-            propertyFilterType: PropertyFilterType.Recording,
-            taxonomicFilterGroup: TaxonomicFilterGroupType.Replay,
-        },
-        {
-            key: 'snapshot_source',
-            propertyFilterType: PropertyFilterType.Recording,
-            taxonomicFilterGroup: TaxonomicFilterGroupType.Replay,
-        },
-        {
-            key: 'level',
-            propertyFilterType: PropertyFilterType.LogEntry,
-            taxonomicFilterGroup: TaxonomicFilterGroupType.LogEntries,
-        },
-        {
-            key: 'message',
-            propertyFilterType: PropertyFilterType.LogEntry,
-            taxonomicFilterGroup: TaxonomicFilterGroupType.LogEntries,
-        },
-    ]
-    if (showCommentText) {
-        properties.push({
-            key: 'comment_text',
-            propertyFilterType: PropertyFilterType.Recording,
-            taxonomicFilterGroup: TaxonomicFilterGroupType.Replay,
-        })
-    }
-
+    const theInfiniteListLogic = infiniteListLogic(infiniteListLogicProps)
+    const { items, searchQuery } = useValues(theInfiniteListLogic)
+    const shouldFilter = !!searchQuery
+    // they all already are ReplayTaxonomicFilterProperty, but TS doesn't know that
+    const propsToShow = shouldFilter
+        ? items.results.filter((x): x is ReplayTaxonomicFilterProperty => isReplayTaxonomicFilterProperty(x))
+        : replayTaxonomicFiltersProperties
     return (
         <div className="grid grid-cols-2 gap-4 px-1 pt-1.5 pb-2.5">
             <section>
                 <h5 className="mt-1 mb-0">Replay properties</h5>
                 <ul className="gap-y-px">
-                    {properties.map(({ key, taxonomicFilterGroup, propertyFilterType }) => {
-                        const label = getFilterLabel(key, taxonomicFilterGroup)
+                    {propsToShow.map(({ key, name, propertyFilterType }) => {
                         return (
                             <LemonButton
                                 key={key}
@@ -73,9 +94,9 @@ export function ReplayTaxonomicFilters({ onChange }: ReplayTaxonomicFiltersProps
                                 size="small"
                                 fullWidth
                                 onClick={() => onChange(key, { propertyFilterType: propertyFilterType })}
-                                disabledReason={hasFilter(key) ? `${label} filter already added` : undefined}
+                                disabledReason={hasFilter(key) ? `${name} filter already added` : undefined}
                             >
-                                {label}
+                                {name}
                             </LemonButton>
                         )
                     })}

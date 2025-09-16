@@ -26,6 +26,7 @@ import {
     getNiceTickValues,
     isDeltaPositive,
     isSignificant,
+    isWinning,
 } from '../shared/utils'
 import { ChartCell } from './ChartCell'
 import { DetailsButton } from './DetailsButton'
@@ -47,16 +48,16 @@ interface MetricRowGroupProps {
     result: NewExperimentQueryResponse | null
     experiment: Experiment
     metricType: InsightType
-    metricIndex: number
+    displayOrder: number
     axisRange: number
     isSecondary: boolean
     isLastMetric: boolean
     isAlternatingRow: boolean
     onDuplicateMetric?: () => void
-    canDuplicateMetric?: boolean
     error?: any
     isLoading?: boolean
     hasMinimumExposureForResults?: boolean
+    exposuresLoading?: boolean
     showDetailsModal: boolean
 }
 
@@ -65,16 +66,16 @@ export function MetricRowGroup({
     result,
     experiment,
     metricType,
-    metricIndex,
+    displayOrder,
     axisRange,
     isSecondary,
     isLastMetric,
     isAlternatingRow,
     onDuplicateMetric,
-    canDuplicateMetric,
     error,
     isLoading,
     hasMinimumExposureForResults = true,
+    exposuresLoading = false,
     showDetailsModal,
 }: MetricRowGroupProps): JSX.Element {
     const [isModalOpen, setIsModalOpen] = useState(false)
@@ -210,11 +211,10 @@ export function MetricRowGroup({
                     }}
                 >
                     <MetricHeader
-                        metricIndex={metricIndex}
+                        displayOrder={displayOrder}
                         metric={metric}
                         metricType={metricType}
                         isPrimaryMetric={!isSecondary}
-                        canDuplicateMetric={canDuplicateMetric || false}
                         onDuplicateMetricClick={() => onDuplicateMetric?.()}
                     />
                 </td>
@@ -227,7 +227,7 @@ export function MetricRowGroup({
                     }`}
                     style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                 >
-                    {isLoading ? (
+                    {isLoading || exposuresLoading ? (
                         <ChartLoadingState height={CELL_HEIGHT} />
                     ) : (
                         <ChartEmptyState
@@ -277,7 +277,7 @@ export function MetricRowGroup({
                             visibility: tooltipState.isPositioned ? 'visible' : 'hidden',
                         }}
                     >
-                        {renderTooltipContent(tooltipState.variantResult)}
+                        {renderTooltipContent(tooltipState.variantResult, metric)}
                     </div>,
                     document.body
                 )}
@@ -299,11 +299,10 @@ export function MetricRowGroup({
                     }}
                 >
                     <MetricHeader
-                        metricIndex={metricIndex}
+                        displayOrder={displayOrder}
                         metric={metric}
                         metricType={metricType}
                         isPrimaryMetric={!isSecondary}
-                        canDuplicateMetric={canDuplicateMetric || false}
                         onDuplicateMetricClick={() => onDuplicateMetric?.()}
                     />
                 </td>
@@ -363,7 +362,6 @@ export function MetricRowGroup({
                                 metric={metric}
                                 result={result}
                                 experiment={experiment}
-                                metricIndex={metricIndex}
                                 isSecondary={isSecondary}
                             />
                         </>
@@ -408,11 +406,12 @@ export function MetricRowGroup({
                 const isLastRow = index === variantResults.length - 1
                 const significant = isSignificant(variant)
                 const deltaPositive = isDeltaPositive(variant)
+                const winning = isWinning(variant, metric.goal)
                 const deltaText = formatDeltaPercent(variant)
 
                 return (
                     <tr
-                        key={`${metricIndex}-${variant.key}`}
+                        key={`${metric.uuid}-${variant.key}`}
                         className="hover:bg-bg-hover group [&:last-child>td]:border-b-0"
                         style={{ height: `${CELL_HEIGHT}px`, maxHeight: `${CELL_HEIGHT}px` }}
                         onMouseEnter={(e) => handleTooltipMouseEnter(e, variant)}
@@ -453,7 +452,7 @@ export function MetricRowGroup({
                                 <span
                                     className={`${
                                         significant
-                                            ? deltaPositive
+                                            ? winning
                                                 ? 'text-success font-semibold'
                                                 : 'text-danger font-semibold'
                                             : 'text-text-primary'
@@ -462,7 +461,7 @@ export function MetricRowGroup({
                                     {deltaText}
                                 </span>
                                 {significant && deltaPositive !== undefined && (
-                                    <span className={`flex-shrink-0 ${deltaPositive ? 'text-success' : 'text-danger'}`}>
+                                    <span className={`flex-shrink-0 ${winning ? 'text-success' : 'text-danger'}`}>
                                         {deltaPositive ? (
                                             <IconTrending className="w-4 h-4" />
                                         ) : (
@@ -476,8 +475,9 @@ export function MetricRowGroup({
                         {/* Chart */}
                         <ChartCell
                             variantResult={variant}
+                            metric={metric}
                             axisRange={axisRange}
-                            metricIndex={metricIndex}
+                            metricUuid={metric.uuid}
                             isAlternatingRow={isAlternatingRow}
                             isLastRow={isLastRow}
                             isSecondary={isSecondary}

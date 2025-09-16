@@ -48,6 +48,7 @@ function generateFrameContext(frame: ErrorTrackingStackFrame): ErrorTrackingStac
         },
         contents: frame,
         symbol_set_ref: '123123',
+        release: null,
     }
 }
 

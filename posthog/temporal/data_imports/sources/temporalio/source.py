@@ -27,7 +27,9 @@ class TemporalIOSource(BaseSource[TemporalIOSourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.TEMPORALIO
 
-    def get_schemas(self, config: TemporalIOSourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: TemporalIOSourceConfig, team_id: int, with_counts: bool = False
+    ) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,
@@ -54,6 +56,7 @@ class TemporalIOSource(BaseSource[TemporalIOSourceConfig]):
             name=SchemaExternalDataSourceType.TEMPORAL_IO,
             label="Temporal.io",
             caption="",
+            iconPath="/static/services/temporal.png",
             fields=cast(
                 list[FieldType],
                 [

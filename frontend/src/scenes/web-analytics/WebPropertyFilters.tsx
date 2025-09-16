@@ -39,6 +39,8 @@ export const WebPropertyFilters = (): JSX.Element => {
                   '$geoip_subdivision_1_name',
                   '$geoip_time_zone',
                   '$pathname',
+                  'metadata.loggedIn',
+                  'metadata.backend',
               ],
               [TaxonomicFilterGroupType.SessionProperties]: [
                   '$entry_pathname',

@@ -5,6 +5,7 @@ import { router, urlToAction } from 'kea-router'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { sum, toParams } from 'lib/utils'
@@ -1000,11 +1001,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         submitFeatureFlagFailure: async () => {
-            // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
-            setTimeout(
-                () => document.querySelector(`.Field--error`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }),
-                1
-            )
+            scrollToFormError()
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
@@ -1349,12 +1346,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
     }),
-    urlToAction(({ actions, props }) => ({
-        [urls.featureFlag(props.id ?? 'new')]: (_, __, ___, { method }) => {
+    urlToAction(({ actions, props, values }) => ({
+        [urls.featureFlag(props.id ?? 'new')]: (_, searchParams, ___, { method }) => {
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
             if (method === 'PUSH') {
                 if (props.id) {
+                    // When there is sourceId, we load the feature flag
+                    if (props.id === 'new' && searchParams.sourceId != null) {
+                        actions.loadFeatureFlag()
+                        return
+                    }
+                    // When pushing to `/new` and the feature flag has no id, do not load the flag again
+                    if (props.id === 'new' && values.featureFlag.id == null) {
+                        return
+                    }
                     actions.loadFeatureFlag()
                 } else {
                     actions.resetFeatureFlag()

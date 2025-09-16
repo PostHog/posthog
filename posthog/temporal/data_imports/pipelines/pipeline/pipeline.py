@@ -188,7 +188,11 @@ class PipelineNonDLT:
                 # Only raise if we're not running in descending order, otherwise we'll often not
                 # complete the job before the incremental value can be updated
                 # TODO: raise when we're within `x` time of the worker being forced to shutdown
-                if self._schema.should_use_incremental_field and self._resource.sort_mode != "desc":
+                if (
+                    self._schema.should_use_incremental_field
+                    and self._resource.sort_mode != "desc"
+                    and not self._reset_pipeline  # Raising during a full reset will reset our progress back to 0 rows
+                ):
                     self._shutdown_monitor.raise_if_is_worker_shutdown()
 
             if len(buffer) > 0:
@@ -415,7 +419,7 @@ def _notify_revenue_analytics_that_sync_has_completed(schema: ExternalDataSchema
         if (
             schema.name == STRIPE_CHARGE_RESOURCE_NAME
             and schema.source.source_type == ExternalDataSourceType.STRIPE
-            and schema.source.revenue_analytics_enabled
+            and schema.source.revenue_analytics_config.enabled
             and not schema.team.revenue_analytics_config.notified_first_sync
         ):
             # For every admin in the org, send a revenue analytics ready event

@@ -12,11 +12,15 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
@@ -27,12 +31,14 @@ import { LLMAnalyticsPlaygroundScene } from './LLMAnalyticsPlaygroundScene'
 import { LLMAnalyticsReloadAction } from './LLMAnalyticsReloadAction'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
+import { LLMAnalyticsDatasetsScene } from './datasets/LLMAnalyticsDatasetsScene'
 import { LLM_ANALYTICS_DATA_COLLECTION_NODE_ID, llmAnalyticsLogic } from './llmAnalyticsLogic'
 import { CompatMessage } from './types'
-import { normalizeMessages } from './utils'
+import { normalizeMessages, truncateValue } from './utils'
 
 export const scene: SceneExport = {
     component: LLMAnalyticsScene,
+    logic: llmAnalyticsLogic,
 }
 
 const Filters = (): JSX.Element => {
@@ -67,10 +73,12 @@ const Tiles = (): JSX.Element => {
             {tiles.map(({ title, description, query, context }, i) => (
                 <QueryCard
                     key={i}
+                    attachTo={llmAnalyticsLogic}
                     title={title}
                     description={description}
                     query={{ kind: NodeKind.InsightVizNode, source: query } as InsightVizNode}
                     context={context}
+                    sceneSource="llm-analytics"
                     className={clsx(
                         'h-96',
                         /* Second row is the only one to have 2 tiles in the xl layout */
@@ -84,7 +92,7 @@ const Tiles = (): JSX.Element => {
 
 const IngestionStatusCheck = (): JSX.Element | null => {
     return (
-        <LemonBanner type="warning" className="mt-2">
+        <LemonBanner type="warning">
             <p>
                 <strong>No LLM generation events have been detected!</strong>
             </p>
@@ -115,7 +123,10 @@ function LLMAnalyticsGenerations(): JSX.Element {
 
     return (
         <DataTable
-            query={generationsQuery}
+            query={{
+                ...generationsQuery,
+                showSavedFilters: true,
+            }}
             setQuery={(query) => {
                 if (!isEventsQuery(query.source)) {
                     throw new Error('Invalid query')
@@ -142,8 +153,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                                 return <></>
                             }
 
-                            const visualValue: string =
-                                (value as string).slice(0, 4) + '...' + (value as string).slice(-4)
+                            const visualValue = truncateValue(value)
 
                             if (!traceId) {
                                 return <strong>{visualValue}</strong>
@@ -212,8 +222,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
                                 return <></>
                             }
 
-                            const visualValue: string =
-                                (value as string).slice(0, 4) + '...' + (value as string).slice(-4)
+                            const visualValue = truncateValue(value)
 
                             return (
                                 <Tooltip title={value as string}>
@@ -250,6 +259,8 @@ export function LLMAnalyticsScene(): JSX.Element {
     const { activeTab, hasSentAiGenerationEvent, hasSentAiGenerationEventLoading } = useValues(llmAnalyticsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
+
+    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const tabs: LemonTab<string>[] = [
         {
@@ -294,6 +305,23 @@ export function LLMAnalyticsScene(): JSX.Element {
         })
     }
 
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]) {
+        tabs.push({
+            key: 'datasets',
+            label: (
+                <>
+                    Datasets{' '}
+                    <LemonTag className="ml-1" type="warning">
+                        Beta
+                    </LemonTag>
+                </>
+            ),
+            content: <LLMAnalyticsDatasetsScene />,
+            link: combineUrl(urls.llmAnalyticsDatasets(), searchParams).url,
+            'data-attr': 'datasets-tab',
+        })
+    }
+
     return (
         <BindLogic logic={dataNodeCollectionLogic} props={{ key: LLM_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
             <PageHeader
@@ -310,8 +338,24 @@ export function LLMAnalyticsScene(): JSX.Element {
                 }
             />
 
-            {!hasSentAiGenerationEventLoading && !hasSentAiGenerationEvent && <IngestionStatusCheck />}
-            <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} />
+            <SceneContent>
+                {!hasSentAiGenerationEventLoading && !hasSentAiGenerationEvent && <IngestionStatusCheck />}
+                <SceneTitleSection
+                    name="LLM Analytics"
+                    description="Analyze and understand your LLM usage and performance."
+                    resourceType={{
+                        type: 'llm_analytics',
+                    }}
+                />
+                <SceneDivider />
+
+                <LemonTabs
+                    activeKey={activeTab}
+                    data-attr="llm-analytics-tabs"
+                    tabs={tabs}
+                    sceneInset={newSceneLayout}
+                />
+            </SceneContent>
         </BindLogic>
     )
 }

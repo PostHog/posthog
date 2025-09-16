@@ -28,7 +28,7 @@ class ChargebeeSource(BaseSource[ChargebeeSourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CHARGEBEE
 
-    def get_schemas(self, config: ChargebeeSourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(self, config: ChargebeeSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,
@@ -69,6 +69,7 @@ class ChargebeeSource(BaseSource[ChargebeeSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.CHARGEBEE,
             caption="",
+            iconPath="/static/services/chargebee.png",
             fields=cast(
                 list[FieldType],
                 [

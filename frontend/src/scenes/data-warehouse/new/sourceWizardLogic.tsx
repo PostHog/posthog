@@ -25,8 +25,6 @@ import {
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSyncSchema,
     ManualLinkSourceType,
-    PipelineStage,
-    PipelineTab,
     ProductKey,
     manualLinkSources,
 } from '~/types'
@@ -181,6 +179,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     props({} as SourceWizardLogicProps),
     actions({
         selectConnector: (connector: SourceConfig | null) => ({ connector }),
+        setInitialConnector: (connector: SourceConfig | null) => ({ connector }),
         toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
         handleRedirect: (source: ExternalDataSourceType, searchParams?: any) => ({ source, searchParams }),
         onClear: true,
@@ -247,6 +246,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             null as SourceConfig | null,
             {
                 selectConnector: (_, { connector }) => connector,
+                setInitialConnector: (_, { connector }) => connector,
             },
         ],
         isManualLinkFormVisible: [
@@ -262,6 +262,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 onBack: (state) => state - 1,
                 onClear: () => 1,
                 setStep: (_, { step }) => step,
+                setInitialConnector: () => 2,
             },
         ],
         databaseSchema: [
@@ -356,14 +357,14 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             (selectedConnector, manualLinkingProvider, manualConnectors): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.Pipeline,
+                        key: Scene.DataPipelines,
                         name: 'Data pipelines',
-                        path: urls.pipeline(PipelineTab.Overview),
+                        path: urls.dataPipelines('overview'),
                     },
                     {
-                        key: [Scene.Pipeline, 'sources'],
+                        key: [Scene.DataPipelines, 'sources'],
                         name: `Sources`,
-                        path: urls.pipeline(PipelineTab.Sources),
+                        path: urls.dataPipelines('sources'),
                     },
                     {
                         key: Scene.DataWarehouseSource,
@@ -478,20 +479,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 return ''
             },
         ],
-        modalCaption: [
-            (s) => [s.selectedConnector, s.currentStep, s.availableSources],
-            (selectedConnector, currentStep, availableSources) => {
-                if (currentStep === 2 && selectedConnector) {
-                    return availableSources[selectedConnector.name]?.caption
-                }
-
-                if (currentStep === 4) {
-                    return "Sit tight as we import your data! After it's done, you will be able to query it in PostHog."
-                }
-
-                return ''
-            },
-        ],
         // determines if the wizard is wrapped in another component
         isWrapped: [() => [(_, props) => props.onComplete], (onComplete) => !!onComplete],
     }),
@@ -554,7 +541,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         },
         closeWizard: () => {
             actions.cancelWizard()
-            router.actions.push(urls.pipeline(PipelineTab.Sources))
+            router.actions.push(urls.dataPipelines('sources'))
         },
         cancelWizard: () => {
             actions.onClear()
@@ -661,7 +648,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
         return {
             [urls.dataWarehouseSourceNew()]: handleUrlChange,
-            [urls.pipelineNodeNew(PipelineStage.Source)]: handleUrlChange,
         }
     }),
 

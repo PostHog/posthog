@@ -9,6 +9,7 @@ from django.db import connection, models, transaction
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database, create_hogql_database
+from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import extract_select_queries
@@ -16,7 +17,6 @@ from posthog.hogql.resolver_utils import extract_select_queries
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, uuid7
-from posthog.warehouse.models import S3Table
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from posthog.warehouse.models.table import DataWarehouseTable
 
@@ -135,7 +135,12 @@ def get_parents_from_model_query(model_query: str) -> set[str]:
                 queries.extend(list(extract_select_queries(join.table)))
                 break
 
-            parent_name = join.table.chain[0]  # type: ignore
+            if isinstance(join.table, ast.Placeholder):
+                parent_name = join.table.field
+            elif isinstance(join.table, ast.Field):
+                parent_name = ".".join(str(s) for s in join.table.chain)
+            else:
+                raise ValueError(f"No handler for {join.table.__class__.__name__} in get_parents_from_model_query")
 
             if parent_name not in ctes and isinstance(parent_name, str):
                 parents.add(parent_name)
@@ -370,10 +375,18 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
 
             try:
                 table = self.get_hogql_database(team).get_table(parent)
-                if not isinstance(table, S3Table):
+                if not isinstance(table, HogQLDataWarehouseTable):
                     raise ObjectDoesNotExist()
 
-                parent_table = DataWarehouseTable.objects.exclude(deleted=True).filter(team=team, name=table.name).get()
+                if table.table_id:
+                    parent_table = (
+                        DataWarehouseTable.objects.exclude(deleted=True).filter(team=team, id=table.table_id).get()
+                    )
+                else:
+                    parent_table = (
+                        DataWarehouseTable.objects.exclude(deleted=True).filter(team=team, name=table.name).get()
+                    )
+
             except (ObjectDoesNotExist, QueryError):
                 pass
             else:

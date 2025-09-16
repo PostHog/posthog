@@ -127,7 +127,7 @@ class FindGroupSerializer(GroupSerializer):
         fields = [*GroupSerializer.Meta.fields, "notebook"]
 
     def get_notebook(self, obj: Group) -> str | None:
-        notebooks = obj.notebooks.first()
+        notebooks = ResourceNotebook.objects.filter(group=obj.id).first()
         return notebooks.notebook.short_id if notebooks else None
 
 
@@ -319,8 +319,11 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def find(self, request: request.Request, **kw) -> response.Response:
         try:
-            group = self.get_queryset().prefetch_related("notebooks__notebook").get(group_key=request.GET["group_key"])
-            if self._is_crm_enabled(cast(User, request.user)) and not group.notebooks.exists():
+            group = self.get_queryset().get(group_key=request.GET["group_key"])
+            if (
+                self._is_crm_enabled(cast(User, request.user))
+                and not ResourceNotebook.objects.filter(group=group.id).exists()
+            ):
                 try:
                     self._create_notebook_for_group(group=group)
                 except IntegrityError as e:
@@ -670,7 +673,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             content=notebook_content,
             visibility=Notebook.Visibility.INTERNAL,
         )
-        ResourceNotebook.objects.create(notebook=notebook, group=group)
+        ResourceNotebook.objects.create(notebook=notebook, group=group.id)
 
 
 class GroupUsageMetricSerializer(serializers.ModelSerializer):

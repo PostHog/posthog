@@ -10,6 +10,8 @@ from dateutil import parser
 from django_deprecate_fields import deprecate_field
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
+from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.team import Team
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
@@ -24,7 +26,7 @@ from posthog.warehouse.s3 import get_s3_client
 from posthog.warehouse.types import IncrementalFieldType
 
 
-class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
+class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
         PAUSED = "Paused", "Paused"
@@ -251,8 +253,11 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     def delete_table(self):
         if self.table is not None:
-            client = get_s3_client()
-            client.delete(f"{settings.BUCKET_URL}/{self.folder_path()}", recursive=True)
+            try:
+                client = get_s3_client()
+                client.delete(f"{settings.BUCKET_URL}/{self.folder_path()}", recursive=True)
+            except Exception as e:
+                capture_exception(e)
 
             self.table.soft_delete()
             self.table_id = None
@@ -290,11 +295,6 @@ def get_schema_if_exists(schema_name: str, team_id: int, source_id: uuid.UUID) -
         .first()
     )
     return schema
-
-
-@database_sync_to_async
-def aget_schema_if_exists(schema_name: str, team_id: int, source_id: uuid.UUID) -> ExternalDataSchema | None:
-    return get_schema_if_exists(schema_name=schema_name, team_id=team_id, source_id=source_id)
 
 
 @database_sync_to_async

@@ -22,6 +22,7 @@ import { PlayerFrame } from './PlayerFrame'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 import { PlayerSidebar } from './PlayerSidebar'
 import { SessionRecordingNextConfirmation } from './SessionRecordingNextConfirmation'
+import { ClipOverlay } from './controller/ClipRecording'
 import { PlayerController } from './controller/PlayerController'
 import { PlayerMeta } from './player-meta/PlayerMeta'
 import { playerSettingsLogic } from './playerSettingsLogic'
@@ -34,6 +35,8 @@ import {
     sessionRecordingPlayerLogic,
 } from './sessionRecordingPlayerLogic'
 import { SessionRecordingPlayerExplorer } from './view-explorer/SessionRecordingPlayerExplorer'
+
+const MAX_PLAYBACK_SPEED = 4
 
 export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogicProps {
     noMeta?: boolean
@@ -92,16 +95,27 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         seekBackward,
         seekForward,
         setSpeed,
+        setSkipInactivitySetting,
         closeExplorer,
     } = useActions(sessionRecordingPlayerLogic(logicProps))
     const { isNotFound, isRecentAndInvalid, isLikelyPastTTL } = useValues(sessionRecordingDataLogic(logicProps))
     const { loadSnapshots } = useActions(sessionRecordingDataLogic(logicProps))
-    const { isFullScreen, explorerMode, isBuffering, isCommenting } = useValues(sessionRecordingPlayerLogic(logicProps))
-    const { setPlayNextAnimationInterrupted, setIsCommenting } = useActions(sessionRecordingPlayerLogic(logicProps))
+    const { isFullScreen, explorerMode, isBuffering, isCommenting, quickEmojiIsOpen, showingClipParams, resolution } =
+        useValues(sessionRecordingPlayerLogic(logicProps))
+    const {
+        setPlayNextAnimationInterrupted,
+        setIsCommenting,
+        takeScreenshot,
+        setQuickEmojiIsOpen,
+        setShowingClipParams,
+    } = useActions(sessionRecordingPlayerLogic(logicProps))
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
-    const { isVerticallyStacked, sidebarOpen } = useValues(playerSettingsLogic)
+    const { isVerticallyStacked, sidebarOpen, isCinemaMode } = useValues(playerSettingsLogic)
+    const { setIsCinemaMode } = useActions(playerSettingsLogic)
 
-    const isScreenshotMode = mode === SessionRecordingPlayerMode.Screenshot
+    // For export modes, we don't want to show the player elements
+    const hidePlayerElements =
+        mode === SessionRecordingPlayerMode.Screenshot || mode === SessionRecordingPlayerMode.Video
 
     useEffect(
         () => {
@@ -115,6 +129,21 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [isLikelyPastTTL]
     )
+
+    /**
+     * If it's screenshot or video mode, we want to disable inactivity skipping.
+     * For video, we also want to speed up the playback.
+     */
+    useEffect(() => {
+        if (hidePlayerElements) {
+            setSkipInactivitySetting(false)
+        }
+
+        if (mode === SessionRecordingPlayerMode.Video) {
+            // Not the maximum, but 4 for a balance between speed and quality
+            setSpeed(MAX_PLAYBACK_SPEED)
+        }
+    }, [mode, setSkipInactivitySetting, setSpeed, hidePlayerElements, resolution])
 
     useEffect(
         () => {
@@ -136,6 +165,18 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
             },
             c: {
                 action: () => setIsCommenting(!isCommenting),
+            },
+            e: {
+                action: () => setQuickEmojiIsOpen(!quickEmojiIsOpen),
+            },
+            s: {
+                action: () => takeScreenshot(),
+            },
+            x: {
+                action: () => setShowingClipParams(!showingClipParams),
+            },
+            t: {
+                action: () => setIsCinemaMode(!isCinemaMode),
             },
             space: {
                 action: () => togglePlayPause(),
@@ -257,21 +298,22 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                 ) : (
                                     <div className="flex w-full h-full">
                                         <div className="flex flex-col flex-1 w-full">
-                                            {isScreenshotMode || (noMeta && !isFullScreen) ? null : <PlayerMeta />}
+                                            {hidePlayerElements || (noMeta && !isFullScreen) ? null : <PlayerMeta />}
                                             <div
                                                 className="SessionRecordingPlayer__body"
                                                 draggable={draggable}
                                                 {...elementProps}
                                             >
                                                 <PlayerFrame />
-                                                {!isScreenshotMode ? (
+                                                {!hidePlayerElements ? (
                                                     <>
                                                         <PlayerFrameOverlay />
                                                         <PlayerFrameCommentOverlay />
+                                                        <ClipOverlay />
                                                     </>
                                                 ) : null}
                                             </div>
-                                            {!isScreenshotMode ? <PlayerController /> : null}
+                                            {!hidePlayerElements ? <PlayerController /> : null}
                                         </div>
                                     </div>
                                 )}
