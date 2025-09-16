@@ -71,6 +71,11 @@ export type LemonInputSelectProps<T = string> = Pick<
     disableCommaSplitting?: boolean
     action?: LemonInputSelectAction
     virtualized?: boolean
+    /**
+     * If true, selecting an option in single-select mode will keep any parent Popover open
+     * by not stopping event propagation on option click.
+     */
+    keepParentPopoverOpenOnClick?: boolean
 }
 
 export function LemonInputSelect<T = string>({
@@ -103,6 +108,7 @@ export function LemonInputSelect<T = string>({
     disableCommaSplitting = false,
     action,
     virtualized = false,
+    keepParentPopoverOpenOnClick = false,
 }: LemonInputSelectProps<T>): JSX.Element {
     const [showPopover, setShowPopover] = useState(false)
     const [inputValue, _setInputValue] = useState('')
@@ -354,8 +360,15 @@ export function LemonInputSelect<T = string>({
         if (mode === 'single') {
             setShowPopover(false)
             popoverFocusRef.current = false
-            // Prevent propagating to Popover's onClickInside, which would set popoverFocusRef.current back to true
-            popoverOptionClickEvent?.stopPropagation()
+            if (!keepParentPopoverOpenOnClick) {
+                // Default behavior: prevent bubbling so parent popover logic doesn't interfere
+                popoverOptionClickEvent?.stopPropagation()
+            } else {
+                // Let the click bubble so the parent popover treats this as an inside click and stays open
+                setTimeout(() => {
+                    popoverFocusRef.current = false
+                }, 0)
+            }
         }
 
         if (stringKeys.includes(item)) {

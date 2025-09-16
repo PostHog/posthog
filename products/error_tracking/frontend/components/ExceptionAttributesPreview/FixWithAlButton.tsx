@@ -120,6 +120,7 @@ export function FixWithAIPopoverContent({
                                 integrationId={integrationId}
                                 value={repository}
                                 onChange={(value) => setRepository(value || '')}
+                                keepParentPopoverOpenOnClick={true}
                             />
                         </div>
                     )}

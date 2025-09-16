@@ -11,12 +11,14 @@ export type GitHubRepositoryPickerProps = {
     integrationId: number
     value: string
     onChange: (value: string) => void
+    keepParentPopoverOpenOnClick?: boolean
 }
 
 export const GitHubRepositoryPicker = ({
     value,
     onChange,
     integrationId,
+    keepParentPopoverOpenOnClick,
 }: GitHubRepositoryPickerProps): JSX.Element => {
     const { options, loading } = useRepositories(integrationId)
 
@@ -29,6 +31,8 @@ export const GitHubRepositoryPicker = ({
             placeholder="Select a repository..."
             options={options}
             loading={loading}
+            virtualized
+            keepParentPopoverOpenOnClick={keepParentPopoverOpenOnClick}
         />
     )
 }
