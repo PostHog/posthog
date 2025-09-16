@@ -784,6 +784,7 @@
                 "find_error_tracking_impactful_issue_event_list",
                 "experiment_results_summary",
                 "create_survey",
+                "analyze_survey_responses",
                 "search_docs",
                 "search_insights",
                 "session_summarization"
@@ -23855,6 +23856,53 @@
                 }
             },
             "required": ["questions"],
+            "type": "object"
+        },
+        "SurveyAnalysisQuestionGroup": {
+            "additionalProperties": false,
+            "properties": {
+                "questionId": {
+                    "default": "unknown",
+                    "description": "Question identifier",
+                    "type": "string"
+                },
+                "questionName": {
+                    "default": "Unknown question",
+                    "description": "Question text",
+                    "type": "string"
+                },
+                "responses": {
+                    "default": [],
+                    "description": "List of responses for this question",
+                    "items": {
+                        "$ref": "#/definitions/SurveyAnalysisResponseItem"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["questionName", "questionId", "responses"],
+            "type": "object"
+        },
+        "SurveyAnalysisResponseItem": {
+            "additionalProperties": false,
+            "properties": {
+                "isOpenEnded": {
+                    "default": true,
+                    "description": "Whether this is an open-ended response",
+                    "type": "boolean"
+                },
+                "responseText": {
+                    "default": "",
+                    "description": "The response text content",
+                    "type": "string"
+                },
+                "timestamp": {
+                    "default": "",
+                    "description": "Response timestamp",
+                    "type": "string"
+                }
+            },
+            "required": ["responseText", "timestamp", "isOpenEnded"],
             "type": "object"
         },
         "SurveyAppearanceSchema": {
