@@ -12,6 +12,7 @@ import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { AlertType } from 'lib/components/Alerts/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import {
     BIN_COUNT_AUTO,
     DashboardPrivilegeLevel,
@@ -642,6 +643,7 @@ export interface TeamType extends TeamBasicType {
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
     web_analytics_pre_aggregated_tables_enabled?: boolean
+    web_analytics_pre_aggregated_tables_version?: 'v1' | 'v2'
     autocapture_exceptions_errors_to_ignore: string[]
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
@@ -1289,6 +1291,7 @@ export type EntityFilter = {
     custom_name?: string | null
     index?: number
     order?: number
+    optionalInFunnel?: boolean
 }
 
 export interface ActionFilter extends EntityFilter {
@@ -4382,7 +4385,21 @@ export interface ReplayExportContext {
     mode?: SessionRecordingPlayerMode
 }
 
-export type ExportContext = OnlineExportContext | LocalExportContext | QueryExportContext | ReplayExportContext
+export interface HeatmapExportContext {
+    heatmap_url: string
+    filename?: string
+    heatmap_filters?: HeatmapFilters
+    heatmap_color_palette?: string | null
+    heatmap_fixed_position_mode?: HeatmapFixedPositionMode
+    common_filters?: CommonFilters
+}
+
+export type ExportContext =
+    | OnlineExportContext
+    | LocalExportContext
+    | QueryExportContext
+    | ReplayExportContext
+    | HeatmapExportContext
 
 export interface ExportedAssetType {
     id: number
@@ -4813,6 +4830,7 @@ export enum ExternalDataJobStatus {
 export interface ExternalDataJob {
     id: string
     created_at: string
+    finished_at: string
     status: ExternalDataJobStatus
     schema: SimpleExternalDataSourceSchema
     rows_synced: number
@@ -5375,6 +5393,8 @@ export type HogFunctionTemplateType = Pick<
     description?: string | JSX.Element
     code: string
     code_language: 'javascript' | 'hog'
+    /** Whether the template should be conditionally rendered based on a feature flag */
+    flag?: string
 }
 
 export type HogFunctionTemplateWithSubTemplateType = HogFunctionTemplateType & {

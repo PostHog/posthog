@@ -1971,9 +1971,10 @@ const api = {
         },
 
         async list(
-            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId(),
+            params: Record<string, any> = {}
         ): Promise<PaginatedResponse<ExportedAssetType>> {
-            return new ApiRequest().exports(teamId).get()
+            return new ApiRequest().exports(teamId).withQueryString(toParams(params)).get()
         },
 
         async get(id: number, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<ExportedAssetType> {
@@ -3633,16 +3634,6 @@ const api = {
         },
         async delete_data(schemaId: ExternalDataSourceSchema['id']): Promise<SchemaIncrementalFieldsResponse> {
             return await new ApiRequest().externalDataSourceSchema(schemaId).withAction('delete_data').delete()
-        },
-        async logs(
-            schemaId: ExternalDataSourceSchema['id'],
-            params: LogEntryRequestParams = {}
-        ): Promise<PaginatedResponse<LogEntry>> {
-            return await new ApiRequest()
-                .externalDataSourceSchema(schemaId)
-                .withAction('logs')
-                .withQueryString(params)
-                .get()
         },
     },
     fixHogQLErrors: {

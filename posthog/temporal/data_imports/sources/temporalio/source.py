@@ -56,6 +56,7 @@ class TemporalIOSource(BaseSource[TemporalIOSourceConfig]):
             name=SchemaExternalDataSourceType.TEMPORAL_IO,
             label="Temporal.io",
             caption="",
+            iconPath="/static/services/temporal.png",
             fields=cast(
                 list[FieldType],
                 [
