@@ -150,13 +150,12 @@ def validate_snapshot_schema(
 ) -> None:
     """
 
-    Validates the schemas of data that has been synced by saved query.
-    If the schemas are valid, it creates or updates the DataWarehouseTable model with the new url pattern.
+    Validates the schemas of data that has been synced from saved query snapshot.
+    If the schemas are valid, it creates or updates the DataWarehouseTable model with the new url pattern and columns.
 
     Arguments:
-        run_id: The id of the saved query
         team_id: The id of the team
-        saved_query_id: The id of the saved query
+        saved_query_id: The id of the saved query being snapshot
     """
 
     credential = get_or_create_datawarehouse_credential(
