@@ -1,1 +1,1 @@
-0849_duplicate_warehouse_tables
+0856_add_web_analytics_tables_version

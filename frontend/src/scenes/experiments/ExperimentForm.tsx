@@ -28,6 +28,7 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
+import { FeatureFlagFiltersSection } from 'scenes/feature-flags/FeatureFlagFilters'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -85,20 +86,7 @@ const ExperimentFormFields = (): JSX.Element => {
             )}
             {!newSceneLayout && (
                 <LemonField name="name" label="Name" className="max-w-120">
-                    <LemonInput
-                        placeholder="Pricing page conversion"
-                        data-attr="experiment-name"
-                        onBlur={() => {
-                            // bail if feature flag key is already set
-                            if (experiment.feature_flag_key) {
-                                return
-                            }
-
-                            setExperiment({
-                                feature_flag_key: generateFeatureFlagKey(experiment.name, unavailableFeatureFlagKeys),
-                            })
-                        }}
-                    />
+                    <LemonInput placeholder="Pricing page conversion" data-attr="experiment-name" />
                 </LemonField>
             )}
 
@@ -128,7 +116,21 @@ const ExperimentFormFields = (): JSX.Element => {
                         </div>
                     }
                 >
-                    <LemonInput placeholder="pricing-page-conversion" data-attr="experiment-feature-flag-key" />
+                    <LemonInput
+                        placeholder="pricing-page-conversion"
+                        data-attr="experiment-feature-flag-key"
+                        onFocus={() => {
+                            // Auto-generate feature flag key from experiment name when focusing on empty field
+                            if (!experiment.feature_flag_key && experiment.name) {
+                                setExperiment({
+                                    feature_flag_key: generateFeatureFlagKey(
+                                        experiment.name,
+                                        unavailableFeatureFlagKeys
+                                    ),
+                                })
+                            }
+                        }}
+                    />
                 </LemonField>
             </SceneSection>
 
@@ -510,18 +512,43 @@ const SelectExistingFeatureFlagModal = ({
     onClose: () => void
     onSelect: (flag: FeatureFlagType) => void
 }): JSX.Element => {
-    const { featureFlags } = useValues(experimentsLogic)
+    const {
+        featureFlagModalFeatureFlags,
+        featureFlagModalFeatureFlagsLoading,
+        featureFlagModalFilters,
+        featureFlagModalPagination,
+    } = useValues(experimentsLogic)
+    const { setFeatureFlagModalFilters, resetFeatureFlagModalFilters } = useActions(experimentsLogic)
+
+    const handleClose = (): void => {
+        resetFeatureFlagModalFilters()
+        onClose()
+    }
+
+    const filtersSection = (
+        <div className="mb-4">
+            <FeatureFlagFiltersSection
+                filters={featureFlagModalFilters}
+                setFeatureFlagsFilters={setFeatureFlagModalFilters}
+                searchPlaceholder="Search for feature flags"
+                filtersConfig={{ search: true, type: true }}
+            />
+        </div>
+    )
 
     return (
-        <LemonModal isOpen={isOpen} onClose={onClose} title="Choose an existing feature flag">
+        <LemonModal isOpen={isOpen} onClose={handleClose} title="Choose an existing feature flag">
             <div className="deprecated-space-y-2">
                 <div className="text-muted mb-2 max-w-xl">
                     Select an existing feature flag to use with this experiment. The feature flag must use multiple
                     variants with <code>'control'</code> as the first, and not be associated with an existing
                     experiment.
                 </div>
+                {filtersSection}
                 <LemonTable
-                    dataSource={featureFlags.results}
+                    id="ff"
+                    dataSource={featureFlagModalFeatureFlags.results}
+                    loading={featureFlagModalFeatureFlagsLoading}
                     useURLForSorting={false}
                     columns={[
                         {
@@ -562,7 +589,7 @@ const SelectExistingFeatureFlagModal = ({
                                         disabledReason={disabledReason}
                                         onClick={() => {
                                             onSelect(flag)
-                                            onClose()
+                                            handleClose()
                                         }}
                                     >
                                         Select
@@ -571,6 +598,16 @@ const SelectExistingFeatureFlagModal = ({
                             },
                         },
                     ]}
+                    emptyState="No feature flags match these filters."
+                    pagination={featureFlagModalPagination}
+                    onSort={(newSorting) =>
+                        setFeatureFlagModalFilters({
+                            order: newSorting
+                                ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                : undefined,
+                            page: 1,
+                        })
+                    }
                 />
             </div>
         </LemonModal>

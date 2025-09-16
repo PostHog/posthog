@@ -43,8 +43,8 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                         id: `managed-${connector.name}`,
                         type: 'source',
                         name: connector.name,
-                        icon_url: DATA_WAREHOUSE_SOURCE_ICON_MAP[connector.name],
-                        status: connector.unreleasedSource ? 'coming_soon' : 'stable',
+                        icon_url: connector.iconPath,
+                        status: connector.unreleasedSource ? 'coming_soon' : connector.betaSource ? 'beta' : 'stable',
                         description: (
                             <>
                                 Data will be synced to PostHog and regularly refreshed.{' '}
@@ -57,6 +57,7 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                         filters: null,
                         masking: null,
                         free: true,
+                        flag: connector.featureFlag,
                     })
                 )
 
