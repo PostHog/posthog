@@ -34,6 +34,7 @@ export function SceneActions({ className }: { className?: string }): JSX.Element
                                   ? 'Force close Info & actions panel'
                                   : 'Close Info & actions panel'
                         }
+                        data-attr="info-actions-panel"
                         aria-label={
                             !scenePanelOpen
                                 ? 'Open Info & actions panel'
