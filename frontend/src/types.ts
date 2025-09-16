@@ -67,6 +67,7 @@ import type {
     RecordingsQuery,
     RevenueAnalyticsConfig,
     SharingConfigurationSettings,
+    TileFilters,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
@@ -2044,6 +2045,7 @@ export interface DashboardTile<T = InsightModel> extends Tileable {
         type: string
         message: string
     }
+    filters_overrides?: TileFilters
 }
 
 export interface DashboardTileBasicType {

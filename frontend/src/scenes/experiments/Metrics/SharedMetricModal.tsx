@@ -4,7 +4,6 @@ import { useState } from 'react'
 import { LemonBanner, LemonButton, LemonLabel, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
@@ -35,7 +34,6 @@ export function SharedMetricModal({
     } = useActions(experimentLogic({ experimentId }))
     const { closePrimarySharedMetricModal, closeSecondarySharedMetricModal } = useActions(modalsLogic)
     const { isPrimarySharedMetricModalOpen, isSecondarySharedMetricModalOpen } = useValues(modalsLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     const [selectedMetricIds, setSelectedMetricIds] = useState<SharedMetric['id'][]>([])
     const mode = editingSharedMetricId ? 'edit' : 'create'
 
@@ -248,11 +246,7 @@ export function SharedMetricModal({
                                 footer={
                                     <div className="flex items-center justify-center m-2">
                                         <LemonButton
-                                            to={
-                                                newSceneLayout
-                                                    ? `${urls.experiments()}?tab=shared-metrics`
-                                                    : urls.experimentsSharedMetrics()
-                                            }
+                                            to={`${urls.experiments()}?tab=shared-metrics`}
                                             size="xsmall"
                                             type="tertiary"
                                         >

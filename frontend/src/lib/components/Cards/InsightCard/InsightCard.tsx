@@ -73,6 +73,7 @@ export interface InsightCardProps extends Resizeable {
     refreshEnabled?: boolean
     rename?: () => void
     duplicate?: () => void
+    setOverride?: () => void
     moveToDashboard?: (dashboard: DashboardBasicType) => void
     /** buttons to add to the "more" menu on the card**/
     moreButtons?: JSX.Element | null
@@ -115,6 +116,7 @@ function InsightCardInternal(
         refreshEnabled,
         rename,
         duplicate,
+        setOverride,
         moveToDashboard,
         className,
         moreButtons,
@@ -230,6 +232,7 @@ function InsightCardInternal(
                             loading={loading}
                             rename={rename}
                             duplicate={duplicate}
+                            setOverride={setOverride}
                             moveToDashboard={moveToDashboard}
                             areDetailsShown={areDetailsShown}
                             setAreDetailsShown={setAreDetailsShown}
