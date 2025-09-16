@@ -739,11 +739,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 actor_query_for_breakdowns = self.actor_query()
 
                 # Add max_timestamp to the actor query to find the latest event for each actor-breakdown pair
-                select_queries = (
-                    actor_query_for_breakdowns.select_queries
-                    if isinstance(actor_query_for_breakdowns, ast.SelectSetQuery)
-                    else [actor_query_for_breakdowns]
-                )
+                select_queries = [actor_query_for_breakdowns]
                 for q in select_queries:
                     q.select.append(ast.Alias(alias="max_timestamp", expr=parse_expr("max(events.timestamp)")))
 

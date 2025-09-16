@@ -5168,6 +5168,7 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         # Verify USA has 2 users in the Day 0 cohort
         usa_results = [r for r in results if r["breakdown_value"] == "USA"]
         usa_day0_cohort = next((r for r in usa_results if r["label"] == "Day 0"), None)
+        assert usa_day0_cohort is not None
         self.assertEqual(
             usa_day0_cohort["values"][0]["count"],
             2,
@@ -5228,6 +5229,7 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         # Verify the "Other" group has the correct count (France + Spain = 2 users)
         other_results = [r for r in results if r["breakdown_value"] == BREAKDOWN_OTHER_STRING_LABEL]
         other_day0_cohort = next((r for r in other_results if r["label"] == "Day 0"), None)
+        assert other_day0_cohort is not None
         self.assertEqual(
             other_day0_cohort["values"][0]["count"],
             2,
@@ -5237,10 +5239,12 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         # Verify the top countries have correct counts
         usa_results = [r for r in results if r["breakdown_value"] == "USA"]
         usa_day0_cohort = next((r for r in usa_results if r["label"] == "Day 0"), None)
+        assert usa_day0_cohort is not None
         self.assertEqual(usa_day0_cohort["values"][0]["count"], 5, "USA should have 5 users")
 
         canada_results = [r for r in results if r["breakdown_value"] == "Canada"]
         canada_day0_cohort = next((r for r in canada_results if r["label"] == "Day 0"), None)
+        assert canada_day0_cohort is not None
         self.assertEqual(canada_day0_cohort["values"][0]["count"], 3, "Canada should have 3 users")
 
     # TRICKY: for later if/when we want a different ranking logic for breakdowns
