@@ -203,11 +203,13 @@ class AggregationOperations(DataWarehouseInsightQueryMixin):
                     # We use today's date as the timestamp to avoid this issue.
                     timestamp_expr = ast.Call(name="today", args=[])
                 else:
+                    # Handle different timestamp field types in DataWarehouse
+                    # Convert both to String format for coalesce, then _toDate will handle final conversion
                     timestamp_expr = ast.Call(
-                        name="ifNull",
+                        name="coalesce",
                         args=[
-                            ast.Field(chain=[self.series.timestamp_field]),
-                            ast.Call(name="toDateTime", args=[ast.Constant(value=0), ast.Constant(value="UTC")]),
+                            ast.Call(name="toString", args=[ast.Field(chain=[self.series.timestamp_field])]),
+                            ast.Constant(value="1970-01-01"),
                         ],
                     )
             else:
