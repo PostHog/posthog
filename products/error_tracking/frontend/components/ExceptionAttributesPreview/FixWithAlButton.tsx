@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 
-import { IconInfo, IconMagicWand, IconSparkles } from '@posthog/icons'
+import { IconInfo, IconMagicWand } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonTag, Popover, Tooltip } from '@posthog/lemon-ui'
 
 import { GitHubRepositoryPicker } from 'lib/integrations/GitHubIntegrationHelpers'
@@ -12,33 +12,12 @@ export type FixWithAIStatus = 'idle' | 'in_progress' | 'done'
 
 export function FixWithAIButton(): JSX.Element {
     const [isOpen, setIsOpen] = useState(false)
-    const [status, setStatus] = useState<FixWithAIStatus>('idle')
-    const prLink = useMemo(() => 'https://github.com/posthog/posthog/pull/42424', [])
-    const [integrationId, setIntegrationId] = useState<number | undefined>(undefined)
-    const [repository, setRepository] = useState<string>('')
-
-    useEffect(() => {
-        if (status === 'in_progress') {
-            const timeout = setTimeout(() => setStatus('done'), 3000)
-            return () => clearTimeout(timeout)
-        }
-    }, [status])
 
     return (
         <Popover
             visible={isOpen}
             onClickOutside={() => setIsOpen(false)}
-            overlay={
-                <FixWithAIPopoverContent
-                    status={status}
-                    setStatus={setStatus}
-                    prLink={prLink}
-                    integrationId={integrationId}
-                    setIntegrationId={setIntegrationId}
-                    repository={repository}
-                    setRepository={setRepository}
-                />
-            }
+            overlay={<FixWithAIPopoverContent />}
             placement="bottom-end"
             padded={false}
             showArrow
@@ -60,27 +39,21 @@ export function FixWithAIButton(): JSX.Element {
     )
 }
 
-export function FixWithAIPopoverContent({
-    status,
-    setStatus,
-    prLink,
-    integrationId,
-    setIntegrationId,
-    repository,
-    setRepository,
-}: {
-    status: FixWithAIStatus
-    setStatus: (s: FixWithAIStatus) => void
-    prLink: string
-    integrationId: number | undefined
-    setIntegrationId: (id: number | undefined) => void
-    repository: string
-    setRepository: (repo: string) => void
-}): JSX.Element {
+export function FixWithAIPopoverContent(): JSX.Element {
+    const [status, setStatus] = useState<FixWithAIStatus>('idle')
+    const [integrationId, setIntegrationId] = useState<number | undefined>(undefined)
+    const [repository, setRepository] = useState<string>('')
+    const prLink = useMemo(() => 'https://github.com/posthog/posthog/pull/42424', [])
     const isInProgress = status === 'in_progress'
     const isDone = status === 'done'
     const { getIntegrationsByKind } = useValues(integrationsLogic)
     const githubIntegrations = getIntegrationsByKind(['github'])
+
+    useEffect(() => {
+        if (!integrationId && githubIntegrations.length === 1) {
+            setIntegrationId(githubIntegrations[0].id as number)
+        }
+    }, [githubIntegrations, integrationId])
 
     return (
         <div className="overflow-hidden min-w-[320px]">
@@ -112,21 +85,23 @@ export function FixWithAIPopoverContent({
                     {integrationId != null && (
                         <div>
                             <label className="block text-sm font-medium mb-1">Repository</label>
-                            <GitHubRepositoryPicker
-                                integrationId={integrationId}
-                                value={repository}
-                                onChange={(value) => setRepository(value || '')}
-                                keepParentPopoverOpenOnClick={true}
-                            />
+                            {integrationId != null && (
+                                <GitHubRepositoryPicker
+                                    integrationId={integrationId}
+                                    value={repository}
+                                    onChange={(value) => setRepository(value || '')}
+                                    keepParentPopoverOpenOnClick={true}
+                                />
+                            )}
                         </div>
                     )}
                 </div>
 
-                <div className="mt-3 flex items-center gap-2">
+                <div className="mt-3 flex items-center gap-2 justify-end">
                     {!isDone ? (
                         <LemonButton
                             type="primary"
-                            icon={<IconSparkles />}
+                            icon={<IconMagicWand />}
                             onClick={() => {
                                 setStatus('in_progress')
                             }}
@@ -141,7 +116,7 @@ export function FixWithAIPopoverContent({
                                         : undefined
                             }
                         >
-                            {isInProgress ? 'In progress…' : 'Start fix'}
+                            {isInProgress ? 'In progress…' : 'Start'}
                         </LemonButton>
                     ) : (
                         <LemonButton type="primary" to={prLink} targetBlank>
