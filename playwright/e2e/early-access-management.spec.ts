@@ -1,3 +1,5 @@
+import { delay } from 'lib/utils'
+
 import { randomString } from '../utils'
 import { expect, test } from '../utils/playwright-test-base'
 
@@ -24,6 +26,7 @@ test.describe('Early Access Management', () => {
         await page.getByRole('link', { name: 'New feature' }).click()
         await page.click('[data-attr="scene-title-textarea"]')
         await page.locator('[data-attr="scene-title-textarea"]').pressSequentially(name)
+        await delay(1000)
         await expect(page.locator('[data-attr="save-feature"]')).toContainText('Save as draft')
 
         // save
