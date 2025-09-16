@@ -5,10 +5,10 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
-import { ErrorTrackingRelationalIssue } from 'lib/queries/schema'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 import { Breadcrumb } from '~/types'
 
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
