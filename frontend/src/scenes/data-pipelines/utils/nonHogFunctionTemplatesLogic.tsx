@@ -42,7 +42,7 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                     (connector: SourceConfig): HogFunctionTemplateType => ({
                         id: `managed-${connector.name}`,
                         type: 'source',
-                        name: connector.name,
+                        name: connector.label ?? connector.name,
                         icon_url: connector.iconPath,
                         status: connector.unreleasedSource ? 'coming_soon' : connector.betaSource ? 'beta' : 'stable',
                         description: connector.unreleasedSource ? (
