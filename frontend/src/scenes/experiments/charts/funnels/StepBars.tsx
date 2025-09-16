@@ -2,14 +2,14 @@ import clsx from 'clsx'
 
 import { FunnelStepWithConversionMetrics } from '~/types'
 
-import { DataDrivenStepBar } from './StepBar'
+import { StepBar } from './StepBar'
 
-interface DataDrivenStepBarsProps {
+interface StepBarsProps {
     step: FunnelStepWithConversionMetrics
     stepIndex: number
 }
 
-export function DataDrivenStepBars({ step, stepIndex }: DataDrivenStepBarsProps): JSX.Element {
+export function StepBars({ step, stepIndex }: StepBarsProps): JSX.Element {
     return (
         <div className={clsx('StepBars', stepIndex === 0 && 'StepBars--first')}>
             <div className="StepBars__grid">
@@ -23,13 +23,8 @@ export function DataDrivenStepBars({ step, stepIndex }: DataDrivenStepBarsProps)
                     ))}
             </div>
             {step.nested_breakdown?.map((series) => (
-                <DataDrivenStepBar
-                    key={`bar-${stepIndex}-${series.order}`}
-                    step={step}
-                    stepIndex={stepIndex}
-                    series={series}
-                />
-            )) || <DataDrivenStepBar step={step} stepIndex={stepIndex} series={step} />}
+                <StepBar key={`bar-${stepIndex}-${series.order}`} step={step} stepIndex={stepIndex} series={series} />
+            )) || <StepBar step={step} stepIndex={stepIndex} series={step} />}
         </div>
     )
 }

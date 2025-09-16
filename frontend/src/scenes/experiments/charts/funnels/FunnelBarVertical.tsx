@@ -7,20 +7,20 @@ import { ChartParams } from '~/types'
 
 import '../../../funnels/FunnelBarVertical/FunnelBarVertical'
 import { useFunnelData } from './Funnel'
-import { useDataDrivenFunnelTooltip } from './FunnelTooltip'
-import { DataDrivenStepBarLabels } from './StepBarLabels'
-import { DataDrivenStepBars } from './StepBars'
-import { DataDrivenStepLegend } from './StepLegend'
+import { useFunnelTooltip } from './FunnelTooltip'
+import { StepBarLabels } from './StepBarLabels'
+import { StepBars } from './StepBars'
+import { StepLegend } from './StepLegend'
 
 interface TooltipContext {
     showTooltip: (rect: [number, number, number], stepIndex: number, series: any) => void
     hideTooltip: () => void
 }
 
-export const DataDrivenTooltipContext = createContext<TooltipContext | null>(null)
+export const TooltipContext = createContext<TooltipContext | null>(null)
 
-export function useDataDrivenTooltip(): TooltipContext {
-    const context = useContext(DataDrivenTooltipContext)
+export function useTooltip(): TooltipContext {
+    const context = useContext(TooltipContext)
     if (!context) {
         throw new Error('useDataDrivenTooltip must be used within DataDrivenTooltipContext')
     }
@@ -32,9 +32,9 @@ interface FunnelBarVerticalCSSProperties extends React.CSSProperties {
     '--bar-row-height': string
 }
 
-export function DataDrivenFunnelBarVertical({ inCardView = false }: ChartParams): JSX.Element {
+export function FunnelBarVertical({ inCardView = false }: ChartParams): JSX.Element {
     const { visibleStepsWithConversionMetrics } = useFunnelData()
-    const { vizRef, showTooltip, hideTooltip } = useDataDrivenFunnelTooltip()
+    const { vizRef, showTooltip, hideTooltip } = useFunnelTooltip()
 
     const { height: availableHeight } = useResizeObserver({ ref: vizRef })
     const [scrollbarHeightPx, setScrollbarHeightPx] = useState(0)
@@ -97,7 +97,7 @@ export function DataDrivenFunnelBarVertical({ inCardView = false }: ChartParams)
     const barRowHeight = `max(${minimumBarHeightPx}px, calc(${availableHeight}px - ${borderHeightPx}px - ${stepLegendRowHeightPx}px - ${scrollbarHeightPx}px))`
 
     return (
-        <DataDrivenTooltipContext.Provider value={{ showTooltip, hideTooltip }}>
+        <TooltipContext.Provider value={{ showTooltip, hideTooltip }}>
             <div className="FunnelBarVertical" ref={vizRef} data-attr="funnel-bar-vertical">
                 <ScrollableShadows scrollRef={scrollRef} direction="horizontal">
                     <table
@@ -119,11 +119,11 @@ export function DataDrivenFunnelBarVertical({ inCardView = false }: ChartParams)
                         <tbody>
                             <tr>
                                 <td>
-                                    <DataDrivenStepBarLabels />
+                                    <StepBarLabels />
                                 </td>
                                 {visibleStepsWithConversionMetrics.map((step, stepIndex) => (
                                     <td key={stepIndex}>
-                                        <DataDrivenStepBars step={step} stepIndex={stepIndex} />
+                                        <StepBars step={step} stepIndex={stepIndex} />
                                     </td>
                                 ))}
                             </tr>
@@ -131,7 +131,7 @@ export function DataDrivenFunnelBarVertical({ inCardView = false }: ChartParams)
                                 <td />
                                 {visibleStepsWithConversionMetrics.map((step, stepIndex) => (
                                     <td key={stepIndex}>
-                                        <DataDrivenStepLegend step={step} stepIndex={stepIndex} showTime={showTime} />
+                                        <StepLegend step={step} stepIndex={stepIndex} showTime={showTime} />
                                     </td>
                                 ))}
                             </tr>
@@ -139,6 +139,6 @@ export function DataDrivenFunnelBarVertical({ inCardView = false }: ChartParams)
                     </table>
                 </ScrollableShadows>
             </div>
-        </DataDrivenTooltipContext.Provider>
+        </TooltipContext.Provider>
     )
 }
