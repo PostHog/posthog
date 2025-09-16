@@ -1,7 +1,7 @@
-import { BindLogic, BuiltLogic, LogicWrapper, useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { useState } from 'react'
 
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { SceneLogicAttachTo, useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -30,7 +30,7 @@ export function RevenueAnalyticsGrossRevenueNode(props: {
     query: RevenueAnalyticsGrossRevenueQuery
     cachedResults?: AnyResponseType
     context: QueryContext
-    attachTo?: LogicWrapper | BuiltLogic
+    attachTo?: SceneLogicAttachTo
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `RevenueAnalyticsGrossRevenue.${uniqueNode++}`)

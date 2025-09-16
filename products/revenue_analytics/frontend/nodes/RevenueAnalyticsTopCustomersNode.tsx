@@ -1,7 +1,7 @@
-import { BindLogic, BuiltLogic, LogicWrapper, useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { useState } from 'react'
 
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { SceneLogicAttachTo, useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { InsightLoadingState } from 'scenes/insights/EmptyStates'
 import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
@@ -26,7 +26,7 @@ export function RevenueAnalyticsTopCustomersNode(props: {
     query: RevenueAnalyticsTopCustomersQuery
     cachedResults?: AnyResponseType
     context: QueryContext
-    attachTo?: LogicWrapper | BuiltLogic
+    attachTo?: SceneLogicAttachTo
 }): JSX.Element | null {
     const { dateFilter } = useValues(revenueAnalyticsLogic)
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}

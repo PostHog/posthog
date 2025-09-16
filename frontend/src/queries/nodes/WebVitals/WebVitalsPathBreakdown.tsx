@@ -1,10 +1,10 @@
 import clsx from 'clsx'
-import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { SceneLogicAttachTo, useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import {
@@ -30,7 +30,7 @@ export function WebVitalsPathBreakdown(props: {
     query: WebVitalsPathBreakdownQuery
     cachedResults?: AnyResponseType
     context: QueryContext
-    attachTo?: LogicWrapper | BuiltLogic
+    attachTo?: SceneLogicAttachTo
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `WebVitalsPathBreakdown.${uniqueNode++}`)
