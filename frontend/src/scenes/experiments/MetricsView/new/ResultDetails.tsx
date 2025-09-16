@@ -5,11 +5,12 @@ import { IconRewindPlay } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils'
+import { FunnelLayout } from 'lib/constants'
 import { ResultsBreakdown } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdown'
 import { ResultsBreakdownSkeleton } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdownSkeleton'
 import { ResultsInsightInfoBanner } from 'scenes/experiments/components/ResultsBreakdown/ResultsInsightInfoBanner'
-import { ResultsQuery } from 'scenes/experiments/components/ResultsBreakdown/ResultsQuery'
 import { getViewRecordingFilters } from 'scenes/experiments/utils'
+import { DataDrivenFunnel } from 'scenes/experiments/viz/funnels/DataDrivenFunnel'
 import { urls } from 'scenes/urls'
 
 import {
@@ -19,7 +20,7 @@ import {
     isExperimentMeanMetric,
     isExperimentRatioMetric,
 } from '~/queries/schema/schema-general'
-import { Experiment, FilterLogicalOperator, RecordingUniversalFilters, ReplayTabs } from '~/types'
+import { Experiment, FilterLogicalOperator, RecordingUniversalFilters, ReplayTabs, FunnelStep, FunnelStepWithNestedBreakdown, FunnelVizType } from '~/types'
 
 import {
     ExperimentVariantResult,
@@ -31,6 +32,49 @@ import {
     isBayesianResult,
     isFrequentistResult,
 } from '../shared/utils'
+
+/**
+ * Convert breakdown results (variant-level arrays) to DataDrivenFunnel format (step-level with nested breakdowns)
+ */
+function convertBreakdownResultsToFunnelSteps(
+    breakdownResults: FunnelStep[][],
+    experiment: Experiment
+): FunnelStepWithNestedBreakdown[] {
+    if (!breakdownResults || breakdownResults.length === 0) {
+        return []
+    }
+
+    // Get the base structure from the first variant (control)
+    const baseSteps = breakdownResults[0] || []
+    const variants = experiment.parameters?.feature_flag_variants || []
+
+    // Transform to step-centric structure with variants as nested breakdowns
+    return baseSteps.map((baseStep, stepIndex) => {
+        // Collect this step from all variants
+        const variantSteps: FunnelStep[] = breakdownResults.map((variantSteps, variantIndex) => {
+            const step = variantSteps[stepIndex]
+            const variantKey = variants[variantIndex]?.key || (variantIndex === 0 ? 'control' : `test_${variantIndex}`)
+
+            if (!step) {
+                // Handle missing steps in variants
+                return {
+                    ...baseStep,
+                    count: 0,
+                    breakdown_value: variantKey
+                }
+            }
+            return {
+                ...step,
+                breakdown_value: variantKey
+            }
+        })
+
+        return {
+            ...baseStep,
+            nested_breakdown: variantSteps
+        }
+    })
+}
 
 export function ResultDetails({
     experiment,
@@ -172,22 +216,22 @@ export function ResultDetails({
                     isPrimary={!isSecondary}
                 >
                     {({
-                        query,
                         breakdownResultsLoading,
                         breakdownResults,
                         exposureDifference,
-                        breakdownLastRefresh,
                     }) => {
                         return (
                             <>
                                 {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
-                                {query && breakdownResults && (
+                                {breakdownResults && (
                                     <>
                                         <ResultsInsightInfoBanner exposureDifference={exposureDifference} />
-                                        <ResultsQuery
-                                            query={query}
-                                            breakdownResults={breakdownResults}
-                                            breakdownLastRefresh={breakdownLastRefresh}
+                                        <DataDrivenFunnel
+                                            steps={convertBreakdownResultsToFunnelSteps(breakdownResults as FunnelStep[][], experiment)}
+                                            vizType={FunnelVizType.Steps}
+                                            layout={FunnelLayout.vertical}
+                                            showPersonsModal={false}
+                                            disableBaseline={true}
                                         />
                                     </>
                                 )}
