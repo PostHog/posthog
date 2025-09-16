@@ -206,7 +206,9 @@ async def get_llm_single_session_summary_activity(
         trace_id=temporalio.activity.info().workflow_id,
     )
     # Store the final summary in the DB
-    await database_sync_to_async(_store_final_summary_in_db_from_activity)(inputs, session_summary)
+    await database_sync_to_async(_store_final_summary_in_db_from_activity, thread_sensitive=False)(
+        inputs, session_summary
+    )
     # Returning nothing as the data is stored in Redis
     return None
 
@@ -297,7 +299,9 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
     # As the stream is finished, store the final summary in the DB
     session_summary = SessionSummarySerializer(data=json.loads(last_summary_state_str))
     session_summary.is_valid(raise_exception=True)
-    await database_sync_to_async(_store_final_summary_in_db_from_activity)(inputs, session_summary)
+    await database_sync_to_async(_store_final_summary_in_db_from_activity, thread_sensitive=False)(
+        inputs, session_summary
+    )
     # Return the last state as string to finish the function execution
     return last_summary_state_str
 
