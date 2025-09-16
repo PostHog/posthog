@@ -1,0 +1,6 @@
+.funnel-bin-filter-dropdown {
+    .funnel-bins-custom-picker {
+        width: 43px; // enough to hold two characters
+        margin: 5px 0 5px 13px; // margin left comes from 24px (padding left select option) - 11px (padding inside input)
+    }
+}
