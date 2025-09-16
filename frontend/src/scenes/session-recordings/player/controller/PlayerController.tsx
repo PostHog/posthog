@@ -123,7 +123,7 @@ export function Screenshot({ className }: { className?: string }): JSX.Element {
     )
 }
 
-export function PlayerController(): JSX.Element {
+export function PlayerController({ playerIsHovering }: { playerIsHovering: boolean }): JSX.Element {
     const { playlistLogic, logicProps } = useValues(sessionRecordingPlayerLogic)
     const { isCinemaMode } = useValues(playerSettingsLogic)
 
@@ -135,7 +135,14 @@ export function PlayerController(): JSX.Element {
     })
 
     return (
-        <div className="bg-surface-primary flex flex-col select-none">
+        <div
+            className={cn(
+                'absolute bottom-0 left-0 right-0 flex flex-col select-none transition-all duration-150 ease-out',
+                playerIsHovering
+                    ? 'opacity-100 bg-surface-primary pointer-events-auto'
+                    : 'opacity-0 pointer-events-none'
+            )}
+        >
             <Seekbar />
             <div className="w-full px-2 py-1 relative flex items-center justify-between" ref={ref}>
                 <Timestamp size={size} />
