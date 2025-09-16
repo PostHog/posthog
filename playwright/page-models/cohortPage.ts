@@ -12,11 +12,10 @@ export class CohortPage {
         await this.page.click('[data-attr="cohort-taxonomic-field-key"]')
 
         await this.page.locator('[data-attr=prop-filter-person_properties-0]').click()
-        await this.page.locator('[data-attr=prop-val]').type('true')
+        await this.page.locator('[data-attr=prop-val]').pressSequentially('true')
 
-        await this.page.click('.scene-title-textarea')
-
-        await this.page.fill('.scene-title-textarea', name)
+        await this.page.click('[data-attr="scene-title-textarea"]')
+        await this.page.locator('[data-attr="scene-title-textarea"]').pressSequentially(name)
         await this.page.click('[data-attr="save-cohort"]')
 
         await expect(this.page.locator('[data-attr="success-toast"]')).toHaveText(/Cohort saved/)
