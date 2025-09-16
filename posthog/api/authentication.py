@@ -24,6 +24,7 @@ from django.views.decorators.csrf import csrf_protect
 from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice
 from loginas.utils import is_impersonated_session, restore_original_login
+from prometheus_client import Counter
 from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.exceptions import APIException
 from rest_framework.request import Request
@@ -49,6 +50,12 @@ from posthog.tasks.email import (
 )
 from posthog.utils import get_instance_available_sso_providers, get_ip_address, get_short_user_agent
 
+USER_AUTH_METHOD_MISMATCH = Counter(
+    "user_auth_method_mismatches_sso_enforcement",
+    "A user successfully authenticated with a different method than the one they're required to use",
+    labelnames=["login_method", "sso_enforced_method", "user_uuid"],
+)
+
 
 @receiver(user_logged_in)
 def post_login(sender, user, request: HttpRequest, **kwargs):
@@ -56,6 +63,13 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
     Runs after every user login (including tests)
     Sets SESSION_COOKIE_CREATED_AT_KEY in the session to the current time
     """
+
+    if hasattr(request, "backend"):
+        sso_enforcement = OrganizationDomain.objects.get_sso_enforcement_for_email_address(user.email)
+        if sso_enforcement is not None and sso_enforcement != request.backend.name:
+            USER_AUTH_METHOD_MISMATCH.labels(
+                login_method=request.backend.name, sso_enforced_method=sso_enforcement, user_uuid=user.uuid
+            ).inc()
 
     request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = time.time()
 
