@@ -65,7 +65,7 @@ export function HogFunctionTemplateList({
                         render: (_, template) => {
                             return (
                                 <LemonTableLink
-                                    to={urlForTemplate(template)}
+                                    to={urlForTemplate(template) ?? undefined}
                                     title={
                                         <>
                                             {template.name}
@@ -94,12 +94,13 @@ export function HogFunctionTemplateList({
                                     </LemonButton>
                                 )
                             }
+
                             return (
                                 <LemonButton
                                     type="primary"
                                     data-attr="new-destination"
                                     icon={<IconPlusSmall />}
-                                    to={urlForTemplate(template)}
+                                    to={urlForTemplate(template) ?? undefined}
                                     fullWidth
                                 >
                                     Create

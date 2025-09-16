@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -147,7 +148,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                 }
                 return templates
                     .filter((x) => shouldShowHogFunctionTemplate(x, user))
-                    .filter((x) => !x.flag || !!featureFlags[x.flag])
+                    .filter((x) => !x.flag || !!featureFlags[x.flag as FeatureFlagKey])
                     .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
             },
         ],
@@ -191,9 +192,14 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
 
         urlForTemplate: [
             () => [(_, props) => props],
-            ({ configurationOverrides }): ((template: HogFunctionTemplateWithSubTemplateType) => string) => {
+            ({ configurationOverrides }): ((template: HogFunctionTemplateWithSubTemplateType) => string | null) => {
                 return (template: HogFunctionTemplateWithSubTemplateType) => {
                     if (template.status === 'coming_soon') {
+                        // "Coming soon" sources don't have docs yet
+                        if (template.type === 'source') {
+                            return null
+                        }
+
                         return `https://posthog.com/docs/cdp/${template.type}s/${template.id}`
                     }
 
