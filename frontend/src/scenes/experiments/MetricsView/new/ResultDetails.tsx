@@ -4,8 +4,8 @@ import posthog from 'posthog-js'
 import { IconRewindPlay } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
-import { humanFriendlyNumber } from 'lib/utils'
 import { FunnelLayout } from 'lib/constants'
+import { humanFriendlyNumber } from 'lib/utils'
 import { ResultsBreakdown } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdown'
 import { ResultsBreakdownSkeleton } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdownSkeleton'
 import { ResultsInsightInfoBanner } from 'scenes/experiments/components/ResultsBreakdown/ResultsInsightInfoBanner'
@@ -20,7 +20,15 @@ import {
     isExperimentMeanMetric,
     isExperimentRatioMetric,
 } from '~/queries/schema/schema-general'
-import { Experiment, FilterLogicalOperator, RecordingUniversalFilters, ReplayTabs, FunnelStep, FunnelStepWithNestedBreakdown, FunnelVizType } from '~/types'
+import {
+    Experiment,
+    FilterLogicalOperator,
+    FunnelStep,
+    FunnelStepWithNestedBreakdown,
+    FunnelVizType,
+    RecordingUniversalFilters,
+    ReplayTabs,
+} from '~/types'
 
 import {
     ExperimentVariantResult,
@@ -60,18 +68,18 @@ function convertBreakdownResultsToFunnelSteps(
                 return {
                     ...baseStep,
                     count: 0,
-                    breakdown_value: variantKey
+                    breakdown_value: variantKey,
                 }
             }
             return {
                 ...step,
-                breakdown_value: variantKey
+                breakdown_value: variantKey,
             }
         })
 
         return {
             ...baseStep,
-            nested_breakdown: variantSteps
+            nested_breakdown: variantSteps,
         }
     })
 }
@@ -215,11 +223,7 @@ export function ResultDetails({
                     metricUuid={metric.uuid || ''}
                     isPrimary={!isSecondary}
                 >
-                    {({
-                        breakdownResultsLoading,
-                        breakdownResults,
-                        exposureDifference,
-                    }) => {
+                    {({ breakdownResultsLoading, breakdownResults, exposureDifference }) => {
                         return (
                             <>
                                 {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
@@ -227,11 +231,15 @@ export function ResultDetails({
                                     <>
                                         <ResultsInsightInfoBanner exposureDifference={exposureDifference} />
                                         <DataDrivenFunnel
-                                            steps={convertBreakdownResultsToFunnelSteps(breakdownResults as FunnelStep[][], experiment)}
+                                            steps={convertBreakdownResultsToFunnelSteps(
+                                                breakdownResults as FunnelStep[][],
+                                                experiment
+                                            )}
                                             vizType={FunnelVizType.Steps}
                                             layout={FunnelLayout.vertical}
                                             showPersonsModal={false}
                                             disableBaseline={true}
+                                            inCardView={true}
                                         />
                                     </>
                                 )}
