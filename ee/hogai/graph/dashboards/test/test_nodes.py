@@ -15,7 +15,7 @@ from posthog.schema import (
 from posthog.models import Dashboard, Insight, Team, User
 
 from ee.hogai.graph.dashboards.nodes import (
-    DashboardCreatorNode,
+    DashboardCreationNode,
     DashboardInsightCreationTaskExecutorNode,
     DashboardInsightSearchTaskExecutorNode,
     QueryMetadata,
@@ -88,7 +88,7 @@ class TestDashboardInsightSearchTaskExecutorNode(TestCase):
         from ee.hogai.utils.types import AssistantNodeName
 
         node_name = self.node._get_node_name()
-        self.assertEqual(node_name, AssistantNodeName.DASHBOARD_CREATOR)
+        self.assertEqual(node_name, AssistantNodeName.DASHBOARD_CREATION)
 
     def test_create_final_response(self):
         """Test _create_final_response creates correct response."""
@@ -172,7 +172,7 @@ class TestDashboardInsightCreationTaskExecutorNode(TestCase):
         from ee.hogai.utils.types import AssistantNodeName
 
         node_name = self.node._get_node_name()
-        self.assertEqual(node_name, AssistantNodeName.DASHBOARD_CREATOR)
+        self.assertEqual(node_name, AssistantNodeName.DASHBOARD_CREATION)
 
     def test_create_final_response(self):
         """Test _create_final_response creates correct response."""
@@ -234,14 +234,14 @@ class TestDashboardInsightCreationTaskExecutorNode(TestCase):
         self.assertEqual(result.messages[0].content, "No tasks to execute")
 
 
-class TestDashboardCreatorNode(TestCase):
+class TestDashboardCreationNode(TestCase):
     def setUp(self):
         super().setUp()
         self.mock_team = MagicMock(spec=Team)
         self.mock_team.id = 1
         self.mock_user = MagicMock(spec=User)
         self.mock_user.id = 1
-        self.node = DashboardCreatorNode(self.mock_team, self.mock_user)
+        self.node = DashboardCreationNode(self.mock_team, self.mock_user)
 
     def test_initialization(self):
         """Test node initialization."""
@@ -273,7 +273,7 @@ class TestDashboardCreatorNode(TestCase):
 
             mock_writer.assert_called_once()
             call_args = mock_writer.call_args[0][0]
-            self.assertEqual(call_args[0], "dashboard_creator_node")
+            self.assertEqual(call_args[0], "dashboard_creation_node")
             self.assertEqual(call_args[1], "messages")
 
     def test_stream_reasoning_without_writer(self):
@@ -359,10 +359,10 @@ class TestDashboardCreatorNode(TestCase):
         self.assertIn("Search insights queries are required", result.messages[0].content)
 
     @patch("ee.hogai.graph.dashboards.nodes.get_stream_writer")
-    @patch.object(DashboardCreatorNode, "_search_insights")
-    @patch.object(DashboardCreatorNode, "_create_insights")
-    @patch.object(DashboardCreatorNode, "_generate_dashboard_name")
-    @patch.object(DashboardCreatorNode, "_create_dashboard_with_insights")
+    @patch.object(DashboardCreationNode, "_search_insights")
+    @patch.object(DashboardCreationNode, "_create_insights")
+    @patch.object(DashboardCreationNode, "_generate_dashboard_name")
+    @patch.object(DashboardCreationNode, "_create_dashboard_with_insights")
     async def test_arun_successful_flow(
         self,
         mock_create_dashboard,
@@ -417,8 +417,8 @@ class TestDashboardCreatorNode(TestCase):
         self.assertIn("Test Dashboard", result.messages[0].content)
 
     @patch("ee.hogai.graph.dashboards.nodes.get_stream_writer")
-    @patch.object(DashboardCreatorNode, "_search_insights")
-    @patch.object(DashboardCreatorNode, "_create_insights")
+    @patch.object(DashboardCreationNode, "_search_insights")
+    @patch.object(DashboardCreationNode, "_create_insights")
     async def test_arun_no_insights_found_or_created(
         self, mock_create_insights, mock_search_insights, mock_get_stream_writer
     ):
@@ -454,7 +454,7 @@ class TestDashboardCreatorNode(TestCase):
         self.assertIn("No existing insights matched", result.messages[0].content)
 
     @patch("ee.hogai.graph.dashboards.nodes.get_stream_writer")
-    @patch.object(DashboardCreatorNode, "_search_insights")
+    @patch.object(DashboardCreationNode, "_search_insights")
     @patch("ee.hogai.graph.dashboards.nodes.logger")
     async def test_arun_exception_handling(self, mock_logger, mock_search_insights, mock_get_stream_writer):
         """Test arun handles exceptions properly."""
@@ -528,14 +528,14 @@ class TestDashboardCreatorNode(TestCase):
             mock_capture.assert_called_once()
 
 
-class TestDashboardCreatorNodeAsyncMethods(TestCase):
+class TestDashboardCreationNodeAsyncMethods(TestCase):
     def setUp(self):
         super().setUp()
         self.mock_team = MagicMock(spec=Team)
         self.mock_team.id = 1
         self.mock_user = MagicMock(spec=User)
         self.mock_user.id = 1
-        self.node = DashboardCreatorNode(self.mock_team, self.mock_user)
+        self.node = DashboardCreationNode(self.mock_team, self.mock_user)
 
     @patch("ee.hogai.graph.dashboards.nodes.get_stream_writer")
     @patch("ee.hogai.graph.dashboards.nodes.InsightsAssistantGraph")
@@ -638,7 +638,7 @@ class TestDashboardCreatorNodeAsyncMethods(TestCase):
             self.assertEqual(len(result["task_1"].found_insight_messages), 1)
 
     @patch("ee.hogai.graph.dashboards.nodes.get_stream_writer")
-    @patch.object(DashboardCreatorNode, "_model")
+    @patch.object(DashboardCreationNode, "_model")
     async def test_generate_dashboard_name_success(self, mock_model, mock_get_stream_writer):
         """Test _generate_dashboard_name with successful generation."""
         mock_writer = MagicMock()
@@ -654,7 +654,7 @@ class TestDashboardCreatorNodeAsyncMethods(TestCase):
         mock_model.ainvoke.assert_called_once()
 
     @patch("ee.hogai.graph.dashboards.nodes.get_stream_writer")
-    @patch.object(DashboardCreatorNode, "_model")
+    @patch.object(DashboardCreationNode, "_model")
     async def test_generate_dashboard_name_exception(self, mock_model, mock_get_stream_writer):
         """Test _generate_dashboard_name handles exceptions."""
         mock_writer = MagicMock()

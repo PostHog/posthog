@@ -269,11 +269,14 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The user's query for creating a dashboard with insights.
     """
-    insight_ids: Optional[list[int]] = Field(default=None)
+    selected_insight_ids: Optional[list[int]] = Field(default=None)
+    """
+    The selected insights to be included in the dashboard.
+    """
+    search_insights_queries: Optional[list[InsightQuery]] = Field(default=None)
     """
     The user's queries to search for insights.
     """
-    search_insights_queries: Optional[list[InsightQuery]] = Field(default=None)
 
 
 class AssistantState(_SharedAssistantState):
@@ -318,7 +321,7 @@ class AssistantNodeName(StrEnum):
     TITLE_GENERATOR = "title_generator"
     INSIGHTS_SEARCH = "insights_search"
     SESSION_SUMMARIZATION = "session_summarization"
-    DASHBOARD_CREATOR = "dashboard_creator"
+    DASHBOARD_CREATION = "dashboard_creation"
 
 
 class AssistantMode(StrEnum):

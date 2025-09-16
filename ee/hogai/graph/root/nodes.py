@@ -726,10 +726,7 @@ class RootNodeTools(AssistantNode):
         elif tool_call.name == "create_dashboard":
             # Convert raw data to InsightQuery objects
             raw_queries = tool_call.args["search_insights_queries"]
-            if isinstance(raw_queries, list):
-                search_insights_queries = [InsightQuery.model_validate(query) for query in raw_queries]
-            else:
-                search_insights_queries = [InsightQuery.model_validate(raw_queries)]
+            search_insights_queries = [InsightQuery.model_validate(query) for query in raw_queries]
 
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,

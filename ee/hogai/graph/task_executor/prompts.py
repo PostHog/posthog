@@ -20,6 +20,4 @@ EXECUTE_TASKS_TOOL_RESULT = """
 Task execution completed. Here are the results:
 
 {results}
-
-All tasks have been processed successfully.
 """

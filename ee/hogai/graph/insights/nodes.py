@@ -295,7 +295,7 @@ class InsightSearchNode(AssistantNode):
 
         return PartialAssistantState(
             messages=messages_to_return,
-            insight_ids=evaluation_result["selected_insights"],
+            selected_insight_ids=evaluation_result["selected_insights"],
             search_insights_query=None,
             root_tool_call_id=None,
             root_tool_insight_plan=None,
@@ -312,7 +312,7 @@ class InsightSearchNode(AssistantNode):
             messages=[no_insights_message],
             root_tool_insight_plan=search_query,
             search_insights_query=None,
-            insight_ids=None,
+            selected_insight_ids=None,
         )
 
     @timing_logger("InsightSearchNode._handle_search_error")

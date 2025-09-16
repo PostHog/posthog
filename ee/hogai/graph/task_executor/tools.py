@@ -251,10 +251,10 @@ class NodeTaskExecutorTool(TaskExecutorTool[InsightSearchTaskExecutionResult]):
             else ""
         )
 
-        if result.insight_ids:
+        if result.selected_insight_ids:
             artifact = InsightSearchArtifact(
                 id=str(uuid.uuid4()),
-                insight_ids=result.insight_ids,
+                insight_ids=result.selected_insight_ids,
                 description=task.prompt,
                 selection_reason=task_result,
             )

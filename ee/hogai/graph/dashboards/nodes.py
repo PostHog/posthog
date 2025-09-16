@@ -82,7 +82,7 @@ class DashboardInsightSearchTaskExecutorNode(
 
     def _get_node_name(self) -> AssistantNodeName:
         """Get the node name for this executor."""
-        return AssistantNodeName.DASHBOARD_CREATOR
+        return AssistantNodeName.DASHBOARD_CREATION
 
     def _create_final_response(
         self,
@@ -139,7 +139,7 @@ class DashboardInsightCreationTaskExecutorNode(
 
     def _get_node_name(self) -> AssistantNodeName:
         """Get the node name for this executor."""
-        return AssistantNodeName.DASHBOARD_CREATOR
+        return AssistantNodeName.DASHBOARD_CREATION
 
     def _create_final_response(
         self,
@@ -171,7 +171,7 @@ class DashboardInsightCreationTaskExecutorNode(
         )
 
 
-class DashboardCreatorNode(AssistantNode):
+class DashboardCreationNode(AssistantNode):
     REASONING_MESSAGE = "Creating dashboard"
 
     def __init__(self, *args, **kwargs):
@@ -202,9 +202,9 @@ class DashboardCreatorNode(AssistantNode):
                 content="",
                 additional_kwargs={"reasoning": {"summary": [{"text": f"**{display_content}**"}]}},
             )
-            message = (message_chunk, {"langgraph_node": AssistantNodeName.DASHBOARD_CREATOR})
+            message = (message_chunk, {"langgraph_node": AssistantNodeName.DASHBOARD_CREATION})
 
-            writer(("dashboard_creator_node", "messages", message))
+            writer(("dashboard_creation_node", "messages", message))
 
         except Exception as e:
             capture_exception(e)
@@ -282,7 +282,7 @@ class DashboardCreatorNode(AssistantNode):
             )
         except Exception as e:
             logger.exception(
-                f"Error in DashboardCreatorNode: {e}",
+                f"Error in DashboardCreationNode: {e}",
                 extra={
                     "team_id": getattr(self._team, "id", "unknown"),
                     "error": str(e),
@@ -390,9 +390,6 @@ class DashboardCreatorNode(AssistantNode):
     def _save_insights(
         self, task_results: list[InsightCreationTaskExecutionResult], query_metadata: dict[str, QueryMetadata]
     ) -> dict[str, set[int]]:
-        """Create insights in parallel."""
-        from posthog.models import Insight
-
         created_insights: dict[str, set[int]] = {
             task.id: set() for task in task_results if task.status == TaskExecutionStatus.COMPLETED
         }
@@ -476,7 +473,7 @@ class DashboardCreatorNode(AssistantNode):
                 insight = Insight.objects.get(id=insight_id, team=self._team)
                 DashboardTile.objects.create(
                     dashboard=dashboard,
-                    insight=insight,
+                    insight_id=insight_id,
                     layouts={},  # Default layout
                 )
                 all_insights.append(insight)
@@ -528,7 +525,7 @@ class DashboardCreatorNode(AssistantNode):
             search_insights_queries=None,
             root_tool_call_id=None,
             root_tool_insight_plan=None,
-            insight_ids=None,
+            selected_insight_ids=None,
         )
 
     def _create_no_insights_response(self, tool_call_id: str, subgraph_last_message: str) -> PartialAssistantState:
@@ -544,7 +541,7 @@ class DashboardCreatorNode(AssistantNode):
             create_dashboard_query=None,
             root_tool_call_id=None,
             search_insights_queries=None,
-            insight_ids=None,
+            selected_insight_ids=None,
             root_tool_insight_plan=None,
         )
 
@@ -562,7 +559,7 @@ class DashboardCreatorNode(AssistantNode):
             create_dashboard_query=None,
             root_tool_call_id=None,
             search_insights_queries=None,
-            insight_ids=None,
+            selected_insight_ids=None,
             root_tool_insight_plan=None,
         )
 
