@@ -103,11 +103,13 @@ function convertExperimentResultToFunnelSteps(
             } as FunnelStep
         })
 
-        // Use the first variant's step as the base
+        // Use the first variant's step as the base, but sum up counts from all variants
         const baseStep = variantSteps[0]
+        const totalCount = variantSteps.reduce((sum, step) => sum + step.count, 0)
 
         funnelSteps.push({
             ...baseStep,
+            count: totalCount, // Use total count from all variants
             nested_breakdown: variantSteps,
         })
     }
