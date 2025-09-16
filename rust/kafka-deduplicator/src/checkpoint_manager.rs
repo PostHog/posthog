@@ -763,6 +763,13 @@ mod tests {
     use std::{collections::HashMap, path::PathBuf, time::Duration};
     use tempfile::TempDir;
 
+    const TEST_STORE_DIR: &str = "test_store";
+
+    async fn cleanup_test_checkpoints(cfg: &CheckpointConfig) {
+        tokio::fs::remove_dir_all(PathBuf::from(&cfg.local_checkpoint_dir)).await.unwrap();
+        tokio::fs::remove_dir_all(PathBuf::from(TEST_STORE_DIR)).await.unwrap();
+    }
+
     fn create_test_store(topic: &str, partition: i32) -> (DeduplicationStore, TempDir) {
         let temp_dir = TempDir::new().unwrap();
         let config = DeduplicationStoreConfig {
@@ -787,7 +794,7 @@ mod tests {
     #[tokio::test]
     async fn test_checkpoint_manager_creation() {
         let stores = Arc::new(StoreManager::new(DeduplicationStoreConfig {
-            path: PathBuf::from("test"),
+            path: PathBuf::from(TEST_STORE_DIR),
             max_capacity: 1_000_000,
         }));
 
@@ -805,12 +812,14 @@ mod tests {
         assert_eq!(manager.config.cleanup_interval, Duration::from_secs(10));
 
         assert!(manager.exporter.is_none());
+
+        cleanup_test_checkpoints(&config).await;
     }
 
     #[tokio::test]
     async fn test_checkpoint_manager_start_stop() {
         let stores = Arc::new(StoreManager::new(DeduplicationStoreConfig {
-            path: PathBuf::from("test"),
+            path: PathBuf::from(TEST_STORE_DIR),
             max_capacity: 1_000_000,
         }));
         let config = CheckpointConfig {
@@ -829,12 +838,14 @@ mod tests {
         manager.stop().await;
         assert!(manager.checkpoint_task.is_none());
         assert!(manager.cleanup_task.is_none());
+
+        cleanup_test_checkpoints(&config).await;
     }
 
     #[tokio::test]
     async fn test_flush_all_empty() {
         let stores = Arc::new(StoreManager::new(DeduplicationStoreConfig {
-            path: PathBuf::from("test"),
+            path: PathBuf::from(TEST_STORE_DIR),
             max_capacity: 1_000_000,
         }));
         let config = CheckpointConfig {
@@ -845,6 +856,8 @@ mod tests {
 
         // Flushing empty stores should succeed
         assert!(manager.flush_all().await.is_ok());
+
+        cleanup_test_checkpoints(&config).await;
     }
 
     #[tokio::test]
@@ -909,26 +922,35 @@ mod tests {
         let worker = CheckpointWorker::new(
             1,
             CheckpointMode::Full,
-            paths,
+            paths.clone(),
             store.clone(),
             manager.exporter.clone(),
         );
 
         let result = worker.checkpoint_partition().await;
         assert!(result.is_ok());
+
+        let expected_checkpoint_path = Path::new(&paths.local_path);
+        assert!(expected_checkpoint_path.exists());
+        let mut count = 0;
+        for _ in fs::read_dir(expected_checkpoint_path)? {
+            count += 1;
+        }
+        assert!(count > 0);
+
+        cleanup_test_checkpoints(&config).await;
     }
 
     #[tokio::test]
     async fn test_checkpoint_partition_not_found() {
         let stores = Arc::new(StoreManager::new(DeduplicationStoreConfig {
-            path: PathBuf::from("test"),
+            path: PathBuf::from(TEST_STORE_DIR),
             max_capacity: 1_000_000,
         }));
 
         let config = CheckpointConfig {
             checkpoint_interval: Duration::from_millis(100),
             cleanup_interval: Duration::from_secs(10),
-            local_checkpoint_dir: "test_checkpoints".to_string(),
             ..Default::default()
         };
         let mut manager = CheckpointManager::new(config.clone(), stores.clone(), None);
@@ -939,9 +961,17 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(300)).await;
         manager.stop().await;
 
-        // the test_checkpoints dir should still be empty
+        // the test checkpoints dir should exist but be empty
         // since partition and associated store don't exist
-        assert!(!Path::new("test_checkpoints").exists());
+        let expected_checkpoint_path = Path::new("checkpoints/chkpt_topic1_0");
+        assert!(expected_checkpoint_path.exists());
+        let mut count = 0;
+        for _ in fs::read_dir(expected_checkpoint_path)? {
+            count += 1;
+        }
+        assert_eq!(count, 0);
+
+        cleanup_test_checkpoints(&config).await;
     }
 
     #[tokio::test]
@@ -963,7 +993,6 @@ mod tests {
         let config = CheckpointConfig {
             checkpoint_interval: Duration::from_millis(100),
             cleanup_interval: Duration::from_secs(10),
-            local_checkpoint_dir: "test_checkpoints".to_string(),
             ..Default::default()
         };
         let mut manager = CheckpointManager::new(config, store_manager.clone(), None);
@@ -978,13 +1007,15 @@ mod tests {
         manager.stop().await;
 
         // the test_checkpoints dir should have a checkpoint
-        assert!(Path::new("test_checkpoints").exists());
+        assert!(Path::new("checkpoints/chkpt_topic1_0").exists());
+
+        cleanup_test_checkpoints(&config).await;
     }
 
     #[tokio::test]
     async fn test_double_start() {
         let stores = Arc::new(StoreManager::new(DeduplicationStoreConfig {
-            path: PathBuf::from("test"),
+            path: PathBuf::from(TEST_STORE_DIR),
             max_capacity: 1_000_000,
         }));
         let config = CheckpointConfig {
@@ -993,21 +1024,26 @@ mod tests {
         };
         let mut manager = CheckpointManager::new(config, stores.clone(), None);
 
-        // Start once
-        manager.start();
+        // Start once - should return reporter
+        let health_reporter = manager.start();
+        assert!(health_reporter.is_some());
         assert!(manager.checkpoint_task.is_some());
 
         // Start again - should warn but not panic
-        manager.start();
+        let health_reporter = manager.start();
+        assert!(health_reporter.is_none());
+        assert!(health_reporter.is_some());
         assert!(manager.checkpoint_task.is_some());
 
         manager.stop().await;
+
+        cleanup_test_checkpoints(&config).await;
     }
 
     #[tokio::test]
     async fn test_drop_cancels_task() {
         let stores = Arc::new(StoreManager::new(DeduplicationStoreConfig {
-            path: PathBuf::from("test"),
+            path: PathBuf::from(TEST_STORE_DIR),
             max_capacity: 1_000_000,
         }));
         let config = CheckpointConfig {
@@ -1026,5 +1062,7 @@ mod tests {
 
         // Token should be cancelled
         assert!(cancel_token.is_cancelled());
+
+        cleanup_test_checkpoints(&config).await;
     }
 }
