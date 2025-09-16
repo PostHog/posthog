@@ -8,7 +8,7 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { ChartParams } from '~/types'
 
 import { StepBarLabels } from '../../../funnels/FunnelBarVertical/StepBarLabels'
-import { useFunnelData } from './Funnel'
+import { useFunnelChartData } from './FunnelChart'
 import { useFunnelTooltip } from './FunnelTooltip'
 import { StepBars } from './StepBars'
 import { StepLegend } from './StepLegend'
@@ -34,7 +34,7 @@ interface FunnelBarVerticalCSSProperties extends React.CSSProperties {
 }
 
 export function FunnelBarVertical({ inCardView = false }: ChartParams): JSX.Element {
-    const { visibleStepsWithConversionMetrics } = useFunnelData()
+    const { visibleStepsWithConversionMetrics } = useFunnelChartData()
     const { vizRef, showTooltip, hideTooltip } = useFunnelTooltip()
 
     const { height: availableHeight } = useResizeObserver({ ref: vizRef })
