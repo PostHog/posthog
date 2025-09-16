@@ -1,4 +1,4 @@
-export function DataDrivenStepBarLabels(): JSX.Element {
+export function StepBarLabels(): JSX.Element {
     return (
         <div className="StepBarLabels">
             {Array(6)

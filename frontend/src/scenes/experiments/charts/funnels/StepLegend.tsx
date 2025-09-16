@@ -8,13 +8,13 @@ import { capitalizeFirstLetter, humanFriendlyDuration, percentage, pluralize } f
 
 import { FunnelStepWithConversionMetrics } from '~/types'
 
-interface DataDrivenStepLegendProps {
+interface StepLegendProps {
     step: FunnelStepWithConversionMetrics
     stepIndex: number
     showTime: boolean
 }
 
-export function DataDrivenStepLegend({ step, stepIndex, showTime }: DataDrivenStepLegendProps): JSX.Element {
+export function StepLegend({ step, stepIndex, showTime }: StepLegendProps): JSX.Element {
     const aggregationTargetLabel = { singular: 'user', plural: 'users' }
 
     const convertedCountPresentation = pluralize(

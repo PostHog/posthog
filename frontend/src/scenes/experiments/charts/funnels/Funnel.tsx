@@ -13,10 +13,10 @@ import {
 } from '~/types'
 
 import '../../../funnels/Funnel'
-import { DataDrivenFunnelBarVertical } from './FunnelBarVertical'
+import { FunnelBarVertical } from './FunnelBarVertical'
 import { FunnelDataProcessingOptions, processFunnelData, processTimeConversionData } from './funnelDataUtils'
 
-export interface DataDrivenFunnelProps extends ChartParams {
+export interface FunnelProps extends ChartParams {
     /** Raw funnel step data */
     steps: FunnelStepWithNestedBreakdown[]
     /** Visualization type - defaults to Steps */
@@ -48,7 +48,7 @@ const FunnelDataContext = createContext<FunnelDataContext | null>(null)
 export function useFunnelData(): FunnelDataContext {
     const context = useContext(FunnelDataContext)
     if (!context) {
-        throw new Error('useFunnelData must be used within a DataDrivenFunnel')
+        throw new Error('useFunnelData must be used within a experiment Funnel')
     }
     return context
 }
@@ -57,18 +57,8 @@ export function useFunnelData(): FunnelDataContext {
  * A data-driven funnel visualization component that accepts direct data instead of requiring a query.
  * This allows reusing the funnel visualization logic in contexts where you have the data but not a query,
  * such as in experiments or other custom use cases.
- *
- * Usage:
- * ```tsx
- * <DataDrivenFunnel
- *   steps={funnelSteps}
- *   vizType={FunnelVizType.Steps}
- *   layout={FunnelLayout.vertical}
- *   showPersonsModal={true}
- * />
- * ```
  */
-export function DataDrivenFunnel({
+export function Funnel({
     steps,
     vizType = FunnelVizType.Steps,
     layout = FunnelLayout.vertical,
@@ -78,7 +68,7 @@ export function DataDrivenFunnel({
     timeConversionData,
     inCardView = false,
     ...chartParams
-}: DataDrivenFunnelProps): JSX.Element {
+}: FunnelProps): JSX.Element {
     const processedData = useMemo(() => {
         const options: FunnelDataProcessingOptions = {
             stepReference,
@@ -110,9 +100,9 @@ export function DataDrivenFunnel({
     let viz: JSX.Element | null = null
 
     if (layout === FunnelLayout.vertical) {
-        viz = <DataDrivenFunnelBarVertical {...chartParams} inCardView={inCardView} />
+        viz = <FunnelBarVertical {...chartParams} inCardView={inCardView} />
     } else {
-        return <div>DataDrivenFunnel visualization with layout {layout} is not supported</div>
+        return <div>Funnel visualization with layout {layout} is not supported</div>
     }
 
     return (

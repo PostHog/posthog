@@ -25,7 +25,7 @@ interface FunnelTooltipProps {
     embedded?: boolean
 }
 
-function DataDrivenFunnelTooltipContent({ stepIndex, series, embedded = false }: FunnelTooltipProps): JSX.Element {
+function FunnelTooltipContent({ stepIndex, series, embedded = false }: FunnelTooltipProps): JSX.Element {
     return (
         <div
             className={clsx('FunnelTooltip InsightTooltip', {
@@ -86,7 +86,7 @@ function DataDrivenFunnelTooltipContent({ stepIndex, series, embedded = false }:
     )
 }
 
-export function useDataDrivenFunnelTooltip(): {
+export function useFunnelTooltip(): {
     vizRef: React.RefObject<HTMLDivElement>
     showTooltip: (rect: [number, number, number], stepIndex: number, series: FunnelStepWithConversionMetrics) => void
     hideTooltip: () => void
@@ -122,7 +122,7 @@ export function useDataDrivenFunnelTooltip(): {
 
         if (tooltipOrigin && currentTooltip) {
             tooltipRoot.render(
-                <DataDrivenFunnelTooltipContent stepIndex={currentTooltip.stepIndex} series={currentTooltip.series} />
+                <FunnelTooltipContent stepIndex={currentTooltip.stepIndex} series={currentTooltip.series} />
             )
 
             // Put the tooltip to the bottom right of the cursor, but flip to left if tooltip doesn't fit

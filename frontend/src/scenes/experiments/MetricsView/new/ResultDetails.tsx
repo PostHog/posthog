@@ -6,7 +6,7 @@ import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { FunnelLayout } from 'lib/constants'
 import { humanFriendlyNumber } from 'lib/utils'
-import { DataDrivenFunnel } from 'scenes/experiments/charts/funnels/Funnel'
+import { Funnel } from 'scenes/experiments/charts/funnels/Funnel'
 import { getViewRecordingFilters } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
@@ -240,7 +240,7 @@ export function ResultDetails({
         <div className="space-y-2">
             <LemonTable columns={columns} dataSource={dataSource} loading={false} />
             {isExperimentFunnelMetric(metric) && (
-                <DataDrivenFunnel
+                <Funnel
                     steps={convertExperimentResultToFunnelSteps(result, metric, experiment)}
                     vizType={FunnelVizType.Steps}
                     layout={FunnelLayout.vertical}
