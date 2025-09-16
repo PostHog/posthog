@@ -4,9 +4,8 @@ import { randomString } from '../../utils'
 import { expect, test } from '../../utils/playwright-test-base'
 
 async function deleteSurvey(page: Page, name: string): Promise<void> {
-    await page.locator('[data-attr=more-button]').click()
-    await expect(page.locator('.Popover__content')).toBeVisible()
-    await page.locator('[data-attr=delete-survey]').click()
+    await page.locator('[data-attr=info-actions-panel]').click()
+    await page.locator('[data-attr=survey-delete]').click()
 
     await expect(page.locator('.LemonModal__layout')).toBeVisible()
     await expect(page.getByText('Delete this survey?')).toBeVisible()
@@ -51,7 +50,7 @@ test.describe('CRUD Survey', () => {
         await page.locator('[data-attr="new-survey"]').click()
         await page.locator('[data-attr="new-blank-survey"]').click()
 
-        await page.locator('[data-attr="survey-name"]').fill(name)
+        await page.locator('[data-attr="scene-title-textarea"]').fill(name)
         await page.locator('[data-attr="survey-question-type-0"]').click()
         await page.getByText('Rating').click()
 
@@ -124,9 +123,6 @@ test.describe('CRUD Survey', () => {
 
         await page.locator(`[data-row-key="${name}"]`).getByText(name).click()
 
-        await page.locator('[data-attr="more-button"]').click()
-        await expect(page.locator('.Popover__content')).toBeVisible()
-
         await page.locator('.LemonTabs').getByText('Overview').click()
         await expect(page.getByText('Display conditions summary')).toBeVisible()
         await expect(
@@ -141,12 +137,12 @@ test.describe('CRUD Survey', () => {
         await page.locator('[data-attr=new-survey]').click()
         await page.locator('[data-attr=new-blank-survey]').click()
 
-        await page.locator('[data-attr=survey-name]').fill(name)
+        await page.locator('[data-attr="scene-title-textarea"]').fill(name)
 
         await page.locator('.LemonCollapsePanel', { hasText: 'Completion conditions' }).click()
         await page.locator('[data-attr=survey-collection-until-limit]').first().click()
         await page.locator('[data-attr=survey-responses-limit-input]').fill('228')
-        await page.locator('[data-attr=survey-name]').click()
+        await page.locator('[data-attr="scene-title-textarea"]').click()
 
         await page.locator('[data-attr=save-survey]').first().click()
 
