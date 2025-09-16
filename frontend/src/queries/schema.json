@@ -60,6 +60,9 @@
                 "name": {
                     "type": "string"
                 },
+                "optionalInFunnel": {
+                    "type": "boolean"
+                },
                 "properties": {
                     "description": "Properties configurable in the interface",
                     "items": {
@@ -554,6 +557,9 @@
                 },
                 {
                     "$ref": "#/definitions/TracesQuery"
+                },
+                {
+                    "$ref": "#/definitions/TraceQuery"
                 },
                 {
                     "$ref": "#/definitions/VectorSearchQuery"
@@ -1880,6 +1886,9 @@
                     "description": "Action name from the plan.",
                     "type": "string"
                 },
+                "optionalInFunnel": {
+                    "type": "boolean"
+                },
                 "properties": {
                     "items": {
                         "$ref": "#/definitions/AssistantPropertyFilter"
@@ -1994,6 +2003,9 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "optionalInFunnel": {
+                    "type": "boolean"
                 },
                 "properties": {
                     "items": {
@@ -6989,6 +7001,9 @@
                         "name": {
                             "type": "string"
                         },
+                        "optionalInFunnel": {
+                            "type": "boolean"
+                        },
                         "orderBy": {
                             "description": "Columns to order by",
                             "items": {
@@ -7067,6 +7082,9 @@
                         },
                         "name": {
                             "type": "string"
+                        },
+                        "optionalInFunnel": {
+                            "type": "boolean"
                         },
                         "properties": {
                             "description": "Properties configurable in the interface",
@@ -7148,6 +7166,9 @@
                         },
                         "name": {
                             "type": "string"
+                        },
+                        "optionalInFunnel": {
+                            "type": "boolean"
                         },
                         "properties": {
                             "description": "Properties configurable in the interface",
@@ -8963,6 +8984,9 @@
                         },
                         {
                             "$ref": "#/definitions/TracesQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/TraceQuery"
                         }
                     ],
                     "description": "Source of the events"
@@ -9091,6 +9115,9 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "optionalInFunnel": {
+                    "type": "boolean"
                 },
                 "properties": {
                     "description": "Properties configurable in the interface",
@@ -9781,6 +9808,9 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "optionalInFunnel": {
+                    "type": "boolean"
                 },
                 "properties": {
                     "description": "Properties configurable in the interface",
@@ -10763,6 +10793,9 @@
                 "name": {
                     "type": "string"
                 },
+                "optionalInFunnel": {
+                    "type": "boolean"
+                },
                 "orderBy": {
                     "description": "Columns to order by",
                     "items": {
@@ -11019,6 +11052,9 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "optionalInFunnel": {
+                    "type": "boolean"
                 },
                 "properties": {
                     "description": "Properties configurable in the interface",
@@ -12209,32 +12245,69 @@
             "required": ["id", "path"],
             "type": "object"
         },
+        "FileSystemIconColor": {
+            "anyOf": [
+                {
+                    "items": {
+                        "type": "string"
+                    },
+                    "maxItems": 1,
+                    "minItems": 1,
+                    "type": "array"
+                },
+                {
+                    "items": {
+                        "type": "string"
+                    },
+                    "maxItems": 2,
+                    "minItems": 2,
+                    "type": "array"
+                }
+            ]
+        },
         "FileSystemIconType": {
             "enum": [
-                "plug",
-                "cohort",
-                "insight",
-                "definitions",
-                "warning",
-                "errorTracking",
-                "ai",
-                "cursor",
+                "dashboard",
+                "llm_analytics",
+                "product_analytics",
+                "revenue_analytics",
+                "revenue_analytics_metadata",
+                "marketing_settings",
+                "embedded_analytics",
+                "sql_editor",
+                "web_analytics",
+                "error_tracking",
                 "heatmap",
-                "database",
-                "folder",
-                "handMoney",
-                "live",
-                "notification",
-                "pieChart",
-                "piggyBank",
-                "sql",
-                "insightFunnel",
-                "insightTrends",
-                "insightRetention",
-                "insightUserPaths",
-                "insightLifecycle",
-                "insightStickiness",
-                "insightHogQL"
+                "session_replay",
+                "survey",
+                "user_interview",
+                "early_access_feature",
+                "experiment",
+                "feature_flag",
+                "data_pipeline",
+                "data_pipeline_metadata",
+                "data_warehouse",
+                "task",
+                "link",
+                "logs",
+                "messaging",
+                "notebook",
+                "action",
+                "comment",
+                "annotation",
+                "event_definition",
+                "property_definition",
+                "ingestion_warning",
+                "person",
+                "cohort",
+                "group",
+                "insight/funnels",
+                "insight/trends",
+                "insight/retention",
+                "insight/paths",
+                "insight/lifecycle",
+                "insight/stickiness",
+                "insight/hog"
             ],
             "type": "string"
         },
@@ -12259,6 +12332,10 @@
                 "href": {
                     "description": "Object's URL",
                     "type": "string"
+                },
+                "iconColor": {
+                    "$ref": "#/definitions/FileSystemIconColor",
+                    "description": "Color of the icon"
                 },
                 "iconType": {
                     "$ref": "#/definitions/FileSystemIconType"
@@ -12574,6 +12651,9 @@
                 "name": {
                     "type": "string"
                 },
+                "optionalInFunnel": {
+                    "type": "boolean"
+                },
                 "properties": {
                     "description": "Properties configurable in the interface",
                     "items": {
@@ -12647,6 +12727,9 @@
                 "name": {
                     "type": "string"
                 },
+                "optionalInFunnel": {
+                    "type": "boolean"
+                },
                 "orderBy": {
                     "description": "Columns to order by",
                     "items": {
@@ -12692,6 +12775,9 @@
                 },
                 "name": {
                     "type": ["string", "null"]
+                },
+                "optionalInFunnel": {
+                    "type": "boolean"
                 },
                 "order": {
                     "type": "number"
@@ -14811,7 +14897,8 @@
                 "linear",
                 "github",
                 "meta-ads",
-                "clickup"
+                "clickup",
+                "reddit-ads"
             ],
             "type": "string"
         },
@@ -15374,11 +15461,11 @@
             "type": "object"
         },
         "MarketingAnalyticsBaseColumns": {
-            "enum": ["Campaign", "Source", "Cost", "Clicks", "Impressions", "CPC", "CTR"],
+            "enum": ["Campaign", "Source", "Cost", "Clicks", "Impressions", "CPC", "CTR", "Reported Conversion"],
             "type": "string"
         },
         "MarketingAnalyticsColumnsSchemaNames": {
-            "enum": ["campaign", "clicks", "cost", "currency", "date", "impressions", "source"],
+            "enum": ["campaign", "clicks", "cost", "currency", "date", "impressions", "source", "reported_conversion"],
             "type": "string"
         },
         "MarketingAnalyticsConfig": {
@@ -16359,6 +16446,7 @@
                 "EventTaxonomyQuery",
                 "ActorsPropertyTaxonomyQuery",
                 "TracesQuery",
+                "TraceQuery",
                 "VectorSearchQuery"
             ],
             "type": "string"
@@ -17057,6 +17145,10 @@
                 },
                 "filters_override": {
                     "$ref": "#/definitions/DashboardFilter"
+                },
+                "name": {
+                    "description": "Name given to a query. It's used to identify the query in the UI. Up to 128 characters for a name.",
+                    "type": "string"
                 },
                 "query": {
                     "$ref": "#/definitions/QuerySchema",
@@ -20735,6 +20827,9 @@
                     "$ref": "#/definitions/TracesQuery"
                 },
                 {
+                    "$ref": "#/definitions/TraceQuery"
+                },
+                {
                     "$ref": "#/definitions/VectorSearchQuery"
                 }
             ],
@@ -22994,6 +23089,10 @@
                     "description": "Length of recording in seconds.",
                     "type": "number"
                 },
+                "retention_period_days": {
+                    "description": "retention period for this recording",
+                    "type": "number"
+                },
                 "snapshot_source": {
                     "enum": ["web", "mobile", "unknown"],
                     "type": "string"
@@ -23156,11 +23255,17 @@
                 "existingSource": {
                     "type": "boolean"
                 },
+                "featureFlag": {
+                    "type": "string"
+                },
                 "fields": {
                     "items": {
                         "$ref": "#/definitions/SourceFieldConfig"
                     },
                     "type": "array"
+                },
+                "iconPath": {
+                    "type": "string"
                 },
                 "label": {
                     "type": "string"
@@ -23172,7 +23277,7 @@
                     "type": "boolean"
                 }
             },
-            "required": ["name", "caption", "fields"],
+            "required": ["name", "caption", "fields", "iconPath"],
             "type": "object"
         },
         "SourceFieldConfig": {
@@ -23411,6 +23516,9 @@
                     "type": "string"
                 },
                 "impressions": {
+                    "type": "string"
+                },
+                "reported_conversion": {
                     "type": "string"
                 },
                 "source": {
@@ -24352,6 +24460,41 @@
             ],
             "type": "object"
         },
+        "TileFilters": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdown_filter": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BreakdownFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "date_from": {
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "type": ["string", "null"]
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "type": "object"
+        },
         "TimelineEntry": {
             "additionalProperties": false,
             "properties": {
@@ -24371,6 +24514,47 @@
                 }
             },
             "required": ["events"],
+            "type": "object"
+        },
+        "TraceQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "TraceQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "$ref": "#/definitions/TracesQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "traceId": {
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "traceId"],
             "type": "object"
         },
         "TracesQuery": {
@@ -24411,9 +24595,6 @@
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
-                },
-                "traceId": {
-                    "type": "string"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -25034,6 +25215,9 @@
                 "query": {
                     "default": "",
                     "type": "string"
+                },
+                "short_id": {
+                    "$ref": "#/definitions/InsightShortId"
                 },
                 "type": {
                     "const": "ai/viz",

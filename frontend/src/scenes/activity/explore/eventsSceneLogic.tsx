@@ -40,11 +40,6 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
             () => [],
             (): Breadcrumb[] => [
                 {
-                    key: 'Activity',
-                    name: `Activity`,
-                    path: urls.activity(),
-                },
-                {
                     key: Scene.ExploreEvents,
                     name: 'Explore',
                 },

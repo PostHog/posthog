@@ -7,6 +7,7 @@ import {
     ClickUpSpacePicker,
     ClickUpWorkspacePicker,
 } from 'lib/integrations/ClickUpIntegrationHelpers'
+import { GitHubRepositoryPicker } from 'lib/integrations/GitHubIntegrationHelpers'
 import {
     GoogleAdsConversionActionPicker,
     GoogleAdsCustomerIdPicker,
@@ -146,6 +147,9 @@ export function CyclotronJobInputIntegrationField({
     }
     if (schema.integration_field === 'linear_team') {
         return <LinearTeamPicker value={value} onChange={(x) => onChange?.(x)} integration={integration} />
+    }
+    if (schema.integration_field === 'github_repository') {
+        return <GitHubRepositoryPicker value={value} onChange={(x) => onChange?.(x)} integrationId={integration.id} />
     }
     if (schema.integration_field === 'twilio_phone_number') {
         return <TwilioPhoneNumberPicker value={value} onChange={(x) => onChange?.(x)} integration={integration} />

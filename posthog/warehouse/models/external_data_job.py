@@ -34,6 +34,7 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     pipeline_version = models.CharField(max_length=400, choices=PipelineVersion.choices, null=True, blank=True)
     billable = models.BooleanField(default=True, null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
+    storage_delta_mib = models.FloatField(null=True, blank=True, default=0)
 
     __repr__ = sane_repr("id")
 
@@ -59,20 +60,6 @@ def get_external_data_job(job_id: UUID) -> ExternalDataJob:
     return ExternalDataJob.objects.prefetch_related(
         "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
     ).get(pk=job_id)
-
-
-@database_sync_to_async
-def aget_external_data_jobs_by_schema_id(schema_id: UUID) -> list[ExternalDataJob]:
-    from posthog.warehouse.models import ExternalDataSchema
-
-    return list(
-        ExternalDataJob.objects.prefetch_related(
-            "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
-        )
-        .filter(schema_id=schema_id)
-        .order_by("-created_at")
-        .all()
-    )
 
 
 @database_sync_to_async

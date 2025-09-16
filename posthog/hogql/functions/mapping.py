@@ -1362,8 +1362,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "first_value": HogQLFunctionMeta("first_value", 1, 1),
     "last_value": HogQLFunctionMeta("last_value", 1, 1),
     "nth_value": HogQLFunctionMeta("nth_value", 2, 2),
-    "lagInFrame": HogQLFunctionMeta("lagInFrame", 1, 1),
-    "leadInFrame": HogQLFunctionMeta("leadInFrame", 1, 1),
+    "lagInFrame": HogQLFunctionMeta("lagInFrame", 1, 3),
+    "leadInFrame": HogQLFunctionMeta("leadInFrame", 1, 3),
     # table functions
     "generateSeries": HogQLFunctionMeta("generate_series", 3, 3),
     # PostgreSQL-style date/time functions
@@ -1980,13 +1980,16 @@ HOGQL_PERMITTED_PARAMETRIC_FUNCTIONS: set[str] = {
 
 
 UDFS: dict[str, HogQLFunctionMeta] = {
-    "aggregate_funnel": HogQLFunctionMeta("aggregate_funnel", 6, 6, aggregate=False),
-    "aggregate_funnel_array": HogQLFunctionMeta("aggregate_funnel_array", 6, 6, aggregate=False),
-    "aggregate_funnel_cohort": HogQLFunctionMeta("aggregate_funnel_cohort", 6, 6, aggregate=False),
+    "aggregate_funnel": HogQLFunctionMeta("aggregate_funnel", 7, 7, aggregate=False),
+    "aggregate_funnel_array": HogQLFunctionMeta("aggregate_funnel_array", 7, 7, aggregate=False),
+    "aggregate_funnel_cohort": HogQLFunctionMeta("aggregate_funnel_cohort", 7, 7, aggregate=False),
+    "aggregate_funnel_test": HogQLFunctionMeta("aggregate_funnel_test", 7, 7, aggregate=False),
     "aggregate_funnel_trends": HogQLFunctionMeta("aggregate_funnel_trends", 8, 8, aggregate=False),
     "aggregate_funnel_array_trends": HogQLFunctionMeta("aggregate_funnel_array_trends", 8, 8, aggregate=False),
     "aggregate_funnel_cohort_trends": HogQLFunctionMeta("aggregate_funnel_cohort_trends", 8, 8, aggregate=False),
-    "aggregate_funnel_test": HogQLFunctionMeta("aggregate_funnel_test", 6, 6, aggregate=False),
+    "aggregate_funnel_array_trends_test": HogQLFunctionMeta(
+        "aggregate_funnel_array_trends_test", 8, 8, aggregate=False
+    ),
 }
 # We want CI to fail if there is a breaking change and the version hasn't been incremented
 if is_cloud() or is_ci():

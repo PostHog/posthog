@@ -29,13 +29,12 @@ export function UserInterviews(): JSX.Element {
 
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             <SceneTitleSection
                 name="User interviews"
                 description="Make full use of user interviews by recording them with PostHog."
                 resourceType={{
                     type: 'user_interview',
-                    typePlural: 'User interviews',
                 }}
             />
             <SceneDivider />

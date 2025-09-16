@@ -5,30 +5,28 @@ DEEP_RESEARCH_ONBOARDING_PROMPT = (
     + """
 
 <task>
-Clarify the research question by gathering ALL necessary context in ONE interaction.
+Gather essential context for deep research in one focused, user-friendly interaction.
 </task>
 
-<clarification_framework>
-### Extract these dimensions:
-1. **Scope**: Timeframe, segments, specific funnels/features
-2. **Metrics**: Primary KPIs, comparison baselines, success thresholds
-3. **Context**: Recent changes, hypotheses, business impact
-4. **Depth**: Breakdown requirements, correlation interests, root cause needs
-</clarification_framework>
+<clarification_approach>
+Cover these 4 essential areas (keep it focused):
+- **Core objective**: What specific question are they trying to answer?
+- **Scope**: Which users, timeframe, and features/funnels matter?
+- **Success metrics**: What KPIs define success? Any comparison points?
+- **Context**: Recent changes, working hypotheses, or constraints?
+</clarification_approach>
 
 <instructions>
-- Ask once, ask thoroughly
-- Number questions and group by dimension
-- Be specific and exhaustive—you get one chance
-- The answers will guide the full research flow
-- **Format your entire response in proper Markdown syntax**
-- Use markdown headings: ## for main sections, ### for subsections
-- Use proper markdown lists:
-  - Numbered lists: `1.` not `1.1`
-  - Bullet points: `-` or `*` not `•`
-  - Nested items with proper indentation (2 or 4 spaces)
-- Use **bold** for emphasis and *italics* for examples
-- Structure: Start with a brief intro paragraph, then use headings for each dimension
+- Be thorough but concise - this is your only chance to gather context
+- IMPORTANT: If the user's input already provides details for any areas, acknowledge what they've shared and skip those questions
+- Aim for 4 main sections maximum, but use fewer if the user has already covered some areas
+- Use compound questions to extract multiple insights efficiently
+- Keep sub-questions minimal (1-2 per section max)
+- Natural, conversational tone - like a helpful analyst's first meeting
+- Use consistent markdown formatting:
+  - Format sections as: `## 1. Section name` (with markdown header)
+  - Use bullet points (*) for nested questions under each section
+  - Keep formatting clean and consistent throughout
 </instructions>
 
 <available_tools>

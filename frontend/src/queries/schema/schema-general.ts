@@ -20,6 +20,7 @@ import {
     ExperimentHoldoutType,
     ExperimentMetricGoal,
     ExperimentMetricMathType,
+    FileSystemIconColor,
     FilterLogicalOperator,
     FilterType,
     FunnelConversionWindowTimeUnit,
@@ -151,6 +152,7 @@ export enum NodeKind {
     EventTaxonomyQuery = 'EventTaxonomyQuery',
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
     TracesQuery = 'TracesQuery',
+    TraceQuery = 'TraceQuery',
     VectorSearchQuery = 'VectorSearchQuery',
 }
 
@@ -194,6 +196,7 @@ export type AnyDataNode =
     | CalendarHeatmapQuery
     | RecordingsQuery
     | TracesQuery
+    | TraceQuery
     | VectorSearchQuery
 
 /**
@@ -271,6 +274,7 @@ export type QuerySchema =
     | EventTaxonomyQuery
     | ActorsPropertyTaxonomyQuery
     | TracesQuery
+    | TraceQuery
     | VectorSearchQuery
 
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
@@ -651,6 +655,7 @@ export interface EntityNode extends Node {
     properties?: AnyPropertyFilter[]
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
     fixedProperties?: AnyPropertyFilter[]
+    optionalInFunnel?: boolean
 }
 
 export interface EventsNode extends EntityNode {
@@ -828,6 +833,7 @@ export interface DataTableNode
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
         | TracesQuery
+        | TraceQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -1548,6 +1554,11 @@ export interface QueryRequest {
     query: QuerySchema
     filters_override?: DashboardFilter
     variables_override?: Record<string, Record<string, any>>
+    /**
+     * Name given to a query. It's used to identify the query in the UI.
+     * Up to 128 characters for a name.
+     */
+    name?: string
 }
 
 export interface QueryUpgradeRequest {
@@ -2354,30 +2365,47 @@ export interface FileSystemEntry {
 }
 
 export type FileSystemIconType =
-    | 'plug'
-    | 'cohort'
-    | 'insight'
-    | 'definitions'
-    | 'warning'
-    | 'errorTracking'
-    | 'ai'
-    | 'cursor'
+    | 'dashboard'
+    | 'llm_analytics'
+    | 'product_analytics'
+    | 'revenue_analytics'
+    | 'revenue_analytics_metadata'
+    | 'marketing_settings'
+    | 'embedded_analytics'
+    | 'sql_editor'
+    | 'web_analytics'
+    | 'error_tracking'
     | 'heatmap'
-    | 'database'
-    | 'folder'
-    | 'handMoney'
-    | 'live'
-    | 'notification'
-    | 'pieChart'
-    | 'piggyBank'
-    | 'sql'
-    | 'insightFunnel'
-    | 'insightTrends'
-    | 'insightRetention'
-    | 'insightUserPaths'
-    | 'insightLifecycle'
-    | 'insightStickiness'
-    | 'insightHogQL'
+    | 'session_replay'
+    | 'survey'
+    | 'user_interview'
+    | 'early_access_feature'
+    | 'experiment'
+    | 'feature_flag'
+    | 'data_pipeline'
+    | 'data_pipeline_metadata'
+    | 'data_warehouse'
+    | 'task'
+    | 'link'
+    | 'logs'
+    | 'messaging'
+    | 'notebook'
+    | 'action'
+    | 'comment'
+    | 'annotation'
+    | 'event_definition'
+    | 'property_definition'
+    | 'ingestion_warning'
+    | 'person'
+    | 'cohort'
+    | 'group'
+    | 'insight/funnels'
+    | 'insight/trends'
+    | 'insight/retention'
+    | 'insight/paths'
+    | 'insight/lifecycle'
+    | 'insight/stickiness'
+    | 'insight/hog'
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType
@@ -2390,6 +2418,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     protocol?: string
     /** Category label to place this under */
     category?: string
+    /** Color of the icon */
+    iconColor?: FileSystemIconColor
 }
 
 export interface PersistedFolder {
@@ -3029,6 +3059,13 @@ export interface DashboardFilter {
     breakdown_filter?: BreakdownFilter | null
 }
 
+export interface TileFilters {
+    date_from?: string | null | undefined
+    date_to?: string | null | undefined
+    properties?: AnyPropertyFilter[] | null | undefined
+    breakdown_filter?: BreakdownFilter | null | undefined
+}
+
 export interface InsightsThresholdBounds {
     lower?: number
     upper?: number
@@ -3270,12 +3307,20 @@ export interface TracesQueryResponse extends AnalyticsQueryResponseBase {
 
 export interface TracesQuery extends DataNode<TracesQueryResponse> {
     kind: NodeKind.TracesQuery
-    traceId?: string
     dateRange?: DateRange
     limit?: integer
     offset?: integer
     filterTestAccounts?: boolean
     showColumnConfigurator?: boolean
+    /** Properties configurable in the interface */
+    properties?: AnyPropertyFilter[]
+}
+
+export interface TraceQuery extends DataNode<TracesQueryResponse> {
+    kind: NodeKind.TraceQuery
+    traceId: string
+    dateRange?: DateRange
+    filterTestAccounts?: boolean
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
 }
@@ -3717,6 +3762,7 @@ export enum MarketingAnalyticsColumnsSchemaNames {
     Date = 'date',
     Impressions = 'impressions',
     Source = 'source',
+    ReportedConversion = 'reported_conversion',
 }
 
 export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaNames, MarketingAnalyticsSchemaField> = {
@@ -3727,6 +3773,10 @@ export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaN
     [MarketingAnalyticsColumnsSchemaNames.Clicks]: { type: ['integer', 'number', 'float'], required: false },
     [MarketingAnalyticsColumnsSchemaNames.Currency]: { type: ['string'], required: false },
     [MarketingAnalyticsColumnsSchemaNames.Impressions]: { type: ['integer', 'number', 'float'], required: false },
+    [MarketingAnalyticsColumnsSchemaNames.ReportedConversion]: {
+        type: ['integer', 'number', 'float'],
+        required: false,
+    },
 }
 
 export type SourceMap = Record<MarketingAnalyticsColumnsSchemaNames, string | undefined>
@@ -3752,6 +3802,7 @@ export enum MarketingAnalyticsBaseColumns {
     Impressions = 'Impressions',
     CPC = 'CPC',
     CTR = 'CTR',
+    ReportedConversion = 'Reported Conversion',
 }
 
 export enum MarketingAnalyticsHelperForColumnNames {
@@ -3842,6 +3893,8 @@ export interface SourceConfig {
     existingSource?: boolean
     unreleasedSource?: boolean
     betaSource?: boolean
+    iconPath: string
+    featureFlag?: string
 }
 
 export const externalDataSources = [

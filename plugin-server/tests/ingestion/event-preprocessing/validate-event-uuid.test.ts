@@ -36,6 +36,7 @@ describe('validateEventUuid', () => {
                 person_processing_opt_out: false,
             } as any,
             message: {} as any,
+            headers: {},
         }
 
         jest.clearAllMocks()

@@ -70,6 +70,7 @@ pub struct MessageCompletion {
     pub offset: i64,
     pub result: MessageResult,
     pub memory_size: usize,
+    pub processing_duration_ms: u64,
 }
 
 /// Per-partition tracker that manages its own completion processing
@@ -129,7 +130,9 @@ impl PartitionTracker {
                 tokio::select! {
                     // Process completions
                     Some(completion) = completion_rx.recv() => {
-                let processing_start = Instant::now();
+                // Save the processing duration before moving completion
+                let processing_duration_ms = completion.processing_duration_ms;
+
                 // Update global statistics
                 global_stats.message_processed(&completion.result, completion.memory_size);
 
@@ -234,7 +237,7 @@ impl PartitionTracker {
                     "topic" => topic.clone(),
                     "partition" => partition.to_string()
                 )
-                .record(processing_start.elapsed().as_secs_f64());
+                .record(processing_duration_ms as f64);
                     }
                     // Handle shutdown signal
                     _ = &mut shutdown_rx => {
@@ -295,6 +298,7 @@ pub struct MessageHandle {
     pub partition: i32,
     pub offset: i64,
     pub memory_size: usize,
+    pub created_at: Instant,
     pub(crate) completion_tx: mpsc::UnboundedSender<MessageCompletion>,
 }
 
@@ -311,6 +315,7 @@ impl MessageHandle {
             partition,
             offset,
             memory_size,
+            created_at: Instant::now(),
             completion_tx,
         }
     }
@@ -321,6 +326,7 @@ impl MessageHandle {
             offset: self.offset,
             result,
             memory_size: self.memory_size,
+            processing_duration_ms: self.created_at.elapsed().as_millis() as u64,
         };
 
         if self.completion_tx.send(completion).is_err() {

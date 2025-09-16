@@ -4,9 +4,7 @@ import { useState } from 'react'
 import { IconGear, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { cn } from 'lib/utils/css-classes'
 import { CURRENCY_SYMBOL_TO_EMOJI_MAP, getCurrencySymbol } from 'lib/utils/geography/currency'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -18,7 +16,6 @@ import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<HTMLButtonElement> }): JSX.Element {
     const { events } = useValues(revenueAnalyticsSettingsLogic)
     const { deleteEvent, save } = useActions(revenueAnalyticsSettingsLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const [modalState, setModalState] = useState<{
         isOpen: boolean
@@ -27,26 +24,22 @@ export function EventConfiguration({ buttonRef }: { buttonRef?: React.RefObject<
 
     return (
         <SceneSection
-            hideTitleAndDescription={!newSceneLayout}
-            className={cn(!newSceneLayout && 'gap-y-0')}
             title="Event Configuration"
             description="PostHog can display revenue data in our Revenue Analytics product from any event. You can configure as many events as you want, and specify the revenue property and currency for each event individually."
         >
-            {!newSceneLayout && (
-                <>
-                    <h3 className="mb-2">Event Configuration</h3>
-                    <p className="mb-4">
-                        PostHog can display revenue data in our Revenue Analytics product from any event. You can
-                        configure as many events as you want, and specify the revenue property and currency for each
-                        event individually.
-                        <br />
-                        <br />
-                        You can also configure several properties for each event, such as the product property (to break
-                        down revenue by product), the coupon property (to break down revenue by coupon), and the
-                        subscription property (to properly calculate ARPU and LTV).
-                    </p>
-                </>
-            )}
+            <>
+                <h3 className="mb-2">Event Configuration</h3>
+                <p className="mb-4">
+                    PostHog can display revenue data in our Revenue Analytics product from any event. You can configure
+                    as many events as you want, and specify the revenue property and currency for each event
+                    individually.
+                    <br />
+                    <br />
+                    You can also configure several properties for each event, such as the product property (to break
+                    down revenue by product), the coupon property (to break down revenue by coupon), and the
+                    subscription property (to properly calculate ARPU and LTV).
+                </p>
+            </>
             <div className="flex flex-col mb-1 items-end w-full">
                 <div className="flex flex-row w-full gap-1 justify-end my-2">
                     <LemonButton
