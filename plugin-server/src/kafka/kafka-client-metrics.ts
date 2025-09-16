@@ -303,22 +303,19 @@ export function trackPartitionMetrics(
     consumerGroup: string,
     consumerId: string
 ): void {
-    const labels = {
-        topic: topicName,
-        partition: partitionId,
-        leader_broker: String(partitionData.leader || 'unknown'),
-        consumer_group: consumerGroup,
-    }
-
     if (partitionData.fetch_state === 'stopped' || partitionData.fetch_state === 'stopping') {
         kafkaPartitionFetchErrors.inc({
-            ...labels,
             broker_id: String(partitionData.leader),
+            topic: topicName,
+            partition: partitionId,
             fetch_state: String(partitionData.fetch_state || 'unknown'),
+            consumer_group: consumerGroup,
         })
 
         logger.warn('Partition fetching stopped or stopping...', {
-            ...labels,
+            topic: topicName,
+            partition: partitionId,
+            consumer_group: consumerGroup,
             consumer_id: consumerId,
             fetch_state: partitionData.fetch_state,
             consumer_lag: partitionData.consumer_lag,

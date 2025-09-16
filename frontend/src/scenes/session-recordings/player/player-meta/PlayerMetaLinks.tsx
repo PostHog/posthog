@@ -1,17 +1,27 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconDownload, IconEllipsis, IconMinusSmall, IconNotebook, IconPlusSmall, IconTrash } from '@posthog/icons'
+import {
+    IconCheck,
+    IconDownload,
+    IconEllipsis,
+    IconMinusSmall,
+    IconNotebook,
+    IconPlusSmall,
+    IconTrash,
+} from '@posthog/icons'
 import { LemonButton, LemonButtonProps, LemonDialog, LemonMenu, LemonMenuItems, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessControlAction, getAccessControlDisabledReason } from 'lib/components/AccessControlAction'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { IconBlank } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
+import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { PlaylistPopoverButton } from 'scenes/session-recordings/player/playlist-popover/PlaylistPopover'
 import {
     SessionRecordingPlayerMode,
@@ -158,6 +168,8 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
     const { deleteRecording, setIsFullScreen, exportRecordingToFile, exportRecordingToVideoFile } =
         useActions(sessionRecordingPlayerLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { skipInactivitySetting } = useValues(playerSettingsLogic)
+    const { setSkipInactivitySetting } = useActions(playerSettingsLogic)
 
     const isStandardMode =
         (logicProps.mode ?? SessionRecordingPlayerMode.Standard) === SessionRecordingPlayerMode.Standard
@@ -185,6 +197,16 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
         const itemsArray: LemonMenuItems = [
             {
                 label: () => <AddToNotebookButton fullWidth={true} />,
+            },
+            {
+                label: 'Skip inactivity',
+                'data-attr': 'skip-inactivity-menu-item',
+                title: 'Skip inactive parts of the recording',
+                onClick: () => {
+                    return setSkipInactivitySetting(!skipInactivitySetting)
+                },
+                status: skipInactivitySetting ? 'danger' : 'default',
+                icon: skipInactivitySetting ? <IconCheck /> : <IconBlank />,
             },
             isStandardMode && {
                 label: 'PostHog .json',
@@ -232,7 +254,7 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
         }
         return itemsArray
         // oxlint-disable-next-line exhaustive-deps
-    }, [logicProps.playerKey, onDelete, exportRecordingToFile, size])
+    }, [logicProps.playerKey, onDelete, exportRecordingToFile, size, skipInactivitySetting])
 
     return (
         <LemonMenu items={items} buttonSize="xsmall">

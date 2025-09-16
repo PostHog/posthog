@@ -3066,6 +3066,13 @@ export interface DashboardFilter {
     breakdown_filter?: BreakdownFilter | null
 }
 
+export interface TileFilters {
+    date_from?: string | null | undefined
+    date_to?: string | null | undefined
+    properties?: AnyPropertyFilter[] | null | undefined
+    breakdown_filter?: BreakdownFilter | null | undefined
+}
+
 export interface InsightsThresholdBounds {
     lower?: number
     upper?: number
