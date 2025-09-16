@@ -1,3 +1,5 @@
+import '../../../funnels/Funnel.scss'
+
 import { createContext, useContext, useMemo } from 'react'
 
 import { FunnelLayout } from 'lib/constants'
@@ -12,7 +14,6 @@ import {
     HistogramGraphDatum,
 } from '~/types'
 
-import '../../../funnels/Funnel'
 import { FunnelBarVertical } from './FunnelBarVertical'
 import { FunnelDataProcessingOptions, processFunnelData, processTimeConversionData } from './funnelDataUtils'
 

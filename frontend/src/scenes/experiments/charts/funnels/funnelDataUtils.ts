@@ -1,4 +1,4 @@
-import { getSeriesBackgroundColor } from 'lib/colors'
+import { getSeriesColor as getSeriesColorFromLib } from 'lib/colors'
 import { FunnelLayout } from 'lib/constants'
 import { percentage, sum } from 'lib/utils'
 import { flattenedStepsByBreakdown, stepsWithConversionMetrics } from 'scenes/funnels/funnelUtils'
@@ -35,7 +35,7 @@ export function getSeriesColor(series: FunnelStepWithConversionMetrics): string 
     // Use the breakdownIndex if available (added by experiment conversion)
     // This matches exactly what the exposure chart does with getSeriesColor(index)
     const index = (series as any).breakdownIndex ?? 0
-    return getSeriesBackgroundColor(index)
+    return getSeriesColorFromLib(index)
 }
 
 /**
