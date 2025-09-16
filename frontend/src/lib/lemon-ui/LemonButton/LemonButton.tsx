@@ -5,7 +5,7 @@ import React, { useContext } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 
-import { accessLevelSatisfied, resourceTypeToString } from 'lib/components/AccessControlAction'
+import { getAccessControlDisabledReason } from 'lib/components/AccessControlAction'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -76,6 +76,8 @@ export interface LemonButtonPropsBase
     'aria-label'?: string
     /** Whether to truncate the button's text if necessary */
     truncate?: boolean
+    /** Prevent dialog from closing when clicked */
+    preventClosing?: boolean
     /** Wrap the main button element with a container element */
     buttonWrapper?: (button: JSX.Element) => JSX.Element
     /** Static offset (px) to adjust tooltip arrow position. Should only be used with fixed tooltipPlacement */
@@ -207,15 +209,15 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             // Handle access control
             if (accessControl) {
                 const { userAccessLevel, minAccessLevel, resourceType } = accessControl
-                const hasAccess = userAccessLevel
-                    ? accessLevelSatisfied(resourceType, userAccessLevel, minAccessLevel)
-                    : true
-                if (!hasAccess) {
+                const accessControlDisabledReason = getAccessControlDisabledReason(
+                    resourceType,
+                    userAccessLevel,
+                    minAccessLevel
+                )
+                if (accessControlDisabledReason) {
                     disabled = true
                     if (!disabledReason) {
-                        disabledReason = `You don't have sufficient permissions for this ${resourceTypeToString(
-                            resourceType
-                        )}. Your access level (${userAccessLevel}) doesn't meet the required level (${minAccessLevel}).`
+                        disabledReason = accessControlDisabledReason
                     }
                 }
             }

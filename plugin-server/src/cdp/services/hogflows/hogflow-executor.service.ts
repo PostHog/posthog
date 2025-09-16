@@ -350,7 +350,7 @@ export class HogFlowExecutorService {
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
         currentAction: HogFlowAction,
         nextAction: HogFlowAction,
-        reason: 'filtered' | 'succeeded'
+        reason: 'filtered' | 'failed' | 'succeeded'
     ): CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> {
         result.finished = false
 
@@ -367,7 +367,7 @@ export class HogFlowExecutorService {
             message: `Workflow moved to action ${actionIdForLogging(nextAction)}`,
         })
 
-        this.trackActionMetric(result, currentAction, reason === 'filtered' ? 'filtered' : 'succeeded')
+        this.trackActionMetric(result, currentAction, reason)
 
         return result
     }

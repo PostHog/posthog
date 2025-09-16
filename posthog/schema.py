@@ -10710,6 +10710,39 @@ class TeamTaxonomyQueryResponse(BaseModel):
     )
 
 
+class TileFilters(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown_filter: Optional[BreakdownFilter] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = None
+
+
 class TraceQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",

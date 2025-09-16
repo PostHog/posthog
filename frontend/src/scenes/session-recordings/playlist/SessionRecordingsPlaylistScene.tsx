@@ -1,23 +1,17 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
-import { EditableField } from 'lib/components/EditableField/EditableField'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
-import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { SceneExport } from 'scenes/sceneTypes'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 
@@ -31,7 +25,6 @@ import {
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { isUniversalFilters } from '../utils'
 import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
@@ -57,8 +50,6 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
 
     const { showFilters } = useValues(playerSettingsLogic)
     const { setShowFilters } = useActions(playerSettingsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
 
     const isNewPlaylist = useMemo(() => {
         if (!playlist || playlistLoading) {
@@ -102,70 +93,6 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
             <PageHeader
                 buttons={
                     <div className="flex justify-between items-center gap-2">
-                        {!newSceneLayout && (
-                            <>
-                                <More
-                                    overlay={
-                                        <>
-                                            <LemonButton
-                                                onClick={() => duplicatePlaylist()}
-                                                fullWidth
-                                                data-attr="duplicate-playlist"
-                                                accessControl={{
-                                                    resourceType: AccessControlResourceType.SessionRecording,
-                                                    minAccessLevel: AccessControlLevel.Editor,
-                                                    userAccessLevel:
-                                                        getAppContext()?.resource_access_control?.[
-                                                            AccessControlResourceType.SessionRecording
-                                                        ],
-                                                }}
-                                            >
-                                                Duplicate
-                                            </LemonButton>
-                                            <LemonButton
-                                                onClick={() =>
-                                                    updatePlaylist({
-                                                        short_id: playlist.short_id,
-                                                        pinned: !playlist.pinned,
-                                                    })
-                                                }
-                                                fullWidth
-                                                accessControl={{
-                                                    resourceType: AccessControlResourceType.SessionRecording,
-                                                    minAccessLevel: AccessControlLevel.Editor,
-                                                    userAccessLevel:
-                                                        getAppContext()?.resource_access_control?.[
-                                                            AccessControlResourceType.SessionRecording
-                                                        ],
-                                                }}
-                                            >
-                                                {playlist.pinned ? 'Unpin collection' : 'Pin collection'}
-                                            </LemonButton>
-                                            <LemonDivider />
-
-                                            <LemonButton
-                                                status="danger"
-                                                onClick={() => deletePlaylist()}
-                                                fullWidth
-                                                accessControl={{
-                                                    resourceType: AccessControlResourceType.SessionRecording,
-                                                    minAccessLevel: AccessControlLevel.Editor,
-                                                    userAccessLevel:
-                                                        getAppContext()?.resource_access_control?.[
-                                                            AccessControlResourceType.SessionRecording
-                                                        ],
-                                                }}
-                                            >
-                                                Delete collection
-                                            </LemonButton>
-                                        </>
-                                    }
-                                />
-
-                                <LemonDivider vertical />
-                            </>
-                        )}
-
                         <LemonButton
                             type="primary"
                             disabledReason={showFilters && !hasChanges ? 'No changes to save' : undefined}
@@ -177,29 +104,6 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                             {showFilters ? <>Save changes</> : <>Edit</>}
                         </LemonButton>
                     </div>
-                }
-                caption={
-                    !newSceneLayout && (
-                        <>
-                            <EditableField
-                                multiline
-                                name="description"
-                                markdown
-                                value={playlist.description || ''}
-                                placeholder="Description (optional)"
-                                onSave={(value) => updatePlaylist({ description: value })}
-                                saveOnBlur={true}
-                                maxLength={400}
-                                data-attr="playlist-description"
-                                compactButtons
-                            />
-                            <UserActivityIndicator
-                                at={playlist.last_modified_at}
-                                by={playlist.last_modified_by}
-                                className="mt-2"
-                            />
-                        </>
-                    )
                 }
             />
 

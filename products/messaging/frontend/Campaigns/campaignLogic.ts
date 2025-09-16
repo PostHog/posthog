@@ -34,7 +34,7 @@ const NEW_CAMPAIGN: HogFlow = {
             id: TRIGGER_NODE_ID,
             type: 'trigger',
             name: 'Trigger',
-            description: 'User performs an action to start the campaign',
+            description: 'User performs an action to start the campaign.',
             created_at: 0,
             updated_at: 0,
             config: {
@@ -46,7 +46,7 @@ const NEW_CAMPAIGN: HogFlow = {
             id: EXIT_NODE_ID,
             type: 'exit',
             name: 'Exit',
-            description: 'User moved through the campaign without errors',
+            description: 'User moved through the campaign without errors.',
             config: {
                 reason: 'Default exit',
             },
