@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { allOperatorsMapping, debounce, hasFormErrors, isObject } from 'lib/utils'
@@ -221,18 +221,18 @@ function extractPersonData(row: SurveyResponseRow): {
 } {
     const distinctId = row.at(-2) as string
     const timestamp = row.at(-1) as string
-    const unparsedPersonProperties = row.at(-3)
-    let personProperties: Record<string, any> | undefined
-
-    if (unparsedPersonProperties && unparsedPersonProperties !== null) {
-        try {
-            personProperties = JSON.parse(unparsedPersonProperties as string)
-        } catch {
-            // Ignore parsing errors for person properties
+    // now, we're querying for all PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES, starting from the third last value, so build our person properties object
+    // from those values. We use them to have a display name for the person
+    const personProperties: Record<string, any> = {}
+    let hasAnyProperties = false
+    for (let i = 0; i < PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES.length; i++) {
+        const value = row.at(-3 - i) as string
+        if (value && value !== null && value !== '') {
+            personProperties[PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES[i]] = value
+            hasAnyProperties = true
         }
     }
-
-    return { distinctId, personProperties, timestamp }
+    return { distinctId, personProperties: hasAnyProperties ? personProperties : undefined, timestamp }
 }
 
 // Helper to count a choice and store person data for latest occurrence
@@ -472,30 +472,38 @@ export const surveyLogic = kea<surveyLogicType>([
             teamLogic,
             ['addProductIntent'],
         ],
-        values: [enabledFlagLogic, ['featureFlags as enabledFlags'], surveysLogic, ['data'], userLogic, ['user']],
+        values: [
+            enabledFlagLogic,
+            ['featureFlags as enabledFlags'],
+            surveysLogic,
+            ['data'],
+            userLogic,
+            ['user'],
+            teamLogic,
+            ['currentTeam'],
+        ],
     })),
     actions({
         setSurveyMissing: true,
         editingSurvey: (editing: boolean) => ({ editing }),
-        setDefaultForQuestionType: (
-            idx: number,
-            surveyQuestion: SurveyQuestion,
-            type: SurveyQuestionType,
-            isEditingQuestion: boolean,
-            isEditingDescription: boolean,
-            isEditingThankYouMessage: boolean
-        ) => ({
+        setDefaultForQuestionType: (idx: number, surveyQuestion: SurveyQuestion, type: SurveyQuestionType) => ({
             idx,
             surveyQuestion,
             type,
-            isEditingQuestion,
-            isEditingDescription,
-            isEditingThankYouMessage,
         }),
         setQuestionBranchingType: (questionIndex, type, specificQuestionIndex) => ({
             questionIndex,
             type,
             specificQuestionIndex,
+        }),
+        setMultipleSurveyQuestion: (
+            questionIndex: number,
+            question: MultipleSurveyQuestion,
+            type: SurveyQuestionType.MultipleChoice | SurveyQuestionType.SingleChoice
+        ) => ({
+            questionIndex,
+            question,
+            type,
         }),
         setResponseBasedBranchingForQuestion: (questionIndex, responseValue, nextStep, specificQuestionIndex) => ({
             questionIndex,
@@ -846,7 +854,7 @@ export const surveyLogic = kea<surveyLogicType>([
                     -- QUERYING ALL SURVEY RESPONSES IN ONE GO
                     SELECT
                         ${questionFields.join(',\n')},
-                        person.properties,
+                        ${PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES.map((property) => `person.properties.${property}`).join(',\n')},
                         events.distinct_id,
                         events.timestamp
                     FROM events
@@ -1029,19 +1037,21 @@ export const surveyLogic = kea<surveyLogicType>([
         survey: [
             { ...NEW_SURVEY } as NewSurvey | Survey,
             {
-                setDefaultForQuestionType: (
-                    state,
-                    { idx, type, surveyQuestion, isEditingQuestion, isEditingDescription, isEditingThankYouMessage }
-                ) => {
-                    const question = isEditingQuestion
-                        ? surveyQuestion.question
-                        : defaultSurveyFieldValues[type].questions[0].question
-                    const description = isEditingDescription
-                        ? surveyQuestion.description
-                        : defaultSurveyFieldValues[type].questions[0].description
-                    const thankYouMessageHeader = isEditingThankYouMessage
-                        ? state.appearance?.thankYouMessageHeader
-                        : defaultSurveyFieldValues[type].appearance.thankYouMessageHeader
+                setDefaultForQuestionType: (state, { idx, type, surveyQuestion }) => {
+                    const question =
+                        defaultSurveyFieldValues[surveyQuestion.type].questions[0].question !== surveyQuestion.question
+                            ? surveyQuestion.question
+                            : defaultSurveyFieldValues[type].questions[0].question
+                    const description =
+                        defaultSurveyFieldValues[surveyQuestion.type].questions[0].description !==
+                        surveyQuestion.description
+                            ? surveyQuestion.description
+                            : defaultSurveyFieldValues[type].questions[0].description
+                    const thankYouMessageHeader =
+                        defaultSurveyFieldValues[surveyQuestion.type].appearance.thankYouMessageHeader !==
+                        state.appearance?.thankYouMessageHeader
+                            ? state.appearance?.thankYouMessageHeader
+                            : defaultSurveyFieldValues[type].appearance.thankYouMessageHeader
                     const newQuestions = [...state.questions]
 
                     const q = {
@@ -1153,6 +1163,18 @@ export const surveyLogic = kea<surveyLogicType>([
                         delete question.branching
                     })
 
+                    return {
+                        ...state,
+                        questions: newQuestions,
+                    }
+                },
+                setMultipleSurveyQuestion: (state, { questionIndex, question, type }) => {
+                    const newQuestions = [...state.questions]
+                    const newQuestion: MultipleSurveyQuestion = {
+                        ...question,
+                        type,
+                    }
+                    newQuestions[questionIndex] = newQuestion
                     return {
                         ...state,
                         questions: newQuestions,

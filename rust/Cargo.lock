@@ -1082,7 +1082,6 @@ dependencies = [
  "common-dns",
  "common-kafka",
  "common-metrics",
- "common-redis",
  "common-types",
  "envconfig",
  "fernet",
@@ -1384,10 +1383,12 @@ dependencies = [
  "common-alloc",
  "common-redis",
  "common-types",
+ "dateparser",
  "envconfig",
  "flate2",
  "futures",
  "health",
+ "jiff",
  "limiters",
  "lz-str",
  "metrics",
@@ -1640,6 +1641,15 @@ name = "common-alloc"
 version = "0.1.0"
 dependencies = [
  "tikv-jemallocator",
+]
+
+[[package]]
+name = "common-compression"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "flate2",
+ "thiserror 2.0.12",
 ]
 
 [[package]]
@@ -1947,9 +1957,9 @@ name = "cyclotron-core"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "common-compression",
  "common-metrics",
  "csv",
- "flate2",
  "futures",
  "hex",
  "serde",
@@ -2023,7 +2033,7 @@ dependencies = [
  "moka",
  "once_cell",
  "posthog-rs",
- "posthog-symbol-data 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "posthog-symbol-data 0.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rdkafka",
  "regex",
  "reqwest 0.12.3",
@@ -2482,6 +2492,7 @@ dependencies = [
  "bytes",
  "chrono",
  "common-alloc",
+ "common-compression",
  "common-cookieless",
  "common-database",
  "common-geoip",
@@ -2490,7 +2501,6 @@ dependencies = [
  "common-types",
  "dateparser",
  "envconfig",
- "flate2",
  "futures",
  "health",
  "json5",
@@ -2523,6 +2533,7 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
+ "url",
  "uuid",
 ]
 
@@ -2964,7 +2975,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e5274423e17b7c9fc20b6e7e208532f9b19825d82dfd615708b70edd83df41f1"
 dependencies = [
  "ahash 0.8.11",
- "allocator-api2",
  "serde",
 ]
 
@@ -3726,6 +3736,32 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4a5f13b858c8d314ee3e8f639011f7ccefe71f97f96e50151fb991f267928e2c"
 
 [[package]]
+name = "jiff"
+version = "0.1.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24a46169c7a10358cdccfb179910e8a5a392fc291bdb409da9aeece5b19786d8"
+dependencies = [
+ "jiff-tzdb-platform",
+ "serde",
+ "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "jiff-tzdb"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c1283705eb0a21404d2bfd6eef2a7593d240bc42a0bdb39db0ad6fa2ec026524"
+
+[[package]]
+name = "jiff-tzdb-platform"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "875a5a69ac2bab1a891711cf5eccbec1ce0341ea805560dcd90b7a2e925132e8"
+dependencies = [
+ "jiff-tzdb",
+]
+
+[[package]]
 name = "jobserver"
 version = "0.1.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3809,7 +3845,9 @@ dependencies = [
  "futures",
  "health",
  "metrics",
+ "metrics-exporter-prometheus",
  "num_cpus",
+ "once_cell",
  "opentelemetry 0.22.0",
  "opentelemetry-otlp",
  "opentelemetry_sdk 0.22.1",
@@ -4541,9 +4579,9 @@ dependencies = [
 
 [[package]]
 name = "once_cell"
-version = "1.19.0"
+version = "1.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3fdb12b2476b595f9358c5161aa467c2438859caa136dec86c26fdd2efe17b92"
+checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
 
 [[package]]
 name = "openssl"
@@ -5116,7 +5154,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-symbol-data"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "thiserror 1.0.69",
@@ -5124,9 +5162,9 @@ dependencies = [
 
 [[package]]
 name = "posthog-symbol-data"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "155615f55dabf848e8e69d7081412e424afbea5060a49bb9582f48d0f8141f64"
+checksum = "ed6c8edcab40fb71e1eb6b6af8961b3d0d04fbcaa841331036c964868d5dcb22"
 dependencies = [
  "serde",
  "thiserror 1.0.69",
@@ -7413,18 +7451,16 @@ dependencies = [
 
 [[package]]
 name = "tokio-util"
-version = "0.7.10"
+version = "0.7.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5419f34732d9eb6ee4c3578b7989078579b7f039cbbb9ca2c4da015749371e15"
+checksum = "14307c986784f72ef81c89db7d9e28d6ac26d16213b109ea501696195e6e3ce5"
 dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
  "futures-util",
- "hashbrown 0.14.5",
  "pin-project-lite",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -7650,6 +7686,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tracing-serde"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "704b1aeb7be0d0a84fc9828cae51dab5970fee5088f83d1dd7ee6f6246fc6ff1"
+dependencies = [
+ "serde",
+ "tracing-core",
+]
+
+[[package]]
 name = "tracing-subscriber"
 version = "0.3.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7659,12 +7705,15 @@ dependencies = [
  "nu-ansi-term",
  "once_cell",
  "regex",
+ "serde",
+ "serde_json",
  "sharded-slab",
  "smallvec",
  "thread_local",
  "tracing",
  "tracing-core",
  "tracing-log",
+ "tracing-serde",
 ]
 
 [[package]]

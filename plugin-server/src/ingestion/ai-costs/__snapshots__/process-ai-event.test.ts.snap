@@ -1,4 +1,4 @@
-// Jest Snapshot v1, https://goo.gl/fbAQLP
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
 
 exports[`processAiEvent() smoke test every model processes claude-2 1`] = `
 {
@@ -8,19 +8,35 @@ exports[`processAiEvent() smoke test every model processes claude-2 1`] = `
 }
 `;
 
+exports[`processAiEvent() smoke test every model processes gemini-2.0-flash-001 1`] = `
+{
+  "$ai_input_cost_usd": 0.00001,
+  "$ai_output_cost_usd": 0.00002,
+  "$ai_total_cost_usd": 0.00003,
+}
+`;
+
+exports[`processAiEvent() smoke test every model processes gemini-2.5-flash 1`] = `
+{
+  "$ai_input_cost_usd": 0.00003,
+  "$ai_output_cost_usd": 0.000125,
+  "$ai_total_cost_usd": 0.000155,
+}
+`;
+
 exports[`processAiEvent() smoke test every model processes gemini-2.5-pro-preview 1`] = `
 {
-  "$ai_input_cost_usd": 70,
-  "$ai_output_cost_usd": 35,
-  "$ai_total_cost_usd": 105,
+  "$ai_input_cost_usd": 0.000125,
+  "$ai_output_cost_usd": 0.0005,
+  "$ai_total_cost_usd": 0.000625,
 }
 `;
 
 exports[`processAiEvent() smoke test every model processes gemini-2.5-pro-preview:large 1`] = `
 {
-  "$ai_input_cost_usd": 70,
-  "$ai_output_cost_usd": 35,
-  "$ai_total_cost_usd": 105,
+  "$ai_input_cost_usd": 0.000125,
+  "$ai_output_cost_usd": 0.0005,
+  "$ai_total_cost_usd": 0.000625,
 }
 `;
 
@@ -61,6 +77,14 @@ exports[`processAiEvent() smoke test every model processes mistral-7b-instruct-v
   "$ai_input_cost_usd": 40,
   "$ai_output_cost_usd": 20,
   "$ai_total_cost_usd": 60,
+}
+`;
+
+exports[`processAiEvent() smoke test every model processes o1-mini 1`] = `
+{
+  "$ai_input_cost_usd": 0.00011,
+  "$ai_output_cost_usd": 0.00022,
+  "$ai_total_cost_usd": 0.00033,
 }
 `;
 

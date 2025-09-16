@@ -3,25 +3,24 @@ use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
 use rdkafka::Message;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::oneshot;
 use tokio::time::timeout;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
+use crate::kafka::metrics_consts::KAFKA_CONSUMER_AVAILABLE_PERMITS;
 use crate::kafka::types::Partition;
 
-use super::message::MessageProcessor;
+use super::message::AckableMessage;
 use super::rebalance_handler::RebalanceHandler;
 use super::stateful_context::StatefulConsumerContext;
 use super::tracker::{InFlightTracker, TrackerStats};
 
 /// Stateful Kafka consumer that coordinates with external state systems
 /// This consumer ensures sequential offset commits and coordinated partition revocation
-pub struct StatefulKafkaConsumer<P: MessageProcessor> {
+pub struct StatefulKafkaConsumer {
     /// Kafka consumer instance with stateful context
     consumer: StreamConsumer<StatefulConsumerContext>,
-
-    /// Message processor for handling business logic
-    message_processor: Arc<P>,
 
     /// In-flight message tracker (owns the semaphore for backpressure)
     tracker: Arc<InFlightTracker>,
@@ -31,15 +30,19 @@ pub struct StatefulKafkaConsumer<P: MessageProcessor> {
 
     /// Shutdown signal for graceful shutdown
     shutdown_rx: oneshot::Receiver<()>,
+
+    /// Channel to send messages to the processor pool
+    /// The pool handles routing and parallel processing
+    message_sender: UnboundedSender<AckableMessage>,
 }
 
-impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
+impl StatefulKafkaConsumer {
     /// Create a new stateful Kafka consumer with integrated tracker and context
-    /// This is the recommended way to create consumers for production use
+    /// The message_sender channel connects to a processor pool that handles the actual processing
     pub fn from_config(
         config: &rdkafka::ClientConfig,
         rebalance_handler: Arc<dyn RebalanceHandler>,
-        message_processor: Arc<P>,
+        message_sender: UnboundedSender<AckableMessage>,
         max_in_flight_messages: usize,
         commit_interval: Duration,
         shutdown_rx: oneshot::Receiver<()>,
@@ -52,10 +55,10 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
 
         Ok(Self {
             consumer,
-            message_processor,
             tracker,
             commit_interval,
             shutdown_rx,
+            message_sender,
         })
     }
 
@@ -79,7 +82,8 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
                 msg_result = timeout(Duration::from_secs(1), self.consumer.recv()) => {
                     match msg_result {
                         Ok(Ok(msg)) => {
-                            self.handle_message(msg).await?;
+                            // Send message to processor pool
+                            self.send_to_processor(msg).await?;
                         }
                         Ok(Err(e)) => {
                             error!("Error receiving message: {}", e);
@@ -119,7 +123,7 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
                     stats.publish_metrics();
 
                     // Also publish semaphore permit metrics from the tracker
-                    metrics::gauge!("kafka_consumer_available_permits")
+                    metrics::gauge!(KAFKA_CONSUMER_AVAILABLE_PERMITS)
                         .set(available_permits as f64);
 
                     info!("Metrics published successfully");
@@ -136,6 +140,7 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
 
         // Graceful shutdown: wait for in-flight messages to complete
         info!("Waiting for in-flight messages to complete");
+
         let final_offsets = self.tracker.wait_for_completion().await;
         info!(
             "All in-flight messages completed. Final offsets: {:?}",
@@ -149,110 +154,72 @@ impl<P: MessageProcessor> StatefulKafkaConsumer<P> {
             info!("Final offsets committed successfully");
         }
 
+        // Drop the sender to signal no more messages
+        drop(self.message_sender);
+
         info!("Graceful shutdown completed");
         Ok(())
     }
 
-    async fn handle_message<'a>(&self, msg: rdkafka::message::BorrowedMessage<'a>) -> Result<()> {
+    /// Send a message to the processor pool
+    async fn send_to_processor<'a>(
+        &self,
+        msg: rdkafka::message::BorrowedMessage<'a>,
+    ) -> Result<()> {
+        // First check if we should process this message (partition not revoked)
         let topic = msg.topic();
-        let partition = msg.partition();
+        let partition_num = msg.partition();
         let offset = msg.offset();
-        let partition = Partition::new(topic.to_string(), partition);
+        let partition = Partition::new(topic.to_string(), partition_num);
 
-        // Check if partition is still active (not revoked)
         if !self.tracker.is_partition_active(&partition).await {
-            warn!(
+            // Increment metric instead of logging to reduce noise
+            metrics::counter!(
+                crate::kafka::metrics_consts::MESSAGES_SKIPPED_REVOKED,
+                "topic" => topic.to_string(),
+                "partition" => partition_num.to_string()
+            )
+            .increment(1);
+
+            // Only log occasionally for debugging
+            debug!(
                 "Skipping message from revoked partition {}:{} offset {}",
-                partition.topic(),
-                partition.partition_number(),
-                offset
+                topic, partition_num, offset
             );
             return Ok(());
         }
 
-        // Calculate size before detaching
+        // Acquire permit from tracker before sending
+        // This provides backpressure - we won't send more than max_in_flight_messages
+        let permit = self
+            .tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| anyhow::anyhow!("Semaphore closed"))?;
+
+        // Calculate message size for tracking
         let estimated_size = msg.payload().map(|p| p.len()).unwrap_or(0)
             + msg.key().map(|k| k.len()).unwrap_or(0)
             + topic.len();
 
-        // Try to acquire a permit BEFORE detaching the message
-        // Use try_acquire_owned for immediate response, avoiding blocking
-        let permit = match self.tracker.in_flight_semaphore_clone().try_acquire_owned() {
-            Ok(permit) => permit,
-            Err(_) => {
-                // No permits available - process completions and try once more
-                debug!(
-                    "No permits available, processing completions. Topic {} partition {} offset {}. In-flight: {}",
-                    partition.topic(), partition.partition_number(), offset,
-                    self.tracker.in_flight_count().await
-                );
-
-                // Give PartitionTrackers a moment to process completions
-                tokio::time::sleep(Duration::from_millis(10)).await;
-
-                // Try once more with a short timeout
-                match tokio::time::timeout(
-                    Duration::from_millis(100),
-                    self.tracker.in_flight_semaphore_clone().acquire_owned(),
-                )
-                .await
-                {
-                    Ok(Ok(permit)) => permit,
-                    Ok(Err(_)) => {
-                        error!("Semaphore was closed - this is a fatal error");
-                        return Err(anyhow::anyhow!("Semaphore closed"));
-                    }
-                    Err(_) => {
-                        // Still no permits - apply backpressure
-                        debug!(
-                            "Still no permits after processing completions, applying backpressure. Topic {} partition {} offset {}",
-                            partition.topic(), partition.partition_number(), offset
-                        );
-                        return Ok(());
-                    }
-                }
-            }
-        };
-
-        // NOW we can safely detach since we have the permit
+        // Detach the message and track it
         let owned_msg = msg.detach();
-
-        // Track the message and get back an AckableMessage that owns everything
         let ackable_msg = self
             .tracker
             .track_message(owned_msg, estimated_size, permit)
             .await;
 
-        debug!(
-            "Tracking message from topic {} partition {} offset {} (available permits: {})",
-            partition.topic(),
-            partition.partition_number(),
-            offset,
-            self.tracker.available_permits()
-        );
-
-        // Process message through user's processor
-        match self.message_processor.process_message(ackable_msg).await {
-            Ok(_) => {
-                debug!(
-                    "Successfully processed message from topic {} partition {} offset {}",
-                    partition.topic(),
-                    partition.partition_number(),
-                    offset
-                );
-                // Note: AckableMessage handles the actual acking
-            }
-            Err(e) => {
-                error!(
-                    "Failed to process message from topic {} partition {} offset {}: {}",
-                    partition.topic(),
-                    partition.partition_number(),
-                    offset,
-                    e
-                );
-                // Note: AckableMessage should handle nacking in this case
-            }
+        // Send to processor pool - they handle the actual processing
+        if self.message_sender.send(ackable_msg).is_err() {
+            error!("Processor pool channel closed, cannot send message");
+            return Err(anyhow::anyhow!("Processor pool is dead"));
         }
+
+        debug!(
+            "Sent message to processor pool (topic: {}, partition: {}, offset: {})",
+            topic, partition_num, offset
+        );
 
         Ok(())
     }

@@ -12,6 +12,7 @@ import celery
 import requests.exceptions
 from boto3 import resource
 from botocore.client import Config
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.insight import InsightSerializer
@@ -102,7 +103,7 @@ class TestExports(APIBaseTest):
             .replace("+00:00", "Z"),
         }
 
-        mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
+        mock_exporter_task.export_asset.assert_called_once_with(data["id"])
 
     @patch("posthog.api.exports.exporter")
     def test_can_create_export_with_ttl(self, mock_exporter_task) -> None:
@@ -130,7 +131,7 @@ class TestExports(APIBaseTest):
             "expires_after": one_week_from_now.isoformat() + "Z",
         }
 
-        mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
+        mock_exporter_task.export_asset.assert_called_once_with(data["id"])
 
     @patch("posthog.api.exports.exporter")
     def test_swallow_missing_schema_and_allow_front_end_to_poll(self, mock_exporter_task) -> None:
@@ -153,7 +154,7 @@ class TestExports(APIBaseTest):
             msg=f"was not HTTP 201 😱 - {response.json()}",
         )
         data = response.json()
-        mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
+        mock_exporter_task.export_asset.assert_called_once_with(data["id"])
 
     @patch("posthog.tasks.exports.image_exporter._export_to_png")
     @patch("posthog.api.exports.exporter")
@@ -215,7 +216,7 @@ class TestExports(APIBaseTest):
             ],
         )
 
-        mock_exporter_task.export_asset.delay.assert_called_once_with(data["id"])
+        mock_exporter_task.export_asset.assert_called_once_with(data["id"])
 
         # look at the page the screenshot will be taken of
         exported_asset = ExportedAsset.objects.get(pk=data["id"])
@@ -273,15 +274,15 @@ class TestExports(APIBaseTest):
         mock_exporter_task.export_asset.delay.return_value.get.side_effect = NotImplementedError("not implemented")
         response = self.client.post(
             f"/api/projects/{self.team.id}/exports",
-            {"export_format": "application/pdf", "insight": self.insight.id},
+            {"export_format": "image/jpeg", "insight": self.insight.id},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
             {
                 "attr": "export_format",
-                "code": "invalid_input",
-                "detail": "Export format application/pdf is not supported.",
+                "code": "invalid_choice",
+                "detail": '"image/jpeg" is not a valid choice.',
                 "type": "validation_error",
             },
         )
@@ -593,6 +594,44 @@ class TestExports(APIBaseTest):
         # Verify that the database wasn't actually modified
         stuck_export.refresh_from_db()
         self.assertIsNone(stuck_export.exception)
+
+    @parameterized.expand(
+        [
+            ("image/png", 2, "png_export"),  # PNG format with 2 expected results
+            ("text/csv", 1, "csv_export"),  # CSV format with 1 expected result
+            ("image/jpeg", 3, None),  # Unsupported format returns all (3)
+            (None, 3, None),  # No filter returns all (3)
+        ]
+    )
+    def test_can_filter_exports_by_format(self, export_format, expected_count, expected_export_var):
+        png_export = ExportedAsset.objects.create(
+            team=self.team, dashboard_id=self.dashboard.id, export_format="image/png", created_by=self.user
+        )
+        csv_export = ExportedAsset.objects.create(
+            team=self.team, insight_id=self.insight.id, export_format="text/csv", created_by=self.user
+        )
+
+        url = f"/api/projects/{self.team.id}/exports"
+        if export_format:
+            url += f"?export_format={export_format}"
+
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+
+        assert len(results) == expected_count
+
+        if expected_export_var == "png_export":
+            # Should return PNG exports only (including the one from setUpTestData)
+            png_export_ids = {png_export.id, self.exported_asset.id}
+            returned_ids = {result["id"] for result in results}
+            assert returned_ids == png_export_ids
+            for result in results:
+                assert result["export_format"] == "image/png"
+        elif expected_export_var == "csv_export":
+            # Should return CSV export only
+            assert results[0]["id"] == csv_export.id
+            assert results[0]["export_format"] == "text/csv"
 
 
 class TestExportMixin(APIBaseTest):

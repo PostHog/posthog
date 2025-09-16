@@ -28,14 +28,14 @@ jobs:
                   concurrency: 1
                   group: 1
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
-                  python-version: '3.11.9'
-                  clickhouse-server-image: 'clickhouse/clickhouse-server:25.7.4.11'
+                  python-version: '3.11.13'
+                  clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
                   segment: 'FOSS'
                   person-on-events: false
 
             - name: Upload updated timing data as artifacts
               uses: actions/upload-artifact@v4
-              if: ${{ inputs.person-on-events != 'true' && inputs.clickhouse-server-image == 'clickhouse/clickhouse-server:25.7.4.11' }}
+              if: ${{ inputs.person-on-events != 'true' && inputs.clickhouse-server-image == 'clickhouse/clickhouse-server:25.6.9.98' }}
               with:
                   name: timing_data-${{ inputs.segment }}-${{ inputs.group }}
                   path: .test_durations

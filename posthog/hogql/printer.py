@@ -20,9 +20,8 @@ from posthog.hogql.base import _T_AST, AST
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_max_limit_for_context
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
-from posthog.hogql.database.models import FunctionCallTable, SavedQuery, Table
-from posthog.hogql.database.s3_table import S3Table
-from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
+from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, FunctionCallTable, SavedQuery, Table
+from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import (
     escape_clickhouse_identifier,
@@ -520,12 +519,12 @@ class _Printer(Visitor[str]):
                 raise ImpossibleASTError(f"Invalid table type {type(table_type).__name__} in join_expr")
 
             # :IMPORTANT: This assures a "team_id" where clause is present on every selected table.
-            # Skip function call tables like numbers(), s3(), etc.
+            # Skip warehouse tables and tables with an explicit skip.
             if (
                 self.dialect == "clickhouse"
-                and not isinstance(table_type.table, FunctionCallTable)
+                and not isinstance(table_type.table, DataWarehouseTable)
                 and not isinstance(table_type.table, SavedQuery)
-                and not isinstance(table_type.table, ExchangeRateTable)
+                and not isinstance(table_type.table, DANGEROUS_NoTeamIdCheckTable)
             ):
                 extra_where = team_id_guard_for_table(node.type, self.context)
 
@@ -542,7 +541,7 @@ class _Printer(Visitor[str]):
             else:
                 sql = table_type.table.to_printed_hogql()
 
-            if isinstance(table_type.table, FunctionCallTable) and not isinstance(table_type.table, S3Table):
+            if isinstance(table_type.table, FunctionCallTable) and table_type.table.requires_args:
                 if node.table_args is None:
                     raise QueryError(f"Table function '{table_type.table.name}' requires arguments")
 
@@ -1871,7 +1870,9 @@ class _Printer(Visitor[str]):
     def _create_default_window_frame(self, node: ast.WindowFunction):
         # For lag/lead functions, we need to order by the first argument by default
         order_by: Optional[list[ast.OrderExpr]] = None
-        if node.exprs is not None and len(node.exprs) > 0:
+        if node.over_expr and node.over_expr.order_by:
+            order_by = [cast(ast.OrderExpr, clone_expr(expr)) for expr in node.over_expr.order_by]
+        elif node.exprs is not None and len(node.exprs) > 0:
             order_by = [ast.OrderExpr(expr=clone_expr(node.exprs[0]), order="ASC")]
 
         # Preserve existing PARTITION BY if provided via an existing OVER () clause

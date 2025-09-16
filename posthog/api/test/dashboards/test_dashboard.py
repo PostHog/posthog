@@ -275,15 +275,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 12):
+            with self.assertNumQueries(baseline + 11 + 13):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 12):
+            with self.assertNumQueries(baseline + 11 + 13):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 12):
+            with self.assertNumQueries(baseline + 11 + 13):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     @snapshot_postgres_queries
@@ -601,6 +601,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         mock_view.action = "retrieve"
         mock_request = MagicMock()
         mock_request.query_params.get.return_value = None
+        mock_request.user = self.user
+
+        # Create a proper user access control for the serializer
+        from posthog.rbac.user_access_control import UserAccessControl
+
+        user_access_control = UserAccessControl(self.user, organization_id=str(self.user.current_organization_id))
+
         dashboard_data = DashboardSerializer(
             dashboard,
             context={
@@ -608,6 +615,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "request": mock_request,
                 "get_team": lambda: self.team,
                 "insight_variables": [],
+                "user_access_control": user_access_control,
             },
         ).data
         assert len(dashboard_data["tiles"]) == 1
@@ -1269,6 +1277,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert response.json()["tiles"] == [
             {
                 "color": None,
+                "filters_overrides": {},
                 "id": ANY,
                 "insight": None,
                 "is_cached": False,
@@ -1328,6 +1337,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert response.json()["tiles"] == [
             {
                 "color": None,
+                "filters_overrides": {},
                 "id": ANY,
                 "insight": {
                     "columns": None,

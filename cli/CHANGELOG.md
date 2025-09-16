@@ -1,5 +1,9 @@
 # posthog-cli
 
+## 0.4.4
+
+- process uploads in batches
+
 ## 0.4.3
 
 - add `ignore` argument to sourcemap inject, upload and process commands

@@ -6,9 +6,16 @@ import { LemonButton, LemonInput, LemonTable, LemonTableColumn, LemonTableColumn
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
 
-import { RecordingUniversalFilters, ReplayTabs, SessionRecordingPlaylistType } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    RecordingUniversalFilters,
+    ReplayTabs,
+    SessionRecordingPlaylistType,
+} from '~/types'
 
 import { playlistLogic } from '../playlist/playlistLogic'
 import { countColumn } from '../saved-playlists/SavedSessionRecordingPlaylists'
@@ -105,6 +112,12 @@ export function SavedFilters({
                         tooltip="Delete saved filter"
                         icon={<IconTrash />}
                         size="small"
+                        accessControl={{
+                            resourceType: AccessControlResourceType.SessionRecording,
+                            minAccessLevel: AccessControlLevel.Editor,
+                            userAccessLevel:
+                                getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
+                        }}
                     />
                 )
             },

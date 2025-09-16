@@ -3,9 +3,8 @@ import { router } from 'kea-router'
 import { useMemo } from 'react'
 
 import { IconEllipsis } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDialog, LemonMenu, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDialog, LemonMenu, LemonTag, Link } from '@posthog/lemon-ui'
 
-import { PageHeader } from 'lib/components/PageHeader'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
@@ -16,69 +15,90 @@ import { LogsViewer } from './LogsViewer'
 import { hogFunctionLogsLogic } from './hogFunctionLogsLogic'
 import { GroupedLogEntry, LogsViewerLogicProps } from './logsViewerLogic'
 
-export function HogFunctionLogs(props: { hogFunctionId: string }): JSX.Element {
-    const logicProps: LogsViewerLogicProps = {
-        sourceType: 'hog_function',
-        sourceId: props.hogFunctionId,
+const EVENT_LINK_REGEX = /Event: '(.+)'/g
+
+export const renderHogFunctionMessage = (message: string): JSX.Element => {
+    const parts = message.split(EVENT_LINK_REGEX)
+    const elements: (string | JSX.Element)[] = []
+
+    for (let i = 0; i < parts.length; i++) {
+        if (i % 2 === 0) {
+            // Even indices are regular text parts
+            if (parts[i]) {
+                elements.push(parts[i])
+            }
+        } else {
+            elements.push(
+                <Link className="rounded p-1 -m-1 bg-border text-bg-primary" to={parts[i]} targetBlankIcon>
+                    View event
+                </Link>
+            )
+        }
     }
 
-    const { selectingMany, selectedForRetry, retryRunning } = useValues(hogFunctionLogsLogic(logicProps))
-    const { setSelectingMany, retrySelectedInvocations, selectAllForRetry } = useActions(
-        hogFunctionLogsLogic(logicProps)
-    )
+    return <>{elements}</>
+}
+
+export function HogFunctionLogs(): JSX.Element | null {
+    const { logicProps } = useValues(hogFunctionConfigurationLogic)
+    const id = logicProps.id
+    const logsLogicProps: LogsViewerLogicProps = {
+        sourceType: 'hog_function',
+        sourceId: logicProps.id ?? 'unknown',
+    }
+    const logic = hogFunctionLogsLogic(logsLogicProps)
+
+    const { selectingMany, selectedForRetry, retryRunning } = useValues(logic)
+    const { setSelectingMany, retrySelectedInvocations, selectAllForRetry } = useActions(logic)
+
+    if (!id) {
+        return null
+    }
 
     return (
         <>
-            <PageHeader
-                buttons={
+            {selectingMany ? (
+                <div className="flex gap-2 items-center mb-2 justify-end">
                     <>
-                        {!selectingMany ? (
-                            <LemonButton size="small" type="secondary" onClick={() => setSelectingMany(true)}>
-                                Select invocations
-                            </LemonButton>
-                        ) : (
-                            <>
-                                <LemonButton size="small" type="secondary" onClick={() => setSelectingMany(false)}>
-                                    Cancel
-                                </LemonButton>
-                                <LemonButton size="small" type="secondary" onClick={() => selectAllForRetry()}>
-                                    Select all
-                                </LemonButton>
-                                <LemonButton
-                                    size="small"
-                                    type="primary"
-                                    onClick={() => {
-                                        LemonDialog.open({
-                                            title: 'Retry invocations',
-                                            content: `Are you sure you want to retry the selected events? Please don't close the window until the invocations have completed.`,
-                                            secondaryButton: {
-                                                children: 'Cancel',
-                                            },
-                                            primaryButton: {
-                                                children: 'Retry selected events',
-                                                onClick: () => retrySelectedInvocations(),
-                                            },
-                                        })
-                                    }}
-                                    loading={retryRunning}
-                                    disabledReason={
-                                        retryRunning
-                                            ? 'Please wait for the current retries to complete.'
-                                            : Object.values(selectedForRetry).length === 0
-                                              ? 'No invocations selected'
-                                              : undefined
-                                    }
-                                >
-                                    Retry selected
-                                </LemonButton>
-                            </>
-                        )}
+                        <LemonButton size="small" type="secondary" onClick={() => setSelectingMany(false)}>
+                            Cancel
+                        </LemonButton>
+                        <LemonButton size="small" type="secondary" onClick={() => selectAllForRetry()}>
+                            Select all
+                        </LemonButton>
+                        <LemonButton
+                            size="small"
+                            type="primary"
+                            onClick={() => {
+                                LemonDialog.open({
+                                    title: 'Retry invocations',
+                                    content: `Are you sure you want to retry the selected events? Please don't close the window until the invocations have completed.`,
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                    },
+                                    primaryButton: {
+                                        children: 'Retry selected events',
+                                        onClick: () => retrySelectedInvocations(),
+                                    },
+                                })
+                            }}
+                            loading={retryRunning}
+                            disabledReason={
+                                retryRunning
+                                    ? 'Please wait for the current retries to complete.'
+                                    : Object.values(selectedForRetry).length === 0
+                                      ? 'No invocations selected'
+                                      : undefined
+                            }
+                        >
+                            Retry selected
+                        </LemonButton>
                     </>
-                }
-            />
+                </div>
+            ) : null}
             <LogsViewer
-                {...logicProps}
-                sourceId={props.hogFunctionId}
+                {...logsLogicProps}
+                sourceId={id}
                 renderColumns={(columns) => {
                     // Add in custom columns for handling retries
                     const newColumns: LemonTableColumns<GroupedLogEntry> = [
@@ -86,15 +106,14 @@ export function HogFunctionLogs(props: { hogFunctionId: string }): JSX.Element {
                             title: 'Status',
                             key: 'status',
                             width: 0,
-                            render: (_, record) => (
-                                <HogFunctionLogsStatus record={record} hogFunctionId={props.hogFunctionId} />
-                            ),
+                            render: (_, record) => <HogFunctionLogsStatus record={record} hogFunctionId={id} />,
                         },
                         ...columns.filter((column) => column.key !== 'logLevel'),
                     ]
 
                     return newColumns
                 }}
+                renderMessage={(message) => renderHogFunctionMessage(message)}
             />
         </>
     )

@@ -7,11 +7,18 @@ import { MessageSizeTooLarge } from '~/utils/db/error'
 import { captureIngestionWarning } from '~/worker/ingestion/utils'
 
 import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
-import { KafkaConsumer, parseKafkaHeaders } from '../kafka/consumer'
+import { KafkaConsumer, parseEventHeaders, parseKafkaHeaders } from '../kafka/consumer'
 import { KafkaProducerWrapper } from '../kafka/producer'
 import { ingestionOverflowingMessagesTotal } from '../main/ingestion-queues/batch-processing/metrics'
-import { latestOffsetTimestampGauge, setUsageInNonPersonEventsCounter } from '../main/ingestion-queues/metrics'
 import {
+    eventDroppedCounter,
+    latestOffsetTimestampGauge,
+    setUsageInNonPersonEventsCounter,
+} from '../main/ingestion-queues/metrics'
+import {
+    EventHeaders,
+    HealthCheckResult,
+    HealthCheckResultError,
     Hub,
     IncomingEventWithTeam,
     KafkaConsumerBreadcrumb,
@@ -31,8 +38,6 @@ import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
-import { PostgresDualWritePersonRepository } from '../worker/ingestion/persons/repositories/postgres-dualwrite-person-repository'
-import { PostgresPersonRepository } from '../worker/ingestion/persons/repositories/postgres-person-repository'
 import { deduplicateEvents } from './deduplication/events'
 import { DeduplicationRedis, createDeduplicationRedis } from './deduplication/redis-client'
 import {
@@ -53,12 +58,6 @@ const ingestionEventOverflowed = new Counter({
 const forcedOverflowEventsCounter = new Counter({
     name: 'ingestion_forced_overflow_events_total',
     help: 'Number of events that were routed to overflow because they matched the force overflow tokens list',
-})
-
-const headerEventMismatchCounter = new Counter({
-    name: 'ingestion_header_event_mismatch_total',
-    help: 'Number of events where headers do not match the parsed event data',
-    labelNames: ['token', 'distinct_id'],
 })
 
 type EventsForDistinctId = {
@@ -153,20 +152,7 @@ export class IngestionConsumer {
         this.ingestionWarningLimiter = new MemoryRateLimiter(1, 1.0 / 3600)
         this.hogTransformer = new HogTransformerService(hub)
 
-        const personRepositoryOptions = {
-            calculatePropertiesSize: this.hub.PERSON_UPDATE_CALCULATE_PROPERTIES_SIZE,
-            comparisonEnabled: this.hub.PERSONS_DUAL_WRITE_COMPARISON_ENABLED,
-        }
-
-        const personRepository = this.hub.PERSONS_DUAL_WRITE_ENABLED
-            ? new PostgresDualWritePersonRepository(
-                  this.hub.db.postgres,
-                  this.hub.db.postgresPersonMigration,
-                  personRepositoryOptions
-              )
-            : new PostgresPersonRepository(this.hub.db.postgres, personRepositoryOptions)
-
-        this.personStore = new BatchWritingPersonsStore(personRepository, this.hub.db.kafkaProducer, {
+        this.personStore = new BatchWritingPersonsStore(this.hub.personRepository, this.hub.db.kafkaProducer, {
             dbWriteMode: this.hub.PERSON_BATCH_WRITING_DB_WRITE_MODE,
             maxConcurrentUpdates: this.hub.PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES,
             maxOptimisticUpdateRetries: this.hub.PERSON_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES,
@@ -235,8 +221,11 @@ export class IngestionConsumer {
         logger.info('👍', `${this.name} - stopped!`)
     }
 
-    public isHealthy(): boolean {
-        return this.kafkaConsumer?.isHealthy()
+    public isHealthy(): HealthCheckResult {
+        if (!this.kafkaConsumer) {
+            return new HealthCheckResultError('Kafka consumer not initialized', {})
+        }
+        return this.kafkaConsumer.isHealthy()
     }
 
     private runInstrumented<T>(name: string, func: () => Promise<T>): Promise<T> {
@@ -535,7 +524,7 @@ export class IngestionConsumer {
         personsStoreForBatch: PersonsStoreForBatch,
         groupStoreForBatch: GroupStoreForBatch
     ): Promise<EventPipelineResult | undefined> {
-        const { event, message, team } = incomingEvent
+        const { event, message, team, headers } = incomingEvent
 
         const existingBreadcrumbs = this.getExistingBreadcrumbsFromHeaders(message)
         const currentBreadcrumb = this.createBreadcrumb(message)
@@ -548,7 +537,8 @@ export class IngestionConsumer {
                         event,
                         allBreadcrumbs,
                         personsStoreForBatch,
-                        groupStoreForBatch
+                        groupStoreForBatch,
+                        headers
                     )
                     return await runner.runEventPipeline(event, team)
                 })
@@ -620,7 +610,8 @@ export class IngestionConsumer {
         event: PipelineEvent,
         breadcrumbs: KafkaConsumerBreadcrumb[] = [],
         personsStoreForBatch: PersonsStoreForBatch,
-        groupStoreForBatch: GroupStoreForBatch
+        groupStoreForBatch: GroupStoreForBatch,
+        headers?: EventHeaders
     ): EventPipelineRunner {
         return new EventPipelineRunner(
             this.hub,
@@ -628,7 +619,8 @@ export class IngestionConsumer {
             this.hogTransformer,
             breadcrumbs,
             personsStoreForBatch,
-            groupStoreForBatch
+            groupStoreForBatch,
+            headers
         )
     }
 
@@ -636,30 +628,36 @@ export class IngestionConsumer {
         const preprocessedEvents: IncomingEventWithTeam[] = []
 
         for (const message of messages) {
-            const filteredMessage = applyDropEventsRestrictions(message, this.eventIngestionRestrictionManager)
-            if (!filteredMessage) {
+            const headers = parseEventHeaders(message.headers)
+
+            if (applyDropEventsRestrictions(this.eventIngestionRestrictionManager, headers)) {
+                eventDroppedCounter
+                    .labels({
+                        event_type: 'analytics',
+                        drop_cause: 'blocked_token',
+                    })
+                    .inc()
                 continue
             }
 
-            const forceOverflowDecision = applyForceOverflowRestrictions(
-                filteredMessage,
-                this.eventIngestionRestrictionManager
-            )
+            const forceOverflowDecision = applyForceOverflowRestrictions(this.eventIngestionRestrictionManager, headers)
             if (forceOverflowDecision.shouldRedirect && this.overflowEnabled()) {
                 ingestionEventOverflowed.inc(1)
                 forcedOverflowEventsCounter.inc()
                 void this.promiseScheduler.schedule(
-                    this.emitToOverflow([filteredMessage], forceOverflowDecision.preservePartitionLocality)
+                    this.emitToOverflow([message], forceOverflowDecision.preservePartitionLocality)
                 )
                 continue
             }
 
-            const parsedEvent = parseKafkaMessage(filteredMessage)
+            const parsedEvent = parseKafkaMessage(message)
             if (!parsedEvent) {
                 continue
             }
 
-            const eventWithTeam = await resolveTeam(this.hub, parsedEvent)
+            const eventWithHeaders = { ...parsedEvent, headers }
+
+            const eventWithTeam = await resolveTeam(this.hub, eventWithHeaders)
             if (!eventWithTeam) {
                 continue
             }
@@ -682,7 +680,7 @@ export class IngestionConsumer {
         const groupedEvents: IncomingEventsByDistinctId = {}
 
         for (const eventWithTeam of messages) {
-            const { message, event, team } = eventWithTeam
+            const { message, event, team, headers } = eventWithTeam
             const token = event.token ?? ''
             const distinctId = event.distinct_id ?? ''
             const eventKey = `${token}:${distinctId}`
@@ -697,7 +695,7 @@ export class IngestionConsumer {
                 }
             }
 
-            groupedEvents[eventKey].events.push({ message, event, team })
+            groupedEvents[eventKey].events.push({ message, event, team, headers })
         }
 
         return groupedEvents
@@ -715,44 +713,6 @@ export class IngestionConsumer {
             return false
         }
         return this.eventIngestionRestrictionManager.shouldForceOverflow(token, distinctId)
-    }
-
-    private validateHeadersMatchEvent(event: PipelineEvent, headerToken?: string, headerDistinctId?: string): void {
-        let tokenStatus = 'ok'
-        if (!headerToken && event.token) {
-            tokenStatus = 'missing_in_header'
-        } else if (headerToken && !event.token) {
-            tokenStatus = 'missing_in_event'
-        } else if (!headerToken && !event.token) {
-            tokenStatus = 'missing'
-        } else if (headerToken && event.token && headerToken !== event.token) {
-            tokenStatus = 'different'
-        }
-
-        let distinctIdStatus = 'ok'
-        if (!headerDistinctId && event.distinct_id) {
-            distinctIdStatus = 'missing_in_header'
-        } else if (headerDistinctId && !event.distinct_id) {
-            distinctIdStatus = 'missing_in_event'
-        } else if (!headerDistinctId && !event.distinct_id) {
-            distinctIdStatus = 'missing'
-        } else if (headerDistinctId && event.distinct_id && headerDistinctId !== event.distinct_id) {
-            distinctIdStatus = 'different'
-        }
-
-        if (tokenStatus !== 'ok' || distinctIdStatus !== 'ok') {
-            headerEventMismatchCounter.labels(tokenStatus, distinctIdStatus).inc()
-
-            logger.warn('🔍', `Header/event validation issue detected`, {
-                eventUuid: event.uuid,
-                headerToken,
-                eventToken: event.token,
-                headerDistinctId,
-                eventDistinctId: event.distinct_id,
-                tokenStatus,
-                distinctIdStatus,
-            })
-        }
     }
 
     private overflowEnabled(): boolean {

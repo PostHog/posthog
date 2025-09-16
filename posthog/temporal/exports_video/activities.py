@@ -5,17 +5,20 @@ import datetime as dt
 import tempfile
 from typing import Any
 
+from django.db import close_old_connections
+
+import structlog
 from temporalio import activity
 
 from posthog.models.exported_asset import ExportedAsset, get_public_access_token, save_content
 from posthog.utils import absolute_uri
 
-# Optional: stable browser cache for Playwright worker processes
-# os.environ.setdefault("PLAYWRIGHT_BROWSERS_PATH", os.path.join("/tmp", "ms-playwright"))
+logger = structlog.get_logger(__name__)
 
 
 @activity.defn
 def build_export_context_activity(exported_asset_id: int) -> dict[str, Any]:
+    close_old_connections()
     asset = ExportedAsset.objects.select_related("team", "dashboard", "insight").get(pk=exported_asset_id)
     # recordings-only
     if not (asset.export_context and asset.export_context.get("session_recording_id")):
@@ -30,7 +33,9 @@ def build_export_context_activity(exported_asset_id: int) -> dict[str, Any]:
     except (ValueError, TypeError):
         ts = 0
 
-    url = absolute_uri(f"/exporter?token={access_token}&t={ts}&fullscreen=true")
+    url = absolute_uri(
+        f"/exporter?token={access_token}&t={ts}&fullscreen=true&inspectorSideBar=false&showInspector=false"
+    )
 
     # Validate CSS selector (basic sanitization)
     css_raw = asset.export_context.get("css_selector", ".replayer-wrapper")
@@ -39,13 +44,18 @@ def build_export_context_activity(exported_asset_id: int) -> dict[str, Any]:
     else:
         css = css_raw.strip()
 
-    # Validate dimensions (reasonable bounds)
-    try:
-        width = max(400, min(3840, int(asset.export_context.get("width", 1400))))
-        height = max(300, min(2160, int(asset.export_context.get("height", 600))))
-        duration = max(1, min(300, int(asset.export_context.get("duration", 5))))  # 1-300 seconds
-    except (ValueError, TypeError):
-        width, height, duration = 1400, 600, 5  # Safe defaults
+    # Validate duration
+    duration = max(1, min(3600, int(asset.export_context.get("duration", 5))))  # 1-3600 seconds (1 hour max)
+
+    # Get dimensions from frontend (will be None if not set)
+    width = asset.export_context.get("width")
+    height = asset.export_context.get("height")
+
+    # Apply bounds if dimensions are provided
+    if width is not None:
+        width = max(400, min(3840, int(width)))
+    if height is not None:
+        height = max(300, min(2160, int(height)))
 
     fmt = asset.export_format
     tmp_ext = "mp4" if fmt == "video/mp4" else "gif" if fmt == "image/gif" else "webm"
@@ -70,9 +80,9 @@ def record_replay_video_activity(build: dict[str, Any]) -> dict[str, Any]:
         record_replay_to_file(
             image_path=tmp_path,
             url_to_render=build["url_to_render"],
-            screenshot_width=build["width"],
+            screenshot_width=build.get("width"),  # None if not provided
             wait_for_css_selector=build["css_selector"],
-            screenshot_height=build["height"],
+            screenshot_height=build.get("height"),  # None if not provided
             recording_duration=build["duration"],
         )
         return {"tmp_path": tmp_path}
@@ -84,6 +94,7 @@ def record_replay_video_activity(build: dict[str, Any]) -> dict[str, Any]:
 
 @activity.defn
 def persist_exported_asset_activity(inputs: dict[str, Any]) -> None:
+    close_old_connections()
     asset = ExportedAsset.objects.select_related("team").get(pk=inputs["exported_asset_id"])
     tmp_path = inputs["tmp_path"]
 

@@ -50,10 +50,7 @@ export class FixtureHogFlowBuilder {
             name: 'Hog Flow',
             team_id: 1,
             status: 'active',
-            trigger: {
-                type: 'event',
-                filters: {},
-            },
+            trigger: undefined as any,
             exit_condition: 'exit_on_conversion',
             edges: [],
             actions: [],
@@ -61,21 +58,15 @@ export class FixtureHogFlowBuilder {
     }
 
     build(): HogFlow {
+        if (this.hogFlow.actions.length === 0) {
+            this.withSimpleWorkflow()
+        }
         const triggerAction = findActionByType(this.hogFlow, 'trigger')
-        this.hogFlow.trigger =
-            this.hogFlow.trigger ??
-            (triggerAction
-                ? {
-                      type: triggerAction?.type ?? 'event',
-                      filters: triggerAction?.config?.filters ?? {},
-                  }
-                : undefined)
+        this.hogFlow.trigger = this.hogFlow.trigger ?? (triggerAction ? triggerAction.config : undefined)
 
         if (!this.hogFlow.trigger) {
             logger.error('[HogFlowBuilder] No trigger action found. Indicates a faulty built workflow')
         }
-
-        // TODO: Run throught the zod validation?
 
         return this.hogFlow
     }
@@ -92,11 +83,6 @@ export class FixtureHogFlowBuilder {
 
     withStatus(status: HogFlow['status']): this {
         this.hogFlow.status = status
-        return this
-    }
-
-    withTrigger(trigger: HogFlow['trigger']): this {
-        this.hogFlow.trigger = trigger
         return this
     }
 
@@ -121,14 +107,19 @@ export class FixtureHogFlowBuilder {
         return this
     }
 
-    withSimpleWorkflow(): this {
+    withConversion(conversion: HogFlow['conversion']): this {
+        this.hogFlow.conversion = conversion
+        return this
+    }
+
+    withSimpleWorkflow({ trigger }: { trigger?: HogFlow['trigger'] } = {}): this {
         return this.withWorkflow({
             actions: {
                 trigger: {
                     type: 'trigger',
-                    config: {
+                    config: trigger ?? {
                         type: 'event',
-                        filters: HOG_FILTERS_EXAMPLES.no_filters.filters,
+                        filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
                     },
                 },
                 exit: {

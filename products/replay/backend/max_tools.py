@@ -1,5 +1,6 @@
 import json
 import logging
+from typing import Any
 
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
@@ -100,28 +101,41 @@ class SearchSessionRecordingsArgs(BaseModel):
 
 class SearchSessionRecordingsTool(MaxTool):
     name: str = "search_session_recordings"
-    description: str = (
-        "Update session recordings filters on this page, in order to search for session recordings by any criteria."
-    )
+    description: str = """
+    - Update session recordings filters on this page, in order to search for session recordings.
+    - When to use the tool:
+      * When the user asks to update session recordings filters
+        - "update" synonyms: "change", "modify", "adjust", and similar
+        - "session recordings" synonyms: "sessions", "recordings", "replays", "user sessions", and similar
+      * When the user asks to search for session recordings
+        - "search for" synonyms: "find", "look up", and similar
+    - When NOT to use the tool:
+      * When the user asks to summarize session recordings
+    """
     thinking_message: str = "Coming up with session recordings filters"
     root_system_prompt_template: str = "Current recordings filters are: {current_filters}"
     args_schema: type[BaseModel] = SearchSessionRecordingsArgs
     show_tool_call_message: bool = False
 
-    async def _arun_impl(self, change: str) -> tuple[str, MaxRecordingUniversalFilters]:
+    async def _invoke_graph(self, change: str) -> dict[str, Any] | Any:
+        """
+        Reusable method to call graph to avoid code/prompt duplication and enable
+        different processing of the results, based on the place the tool is used.
+        """
         graph = SessionReplayFilterOptionsGraph(team=self._team, user=self._user)
         pretty_filters = json.dumps(self.context.get("current_filters", {}), indent=2)
         user_prompt = USER_FILTER_OPTIONS_PROMPT.format(change=change, current_filters=pretty_filters)
-
         graph_context = {
             "change": user_prompt,
             "output": None,
             "tool_progress_messages": [],
             **self.context,
         }
-
         result = await graph.compile_full_graph().ainvoke(graph_context)
+        return result
 
+    async def _arun_impl(self, change: str) -> tuple[str, MaxRecordingUniversalFilters]:
+        result = await self._invoke_graph(change)
         if type(result["output"]) is not MaxRecordingUniversalFilters:
             content = result["intermediate_steps"][-1][0].tool_input
             filters = MaxRecordingUniversalFilters.model_validate(self.context.get("current_filters", {}))

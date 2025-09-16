@@ -313,13 +313,13 @@ class Command(BaseCommand):
             (end_date - dt.timedelta(days=backfill_days - i)).strftime("%Y-%m-%d") for i in range(backfill_days + 1)
         ]
 
-        daily_asset_names = ["web_analytics_stats_table_daily", "web_analytics_bounces_daily"]
+        asset_names = ["web_pre_aggregated_stats", "web_pre_aggregated_bounces"]
         result = client._execute(
             self.backfill_mutation_gql(),
             {
                 "backfillParams": {
                     "tags": [{"key": "generate_demo_data", "value": "true"}],
-                    "assetSelection": [{"path": [asset_name]} for asset_name in daily_asset_names],
+                    "assetSelection": [{"path": [asset_name]} for asset_name in asset_names],
                     "partitionNames": partition_list,
                     "fromFailure": False,
                 }

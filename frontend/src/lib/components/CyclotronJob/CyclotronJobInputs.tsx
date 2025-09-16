@@ -24,8 +24,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown/LemonMarkdown'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
-import { capitalizeFirstLetter, objectsEqual } from 'lib/utils'
-import { uuid } from 'lib/utils'
+import { capitalizeFirstLetter, objectsEqual, uuid } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { CyclotronJobInputSchemaType, CyclotronJobInputType, CyclotronJobInvocationGlobalsWithInputs } from '~/types'
@@ -54,6 +53,7 @@ const INPUT_TYPE_LIST = [
 export type CyclotronJobInputsProps = {
     onInputChange?: (key: string, input: CyclotronJobInputType) => void
     configuration: CyclotronJobInputConfiguration
+    errors?: Record<string, string>
     parentConfiguration?: CyclotronJobInputConfiguration
     onInputSchemaChange?: (schema: CyclotronJobInputSchemaType[]) => void
     showSource: boolean
@@ -65,6 +65,7 @@ export function CyclotronJobInputs({
     parentConfiguration,
     onInputSchemaChange,
     onInputChange,
+    errors,
     showSource,
     sampleGlobalsWithInputs,
 }: CyclotronJobInputsProps): JSX.Element | null {
@@ -102,6 +103,7 @@ export function CyclotronJobInputs({
                                     onInputChange={onInputChange}
                                     showSource={showSource}
                                     sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                                    errors={errors}
                                 />
                             )
                         })}
@@ -164,7 +166,9 @@ function JsonConfigField(props: {
                                 <CyclotronJobTemplateSuggestionsButton
                                     templating={templatingKind}
                                     value={jsonValue}
-                                    setTemplating={(templating) => props.onChange?.({ ...props.input, templating })}
+                                    setTemplatingEngine={(templating) =>
+                                        props.onChange?.({ ...props.input, templating })
+                                    }
                                     onOptionSelect={(option) => {
                                         void copyToClipboard(`{${option.example}}`, 'template code')
                                     }}
@@ -196,8 +200,10 @@ function EmailTemplateField({
         <EmailTemplater
             type={schema.type as 'email' | 'native_email'}
             variables={sampleGlobalsWithInputs ?? {}}
+            defaultValue={schema.default}
             value={value}
             onChange={onChange}
+            templating={schema.templating}
         />
     )
 }
@@ -234,7 +240,7 @@ function CyclotronJobTemplateInput(props: {
                 <CyclotronJobTemplateSuggestionsButton
                     templating={templating}
                     value={props.input.value}
-                    setTemplating={(templating) => props.onChange?.({ ...props.input, templating })}
+                    setTemplatingEngine={(templating) => props.onChange?.({ ...props.input, templating })}
                     onOptionSelect={(option) => {
                         props.onChange?.({ ...props.input, value: `${props.input.value} {${option.example}}` })
                     }}
@@ -419,8 +425,6 @@ function CyclotronJobInputRenderer({
                     schema={schema}
                     value={input.value}
                     onChange={(newValue) => {
-                        onValueChange(newValue)
-
                         // Clear all integration_field inputs when the integration changes
                         if (configuration.inputs_schema && onInputChange) {
                             configuration.inputs_schema
@@ -429,6 +433,8 @@ function CyclotronJobInputRenderer({
                                     onInputChange(field.key, { value: null })
                                 })
                         }
+
+                        onValueChange(newValue)
                     }}
                 />
             )
@@ -609,11 +615,12 @@ function CyclotronJobInputWithSchema({
     onInputChange,
     showSource,
     sampleGlobalsWithInputs,
+    errors,
 }: CyclotronJobInputWithSchemaProps): JSX.Element | null {
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: schema.key })
     const [editing, setEditing] = useState(false)
-
     const value = configuration.inputs?.[schema.key] ?? { value: null }
+    const error = errors?.[schema.key]
 
     const onSchemaChange = (newSchema: CyclotronJobInputSchemaType | null): void => {
         let inputsSchema = configuration.inputs_schema || []
@@ -642,6 +649,14 @@ function CyclotronJobInputWithSchema({
         }
     }, [showSource])
 
+    const onChange = (newValue: CyclotronJobInputType): void => {
+        onInputChange?.(schema.key, {
+            // Keep the existing parts if they exist
+            ...value,
+            ...newValue,
+        })
+    }
+
     return (
         <div
             ref={setNodeRef}
@@ -652,8 +667,8 @@ function CyclotronJobInputWithSchema({
             }}
         >
             {!editing ? (
-                <LemonField
-                    name={`inputs.${schema.key}`}
+                <LemonField.Pure
+                    error={error}
                     help={
                         typeof schema.description === 'string' ? (
                             <LemonMarkdown className="max-w-[30rem]" lowKeyHeadings>
@@ -662,83 +677,65 @@ function CyclotronJobInputWithSchema({
                         ) : undefined
                     }
                 >
-                    {({
-                        value,
-                        onChange: _onChange,
-                    }: {
-                        value?: CyclotronJobInputType
-                        onChange: (val: CyclotronJobInputType) => void
-                    }) => {
-                        const onChange = (newValue: CyclotronJobInputType): void => {
-                            _onChange({
-                                // Keep the existing parts if they exist
-                                ...value,
-                                ...newValue,
-                            })
-                        }
+                    <>
+                        <div className="flex gap-2 items-center">
+                            <LemonLabel
+                                className={showSource ? 'cursor-grab' : ''}
+                                showOptional={!schema.required}
+                                {...attributes}
+                                {...listeners}
+                            >
+                                {schema.label || schema.key}
+                                {schema.secret ? (
+                                    <Tooltip title="This input is marked as secret. It will be encrypted and not visible after saving.">
+                                        <IconLock />
+                                    </Tooltip>
+                                ) : undefined}
+                            </LemonLabel>
+                            {showSource && (
+                                <LemonTag type="muted" className="font-mono">
+                                    inputs.{schema.key}
+                                </LemonTag>
+                            )}
+                            <div className="flex-1" />
 
-                        return (
-                            <>
-                                <div className="flex gap-2 items-center">
-                                    <LemonLabel
-                                        className={showSource ? 'cursor-grab' : ''}
-                                        showOptional={!schema.required}
-                                        {...attributes}
-                                        {...listeners}
-                                    >
-                                        {schema.label || schema.key}
-                                        {schema.secret ? (
-                                            <Tooltip title="This input is marked as secret. It will be encrypted and not visible after saving.">
-                                                <IconLock />
-                                            </Tooltip>
-                                        ) : undefined}
-                                    </LemonLabel>
-                                    {showSource && (
-                                        <LemonTag type="muted" className="font-mono">
-                                            inputs.{schema.key}
-                                        </LemonTag>
-                                    )}
-                                    <div className="flex-1" />
-
-                                    {showSource && (
-                                        <LemonButton
-                                            size="small"
-                                            noPadding
-                                            icon={<IconGear />}
-                                            onClick={() => setEditing(true)}
-                                        />
-                                    )}
-                                </div>
-                                {value?.secret ? (
-                                    <div className="flex gap-2 items-center p-1 rounded border border-dashed">
-                                        <span className="flex-1 p-1 italic text-secondary">
-                                            This value is secret and is not displayed here.
-                                        </span>
-                                        <LemonButton
-                                            onClick={() => {
-                                                onChange({ value: '', secret: false })
-                                            }}
-                                            size="small"
-                                            type="secondary"
-                                        >
-                                            Edit
-                                        </LemonButton>
-                                    </div>
-                                ) : (
-                                    <CyclotronJobInputRenderer
-                                        schema={schema}
-                                        input={value ?? { value: '' }}
-                                        onChange={onChange}
-                                        onInputChange={onInputChange}
-                                        configuration={configuration}
-                                        parentConfiguration={parentConfiguration}
-                                        sampleGlobalsWithInputs={sampleGlobalsWithInputs}
-                                    />
-                                )}
-                            </>
-                        )
-                    }}
-                </LemonField>
+                            {showSource && (
+                                <LemonButton
+                                    size="small"
+                                    noPadding
+                                    icon={<IconGear />}
+                                    onClick={() => setEditing(true)}
+                                />
+                            )}
+                        </div>
+                        {value?.secret ? (
+                            <div className="flex gap-2 items-center p-1 rounded border border-dashed">
+                                <span className="flex-1 p-1 italic text-secondary">
+                                    This value is secret and is not displayed here.
+                                </span>
+                                <LemonButton
+                                    onClick={() => {
+                                        onChange({ value: '', secret: false })
+                                    }}
+                                    size="small"
+                                    type="secondary"
+                                >
+                                    Edit
+                                </LemonButton>
+                            </div>
+                        ) : (
+                            <CyclotronJobInputRenderer
+                                schema={schema}
+                                input={value ?? { value: '' }}
+                                onChange={onChange}
+                                onInputChange={onInputChange}
+                                configuration={configuration}
+                                parentConfiguration={parentConfiguration}
+                                sampleGlobalsWithInputs={sampleGlobalsWithInputs}
+                            />
+                        )}
+                    </>
+                </LemonField.Pure>
             ) : (
                 <div className="p-2 rounded border border-dashed deprecated-space-y-4">
                     <CyclotronJobInputSchemaControls

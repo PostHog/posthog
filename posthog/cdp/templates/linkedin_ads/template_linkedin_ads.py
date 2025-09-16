@@ -1,7 +1,7 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 template: HogFunctionTemplateDC = HogFunctionTemplateDC(
-    status="hidden",
+    status="alpha",
     free=False,
     type="destination",
     id="template-linkedin-ads",

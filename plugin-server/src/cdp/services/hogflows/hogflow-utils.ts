@@ -94,8 +94,12 @@ export async function shouldSkipAction(
         fn: invocation.hogFlow,
         filters: action.filters,
         filterGlobals: invocation.filterGlobals,
-        eventUuid: invocation.state.event.uuid,
     })
 
     return !filterResults.match
+}
+
+// Special format which the frontend understands and can render as a link
+export const actionIdForLogging = (action: Pick<HogFlowAction, 'id'>): string => {
+    return `[Action:${action.id}]`
 }

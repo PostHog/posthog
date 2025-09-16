@@ -243,7 +243,8 @@ class FunnelCorrelationType(StrEnum):
 
 
 RETENTION_RECURRING = "retention_recurring"
-RETENTION_FIRST_TIME = "retention_first_time"
+RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS = "retention_first_time"
+RETENTION_FIRST_EVER_OCCURRENCE = "retention_first_ever_occurrence"
 
 DISTINCT_ID_FILTER = "distinct_id"
 PERSON_UUID_FILTER = "person_uuid"
@@ -258,12 +259,6 @@ UNIQUE_USERS = "dau"
 UNIQUE_GROUPS = "unique_group"
 WEEKLY_ACTIVE = "weekly_active"
 MONTHLY_ACTIVE = "monthly_active"
-
-
-class RetentionQueryType(StrEnum):
-    RETURNING = "returning"
-    TARGET = "target"
-    TARGET_FIRST_TIME = "target_first_time"
 
 
 class ExperimentNoResultsErrorKeys(StrEnum):
@@ -358,4 +353,12 @@ DEFAULT_SURVEY_APPEARANCE = {
     "borderRadius": "10px",
     "shuffleQuestions": False,
     "surveyPopupDelaySeconds": None,
+}
+
+# Mapping of social_django backend names
+SOCIAL_AUTH_PROVIDER_DISPLAY_NAMES = {
+    "google-oauth2": "Google OAuth",
+    "github": "GitHub",
+    "gitlab": "GitLab",
+    "saml": "SAML",
 }

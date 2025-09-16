@@ -26,6 +26,7 @@ from ee.hogai.stream.redis_stream import (
     StreamError,
     StreamEvent,
 )
+from ee.hogai.utils.types.base import AssistantOutput
 from ee.models.assistant import Conversation
 
 
@@ -411,9 +412,10 @@ class TestRedisStream(BaseTest):
 
         # Test message serialization with proper AssistantMessage format
         message_data = AssistantMessage(content="test message")
-        event = (AssistantEventType.MESSAGE, message_data)
+        event: AssistantOutput = (AssistantEventType.MESSAGE, message_data)
 
         serialized = serializer.dumps(event)
+        serialized = cast(dict[str, bytes], serialized)
         self.assertIn("data", serialized)
         self.assertIsInstance(serialized["data"], bytes)
 
@@ -459,7 +461,7 @@ class TestRedisStream(BaseTest):
 
         # Create an ACK message as a MESSAGE event (since STATUS is treated as MESSAGE)
         ack_message = AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK)
-        event = (AssistantEventType.MESSAGE, ack_message)
+        event: AssistantOutput = (AssistantEventType.MESSAGE, ack_message)
 
         # Should return None for ACK messages
         result = serializer.dumps(event)
@@ -472,10 +474,11 @@ class TestRedisStream(BaseTest):
 
         # Test with a non-ACK status message
         status_message = AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.GENERATION_ERROR)
-        event = (AssistantEventType.MESSAGE, status_message)
+        event: AssistantOutput = (AssistantEventType.MESSAGE, status_message)
 
         result = serializer.dumps(event)
         self.assertIsNotNone(result)
+        result = cast(dict[str, bytes], result)
         self.assertIn("data", result)
         self.assertIsInstance(result["data"], bytes)
 
@@ -511,8 +514,10 @@ class TestRedisStream(BaseTest):
     def test_serializer_conversation_serialization(self):
         serializer = ConversationStreamSerializer()
         conversation = Conversation.objects.create(team=self.team, user=self.user)
-        event = (AssistantEventType.CONVERSATION, conversation)
+        event: AssistantOutput = (AssistantEventType.CONVERSATION, conversation)
         serialized = serializer.dumps(event)
+        self.assertIsNotNone(serialized)
+        serialized = cast(dict[str, bytes], serialized)
         self.assertIn("data", serialized)
         self.assertIsInstance(serialized["data"], bytes)
 
@@ -528,6 +533,8 @@ class TestRedisStream(BaseTest):
         # Test status serialization
         status = StatusPayload(status="complete")
         serialized = serializer.dumps(status)
+        self.assertIsNotNone(serialized)
+        serialized = cast(dict[str, bytes], serialized)
         self.assertIn("data", serialized)
         self.assertIsInstance(serialized["data"], bytes)
 
@@ -546,6 +553,8 @@ class TestRedisStream(BaseTest):
         # Test error status serialization
         status = StatusPayload(status="error", error="Test error message")
         serialized = serializer.dumps(status)
+        self.assertIsNotNone(serialized)
+        serialized = cast(dict[str, bytes], serialized)
         self.assertIn("data", serialized)
         self.assertIsInstance(serialized["data"], bytes)
 
