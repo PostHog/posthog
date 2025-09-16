@@ -6,21 +6,20 @@ import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { FunnelLayout } from 'lib/constants'
 import { humanFriendlyNumber } from 'lib/utils'
-import { ResultsBreakdown } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdown'
-import { ResultsBreakdownSkeleton } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdownSkeleton'
-import { ResultsInsightInfoBanner } from 'scenes/experiments/components/ResultsBreakdown/ResultsInsightInfoBanner'
 import { getViewRecordingFilters } from 'scenes/experiments/utils'
 import { DataDrivenFunnel } from 'scenes/experiments/viz/funnels/DataDrivenFunnel'
 import { urls } from 'scenes/urls'
 
 import {
-    CachedExperimentQueryResponse,
+    CachedNewExperimentQueryResponse,
     ExperimentMetric,
+    NodeKind,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
     isExperimentRatioMetric,
 } from '~/queries/schema/schema-general'
 import {
+    EntityType,
     Experiment,
     FilterLogicalOperator,
     FunnelStep,
@@ -42,56 +41,87 @@ import {
 } from '../shared/utils'
 
 /**
- * Convert breakdown results (variant-level arrays) to DataDrivenFunnel format (step-level with nested breakdowns)
+ * Convert new experiment results directly to DataDrivenFunnel format
  */
-function convertBreakdownResultsToFunnelSteps(
-    breakdownResults: FunnelStep[][],
+function convertExperimentResultToFunnelSteps(
+    result: CachedNewExperimentQueryResponse,
+    metric: ExperimentMetric,
     experiment: Experiment
 ): FunnelStepWithNestedBreakdown[] {
-    if (!breakdownResults || breakdownResults.length === 0) {
-        return []
-    }
-
-    // Get the base structure from the first variant (control)
-    const baseSteps = breakdownResults[0] || []
     const variants = experiment.parameters?.feature_flag_variants || []
 
-    // Transform to step-centric structure with variants as nested breakdowns
-    return baseSteps.map((baseStep, stepIndex) => {
-        // Collect this step from all variants
-        const variantSteps: FunnelStep[] = breakdownResults.map((variantSteps, variantIndex) => {
-            const step = variantSteps[stepIndex]
+    // Combine baseline and variant results
+    const allResults = [result.baseline, ...(result.variant_results || [])]
+
+    // Determine number of steps (exposure + metric steps)
+    const numSteps = (result.baseline.step_counts?.length || 0) + 1
+
+    // Build the funnel steps
+    const funnelSteps: FunnelStepWithNestedBreakdown[] = []
+
+    for (let stepIndex = 0; stepIndex < numSteps; stepIndex++) {
+        const variantSteps: FunnelStep[] = allResults.map((variantResult, variantIndex) => {
             const variantKey = variants[variantIndex]?.key || (variantIndex === 0 ? 'control' : `test_${variantIndex}`)
 
-            if (!step) {
-                // Handle missing steps in variants
-                return {
-                    ...baseStep,
-                    count: 0,
-                    breakdown_value: variantKey,
+            // First step is exposure
+            let count: number
+            if (stepIndex === 0) {
+                count = variantResult.number_of_samples
+            } else {
+                // Subsequent steps from step_counts array
+                count = variantResult.step_counts?.[stepIndex - 1] || 0
+            }
+
+            // Get step name from metric series
+            let stepName: string
+            if (stepIndex === 0) {
+                stepName = 'Experiment exposure'
+            } else if (isExperimentFunnelMetric(metric) && metric.series?.[stepIndex - 1]) {
+                const series = metric.series[stepIndex - 1]
+                if (series.kind === NodeKind.EventsNode) {
+                    stepName = series.name || series.event || `Step ${stepIndex}`
+                } else {
+                    // ActionsNode
+                    stepName = series.name || `Action ${series.id}`
                 }
+            } else {
+                stepName = `Step ${stepIndex}`
             }
+
             return {
-                ...step,
+                action_id: `step_${stepIndex}`,
+                name: stepName,
+                custom_name: null,
+                order: stepIndex,
+                count: count,
+                type: 'events' as EntityType,
+                average_conversion_time: null,
+                median_conversion_time: null,
+                converted_people_url: '',
+                dropped_people_url: null,
                 breakdown_value: variantKey,
-            }
+            } as FunnelStep
         })
 
-        return {
+        // Use the first variant's step as the base
+        const baseStep = variantSteps[0]
+
+        funnelSteps.push({
             ...baseStep,
             nested_breakdown: variantSteps,
-        }
-    })
+        })
+    }
+
+    return funnelSteps
 }
 
 export function ResultDetails({
     experiment,
     result,
     metric,
-    isSecondary,
 }: {
     experiment: Experiment
-    result: CachedExperimentQueryResponse
+    result: CachedNewExperimentQueryResponse
     metric: ExperimentMetric
     isSecondary: boolean
 }): JSX.Element {
@@ -217,36 +247,14 @@ export function ResultDetails({
         <div className="space-y-2">
             <LemonTable columns={columns} dataSource={dataSource} loading={false} />
             {isExperimentFunnelMetric(metric) && (
-                <ResultsBreakdown
-                    result={result}
-                    experiment={experiment}
-                    metricUuid={metric.uuid || ''}
-                    isPrimary={!isSecondary}
-                >
-                    {({ breakdownResultsLoading, breakdownResults, exposureDifference }) => {
-                        return (
-                            <>
-                                {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
-                                {breakdownResults && (
-                                    <>
-                                        <ResultsInsightInfoBanner exposureDifference={exposureDifference} />
-                                        <DataDrivenFunnel
-                                            steps={convertBreakdownResultsToFunnelSteps(
-                                                breakdownResults as FunnelStep[][],
-                                                experiment
-                                            )}
-                                            vizType={FunnelVizType.Steps}
-                                            layout={FunnelLayout.vertical}
-                                            showPersonsModal={false}
-                                            disableBaseline={true}
-                                            inCardView={true}
-                                        />
-                                    </>
-                                )}
-                            </>
-                        )
-                    }}
-                </ResultsBreakdown>
+                <DataDrivenFunnel
+                    steps={convertExperimentResultToFunnelSteps(result, metric, experiment)}
+                    vizType={FunnelVizType.Steps}
+                    layout={FunnelLayout.vertical}
+                    showPersonsModal={false}
+                    disableBaseline={true}
+                    inCardView={true}
+                />
             )}
         </div>
     )
