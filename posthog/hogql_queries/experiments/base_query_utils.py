@@ -544,6 +544,7 @@ def _get_metric_events_for_funnel_metric(
             ast.Field(chain=["events", "event"]),
             ast.Field(chain=["events", "uuid"]),
             ast.Field(chain=["events", "properties"]),
+            ast.Alias(alias="session_id", expr=ast.Field(chain=["events", "properties", "$session_id"])),
             *step_selects,
         ],
         select_from=ast.JoinExpr(

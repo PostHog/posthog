@@ -11794,6 +11794,15 @@
                 "numerator_denominator_sum_product": {
                     "type": "number"
                 },
+                "sampled_session_ids": {
+                    "items": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
+                    },
+                    "type": "array"
+                },
                 "step_counts": {
                     "items": {
                         "$ref": "#/definitions/integer"
@@ -11827,6 +11836,15 @@
                 },
                 "numerator_denominator_sum_product": {
                     "type": "number"
+                },
+                "sampled_session_ids": {
+                    "items": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
+                    },
+                    "type": "array"
                 },
                 "step_counts": {
                     "items": {
@@ -12010,6 +12028,15 @@
                 "numerator_denominator_sum_product": {
                     "type": "number"
                 },
+                "sampled_session_ids": {
+                    "items": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
+                    },
+                    "type": "array"
+                },
                 "significant": {
                     "type": "boolean"
                 },
@@ -12067,6 +12094,15 @@
                 },
                 "p_value": {
                     "type": "number"
+                },
+                "sampled_session_ids": {
+                    "items": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
+                    },
+                    "type": "array"
                 },
                 "significant": {
                     "type": "boolean"
