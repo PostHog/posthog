@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconCamera, IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconFullScreen } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
@@ -128,6 +129,7 @@ export function PlayerController({ playerIsHovering }: { playerIsHovering: boole
     const { isCinemaMode } = useValues(playerSettingsLogic)
 
     const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
+    const hoverUIEnabled = useFeatureFlag('REPLAY_HOVER_UI')
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -137,10 +139,13 @@ export function PlayerController({ playerIsHovering }: { playerIsHovering: boole
     return (
         <div
             className={cn(
-                'absolute bottom-0 left-0 right-0 flex flex-col select-none transition-all duration-150 ease-out',
-                playerIsHovering
+                'flex flex-col select-none',
+                hoverUIEnabled ? 'absolute bottom-0 left-0 right-0 transition-all duration-150 ease-out' : '',
+                hoverUIEnabled && playerIsHovering
                     ? 'opacity-100 bg-surface-primary pointer-events-auto'
-                    : 'opacity-0 pointer-events-none'
+                    : hoverUIEnabled
+                      ? 'opacity-0 pointer-events-none'
+                      : 'bg-surface-primary'
             )}
         >
             <Seekbar />

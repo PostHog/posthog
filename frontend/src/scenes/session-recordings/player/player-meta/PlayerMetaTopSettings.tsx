@@ -6,6 +6,7 @@ import { LemonButton, LemonDialog, Link } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconHeatmap } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
@@ -119,12 +120,17 @@ export function PlayerMetaTopSettings({ playerIsHovering }: { playerIsHovering?:
         logicProps: { noInspector },
     } = useValues(sessionRecordingPlayerLogic)
     const { setPause, openHeatmap } = useActions(sessionRecordingPlayerLogic)
+    const hoverUIEnabled = useFeatureFlag('REPLAY_HOVER_UI')
 
     return (
         <div
             className={cn(
-                'absolute top-full left-0 right-0 transition-all duration-150 ease-out',
-                playerIsHovering ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+                hoverUIEnabled ? 'absolute top-full left-0 right-0 z-10 transition-all duration-150 ease-out' : '',
+                hoverUIEnabled && playerIsHovering
+                    ? 'opacity-100 pointer-events-auto'
+                    : hoverUIEnabled
+                      ? 'opacity-0 pointer-events-none'
+                      : ''
             )}
         >
             <SettingsBar border="top">

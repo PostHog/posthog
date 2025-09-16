@@ -302,7 +302,14 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                 ) : (
                                     <div className="flex w-full h-full">
                                         <div className="flex flex-col flex-1 w-full">
-                                            {showMeta ? <PlayerMeta /> : null}
+                                            <div className="relative">
+                                                {showMeta ? (
+                                                    <>
+                                                        <PlayerMeta />
+                                                        <PlayerMetaTopSettings playerIsHovering={isHovering} />
+                                                    </>
+                                                ) : null}
+                                            </div>
                                             <div
                                                 className="SessionRecordingPlayer__body"
                                                 draggable={draggable}
@@ -317,8 +324,6 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                                     </>
                                                 ) : null}
                                             </div>
-                                            {/*here for stacking but appears at the top */}
-                                            {showMeta ? <PlayerMetaTopSettings playerIsHovering={isHovering} /> : null}
                                             {!hidePlayerElements ? (
                                                 <PlayerController playerIsHovering={isHovering} />
                                             ) : null}
