@@ -100,6 +100,10 @@ def validate_variant_result(
         validation_failures=validation_failures,
     )
 
+    # Include funnel-specific fields if present
+    if hasattr(variant_result, "step_counts") and variant_result.step_counts is not None:
+        validated_result.step_counts = variant_result.step_counts
+
     # Include ratio-specific fields if present
     if hasattr(variant_result, "denominator_sum") and variant_result.denominator_sum is not None:
         validated_result.denominator_sum = variant_result.denominator_sum
