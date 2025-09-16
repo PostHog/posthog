@@ -81,8 +81,8 @@ export const saveToCohortModalContentLogic = kea<saveToCohortModalContentLogicTy
                     pageSize: COHORTS_PER_PAGE,
                     currentPage: filters.page || 1,
                     entryCount: count,
-                    onBackward: () => actions.setCohortFilters({ page: filters.page - 1 }),
-                    onForward: () => actions.setCohortFilters({ page: filters.page + 1 }),
+                    onBackward: () => actions.setCohortFilters({ page: filters.page != null ? filters.page - 1 : 1 }),
+                    onForward: () => actions.setCohortFilters({ page: filters.page != null ? filters.page + 1 : 1 }),
                 }
             },
         ],
