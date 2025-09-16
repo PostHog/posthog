@@ -34,6 +34,7 @@ import {
     AccessControlResourceType,
     SessionRecordingAIConfig,
     type SessionRecordingMaskingLevel,
+    type SessionRecordingRetentionPeriod,
 } from '~/types'
 
 interface SupportedPlatformProps {
@@ -637,6 +638,45 @@ export function ReplayMaskingSettings(): JSX.Element {
                     ]}
                 />
             </AccessControlAction>
+        </div>
+    )
+}
+
+export function ReplayDataRetentionSettings(): JSX.Element {
+    const { updateCurrentTeam } = useActions(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
+
+    const handleRetentionChange = (retention_period: SessionRecordingRetentionPeriod): void => {
+        updateCurrentTeam({
+            session_recording_retention_period: retention_period,
+        })
+    }
+
+    return (
+        <div>
+            <p>This controls how long your recordings are stored.</p>
+            <p>
+                Altering this setting will only affect the retention period for future recordings.{' '}
+                <Link to="https://posthog.com/docs/session-replay/data-retention" target="_blank">
+                    Learn more
+                </Link>
+            </p>
+            <LemonSelect
+                value={currentTeam?.session_recording_retention_period}
+                onChange={(val) => val && handleRetentionChange(val)}
+                options={[
+                    { value: '30d', label: '30 days' },
+                    { value: '90d', label: '90 days' },
+                    { value: '1y', label: '1 year (365 days)' },
+                    { value: '5y', label: '5 years (1825 days)' },
+                ]}
+                accessControl={{
+                    resourceType: AccessControlResourceType.SessionRecording,
+                    minAccessLevel: AccessControlLevel.Editor,
+                    userAccessLevel:
+                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
+                }}
+            />
         </div>
     )
 }

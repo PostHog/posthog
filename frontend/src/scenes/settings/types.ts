@@ -83,6 +83,7 @@ export type SettingId =
     | 'replay-masking'
     | 'replay-authorized-domains'
     | 'replay-ingestion'
+    | 'replay-retention'
     | 'surveys-interface'
     | 'feature-flags-interface'
     | 'error-tracking-exception-autocapture'

@@ -4,10 +4,12 @@ from functools import cached_property
 from typing import Any, Literal, Optional, cast
 
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.shortcuts import get_object_or_404
 
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, response, serializers, viewsets
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -135,6 +137,7 @@ TEAM_CONFIG_FIELDS = (
     "session_recording_url_blocklist_config",
     "session_recording_event_trigger_config",
     "session_recording_trigger_match_type_config",
+    "session_recording_retention_period",
     "session_replay_config",
     "survey_config",
     "week_start_day",
@@ -370,6 +373,15 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return value
 
     @staticmethod
+    def validate_session_recording_retention_period(value) -> Literal["30d", "90d", "1y", "5y"] | None:
+        if value not in ["30d", "90d", "1y", "5y"]:
+            raise exceptions.ValidationError(
+                "Must provide a valid retention period. Options are: ['30d', '90d', '1y', '5y']."
+            )
+
+        return value
+
+    @staticmethod
     def validate_session_recording_network_payload_capture_config(value) -> dict | None:
         if value is None:
             return None
@@ -539,6 +551,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if config_data := validated_data.pop("marketing_analytics_config", None):
             self._update_marketing_analytics_config(instance, config_data)
 
+        if "session_recording_retention_period" in validated_data:
+            self._verify_update_session_recording_retention_period(
+                instance, validated_data["session_recording_retention_period"]
+            )
+
         if "survey_config" in validated_data:
             if instance.survey_config is not None and validated_data.get("survey_config") is not None:
                 validated_data["survey_config"] = {
@@ -672,6 +689,50 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
         self._capture_diff(instance, "marketing_analytics_config", old_config, new_config)
         return instance
+
+    def _verify_update_session_recording_retention_period(self, instance: Team, new_retention_period: str):
+        retention_feature = instance.organization.get_available_feature(AvailableFeature.SESSION_REPLAY_DATA_RETENTION)
+
+        if not retention_feature:
+            raise ImproperlyConfigured("No retention period feature found.")
+
+        retention_limit = retention_feature.get("limit")
+
+        if not retention_limit:
+            raise ImproperlyConfigured("No retention period limit specified.")
+
+        match retention_feature.get("unit", "").lower():
+            case "day" | "days":
+                highest_retention_entitlement = f"{retention_limit}d"
+            case "month" | "months":
+                if retention_limit < 12:
+                    highest_retention_entitlement = f"{retention_limit * 30}d"
+                else:
+                    highest_retention_entitlement = f"{retention_limit // 12}y"
+            case "year" | "years":
+                highest_retention_entitlement = f"{retention_limit}y"
+            case invalid:
+                raise ImproperlyConfigured(
+                    f"Invalid unit '{invalid}' encountered - must be one of: ['day', 'days', 'month', 'months', 'year', 'years']."
+                )
+
+        ordered_retention_periods = ["30d", "90d", "1y", "5y"]
+
+        if highest_retention_entitlement not in ordered_retention_periods:
+            raise ImproperlyConfigured("Retention period limit is invalid.")
+
+        # Should be validated already, but let's be extra sure to avoid IndexErrors below
+        if new_retention_period not in ordered_retention_periods:
+            raise exceptions.ValidationError(
+                "Must provide a valid retention period. Options are: ['30d', '90d', '1y', '5y']."
+            )
+
+        if ordered_retention_periods.index(new_retention_period) > ordered_retention_periods.index(
+            highest_retention_entitlement
+        ):
+            raise PermissionDenied(
+                f"This organization does not have permission to set retention period of length '{new_retention_period}' - longest allowable retention period is '{highest_retention_entitlement}'."
+            )
 
     def _capture_diff(self, instance: Team, key: str, before: dict, after: dict):
         changes = dict_changes_between(
