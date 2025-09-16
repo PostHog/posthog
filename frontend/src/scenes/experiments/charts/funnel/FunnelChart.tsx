@@ -10,7 +10,7 @@ import {
 } from '~/types'
 
 import { FunnelBarVertical } from './FunnelBarVertical'
-import { FunnelDataProcessingOptions, processFunnelData } from './funnelDataUtils'
+import { FunnelDataProcessingOptions, processFunnelData } from './funnelUtils'
 
 export interface FunnelChartProps extends ChartParams {
     /** Raw funnel step data */
