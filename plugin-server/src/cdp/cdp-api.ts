@@ -355,7 +355,6 @@ export class CdpApi {
                     }
                 }
 
-                // const wasSkipped = filterMetrics.some((m) => m.metric_name === 'filtered')
                 const wasSkipped = invocations.length === 0
 
                 res.json({
