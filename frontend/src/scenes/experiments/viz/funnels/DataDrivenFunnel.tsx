@@ -78,6 +78,7 @@ export function DataDrivenFunnel({
     hiddenLegendBreakdowns = [],
     disableBaseline = false,
     timeConversionData,
+    inCardView = false,
     ...chartParams
 }: DataDrivenFunnelProps): JSX.Element {
     // Process the raw data into the format needed by visualization components
@@ -126,7 +127,7 @@ export function DataDrivenFunnel({
             <div
                 className={`FunnelInsight FunnelInsight--type-${vizType?.toLowerCase()}${
                     vizType === FunnelVizType.Steps ? '-' + layout : ''
-                }`}
+                }${inCardView ? ' InsightCard' : ''}`}
             >
                 {viz}
             </div>
