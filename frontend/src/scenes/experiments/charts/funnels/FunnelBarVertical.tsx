@@ -6,11 +6,11 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { ChartParams } from '~/types'
 
 import '../../../funnels/FunnelBarVertical/FunnelBarVertical'
-import { useFunnelData } from './DataDrivenFunnel'
-import { useDataDrivenFunnelTooltip } from './DataDrivenFunnelTooltip'
-import { DataDrivenStepBarLabels } from './DataDrivenStepBarLabels'
-import { DataDrivenStepBars } from './DataDrivenStepBars'
-import { DataDrivenStepLegend } from './DataDrivenStepLegend'
+import { useFunnelData } from './Funnel'
+import { useDataDrivenFunnelTooltip } from './FunnelTooltip'
+import { DataDrivenStepBarLabels } from './StepBarLabels'
+import { DataDrivenStepBars } from './StepBars'
+import { DataDrivenStepLegend } from './StepLegend'
 
 interface TooltipContext {
     showTooltip: (rect: [number, number, number], stepIndex: number, series: any) => void

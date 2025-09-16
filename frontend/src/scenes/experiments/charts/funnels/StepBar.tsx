@@ -4,7 +4,7 @@ import { percentage } from 'lib/utils'
 
 import { FunnelStepWithConversionMetrics } from '~/types'
 
-import { useDataDrivenTooltip } from './DataDrivenFunnelBarVertical'
+import { useDataDrivenTooltip } from './FunnelBarVertical'
 import { getSeriesColor } from './funnelDataUtils'
 
 export interface StepBarProps {

@@ -2,7 +2,7 @@ import clsx from 'clsx'
 
 import { FunnelStepWithConversionMetrics } from '~/types'
 
-import { DataDrivenStepBar } from './DataDrivenStepBar'
+import { DataDrivenStepBar } from './StepBar'
 
 interface DataDrivenStepBarsProps {
     step: FunnelStepWithConversionMetrics
