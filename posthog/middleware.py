@@ -120,15 +120,6 @@ class CsrfOrKeyViewMiddleware(CsrfViewMiddleware):
     """Middleware accepting requests that either contain a valid CSRF token or a personal API key."""
 
     def process_view(self, request, callback, callback_args, callback_kwargs):
-        # In development, check if URL should be exempt from CSRF protection
-        if settings.DEBUG and hasattr(settings, "CSRF_EXEMPT_URLS"):
-            import re
-
-            path = request.path_info.lstrip("/")
-            for pattern in settings.CSRF_EXEMPT_URLS:
-                if re.match(pattern, path):
-                    return self._accept(request)
-
         result = super().process_view(request, callback, callback_args, callback_kwargs)  # None if request accepted
         # if super().process_view did not find a valid CSRF token, try looking for a personal API key
         if result is not None and PersonalAPIKeyAuthentication.find_key_with_source(request) is not None:
