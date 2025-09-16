@@ -17,7 +17,7 @@ import type { saveToCohortModalContentLogicType } from './saveToCohortModalConte
 
 const COHORTS_PER_PAGE = 100
 
-interface CohortFilters {
+export interface CohortFilters {
     search?: string
     page?: number
     type: string
