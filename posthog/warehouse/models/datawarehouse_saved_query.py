@@ -225,10 +225,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_snapshot_{self.id.hex}/snapshots/{self.normalized_name}"
 
     def hogql_definition(
-        self, modifiers: Optional[HogQLQueryModifiers] = None, url_override: str | None = None
+        self, modifiers: Optional[HogQLQueryModifiers] = None
     ) -> Union[SavedQuery, HogQLDataWarehouseTable]:
         if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
-            return self.table.hogql_definition(modifiers, url_override)
+            return self.table.hogql_definition(modifiers)
 
         columns = self.columns or {}
         fields: dict[str, FieldOrTable] = {}

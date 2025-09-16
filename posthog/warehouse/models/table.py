@@ -311,9 +311,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             raise
         return s3_table_func, placeholder_context
 
-    def hogql_definition(
-        self, modifiers: Optional[HogQLQueryModifiers] = None, url_override: str | None = None
-    ) -> HogQLDataWarehouseTable:
+    def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> HogQLDataWarehouseTable:
         columns = self.columns or {}
 
         fields: dict[str, FieldOrTable] = {}
@@ -381,7 +379,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
         return HogQLDataWarehouseTable(
             name=self.name,
-            url=url_override or self.url_pattern,
+            url=self.url_pattern,
             format=self.format,
             access_key=access_key,
             access_secret=access_secret,
