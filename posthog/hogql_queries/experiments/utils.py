@@ -70,8 +70,6 @@ def get_new_variant_results(sorted_results: list[tuple]) -> list[ExperimentStats
             base_stats["denominator_sum"] = result[4]
             base_stats["denominator_sum_squares"] = result[5]
             base_stats["numerator_denominator_sum_product"] = result[6]
-        else:
-            raise ValueError(f"Unexpected result format with {len(result)} values")
 
         variant_results.append(ExperimentStatsBase(**base_stats))
 
