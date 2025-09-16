@@ -63,6 +63,10 @@ def get_new_variant_results(sorted_results: list[tuple]) -> list[ExperimentStats
         # Funnel metrics
         if len(result) == 5:
             base_stats["step_counts"] = result[4]
+        elif len(result) == 6:
+            # Funnel metrics with sampled session IDs
+            base_stats["step_counts"] = result[4]
+            base_stats["sampled_session_ids"] = result[5]
 
         # Ratio metrics
         elif len(result) == 7:
@@ -103,6 +107,8 @@ def validate_variant_result(
     # Include funnel-specific fields if present
     if hasattr(variant_result, "step_counts") and variant_result.step_counts is not None:
         validated_result.step_counts = variant_result.step_counts
+    if hasattr(variant_result, "sampled_session_ids") and variant_result.sampled_session_ids is not None:
+        validated_result.sampled_session_ids = variant_result.sampled_session_ids
 
     # Include ratio-specific fields if present
     if hasattr(variant_result, "denominator_sum") and variant_result.denominator_sum is not None:
@@ -176,6 +182,7 @@ def get_frequentist_experiment_result(
             sum=test_variant_validated.sum,
             sum_squares=test_variant_validated.sum_squares,
             step_counts=test_variant_validated.step_counts,
+            sampled_session_ids=getattr(test_variant_validated, "sampled_session_ids", None),
             validation_failures=test_variant_validated.validation_failures,
         )
 
@@ -244,6 +251,7 @@ def get_bayesian_experiment_result(
             sum=test_variant_validated.sum,
             sum_squares=test_variant_validated.sum_squares,
             step_counts=test_variant_validated.step_counts,
+            sampled_session_ids=getattr(test_variant_validated, "sampled_session_ids", None),
             validation_failures=test_variant_validated.validation_failures,
         )
 

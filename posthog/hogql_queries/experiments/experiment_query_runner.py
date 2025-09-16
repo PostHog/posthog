@@ -134,6 +134,15 @@ class ExperimentQueryRunner(QueryRunner):
             ),
         ]
 
+        # For funnel metrics, also collect session_ids
+        if isinstance(self.metric, ExperimentFunnelMetric):
+            select_fields.append(
+                ast.Alias(
+                    expr=parse_expr("groupArray(metric_events.session_id)"),
+                    alias="session_ids",
+                )
+            )
+
         # Get time window constraints for events relative to exposure time
         metric_time_window = get_exposure_time_window_constraints(
             self.metric,
@@ -376,6 +385,31 @@ class ExperimentQueryRunner(QueryRunner):
                 step_count_exprs.append(f"countIf(metric_events.value >= {i})")
             step_counts_expr = f"tuple({', '.join(step_count_exprs)}) as step_counts"
             select_fields.append(parse_expr(step_counts_expr))
+
+            # Add sampled session IDs for each step
+            sampled_session_exprs = []
+            for i in range(num_steps):
+                # For each step, collect session_ids from users who reached that step
+                # and sample up to 10 of them
+                sampled_expr = f"""
+                arraySlice(
+                    arrayDistinct(
+                        arrayFlatten(
+                            arrayFilter(
+                                x -> notEmpty(x),
+                                groupArray(
+                                    if(metric_events.value >= {i}, metric_events.session_ids, [])
+                                )
+                            )
+                        )
+                    ),
+                    1,
+                    10
+                )
+                """
+                sampled_session_exprs.append(sampled_expr)
+            sampled_sessions_expr = f"tuple({', '.join(sampled_session_exprs)}) as sampled_session_ids"
+            select_fields.append(parse_expr(sampled_sessions_expr))
         else:
             # For non-funnel metrics, use the original logic
             select_fields.extend(
