@@ -1,5 +1,8 @@
-import { FunnelLayout, FunnelStepReference, FunnelVizType } from '~/types'
+import { FunnelLayout } from 'lib/constants'
+
+import { FunnelStepReference, FunnelVizType } from '~/types'
 import { EntityType } from '~/types'
+
 import { DataDrivenFunnel } from './DataDrivenFunnel'
 
 /**
@@ -21,7 +24,7 @@ export function DataDrivenFunnelExample(): JSX.Element {
             // No breakdown for this example
         },
         {
-            action_id: 'step2', 
+            action_id: 'step2',
             name: 'Signed Up',
             custom_name: null,
             order: 1,
@@ -43,7 +46,7 @@ export function DataDrivenFunnelExample(): JSX.Element {
                 },
                 {
                     action_id: 'step2',
-                    name: 'Signed Up', 
+                    name: 'Signed Up',
                     order: 1,
                     count: 250,
                     type: EntityType.EVENTS,
@@ -90,19 +93,19 @@ export function DataDrivenFunnelExample(): JSX.Element {
     // Example time-to-convert data for histogram
     const exampleTimeConversionData = {
         bins: [
-            [0, 50],    // 0-60s: 50 conversions
-            [60, 120],  // 60-120s: 120 conversions
+            [0, 50], // 0-60s: 50 conversions
+            [60, 120], // 60-120s: 120 conversions
             [120, 200], // 120-180s: 200 conversions
             [180, 150], // 180-240s: 150 conversions
-            [240, 80],  // 240-300s: 80 conversions
-            [300, 30],  // 300-360s: 30 conversions
+            [240, 80], // 240-300s: 80 conversions
+            [300, 30], // 300-360s: 30 conversions
         ],
     }
 
     return (
         <div>
             <h2>DataDrivenFunnel Examples</h2>
-            
+
             <div style={{ marginBottom: '2rem' }}>
                 <h3>Vertical Steps Funnel</h3>
                 <DataDrivenFunnel

@@ -27,6 +27,7 @@ import {
 } from '../components/ResultsBreakdown'
 import { experimentLogic } from '../experimentLogic'
 import { isLegacyExperiment, isLegacyExperimentQuery } from '../utils'
+import { DataDrivenFunnelExample } from '../viz/funnels/DataDrivenFunnelExample'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentHeader } from './ExperimentHeader'
 import { ExposureCriteriaModal } from './ExposureCriteria'
@@ -165,6 +166,8 @@ const MetricsTab = (): JSX.Element => {
                     <Metrics isSecondary={true} />
                 </>
             )}
+
+            <DataDrivenFunnelExample />
         </>
     )
 }
