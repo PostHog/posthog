@@ -1,16 +1,16 @@
-import './FunnelBarVertical/FunnelBarVertical.scss'
+import { createContext, useContext, useLayoutEffect, useRef, useState } from 'react'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { useLayoutEffect, useRef, useState, createContext, useContext } from 'react'
 
 import { ChartParams } from '~/types'
 
+import '../../../funnels/FunnelBarVertical/FunnelBarVertical'
 import { useFunnelData } from './DataDrivenFunnel'
+import { useDataDrivenFunnelTooltip } from './DataDrivenFunnelTooltip'
 import { DataDrivenStepBarLabels } from './DataDrivenStepBarLabels'
 import { DataDrivenStepBars } from './DataDrivenStepBars'
 import { DataDrivenStepLegend } from './DataDrivenStepLegend'
-import { useDataDrivenFunnelTooltip } from './DataDrivenFunnelTooltip'
 
 interface TooltipContext {
     showTooltip: (rect: [number, number, number], stepIndex: number, series: any) => void
@@ -34,7 +34,7 @@ interface FunnelBarVerticalCSSProperties extends React.CSSProperties {
 
 export function DataDrivenFunnelBarVertical({
     showPersonsModal: showPersonsModalProp = true,
-    inCardView = false
+    inCardView = false,
 }: ChartParams): JSX.Element {
     const { visibleStepsWithConversionMetrics } = useFunnelData()
     const showPersonsModal = showPersonsModalProp // Simplified - no person modal logic for now
@@ -46,9 +46,7 @@ export function DataDrivenFunnelBarVertical({
 
     // Calculate the maximum number of series in any step (for width calculations)
     const seriesCount = Math.max(
-        ...visibleStepsWithConversionMetrics.map(step =>
-            step.nested_breakdown?.length || 1
-        ),
+        ...visibleStepsWithConversionMetrics.map((step) => step.nested_breakdown?.length || 1),
         1 // Ensure at least 1 even if no steps
     )
     // Calculate base bar width based on series count
@@ -56,24 +54,24 @@ export function DataDrivenFunnelBarVertical({
         seriesCount >= 60
             ? 4
             : seriesCount >= 20
-            ? 8
-            : seriesCount >= 12
-            ? 16
-            : seriesCount >= 10
-            ? 20
-            : seriesCount >= 8
-            ? 24
-            : seriesCount >= 6
-            ? 32
-            : seriesCount >= 5
-            ? 40
-            : seriesCount >= 4
-            ? 48
-            : seriesCount >= 3
-            ? 64
-            : seriesCount >= 2
-            ? 96
-            : 192
+              ? 8
+              : seriesCount >= 12
+                ? 16
+                : seriesCount >= 10
+                  ? 20
+                  : seriesCount >= 8
+                    ? 24
+                    : seriesCount >= 6
+                      ? 32
+                      : seriesCount >= 5
+                        ? 40
+                        : seriesCount >= 4
+                          ? 48
+                          : seriesCount >= 3
+                            ? 64
+                            : seriesCount >= 2
+                              ? 96
+                              : 192
 
     // In card view, CSS will apply calc(var(--bar-width) / 2), so we need to compensate
     // by doubling the width we set so the final rendered width is appropriate
@@ -108,50 +106,50 @@ export function DataDrivenFunnelBarVertical({
             <div className="FunnelBarVertical" ref={vizRef} data-attr="funnel-bar-vertical">
                 <ScrollableShadows scrollRef={scrollRef} direction="horizontal">
                     <table
-                    /* eslint-disable-next-line react/forbid-dom-props */
-                    style={
-                        {
-                            '--bar-width': `${barWidthPx}px`,
-                            '--bar-row-height': barRowHeight,
-                        } as FunnelBarVerticalCSSProperties
-                    }
-                >
-                    <colgroup>
-                        {visibleStepsWithConversionMetrics.map((_, i) => (
-                            <col key={i} width={0} />
-                        ))}
-                        <col width="100%" />
-                        {/* The last column is meant to fill up leftover space. */}
-                    </colgroup>
-                    <tbody>
-                        <tr>
-                            <td>
-                                <DataDrivenStepBarLabels />
-                            </td>
-                            {visibleStepsWithConversionMetrics.map((step, stepIndex) => (
-                                <td key={stepIndex}>
-                                    <DataDrivenStepBars 
-                                        step={step} 
-                                        stepIndex={stepIndex} 
-                                        showPersonsModal={showPersonsModal} 
-                                    />
-                                </td>
+                        /* eslint-disable-next-line react/forbid-dom-props */
+                        style={
+                            {
+                                '--bar-width': `${barWidthPx}px`,
+                                '--bar-row-height': barRowHeight,
+                            } as FunnelBarVerticalCSSProperties
+                        }
+                    >
+                        <colgroup>
+                            {visibleStepsWithConversionMetrics.map((_, i) => (
+                                <col key={i} width={0} />
                             ))}
-                        </tr>
-                        <tr ref={stepLegendRowRef}>
-                            <td />
-                            {visibleStepsWithConversionMetrics.map((step, stepIndex) => (
-                                <td key={stepIndex}>
-                                    <DataDrivenStepLegend
-                                        step={step}
-                                        stepIndex={stepIndex}
-                                        showTime={showTime}
-                                        showPersonsModal={showPersonsModal}
-                                    />
+                            <col width="100%" />
+                            {/* The last column is meant to fill up leftover space. */}
+                        </colgroup>
+                        <tbody>
+                            <tr>
+                                <td>
+                                    <DataDrivenStepBarLabels />
                                 </td>
-                            ))}
-                        </tr>
-                    </tbody>
+                                {visibleStepsWithConversionMetrics.map((step, stepIndex) => (
+                                    <td key={stepIndex}>
+                                        <DataDrivenStepBars
+                                            step={step}
+                                            stepIndex={stepIndex}
+                                            showPersonsModal={showPersonsModal}
+                                        />
+                                    </td>
+                                ))}
+                            </tr>
+                            <tr ref={stepLegendRowRef}>
+                                <td />
+                                {visibleStepsWithConversionMetrics.map((step, stepIndex) => (
+                                    <td key={stepIndex}>
+                                        <DataDrivenStepLegend
+                                            step={step}
+                                            stepIndex={stepIndex}
+                                            showTime={showTime}
+                                            showPersonsModal={showPersonsModal}
+                                        />
+                                    </td>
+                                ))}
+                            </tr>
+                        </tbody>
                     </table>
                 </ScrollableShadows>
             </div>
