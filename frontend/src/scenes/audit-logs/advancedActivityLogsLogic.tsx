@@ -18,6 +18,12 @@ export interface DetailFilter {
     value: string | string[]
 }
 
+export interface ActiveDetailFilter extends DetailFilter {
+    key: string
+    fieldPath: string
+    isCustom: boolean
+}
+
 export interface AdvancedActivityLogFilters {
     start_date?: string
     end_date?: string
@@ -75,6 +81,8 @@ const DEFAULT_FILTERS: AdvancedActivityLogFilters = {
     detail_filters: {},
 }
 
+const DEFAULT_ACTIVE_FILTERS: ActiveDetailFilter[] = []
+
 export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
     path(['scenes', 'audit-logs', 'advancedActivityLogsLogic']),
     connect(() => ({
@@ -89,6 +97,10 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         loadAvailableFilters: true,
         loadExports: true,
         setActiveTab: (tab: 'logs' | 'exports') => ({ tab }),
+        addActiveFilter: (fieldPath: string, isCustom: boolean) => ({ fieldPath, isCustom }),
+        updateActiveFilter: (key: string, updates: Partial<ActiveDetailFilter>) => ({ key, updates }),
+        removeActiveFilter: (key: string) => ({ key }),
+        syncFiltersToAPI: true,
     }),
 
     reducers({
@@ -99,11 +111,39 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                 clearAllFilters: () => DEFAULT_FILTERS,
             },
         ],
+        activeFilters: [
+            DEFAULT_ACTIVE_FILTERS as ActiveDetailFilter[],
+            {
+                addActiveFilter: (state, { fieldPath, isCustom }) => {
+                    const key = `filter_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+                    return [
+                        ...state,
+                        {
+                            key,
+                            fieldPath: isCustom ? '' : fieldPath,
+                            operation: 'exact' as const,
+                            value: '',
+                            isCustom,
+                        },
+                    ]
+                },
+                updateActiveFilter: (state, { key, updates }) => {
+                    return state.map((filter) => (filter.key === key ? { ...filter, ...updates } : filter))
+                },
+                removeActiveFilter: (state, { key }) => {
+                    return state.filter((filter) => filter.key !== key)
+                },
+                clearAllFilters: () => DEFAULT_ACTIVE_FILTERS,
+            },
+        ],
         currentPage: [
             1,
             {
                 setPage: (_, { page }) => page,
                 setFilters: () => 1,
+                addDetailFilter: () => 1,
+                updateDetailFilter: () => 1,
+                removeDetailFilter: () => 1,
             },
         ],
         activeTab: [
@@ -178,7 +218,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
     selectors(({ actions }) => ({
         isFeatureFlagEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.ADVANCED_ACTIVITY_LOGS],
+            (featureFlags: any): boolean => !!featureFlags[FEATURE_FLAGS.ADVANCED_ACTIVITY_LOGS],
         ],
 
         hasActiveFilters: [
@@ -221,9 +261,37 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         clearAllFilters: () => {
             actions.loadAdvancedActivityLogs()
         },
+        addActiveFilter: ({ fieldPath }) => {
+            if (fieldPath === '__add_custom__') {
+                actions.addActiveFilter('', true)
+                return
+            }
+            actions.syncFiltersToAPI()
+        },
+        updateActiveFilter: () => {
+            actions.syncFiltersToAPI()
+        },
+        removeActiveFilter: () => {
+            actions.syncFiltersToAPI()
+        },
+        syncFiltersToAPI: () => {
+            const detailFilters: Record<string, DetailFilter> = {}
+            values.activeFilters.forEach((filter: ActiveDetailFilter) => {
+                if (filter.fieldPath && filter.fieldPath.trim()) {
+                    const fieldPath = filter.fieldPath.includes('::')
+                        ? filter.fieldPath.split('::')[1]
+                        : filter.fieldPath
+
+                    detailFilters[fieldPath] = {
+                        operation: filter.operation,
+                        value: filter.value,
+                    }
+                }
+            })
+            actions.setFilters({ detail_filters: detailFilters })
+        },
         exportLogs: async ({ format }) => {
             try {
-                // Convert relative dates to ISO strings for the export API
                 const startDate = values.filters.start_date
                     ? dateStringToDayJs(values.filters.start_date)?.toISOString()
                     : undefined
