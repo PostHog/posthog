@@ -5,7 +5,7 @@ import { IconRewindPlay } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils'
-import { Funnel } from 'scenes/experiments/charts/funnels/Funnel'
+import { FunnelChart } from 'scenes/experiments/charts/funnel/FunnelChart'
 import { getViewRecordingFilters } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
@@ -238,7 +238,7 @@ export function ResultDetails({
         <div className="space-y-2">
             <LemonTable columns={columns} dataSource={dataSource} loading={false} />
             {isExperimentFunnelMetric(metric) && (
-                <Funnel
+                <FunnelChart
                     steps={convertExperimentResultToFunnelSteps(result, metric, experiment)}
                     showPersonsModal={false}
                     disableBaseline={true}
