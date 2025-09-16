@@ -44,7 +44,7 @@ export type SparklineOptions = {
     minBarHeight: number // Minimum height of a bar in the sparkline chart (in pixels)
 }
 
-const fallbackExtent = [new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), new Date()] // from -7 days ago to now
+const fallbackExtent = [new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), new Date()] // from 7 days ago to now
 
 export function SparklineChart({ data, events = [], options, className }: SparklineProps): JSX.Element {
     const svgRef = useRef<SVGSVGElement>(null)
