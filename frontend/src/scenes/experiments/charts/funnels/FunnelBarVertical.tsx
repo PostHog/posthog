@@ -7,9 +7,9 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
 import { ChartParams } from '~/types'
 
+import { StepBarLabels } from '../../../funnels/FunnelBarVertical/StepBarLabels'
 import { useFunnelData } from './Funnel'
 import { useFunnelTooltip } from './FunnelTooltip'
-import { StepBarLabels } from './StepBarLabels'
 import { StepBars } from './StepBars'
 import { StepLegend } from './StepLegend'
 
