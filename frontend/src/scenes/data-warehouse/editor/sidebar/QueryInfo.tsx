@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { IconRevert, IconTarget, IconX } from '@posthog/icons'
-import { LemonDialog, LemonSwitch, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInputSelect, LemonSwitch, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -116,8 +117,11 @@ function getMaterializationDisabledReasons(
 export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
     const { sourceTableItems } = useValues(infoTabLogic({ codeEditorKey: codeEditorKey }))
     const { editingView, upstream, upstreamViewMode } = useValues(multitabEditorLogic)
-    const { runDataWarehouseSavedQuery, saveAsView, setUpstreamViewMode } = useActions(multitabEditorLogic)
+    const { runDataWarehouseSavedQuery, saveAsView, setUpstreamViewMode, runDataWarehouseSavedQuerySnapshot } =
+        useActions(multitabEditorLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    const [selectedColumns, setSelectedColumns] = useState<string[]>(editingView?.snapshot_config?.fields || [])
 
     const isLineageDependencyViewEnabled = featureFlags[FEATURE_FLAGS.LINEAGE_DEPENDENCY_VIEW]
 
@@ -311,20 +315,29 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                     </div>
                     <div>
                         {editingView && editingView.columns && (
-                            <div className="my-2">
-                                <LemonSelect
+                            <div className="my-2 flex flex-row gap-2">
+                                <LemonInputSelect
+                                    mode="multiple"
                                     placeholder="Select columns..."
                                     options={editingView.columns.map((field) => ({
+                                        key: field.name,
                                         value: field.name,
                                         label: field.name,
                                     }))}
+                                    value={selectedColumns}
                                     onChange={(newValue) => {
+                                        setSelectedColumns(newValue)
+                                    }}
+                                />
+                                <LemonButton
+                                    type="secondary"
+                                    onClick={() => {
                                         if (editingView) {
                                             updateDataWarehouseSavedQuery({
                                                 id: editingView.id,
                                                 snapshot_config: {
                                                     mode: 'check',
-                                                    fields: [newValue],
+                                                    fields: selectedColumns,
                                                     timestamp_field: null,
                                                     frequency: 'never',
                                                 },
@@ -333,8 +346,27 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                             })
                                         }
                                     }}
-                                />
+                                >
+                                    Save
+                                </LemonButton>
                             </div>
+                        )}
+                    </div>
+                    <div>
+                        {editingView?.snapshot_enabled && (
+                            <LemonButton
+                                type="primary"
+                                onClick={() => {
+                                    if (editingView) {
+                                        runDataWarehouseSavedQuerySnapshot(editingView.id)
+                                    }
+                                }}
+                                disabledReason={
+                                    editingView?.snapshot_config?.fields?.length === 0 ? 'No columns selected' : false
+                                }
+                            >
+                                Snapshot now
+                            </LemonButton>
                         )}
                     </div>
                 </div>

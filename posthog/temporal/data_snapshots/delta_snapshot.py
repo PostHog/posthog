@@ -7,6 +7,7 @@ import deltalake as deltalake
 from conditional_cache import lru_cache
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from posthog.warehouse.s3 import ensure_bucket_exists
 
@@ -16,6 +17,7 @@ class DeltaSnapshot:
 
     def __init__(self, saved_query: DataWarehouseSavedQuery):
         self.saved_query = saved_query
+        self.schema = HogQLSchema()
 
     def _get_delta_table_uri(self) -> str:
         return f"{settings.BUCKET_URL}/team_{self.saved_query.team.pk}_snapshot_{self.saved_query.id.hex}/snapshots/{self.saved_query.normalized_name}"
@@ -69,8 +71,9 @@ class DeltaSnapshot:
     def columns(self) -> list[str]:
         return self.saved_query.snapshot_config.get("fields", [])
 
-    def snapshot(self, data: pa.Table):
+    def snapshot(self, data: pa.RecordBatch):
         delta_table = self.get_delta_table()
+        self.schema.add_pyarrow_record_batch(data)
 
         if delta_table is None:
             delta_table = deltalake.DeltaTable.create(
@@ -91,15 +94,15 @@ class DeltaSnapshot:
         ).when_matched_update(
             updates={
                 # indicates update
-                self.VALID_UNTIL_COLUMN: "source.snapshot_ts",
+                "valid_until": "source.snapshot_ts",
             },
-            predicate="source.row_hash != target.row_hash AND target.{self.VALID_UNTIL_COLUMN} IS NULL",
+            predicate="source.row_hash != target.row_hash AND target.valid_until IS NULL",
         ).when_not_matched_by_source_update(
             updates={
                 # indicates deletion
-                self.VALID_UNTIL_COLUMN: f"to_timestamp_micros({now_micros})",
+                "valid_until": f"to_timestamp_micros({now_micros})",
             },
-            predicate=f"target.{self.VALID_UNTIL_COLUMN} IS NULL",
+            predicate="target.valid_until IS NULL",
             # insert brand new rows
         ).when_not_matched_insert_all().execute()
 
@@ -108,6 +111,6 @@ class DeltaSnapshot:
             source=data,
             source_alias="source",
             target_alias="target",
-            predicate=f"source.merge_key = target.merge_key AND target.{self.VALID_UNTIL_COLUMN} IS NULL",
+            predicate=f"source.merge_key = target.merge_key AND target.valid_until IS NULL",
             streamed_exec=True,
         ).when_not_matched_insert_all().execute()

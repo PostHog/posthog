@@ -62,6 +62,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         loadOlderDataModelingJobs: () => {},
         resetDataModelingJobs: () => {},
         setStartingMaterialization: (starting: boolean) => ({ starting }),
+        runDataWarehouseSavedQuerySnapshot: (viewId: string) => ({ viewId }),
     }),
     loaders(({ values }) => ({
         dataWarehouseSavedQueries: [
@@ -172,6 +173,15 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 actions.loadDataWarehouseSavedQueries()
             } catch {
                 lemonToast.error(`Failed to run materialization`)
+            }
+        },
+        runDataWarehouseSavedQuerySnapshot: async ({ viewId }) => {
+            try {
+                await api.dataWarehouseSavedQueries.snapshot(viewId)
+                lemonToast.success('Snapshot started')
+                actions.loadDataWarehouseSavedQueries()
+            } catch {
+                lemonToast.error(`Failed to run snapshot`)
             }
         },
         cancelDataWarehouseSavedQuery: async ({ viewId }) => {

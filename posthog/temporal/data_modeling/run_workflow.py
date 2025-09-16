@@ -44,7 +44,6 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.shutdown import ShutdownMonitor
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.temporal.data_modeling.metrics import get_data_modeling_finished_metric
-from posthog.temporal.data_snapshots.delta_snapshot import DeltaSnapshot
 from posthog.warehouse.data_load.create_table import create_table_from_saved_query
 from posthog.warehouse.models import DataWarehouseModelPath, DataWarehouseSavedQuery, DataWarehouseTable, get_s3_client
 from posthog.warehouse.models.data_modeling_job import DataModelingJob
@@ -489,39 +488,6 @@ async def materialize_model(
             row_count = row_count + batch.num_rows
             job.rows_materialized = row_count
             await database_sync_to_async(job.save)()
-
-        # # placeholder to test
-        if saved_query.snapshot_enabled:
-            async for _, res in asyncstdlib.enumerate(
-                hogql_table(
-                    f"""
-                SELECT
-                    *,
-                    id AS merge_key,
-                    toString(cityHash64(concatWithSeparator('_', toString(number)))) AS row_hash,
-                    now() AS snapshot_ts
-                FROM ({hogql_query})
-            """,
-                    team,
-                    logger,
-                )
-            ):
-                batch, ch_types = res
-                batch = _transform_unsupported_decimals(batch)
-                batch = _transform_date_and_datetimes(batch, ch_types)
-
-                batch_with_nulls = batch.append_column(
-                    DeltaSnapshot.VALID_UNTIL_COLUMN,
-                    pa.array([None] * batch.num_rows, type=pa.timestamp("us", tz="UTC")),
-                )
-                delta_snapshot = DeltaSnapshot(saved_query)
-                delta_snapshot.snapshot(batch_with_nulls)
-                snapshot_table_uri = delta_snapshot.get_delta_table()
-                file_uris = snapshot_table_uri.file_uris()
-
-                prepare_s3_files_for_querying(saved_query.snapshot_folder_path, saved_query.normalized_name, file_uris)
-
-            shutdown_monitor.raise_if_is_worker_shutdown()
 
         await logger.adebug(f"Finished writing to delta table. row_count={row_count}")
 

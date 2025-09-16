@@ -45,6 +45,13 @@ from posthog.warehouse.data_load.saved_query_service import (
     trigger_saved_query_schedule,
     unpause_saved_query_schedule,
 )
+from posthog.warehouse.data_load.snapshot_service import (
+    delete_snapshot_schedule,
+    pause_snapshot_schedule,
+    snapshot_workflow_exists,
+    sync_saved_query_snapshot_workflow,
+    trigger_snapshot_schedule,
+)
 from posthog.warehouse.models import (
     CLICKHOUSE_HOGQL_MAPPING,
     DataModelingJob,
@@ -333,6 +340,15 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
                 unpause_saved_query_schedule(str(instance.id))
             sync_saved_query_workflow(view, create=not schedule_exists)
 
+        # Handle snapshot_enabled changes
+        if before_update and before_update.snapshot_enabled != view.snapshot_enabled:
+            schedule_exists = snapshot_workflow_exists(str(view.id) + "-snapshot")
+            if view.snapshot_enabled:
+                sync_saved_query_snapshot_workflow(view, create=not schedule_exists)
+            else:
+                if schedule_exists:
+                    pause_snapshot_schedule(str(view.id) + "-snapshot")
+
         return view
 
     def validate_query(self, query):
@@ -458,6 +474,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         instance: DataWarehouseSavedQuery = self.get_object()
 
         delete_saved_query_schedule(str(instance.id))
+        delete_snapshot_schedule(str(instance.id) + "-snapshot")
 
         for join in DataWarehouseJoin.objects.filter(
             Q(team_id=instance.team_id) & (Q(source_table_name=instance.name) | Q(joining_table_name=instance.name))
@@ -478,6 +495,13 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
 
         trigger_saved_query_schedule(saved_query)
 
+        return response.Response(status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=True)
+    def snapshot(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """Snapshot this saved query."""
+        saved_query = self.get_object()
+        trigger_snapshot_schedule(saved_query)
         return response.Response(status=status.HTTP_200_OK)
 
     @action(methods=["POST"], detail=True)

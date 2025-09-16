@@ -23,6 +23,10 @@ class HogQLSchema:
         for field in table.schema:
             self.add_field(field, table.column(field.name))
 
+    def add_pyarrow_record_batch(self, record_batch: pa.RecordBatch) -> None:
+        for field in record_batch.schema:
+            self.add_field(field, record_batch.column(field.name))
+
     def add_field(self, field: pa.Field, column: pa.ChunkedArray) -> None:
         existing_type = self.schema.get(field.name)
         if existing_type is not None and existing_type != StringDatabaseField.__name__:
