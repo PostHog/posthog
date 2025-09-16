@@ -4,7 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "0854_add_activitylog_detail_gin_path_ops_index")]
+    dependencies = [("posthog", "0856_add_web_analytics_tables_version")]
 
     operations = [
         migrations.AddField(
