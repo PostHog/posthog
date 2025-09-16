@@ -477,10 +477,10 @@ jobs:
                       exit 1
                   ) &
 
-            - name: Add Kafka and ClickHouse to /etc/hosts
+            - name: Add Kafka, ClickHouse and ObjectStorage to /etc/hosts
               if: ${{ needs.changes.outputs.backend == 'true' }}
               shell: bash
-              run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
+              run: echo "127.0.0.1 kafka clickhouse objectstorage" | sudo tee -a /etc/hosts
 
             - name: Set up Python
               if: ${{ needs.changes.outputs.backend == 'true' }}
