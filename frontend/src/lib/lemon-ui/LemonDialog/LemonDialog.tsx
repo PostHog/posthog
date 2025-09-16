@@ -10,7 +10,7 @@ import { LemonModal, LemonModalProps } from 'lib/lemon-ui/LemonModal'
 import { LemonDialogFormPropsType, lemonDialogLogic } from './lemonDialogLogic'
 
 export type LemonFormDialogProps = LemonDialogFormPropsType &
-    Omit<LemonDialogProps, 'primaryButton' | 'secondaryButton'> & {
+    Omit<LemonDialogProps, 'primaryButton' | 'secondaryButton' | 'content'> & {
         initialValues: Record<string, any>
         onSubmit: (values: Record<string, any>) => void | Promise<void>
         shouldAwaitSubmit?: boolean
