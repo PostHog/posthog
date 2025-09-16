@@ -534,7 +534,7 @@ export class KafkaConsumer {
                     })),
                 })
             } catch (error) {
-                logger.error('📊', 'Failed to parse consumer statistics', { error })
+                logger.error('📊', 'Failed to parse consumer statistics', { error, stats })
             }
         })
 
