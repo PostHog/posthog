@@ -8,6 +8,7 @@ import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FilterPanel } from 'scenes/heatmaps/FilterPanel'
@@ -78,7 +79,7 @@ export function IframeHeatmapBrowser({
                 heatmap_fixed_position_mode: heatmapFixedPositionMode,
                 common_filters: commonFilters,
                 heatmap_filters: heatmapFilters,
-                filename: `heatmap-${browserUrl}-${Date.now().toString()}`,
+                filename: `heatmap-${new URL(browserUrl).hostname}/${new URL(browserUrl).pathname.slice(1, 11)}-${dayjs().format('YYYY-MM-DD-HH-mm')}`,
             })
         }
     }

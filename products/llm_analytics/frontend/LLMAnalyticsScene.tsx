@@ -12,7 +12,6 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -260,8 +259,6 @@ export function LLMAnalyticsScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
 
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
-
     const tabs: LemonTab<string>[] = [
         {
             key: 'dashboard',
@@ -349,12 +346,7 @@ export function LLMAnalyticsScene(): JSX.Element {
                 />
                 <SceneDivider />
 
-                <LemonTabs
-                    activeKey={activeTab}
-                    data-attr="llm-analytics-tabs"
-                    tabs={tabs}
-                    sceneInset={newSceneLayout}
-                />
+                <LemonTabs activeKey={activeTab} data-attr="llm-analytics-tabs" tabs={tabs} sceneInset />
             </SceneContent>
         </BindLogic>
     )

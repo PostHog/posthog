@@ -12,3 +12,6 @@ pub use symbol_data::write as write_symbol_data;
 
 // Javascript
 pub use data_types::sourcemap::SourceAndMap;
+
+// Hermes
+pub use data_types::hermesmap::HermesMap;
