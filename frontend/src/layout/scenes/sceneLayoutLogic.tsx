@@ -1,7 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import React from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
 
@@ -59,7 +58,6 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
         ],
     }),
     selectors({
-        useSceneTabs: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.SCENE_TABS]],
         scenePanelIsRelative: [
             (s) => [s.mainContentRect],
             (mainContentRect) => mainContentRect && mainContentRect.width >= SCENE_WIDTH_WHERE_RELATIVE_PANEL_IS_OPEN,

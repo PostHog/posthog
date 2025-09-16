@@ -114,5 +114,5 @@ class AdvancedActivityLogFieldDiscovery:
         result = []
         for field in dataclasses.fields(Change):
             field_name = f"changes.{field.name}"
-            result.append(("ActivityLog", field_name, ["string"]))  # TODO: dynamically generate types
+            result.append(("General", field_name, ["string"]))  # TODO: dynamically generate types
         return result

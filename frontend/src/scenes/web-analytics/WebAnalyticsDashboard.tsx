@@ -9,7 +9,6 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FilmCameraHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect/LemonSegmentedSelect'
@@ -20,7 +19,6 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isNotNil } from 'lib/utils'
-import { cn } from 'lib/utils/css-classes'
 import { ProductIntentContext, addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 import { PageReports, PageReportsFilters } from 'scenes/web-analytics/PageReports'
@@ -527,7 +525,6 @@ const WebAnalyticsTabs = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { setProductTab } = useActions(webAnalyticsLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     return (
         <LemonTabs<ProductTab>
@@ -539,10 +536,8 @@ const WebAnalyticsTabs = (): JSX.Element => {
                 ...pageReportsTab(featureFlags),
                 ...marketingTab(featureFlags),
             ]}
-            sceneInset={newSceneLayout}
-            className={cn({
-                '-mt-4': newSceneLayout,
-            })}
+            sceneInset
+            className="-mt-4"
         />
     )
 }

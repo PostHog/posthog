@@ -13,7 +13,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import {
-    AvailableFeature,
     HogFunctionSubTemplateIdType,
     HogFunctionTemplateType,
     HogFunctionTemplateWithSubTemplateType,
@@ -187,15 +186,6 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                 )
 
                 return [...available, ...comingSoon]
-            },
-        ],
-
-        canEnableHogFunction: [
-            (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature): ((template: HogFunctionTemplateType) => boolean) => {
-                return (template: HogFunctionTemplateType) => {
-                    return template?.free || hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
-                }
             },
         ],
 
