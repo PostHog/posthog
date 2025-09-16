@@ -1,6 +1,5 @@
-import './Funnel.scss'
-
 import { createContext, useContext, useMemo } from 'react'
+
 import { FunnelLayout } from 'lib/constants'
 
 import {
@@ -13,10 +12,9 @@ import {
     HistogramGraphDatum,
 } from '~/types'
 
-import { processFunnelData, processTimeConversionData, FunnelDataProcessingOptions } from './funnelDataUtils'
+import '../../../funnels/Funnel'
 import { DataDrivenFunnelBarVertical } from './DataDrivenFunnelBarVertical'
-import { DataDrivenFunnelBarHorizontal } from './DataDrivenFunnelBarHorizontal'
-import { DataDrivenFunnelHistogram } from './DataDrivenFunnelHistogram'
+import { FunnelDataProcessingOptions, processFunnelData, processTimeConversionData } from './funnelDataUtils'
 
 export interface DataDrivenFunnelProps extends ChartParams {
     /** Raw funnel step data */
@@ -98,28 +96,26 @@ export function DataDrivenFunnel({
     }, [timeConversionData])
 
     // Create the context value
-    const contextValue: FunnelDataContext = useMemo(() => ({
-        visibleStepsWithConversionMetrics: processedData.visibleStepsWithConversionMetrics,
-        stepsWithConversionMetrics: processedData.stepsWithConversionMetrics,
-        steps: processedData.steps,
-        histogramGraphData: histogramData,
-        hasFunnelResults: processedData.hasFunnelResults,
-        vizType,
-        layout,
-    }), [processedData, histogramData, vizType, layout])
+    const contextValue: FunnelDataContext = useMemo(
+        () => ({
+            visibleStepsWithConversionMetrics: processedData.visibleStepsWithConversionMetrics,
+            stepsWithConversionMetrics: processedData.stepsWithConversionMetrics,
+            steps: processedData.steps,
+            histogramGraphData: histogramData,
+            hasFunnelResults: processedData.hasFunnelResults,
+            vizType,
+            layout,
+        }),
+        [processedData, histogramData, vizType, layout]
+    )
 
     // Render the appropriate visualization based on type
     let viz: JSX.Element | null = null
-    
-    if (vizType === FunnelVizType.Trends) {
-        // For trends visualization, we'd need line graph data
-        viz = <div>Trends visualization not yet implemented for data-driven mode</div>
-    } else if (vizType === FunnelVizType.TimeToConvert) {
-        viz = <DataDrivenFunnelHistogram {...chartParams} />
-    } else if (layout === FunnelLayout.vertical) {
+
+    if (layout === FunnelLayout.vertical) {
         viz = <DataDrivenFunnelBarVertical {...chartParams} inCardView={inCardView} />
     } else {
-        viz = <DataDrivenFunnelBarHorizontal {...chartParams} inCardView={inCardView} />
+        return <div>DataDrivenFunnel visualization with layout {layout} is not supported</div>
     }
 
     return (

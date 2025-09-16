@@ -6,8 +6,8 @@ import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { FunnelLayout } from 'lib/constants'
 import { humanFriendlyNumber } from 'lib/utils'
+import { DataDrivenFunnel } from 'scenes/experiments/charts/funnels/DataDrivenFunnel'
 import { getViewRecordingFilters } from 'scenes/experiments/utils'
-import { DataDrivenFunnel } from 'scenes/experiments/viz/funnels/DataDrivenFunnel'
 import { urls } from 'scenes/urls'
 
 import {

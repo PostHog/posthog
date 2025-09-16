@@ -1,5 +1,7 @@
 import clsx from 'clsx'
+
 import { FunnelStepWithConversionMetrics } from '~/types'
+
 import { DataDrivenStepBar } from './DataDrivenStepBar'
 
 interface DataDrivenStepBarsProps {
@@ -8,11 +10,7 @@ interface DataDrivenStepBarsProps {
     showPersonsModal: boolean
 }
 
-export function DataDrivenStepBars({
-    step,
-    stepIndex,
-    showPersonsModal
-}: DataDrivenStepBarsProps): JSX.Element {
+export function DataDrivenStepBars({ step, stepIndex, showPersonsModal }: DataDrivenStepBarsProps): JSX.Element {
     // For simplicity, we'll assume isOptional is always false
     const isOptional = false
 

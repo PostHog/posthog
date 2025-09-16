@@ -1,6 +1,7 @@
 import { getSeriesBackgroundColor } from 'lib/colors'
 import { FunnelLayout } from 'lib/constants'
 import { percentage, sum } from 'lib/utils'
+import { flattenedStepsByBreakdown, stepsWithConversionMetrics } from 'scenes/funnels/funnelUtils'
 
 import {
     FlattenedFunnelStepByBreakdown,
@@ -10,8 +11,6 @@ import {
     FunnelsTimeConversionBins,
     HistogramGraphDatum,
 } from '~/types'
-
-import { flattenedStepsByBreakdown, stepsWithConversionMetrics } from './funnelUtils'
 
 export interface FunnelDataProcessingOptions {
     stepReference?: FunnelStepReference
