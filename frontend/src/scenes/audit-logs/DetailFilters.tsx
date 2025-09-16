@@ -1,0 +1,298 @@
+import { useActions, useValues } from 'kea'
+import { useEffect, useMemo, useRef, useState } from 'react'
+
+import { IconPlus, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonInputSelect, LemonSearchableSelect, LemonSelect } from '@posthog/lemon-ui'
+
+import { ActiveDetailFilter, advancedActivityLogsLogic } from './advancedActivityLogsLogic'
+
+interface DetailFilterRowProps {
+    filter: ActiveDetailFilter
+}
+
+const DetailFilterRow = ({ filter }: DetailFilterRowProps): JSX.Element => {
+    const { availableFilters } = useValues(advancedActivityLogsLogic)
+    const { updateActiveFilter, removeActiveFilter } = useActions(advancedActivityLogsLogic)
+
+    const [localValue, setLocalValue] = useState<string | string[]>(filter.value)
+    const [localFieldPath, setLocalFieldPath] = useState<string>(filter.fieldPath)
+    const [fieldPathError, setFieldPathError] = useState<string | null>(null)
+    const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
+
+    const fieldOptionsForRow = useMemo(() => {
+        if (!availableFilters?.detail_fields) {
+            return []
+        }
+
+        const { activeFilters } = advancedActivityLogsLogic.values
+        const selectedFields = new Set(
+            activeFilters.filter((f) => f.key !== filter.key && !f.isCustom).map((f) => f.fieldPath)
+        )
+
+        const sections = new Map<string, { fields: Map<string, string>; scope: string }>()
+        const generalFields = new Set<string>()
+
+        Object.entries(availableFilters.detail_fields).forEach(([scope, scopeData]) => {
+            const cleanScope = scope.replace(/([A-Z])/g, ' $1').trim() || 'General'
+
+            if (!sections.has(cleanScope)) {
+                sections.set(cleanScope, { fields: new Map(), scope })
+            }
+
+            scopeData.fields.forEach((field) => {
+                const fieldValue = `${scope}::${field.name}`
+                if (!selectedFields.has(fieldValue) || fieldValue === filter.fieldPath) {
+                    sections.get(cleanScope)!.fields.set(field.name, fieldValue)
+                }
+
+                if (cleanScope === 'General') {
+                    generalFields.add(field.name)
+                }
+            })
+        })
+
+        const fieldSections = Array.from(sections.entries())
+            .sort(([a], [b]) => (a === 'General' ? -1 : b === 'General' ? 1 : a.localeCompare(b)))
+            .map(([title, { fields }]) => {
+                const fieldOptions = Array.from(fields.entries())
+                    .filter(([fieldName]) => title === 'General' || !generalFields.has(fieldName))
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([fieldName, fieldValue]) => ({
+                        value: fieldValue,
+                        label: fieldName,
+                    }))
+
+                return { title, options: fieldOptions }
+            })
+            .filter((section) => section.options.length > 0)
+
+        return fieldSections
+    }, [availableFilters, filter.key, filter.fieldPath])
+
+    const validateCustomFieldPath = (path: string): string | null => {
+        if (!path || !path.trim()) {
+            return 'Field path cannot be empty'
+        }
+        const cleanPath = path.trim()
+        const validPattern = /^[a-zA-Z0-9_.[\]]+$/
+        if (!validPattern.test(cleanPath)) {
+            return 'Field path can only contain letters, numbers, dots, underscores, and square brackets'
+        }
+        return null
+    }
+
+    useEffect(() => {
+        setLocalValue(filter.value)
+    }, [filter.value])
+
+    useEffect(() => {
+        setLocalFieldPath(filter.fieldPath)
+    }, [filter.fieldPath])
+
+    const handleOperationChange = (operation: ActiveDetailFilter['operation']): void => {
+        const newValue = operation === 'in' && !Array.isArray(filter.value) ? [filter.value as string] : filter.value
+        setLocalValue(newValue)
+        updateActiveFilter(filter.key, { operation, value: newValue })
+    }
+
+    const handleValueChange = (value: string | string[]): void => {
+        setLocalValue(value)
+
+        if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current)
+        }
+
+        const hasContent = Array.isArray(value) ? value.some((v) => v.length > 0) : value.length > 0
+
+        if (hasContent) {
+            debounceTimerRef.current = setTimeout(() => {
+                updateActiveFilter(filter.key, { value })
+            }, 500)
+        }
+    }
+
+    const handleFieldChange = (newFieldPath: string): void => {
+        if (newFieldPath !== filter.fieldPath) {
+            if (debounceTimerRef.current) {
+                clearTimeout(debounceTimerRef.current)
+            }
+            updateActiveFilter(filter.key, { fieldPath: newFieldPath })
+        }
+    }
+
+    const handleCustomFieldPathChange = (newPath: string): void => {
+        setLocalFieldPath(newPath)
+        const error = validateCustomFieldPath(newPath)
+        setFieldPathError(error)
+
+        if (!error && newPath && newPath !== filter.fieldPath) {
+            if (debounceTimerRef.current) {
+                clearTimeout(debounceTimerRef.current)
+            }
+            debounceTimerRef.current = setTimeout(() => {
+                const cleanPath = newPath.trim()
+                if (cleanPath && cleanPath !== filter.fieldPath) {
+                    updateActiveFilter(filter.key, { fieldPath: cleanPath })
+                }
+            }, 500)
+        }
+    }
+
+    useEffect(() => {
+        return () => {
+            if (debounceTimerRef.current) {
+                clearTimeout(debounceTimerRef.current)
+            }
+        }
+    }, [])
+
+    return (
+        <div className="flex gap-2 items-center">
+            {filter.isCustom ? (
+                <div className="min-w-60">
+                    <LemonInput
+                        value={localFieldPath}
+                        onChange={handleCustomFieldPathChange}
+                        placeholder="Enter custom field path"
+                        status={fieldPathError ? 'danger' : undefined}
+                    />
+                    {fieldPathError && <div className="text-xs text-danger mt-1">{fieldPathError}</div>}
+                </div>
+            ) : (
+                <LemonSelect
+                    value={filter.fieldPath}
+                    onChange={handleFieldChange}
+                    options={fieldOptionsForRow}
+                    placeholder="Select field"
+                    className="min-w-60"
+                />
+            )}
+
+            <LemonSelect
+                value={filter.operation}
+                onChange={handleOperationChange}
+                options={[
+                    { value: 'exact', label: 'equals' },
+                    { value: 'contains', label: 'contains' },
+                    { value: 'in', label: 'is one of' },
+                ]}
+                className="min-w-32"
+            />
+
+            {filter.operation === 'in' ? (
+                <LemonInputSelect
+                    mode="multiple"
+                    value={localValue as string[]}
+                    onChange={handleValueChange}
+                    allowCustomValues
+                    placeholder="Enter values"
+                    className="min-w-60"
+                />
+            ) : (
+                <LemonInput
+                    value={localValue as string}
+                    onChange={handleValueChange}
+                    placeholder="Enter value"
+                    className="min-w-60"
+                />
+            )}
+
+            <LemonButton
+                icon={<IconTrash />}
+                size="small"
+                type="tertiary"
+                onClick={() => removeActiveFilter(filter.key)}
+                tooltip="Remove filter"
+            />
+        </div>
+    )
+}
+
+export const DetailFilters = (): JSX.Element => {
+    const { activeFilters, availableFilters } = useValues(advancedActivityLogsLogic)
+    const { addActiveFilter } = useActions(advancedActivityLogsLogic)
+
+    const fieldOptions = useMemo(() => {
+        if (!availableFilters?.detail_fields) {
+            return []
+        }
+
+        const selectedFields = new Set(activeFilters.filter((f) => !f.isCustom).map((f) => f.fieldPath))
+
+        const sections = new Map<string, { fields: Map<string, string>; scope: string }>()
+        const generalFields = new Set<string>()
+
+        Object.entries(availableFilters.detail_fields).forEach(([scope, scopeData]) => {
+            const cleanScope = scope.replace(/([A-Z])/g, ' $1').trim() || 'General'
+
+            if (!sections.has(cleanScope)) {
+                sections.set(cleanScope, { fields: new Map(), scope })
+            }
+
+            scopeData.fields.forEach((field) => {
+                const fieldValue = `${scope}::${field.name}`
+                if (!selectedFields.has(fieldValue)) {
+                    sections.get(cleanScope)!.fields.set(field.name, fieldValue)
+                }
+
+                if (cleanScope === 'General') {
+                    generalFields.add(field.name)
+                }
+            })
+        })
+
+        const fieldSections = Array.from(sections.entries())
+            .sort(([a], [b]) => (a === 'General' ? -1 : b === 'General' ? 1 : a.localeCompare(b)))
+            .map(([title, { fields }]) => {
+                const fieldOptions = Array.from(fields.entries())
+                    .filter(([fieldName]) => title === 'General' || !generalFields.has(fieldName))
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([fieldName, fieldValue]) => ({
+                        value: fieldValue,
+                        label: fieldName,
+                    }))
+
+                return { title, options: fieldOptions }
+            })
+            .filter((section) => section.options.length > 0)
+
+        fieldSections.push({
+            title: 'Custom',
+            options: [{ value: '__add_custom__', label: 'Custom field path...' }],
+        })
+
+        return fieldSections
+    }, [availableFilters, activeFilters])
+
+    if (!availableFilters?.detail_fields || Object.keys(availableFilters.detail_fields).length === 0) {
+        return <></>
+    }
+
+    return (
+        <div className="flex flex-col gap-2">
+            <label className="block text-sm font-medium">Detail Filters</label>
+
+            <div className="flex flex-col gap-2">
+                {activeFilters.map((filter) => (
+                    <DetailFilterRow key={filter.key} filter={filter} />
+                ))}
+            </div>
+
+            <LemonSearchableSelect
+                value={undefined}
+                onChange={(value) => {
+                    if (value === '__add_custom__') {
+                        addActiveFilter('', true)
+                    } else if (value) {
+                        addActiveFilter(value, false)
+                    }
+                }}
+                options={fieldOptions}
+                placeholder="Add detail filter"
+                searchPlaceholder="Search fields..."
+                icon={<IconPlus />}
+                className="w-[200px]"
+            />
+        </div>
+    )
+}
