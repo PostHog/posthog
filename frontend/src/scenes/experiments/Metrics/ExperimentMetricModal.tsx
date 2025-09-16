@@ -60,7 +60,6 @@ export function ExperimentMetricModal({
         <LemonModal
             isOpen={isSecondary ? isSecondaryMetricModalOpen : isPrimaryMetricModalOpen}
             onClose={onClose}
-            width={1000}
             title="Edit experiment metric"
             footer={
                 <div className="flex items-center w-full">
