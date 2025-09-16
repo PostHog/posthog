@@ -1,6 +1,5 @@
 import { getSeriesColor as getSeriesColorFromLib } from 'lib/colors'
 import { FunnelLayout } from 'lib/constants'
-import { percentage, sum } from 'lib/utils'
 import { flattenedStepsByBreakdown, stepsWithConversionMetrics } from 'scenes/funnels/funnelUtils'
 
 import {
@@ -8,13 +7,10 @@ import {
     FunnelStepReference,
     FunnelStepWithConversionMetrics,
     FunnelStepWithNestedBreakdown,
-    FunnelsTimeConversionBins,
-    HistogramGraphDatum,
 } from '~/types'
 
 export interface FunnelDataProcessingOptions {
     stepReference?: FunnelStepReference
-    layout?: FunnelLayout
     disableBaseline?: boolean
     hiddenLegendBreakdowns?: string[]
 }
@@ -24,7 +20,6 @@ export interface ProcessedFunnelData {
     stepsWithConversionMetrics: FunnelStepWithConversionMetrics[]
     visibleStepsWithConversionMetrics: FunnelStepWithConversionMetrics[]
     flattenedBreakdowns: FlattenedFunnelStepByBreakdown[]
-    histogramGraphData?: HistogramGraphDatum[]
     hasFunnelResults: boolean
 }
 
@@ -46,12 +41,7 @@ export function processFunnelData(
     steps: FunnelStepWithNestedBreakdown[],
     options: FunnelDataProcessingOptions = {}
 ): ProcessedFunnelData {
-    const {
-        stepReference = FunnelStepReference.total,
-        layout = FunnelLayout.vertical,
-        disableBaseline = false,
-        hiddenLegendBreakdowns = [],
-    } = options
+    const { stepReference = FunnelStepReference.total, disableBaseline = false, hiddenLegendBreakdowns = [] } = options
 
     // Sort steps by order (same as funnelDataLogic)
     const sortedSteps = steps.sort((a, b) => a.order - b.order)
@@ -59,8 +49,13 @@ export function processFunnelData(
     // Calculate conversion metrics
     const stepsWithMetrics = stepsWithConversionMetrics(sortedSteps, stepReference)
 
-    // Flatten breakdowns for legend display
-    const flattenedBreakdowns = flattenedStepsByBreakdown(stepsWithMetrics, layout, disableBaseline, true)
+    // Flatten breakdowns for legend display (always use vertical layout)
+    const flattenedBreakdowns = flattenedStepsByBreakdown(
+        stepsWithMetrics,
+        FunnelLayout.vertical,
+        disableBaseline,
+        true
+    )
 
     // Filter visible steps based on hidden legend breakdowns
     const visibleSteps = getVisibleStepsWithConversionMetrics(
@@ -79,35 +74,6 @@ export function processFunnelData(
         flattenedBreakdowns,
         hasFunnelResults,
     }
-}
-
-/**
- * Processes time-to-convert data for histogram visualization.
- */
-export function processTimeConversionData(
-    timeConversionResults: FunnelsTimeConversionBins
-): HistogramGraphDatum[] | null {
-    if ((timeConversionResults?.bins?.length ?? 0) < 2) {
-        return null // There are no results
-    }
-
-    const totalCount = sum(timeConversionResults.bins.map(([, count]) => count))
-    if (totalCount === 0) {
-        return [] // Nobody has converted in the time period
-    }
-
-    const binSize = timeConversionResults.bins[1][0] - timeConversionResults.bins[0][0]
-    return timeConversionResults.bins.map(([id, count]: [id: number, count: number]) => {
-        const value = Math.max(0, id)
-        const percent = totalCount === 0 ? 0 : count / totalCount
-        return {
-            id: value,
-            bin0: value,
-            bin1: value + binSize,
-            count,
-            label: percent === 0 ? '' : percentage(percent, 1, true),
-        }
-    })
 }
 
 /**

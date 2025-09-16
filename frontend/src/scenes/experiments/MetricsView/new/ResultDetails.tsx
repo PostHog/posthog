@@ -4,7 +4,6 @@ import posthog from 'posthog-js'
 import { IconRewindPlay } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
-import { FunnelLayout } from 'lib/constants'
 import { humanFriendlyNumber } from 'lib/utils'
 import { Funnel } from 'scenes/experiments/charts/funnels/Funnel'
 import { getViewRecordingFilters } from 'scenes/experiments/utils'
@@ -24,7 +23,6 @@ import {
     FilterLogicalOperator,
     FunnelStep,
     FunnelStepWithNestedBreakdown,
-    FunnelVizType,
     RecordingUniversalFilters,
     ReplayTabs,
 } from '~/types'
@@ -242,8 +240,6 @@ export function ResultDetails({
             {isExperimentFunnelMetric(metric) && (
                 <Funnel
                     steps={convertExperimentResultToFunnelSteps(result, metric, experiment)}
-                    vizType={FunnelVizType.Steps}
-                    layout={FunnelLayout.vertical}
                     showPersonsModal={false}
                     disableBaseline={true}
                     inCardView={true}
