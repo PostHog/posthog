@@ -111,10 +111,40 @@ export function Bookmarklet(): JSX.Element {
     )
 }
 
+function DebugInfoPanel(): JSX.Element | null {
+    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
+    const { preflight, preflightLoading } = useValues(preflightLogic)
+
+    const region = preflight?.region
+    const anyLoading = preflightLoading || currentOrganizationLoading || currentTeamLoading
+    const hasRequiredInfo = region && currentOrganization && currentTeam
+
+    if (!hasRequiredInfo && !anyLoading) {
+        return null
+    }
+
+    return (
+        <div className="flex-1 max-w-full">
+            <h3 id="debug-info" className="min-w-[25rem]">
+                Debug information
+            </h3>
+            <p>Include this snippet when creating an issue (feature request or bug report) on GitHub.</p>
+            {anyLoading ? (
+                <LemonSkeleton repeat={2} active={true} />
+            ) : (
+                <CodeSnippet compact thing="debug info">
+                    {getPublicSupportSnippet(region, currentOrganization, currentTeam, false)}
+                </CodeSnippet>
+            )}
+        </div>
+    )
+}
+
 export function TeamVariables(): JSX.Element {
     const { currentTeam, isTeamTokenResetAvailable } = useValues(teamLogic)
     const { resetToken } = useActions(teamLogic)
-    const { currentOrganization } = useValues(organizationLogic)
+
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -182,17 +212,7 @@ export function TeamVariables(): JSX.Element {
                     <CodeSnippet thing={`${displayNoun} region`}>{`${region} Cloud`}</CodeSnippet>
                 </div>
             ) : null}
-            {region && currentOrganization && currentTeam ? (
-                <div className="flex-1 max-w-full">
-                    <h3 id="debug-info" className="min-w-[25rem]">
-                        Debug information
-                    </h3>
-                    <p>Include this snippet when creating an issue (feature request or bug report) on GitHub.</p>
-                    <CodeSnippet compact thing="debug info">
-                        {getPublicSupportSnippet(region, currentOrganization, currentTeam, false)}
-                    </CodeSnippet>
-                </div>
-            ) : null}
+            <DebugInfoPanel />
         </div>
     )
 }

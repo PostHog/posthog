@@ -135,7 +135,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             observed_timestamp,
             severity_text,
             severity_number,
-            level,
+            severity_text as level,
             resource_attributes,
             instrumentation_scope,
             event_name
@@ -143,9 +143,64 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
         """
         )
         assert isinstance(query, ast.SelectQuery)
-
-        query.where = self.where()
         order_dir = "ASC" if self.query.orderBy == "earliest" else "DESC"
+        min_or_max_if = "minIf" if order_dir == "ASC" else "maxIf"
+        limit_ast = ast.Constant(value=(self.query.limit or 999) + (self.query.offset or 0) + 1)
+
+        # clickhouse is sadly not smart enough to realise it doesn't need to scan 10 million rows
+        # to fetch the first 1000 results. We use this fancy subquery which gives us time bracket between which we are
+        # guaranteed to have at least {limit} results - we don't need to scan outside this range.
+        count_query = parse_select(
+            f"""
+            SELECT
+                [{min_or_max_if}(time_bucket, cumulative_count == 0), {min_or_max_if}(time_bucket, cumulative_count == {{limit}}) + toIntervalMinute(10)] AS time_buckets
+            FROM
+            (
+                WITH cumulative_counts AS
+                    (
+                        SELECT
+                            toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
+                            count() AS count,
+                            min2(sum(count()) OVER (ORDER BY time_bucket {order_dir} ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW), {{limit}}) AS cumulative_count
+                        FROM logs
+                        GROUP BY time_bucket
+                    )
+                SELECT time_bucket, cumulative_count
+                FROM cumulative_counts
+                WHERE cumulative_count == 0 or cumulative_count == {{limit}}
+                UNION ALL
+                SELECT toStartOfInterval({{date_from}}, toIntervalMinute(10)) AS time_bucket, {{max_limit}} AS cumulative_count
+                UNION ALL
+                SELECT toStartOfInterval({{date_to}}, toIntervalMinute(10)) AS time_bucket, {{min_limit}} AS cumulative_count
+            )
+        """,
+            placeholders={
+                "limit": limit_ast,
+                "min_limit": limit_ast if order_dir == "ASC" else ast.Constant(value=0),
+                "max_limit": limit_ast if order_dir == "DESC" else ast.Constant(value=0),
+                "date_from": ast.Constant(value=self.query_date_range.date_from()),
+                "date_to": ast.Constant(value=self.query_date_range.date_to()),
+            },
+        )
+
+        # this query always parses the same so safe to ignore typing
+        count_query.select_from.table.initial_select_query.ctes["cumulative_counts"].expr.where = self.where()  # type: ignore
+
+        query.where = ast.And(
+            exprs=[
+                self.where(),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.ArrayAccess(array=count_query, property=ast.Constant(value=1)),
+                ),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Field(chain=["timestamp"]),
+                    right=ast.ArrayAccess(array=count_query, property=ast.Constant(value=2)),
+                ),
+            ]
+        )
         query.order_by = [
             parse_order_expr(f"toUnixTimestamp(timestamp) {order_dir}"),
         ]

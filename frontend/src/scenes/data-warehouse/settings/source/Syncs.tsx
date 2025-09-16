@@ -3,7 +3,9 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonTable, LemonTag, LemonTagType, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { ExternalDataJob, ExternalDataJobStatus, LogEntryLevel } from '~/types'
@@ -25,6 +27,7 @@ interface SyncsProps {
 const LOG_LEVELS: LogEntryLevel[] = ['LOG', 'INFO', 'WARN', 'WARNING', 'ERROR']
 
 export const Syncs = ({ id }: SyncsProps): JSX.Element => {
+    const { timezone } = useValues(teamLogic)
     const { user } = useValues(userLogic)
     const { jobs, jobsLoading, canLoadMoreJobs } = useValues(
         dataWarehouseSourceSettingsLogic({ id, availableSources: {} })
@@ -85,8 +88,14 @@ export const Syncs = ({ id }: SyncsProps): JSX.Element => {
                                       hideInstanceIdColumn={true}
                                       defaultFilters={{
                                           instanceId: job.workflow_run_id,
-                                          dateFrom: job.created_at,
-                                          dateTo: job.finished_at,
+                                          dateFrom: dayjsUtcToTimezone(job.created_at, timezone)
+                                              .add(-1, 'day')
+                                              .toISOString(),
+                                          dateTo: job.finished_at
+                                              ? dayjsUtcToTimezone(job.finished_at, timezone)
+                                                    .add(1, 'day')
+                                                    .toISOString()
+                                              : dayjs().add(1, 'day').toISOString(),
                                           levels: showDebugLogs ? ['DEBUG', ...LOG_LEVELS] : LOG_LEVELS,
                                       }}
                                   />

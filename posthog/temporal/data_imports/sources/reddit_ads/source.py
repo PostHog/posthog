@@ -31,6 +31,7 @@ class RedditAdsSource(BaseSource[RedditAdsSourceConfig], OAuthMixin):
         return SourceConfig(
             name=SchemaExternalDataSourceType.REDDIT_ADS,
             label="Reddit Ads",
+            iconPath="/static/services/reddit.png",
             caption="Collect campaign data, ad performance, and advertising metrics from Reddit Ads. Ensure you have granted PostHog access to your Reddit Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/reddit-ads).",
             betaSource=True,
             fields=cast(
@@ -69,7 +70,7 @@ class RedditAdsSource(BaseSource[RedditAdsSourceConfig], OAuthMixin):
             SourceSchema(
                 name=str(endpoint_config.resource["name"]),
                 supports_incremental=endpoint_config.incremental_fields is not None,
-                supports_append=endpoint_config.incremental_fields is not None,
+                supports_append=False,
                 incremental_fields=endpoint_config.incremental_fields or [],
             )
             for endpoint_config in REDDIT_ADS_CONFIG.values()

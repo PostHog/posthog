@@ -239,7 +239,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         ),
     )
     @patch(
-        "ee.hogai.graph.query_executor.nodes.QueryExecutorNode.run",
+        "ee.hogai.graph.query_executor.nodes.QueryExecutorNode.arun",
         return_value=PartialAssistantState(
             messages=[AssistantMessage(content="Foobar")],
         ),
@@ -1337,7 +1337,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     @title_generator_mock
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
-    @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.run")
+    @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.arun")
     async def test_insights_tool_mode_flow(
         self, query_executor_mock, planner_mock, generator_mock, title_generator_mock
     ):
@@ -1590,7 +1590,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         second_message = human_messages[1]
         self.assertEqual(second_message.ui_context, ui_context_2)
 
-    @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.run")
+    @patch("ee.hogai.graph.query_executor.nodes.QueryExecutorNode.arun")
     @patch("ee.hogai.graph.schema_generator.nodes.SchemaGeneratorNode._model")
     @patch("ee.hogai.graph.query_planner.nodes.QueryPlannerNode._get_model")
     @patch("ee.hogai.graph.rag.nodes.InsightRagContextNode.run")

@@ -1,12 +1,14 @@
 import { useValues } from 'kea'
+import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconCheckCircle, IconDatabase, IconPieChart, IconPlus } from '@posthog/icons'
+import { IconArrowRight, IconCheckCircle, IconDatabase, IconPieChart, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonCard, Link } from '@posthog/lemon-ui'
 
 import { cn } from 'lib/utils/css-classes'
 import { NewSourcesWizard } from 'scenes/data-warehouse/new/NewSourceWizard'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
+import { urls } from 'scenes/urls'
 
 import { ExternalDataSourceType } from '~/queries/schema/schema-general'
 
@@ -33,10 +35,16 @@ const REVENUE_SOURCE_TYPES: ExternalDataSourceType[] = ['Stripe', 'Chargebee', '
 const AVAILABLE_REVENUE_SOURCE_TYPES: Set<ExternalDataSourceType> = new Set(['Stripe'])
 
 export function InlineSetup({ closeOnboarding, initialSetupView }: InlineSetupProps): JSX.Element {
-    const { events, enabledDataWarehouseSources } = useValues(revenueAnalyticsSettingsLogic)
+    const { events, enabledDataWarehouseSources, dataWarehouseSources } = useValues(revenueAnalyticsSettingsLogic)
 
     const hasEvents = events.length > 0
     const hasSources = enabledDataWarehouseSources.length > 0
+
+    // Check if there are connected Stripe sources that aren't enabled for revenue analytics
+    const hasConnectedButDisabledStripeSources =
+        dataWarehouseSources?.results?.some(
+            (source) => source.source_type === 'Stripe' && !source.revenue_analytics_config?.enabled
+        ) ?? false
 
     const [currentView, setCurrentView] = useState<InlineSetupView>(initialSetupView ?? 'overview')
     const [selectedSource, setSelectedSource] = useState<ExternalDataSourceType | null>(null)
@@ -127,9 +135,19 @@ export function InlineSetup({ closeOnboarding, initialSetupView }: InlineSetupPr
                                     {hasSources ? 'Revenue source connected' : 'No revenue sources connected'}
                                 </span>
                                 <p className="text-xs text-muted-alt mt-0.5">
-                                    {hasSources
-                                        ? 'Revenue data source is set up'
-                                        : 'Connect Stripe to import revenue data'}
+                                    {hasSources ? (
+                                        'Revenue data source is set up'
+                                    ) : hasConnectedButDisabledStripeSources ? (
+                                        <>
+                                            Connect Stripe to import revenue data. Wanna reuse your existing Stripe
+                                            source?{' '}
+                                            <Link to={urls.revenueSettings()} className="text-link">
+                                                Enable it here
+                                            </Link>
+                                        </>
+                                    ) : (
+                                        'Connect Stripe to import revenue data'
+                                    )}
                                 </p>
                             </div>
                         </div>
@@ -158,6 +176,19 @@ export function InlineSetup({ closeOnboarding, initialSetupView }: InlineSetupPr
                         >
                             Connect Revenue Source
                         </LemonButton>
+                        {hasConnectedButDisabledStripeSources && (
+                            <LemonButton
+                                type="primary"
+                                icon={<IconArrowRight />}
+                                onClick={() => {
+                                    router.actions.push(urls.revenueSettings())
+                                }}
+                                size="small"
+                                data-attr="enable-existing-stripe-source"
+                            >
+                                Enable Existing Stripe Source
+                            </LemonButton>
+                        )}
                     </div>
                 </div>
             </LemonCard>
