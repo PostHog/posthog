@@ -1,27 +1,30 @@
 from typing import cast
+
 from sshtunnel import BaseSSHTunnelForwarderError
-from posthog.exceptions_capture import capture_exception
+
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    Option,
     SourceConfig,
     SourceFieldInputConfig,
-    SourceFieldSelectConfig,
-    SourceFieldSSHTunnelConfig,
     SourceFieldInputConfigType,
-    Option,
+    SourceFieldSelectConfig,
     SourceFieldSelectConfigConverter,
+    SourceFieldSSHTunnelConfig,
 )
+
+from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.common.mixins import SSHTunnelMixin, ValidateDatabaseHostMixin
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
+from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
 from posthog.temporal.data_imports.sources.mysql.mysql import (
+    filter_mysql_incremental_fields,
     get_schemas as get_mysql_schemas,
     mysql_source,
-    filter_mysql_incremental_fields,
 )
-from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
 from posthog.warehouse.types import ExternalDataSourceType, IncrementalField
 
 
@@ -36,6 +39,7 @@ class MySQLSource(BaseSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabas
         return SourceConfig(
             name=SchemaExternalDataSourceType.MY_SQL,
             caption="Enter your MySQL/MariaDB credentials to automatically pull your MySQL data into the PostHog Data warehouse.",
+            iconPath="/static/services/mysql.png",
             fields=cast(
                 list[FieldType],
                 [
@@ -94,7 +98,7 @@ class MySQLSource(BaseSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabas
             ),
         )
 
-    def get_schemas(self, config: MySQLSourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(self, config: MySQLSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         schemas = []
 
         with self.with_ssh_tunnel(config) as (host, port):

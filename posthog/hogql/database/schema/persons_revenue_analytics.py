@@ -1,17 +1,18 @@
 from collections import defaultdict
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.parser import parse_expr
 from posthog.hogql.database.models import (
     DecimalDatabaseField,
-    IntegerDatabaseField,
-    StringDatabaseField,
-    LazyTable,
     FieldOrTable,
-    LazyTableToAdd,
+    IntegerDatabaseField,
     LazyJoinToAdd,
+    LazyTable,
+    LazyTableToAdd,
+    StringDatabaseField,
 )
 from posthog.hogql.errors import ResolutionError
+from posthog.hogql.parser import parse_expr
 
 
 def join_with_persons_revenue_analytics_table(
@@ -49,15 +50,17 @@ def select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.Se
     if not context.database:
         return ast.SelectQuery.empty(columns=columns)
 
-    # Get all customer/revenue item pairs from the existing views
+    # Get all customer/revenue item pairs from the existing views making sure we ignore `all`
+    # since the `persons` join is in the child view
     all_views: dict[str, dict[type[RevenueAnalyticsBaseView], RevenueAnalyticsBaseView]] = defaultdict(defaultdict)
     for view_name in context.database.get_views():
         view = context.database.get_table(view_name)
 
-        if isinstance(view, RevenueAnalyticsCustomerView):
-            all_views[view.prefix][RevenueAnalyticsCustomerView] = view
-        elif isinstance(view, RevenueAnalyticsRevenueItemView):
-            all_views[view.prefix][RevenueAnalyticsRevenueItemView] = view
+        if isinstance(view, RevenueAnalyticsBaseView) and not view.union_all:
+            if isinstance(view, RevenueAnalyticsCustomerView):
+                all_views[view.prefix][RevenueAnalyticsCustomerView] = view
+            elif isinstance(view, RevenueAnalyticsRevenueItemView):
+                all_views[view.prefix][RevenueAnalyticsRevenueItemView] = view
 
     # Iterate over all possible view pairs and figure out which queries we can add to the set
     queries = []

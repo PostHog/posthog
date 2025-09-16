@@ -2,11 +2,11 @@ import gzip
 import json
 from typing import Any, cast
 
-from posthog.storage import object_storage
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.session_recording_v2_service import list_blocks
+from posthog.storage import object_storage
 from posthog.storage.session_recording_v2_object_storage import client as v2_client
-from posthog.temporal.session_recordings.session_comparer import transform_v2_snapshot, transform_v1_snapshots
+from posthog.temporal.session_recordings.session_comparer import transform_v1_snapshots, transform_v2_snapshot
 
 
 def decompress_and_parse_gzipped_json(data: bytes) -> list[Any]:

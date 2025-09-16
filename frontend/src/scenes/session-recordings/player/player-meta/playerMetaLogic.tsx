@@ -5,13 +5,19 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import posthog from 'posthog-js'
 import React from 'react'
 
-import { IconCursorClick, IconKeyboard, IconWarning } from '@posthog/icons'
+import { IconCursorClick, IconHourglass, IconKeyboard, IconWarning } from '@posthog/icons'
 
 import api from 'lib/api'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { capitalizeFirstLetter, ceilMsToClosestSecond, humanFriendlyDuration, percentage } from 'lib/utils'
+import {
+    capitalizeFirstLetter,
+    ceilMsToClosestSecond,
+    humanFriendlyDuration,
+    isEmptyObject,
+    percentage,
+} from 'lib/utils'
 import { COUNTRY_CODE_TO_LONG_NAME } from 'lib/utils/geography/country'
 import { OverviewItem } from 'scenes/session-recordings/components/OverviewGrid'
 import { TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
@@ -26,6 +32,7 @@ import { PersonType, PropertyFilterType, SessionRecordingType } from '~/types'
 
 import { SimpleTimeLabel } from '../../components/SimpleTimeLabel'
 import { sessionRecordingsListPropertiesLogic } from '../../playlist/sessionRecordingsListPropertiesLogic'
+import { calculateTTL } from '../utils/ttlUtils'
 import type { playerMetaLogicType } from './playerMetaLogicType'
 import { SessionSummaryContent } from './types'
 
@@ -81,26 +88,17 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
     connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [
             sessionRecordingDataLogic(props),
-            [
-                'urls',
-                'sessionPlayerData',
-                'sessionEventsData',
-                'sessionPlayerMetaData',
-                'sessionPlayerMetaDataLoading',
-                'snapshotsLoading',
-                'windowIds',
-                'trackedWindow',
-            ],
+            ['urls', 'sessionPlayerData', 'sessionEventsData', 'sessionPlayerMetaData', 'windowIds', 'trackedWindow'],
             sessionRecordingPlayerLogic(props),
             ['scale', 'currentTimestamp', 'currentPlayerTime', 'currentSegment', 'currentURL', 'resolution'],
             sessionRecordingsListPropertiesLogic,
-            ['recordingPropertiesById', 'recordingPropertiesLoading'],
+            ['recordingPropertiesById'],
         ],
         actions: [
             sessionRecordingDataLogic(props),
             ['loadRecordingMetaSuccess', 'setTrackedWindow'],
             sessionRecordingsListPropertiesLogic,
-            ['maybeLoadPropertiesForSessions'],
+            ['maybeLoadPropertiesForSessions', 'loadPropertiesForSessionsSuccess'],
         ],
     })),
     actions({
@@ -133,9 +131,12 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
     })),
     selectors(() => ({
         loading: [
-            (s) => [s.sessionPlayerMetaDataLoading, s.snapshotsLoading, s.recordingPropertiesLoading],
-            (sessionPlayerMetaDataLoading, snapshotsLoading, recordingPropertiesLoading) =>
-                sessionPlayerMetaDataLoading || snapshotsLoading || recordingPropertiesLoading,
+            (s) => [s.sessionPlayerMetaData, s.recordingPropertiesById],
+            (sessionPlayerMetaData, recordingPropertiesById) => {
+                const hasSessionPlayerMetadata = !!sessionPlayerMetaData && !isEmptyObject(sessionPlayerMetaData)
+                const hasRecordingProperties = !!recordingPropertiesById && !isEmptyObject(recordingPropertiesById)
+                return !hasSessionPlayerMetadata || !hasRecordingProperties
+            },
         ],
         sessionPerson: [
             (s) => [s.sessionPlayerData],
@@ -199,9 +200,19 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                 }
             },
         ],
+        sessionTTLDays: [
+            (s) => [s.sessionPlayerMetaData],
+            (sessionPlayerMetaData) => {
+                if (sessionPlayerMetaData?.retention_period_days && sessionPlayerMetaData?.start_time) {
+                    return calculateTTL(sessionPlayerMetaData.start_time, sessionPlayerMetaData.retention_period_days)
+                }
+
+                return null
+            },
+        ],
         overviewItems: [
-            (s) => [s.sessionPlayerMetaData, s.startTime, s.recordingPropertiesById],
-            (sessionPlayerMetaData, startTime, recordingPropertiesById) => {
+            (s) => [s.sessionPlayerMetaData, s.startTime, s.recordingPropertiesById, s.sessionTTLDays],
+            (sessionPlayerMetaData, startTime, recordingPropertiesById, sessionTTLDays) => {
                 const items: OverviewItem[] = []
                 if (startTime) {
                     items.push({
@@ -222,6 +233,23 @@ export const playerMetaLogic = kea<playerMetaLogicType>([
                         label: 'Duration',
                         value: humanFriendlyDuration(sessionPlayerMetaData.recording_duration),
                         type: 'text',
+                    })
+                }
+                if (sessionPlayerMetaData?.retention_period_days) {
+                    items.push({
+                        label: 'Retention Period',
+                        value: `${sessionPlayerMetaData.retention_period_days}d`,
+                        type: 'text',
+                        keyTooltip: 'The total number of days this recording will be retained',
+                    })
+                }
+                if (sessionTTLDays !== null) {
+                    items.push({
+                        icon: <IconHourglass />,
+                        label: 'TTL',
+                        value: `${sessionTTLDays}d`,
+                        type: 'text',
+                        keyTooltip: 'The number of days left before this recording expires',
                     })
                 }
 

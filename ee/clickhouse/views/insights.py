@@ -1,18 +1,19 @@
 from typing import Any
 
-from posthog.api.utils import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
-from ee.clickhouse.queries.stickiness import ClickhouseStickiness
 from posthog.api.documentation import extend_schema
 from posthog.api.insight import InsightViewSet, capture_legacy_api_call
+from posthog.api.utils import action
 from posthog.decorators import cached_by_filters
 from posthog.models import Insight
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters import Filter
+
+from ee.clickhouse.queries.funnels.funnel_correlation import FunnelCorrelation
+from ee.clickhouse.queries.stickiness import ClickhouseStickiness
 
 
 class CanEditInsight(BasePermission):

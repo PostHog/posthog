@@ -1,7 +1,12 @@
-from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from freezegun import freeze_time
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    snapshot_clickhouse_queries,
+)
 
-from ee.clickhouse.materialized_columns.columns import materialize
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Action
 from posthog.models.cohort import Cohort
@@ -11,13 +16,9 @@ from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
 from posthog.models.person import Person
 from posthog.queries.trends.trends_event_query import TrendsEventQuery
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    snapshot_clickhouse_queries,
-)
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from ee.clickhouse.materialized_columns.columns import materialize
 
 
 def _create_cohort(**kwargs):

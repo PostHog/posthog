@@ -1,12 +1,12 @@
+import json
+import hashlib
+from typing import Optional
+
 from django.db import models
 
-from typing import Optional
-import hashlib
 import structlog
 
 from posthog.models.utils import UUIDTModel
-
-import json
 
 logger = structlog.get_logger(__name__)
 

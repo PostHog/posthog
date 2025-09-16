@@ -1,20 +1,23 @@
-import logging
 import os
-from structlog import get_logger
-from django.core.management.base import BaseCommand
+import logging
 from typing import Any, Optional
+
+from django.core.management.base import BaseCommand
+
+from structlog import get_logger
 
 from posthog.schema import (
     SourceConfig,
-    SourceFieldInputConfig,
-    SourceFieldSelectConfig,
-    SourceFieldSwitchGroupConfig,
-    SourceFieldOauthConfig,
     SourceFieldFileUploadConfig,
-    SourceFieldSSHTunnelConfig,
+    SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
     SourceFieldSelectConfigConverter,
+    SourceFieldSSHTunnelConfig,
+    SourceFieldSwitchGroupConfig,
 )
+
 from posthog.temporal.data_imports.sources import SourceRegistry
 from posthog.warehouse.types import ExternalDataSourceType
 

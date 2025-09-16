@@ -2,7 +2,11 @@ import { CurrencyCode, DataWarehouseNode, NodeKind } from '~/queries/schema/sche
 import { PropertyMathType } from '~/types'
 
 import { ExternalTable, NativeSource } from './marketingAnalyticsLogic'
-import { COST_MICROS_MULTIPLIER, GOOGLE_ADS_CAMPAIGN_STATS_TABLE_NAME } from './utils'
+import {
+    COST_MICROS_MULTIPLIER,
+    GOOGLE_ADS_CAMPAIGN_STATS_TABLE_NAME,
+    LINKEDIN_ADS_CAMPAIGN_STATS_TABLE_NAME,
+} from './utils'
 
 export const googleAdsCostTile = (source: NativeSource): DataWarehouseNode | null => {
     const table = source.tables.find((t) => t.name.split('.').pop() === GOOGLE_ADS_CAMPAIGN_STATS_TABLE_NAME)
@@ -23,6 +27,26 @@ export const googleAdsCostTile = (source: NativeSource): DataWarehouseNode | nul
         math_property: 'metrics_cost_micros',
         math_property_revenue_currency: { static: CurrencyCode.USD },
         math_multiplier: COST_MICROS_MULTIPLIER,
+    }
+}
+
+export const linkedinAdsCostTile = (source: NativeSource): DataWarehouseNode | null => {
+    const table = source.tables.find((t) => t.name.split('.').pop() === LINKEDIN_ADS_CAMPAIGN_STATS_TABLE_NAME)
+    if (!table) {
+        return null
+    }
+    return {
+        kind: NodeKind.DataWarehouseNode,
+        id: table.id,
+        name: 'linkedin',
+        custom_name: `${table.name} cost`,
+        id_field: 'id',
+        distinct_id_field: 'id',
+        timestamp_field: 'date_start',
+        table_name: table.name,
+        math: PropertyMathType.Sum,
+        math_property: 'cost_in_usd',
+        math_property_revenue_currency: { static: CurrencyCode.USD },
     }
 }
 

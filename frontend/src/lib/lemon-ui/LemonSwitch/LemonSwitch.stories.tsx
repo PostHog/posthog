@@ -1,6 +1,8 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
 import { LemonSwitchProps, LemonSwitch as RawLemonSwitch } from './LemonSwitch'
 
 const LemonSwitch = ({ checked, ...props }: Partial<LemonSwitchProps>): JSX.Element => {
@@ -76,7 +78,7 @@ const SwitchCell = (props: Partial<LemonSwitchProps>): JSX.Element => {
 
 export const Sizes = (): JSX.Element => {
     return (
-        <table className="table-auto border-collapse border border-bg-3000 border-4">
+        <table className="table-auto border-collapse border-bg-3000 border-4">
             <tbody>
                 <tr>
                     <SwitchCell size="xxsmall" bordered={false} />
@@ -97,7 +99,7 @@ export const Sizes = (): JSX.Element => {
 
 export const SizesLoading = (): JSX.Element => {
     return (
-        <table className="table-auto border-collapse border border-bg-3000 border-4">
+        <table className="table-auto border-collapse border-bg-3000 border-4">
             <tbody>
                 <tr>
                     <SwitchCell size="xxsmall" checked={false} loading={true} />
@@ -116,3 +118,30 @@ export const SizesLoading = (): JSX.Element => {
     )
 }
 SizesLoading.parameters = { testOptions: { waitForLoadersToDisappear: false } }
+
+export const WithAccessControl = (): JSX.Element => {
+    return (
+        <div className="deprecated-space-y-2">
+            <LemonSwitch
+                label="Enabled (admin ≥ admin)"
+                checked={true}
+                onChange={() => {}}
+                accessControl={{
+                    resourceType: AccessControlResourceType.Project,
+                    minAccessLevel: AccessControlLevel.Admin,
+                    userAccessLevel: AccessControlLevel.Admin,
+                }}
+            />
+            <LemonSwitch
+                label="Disabled (viewer < admin)"
+                checked={false}
+                onChange={() => {}}
+                accessControl={{
+                    resourceType: AccessControlResourceType.Project,
+                    minAccessLevel: AccessControlLevel.Admin,
+                    userAccessLevel: AccessControlLevel.Viewer,
+                }}
+            />
+        </div>
+    )
+}

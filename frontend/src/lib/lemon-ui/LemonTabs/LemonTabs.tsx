@@ -70,7 +70,7 @@ export function LemonTabs<T extends string | number>({
                 'LemonTabs',
                 transitioning && 'LemonTabs--transitioning',
                 `LemonTabs--${size}`,
-                sceneInset && '-mt-4 -mx-4 [&>ul]:px-4 [&>ul]:mb-0',
+                sceneInset && '-mt-4 -mx-4 [&>ul]:pl-4 [&>ul]:mb-0',
                 className
             )}
             // eslint-disable-next-line react/forbid-dom-props
@@ -129,7 +129,7 @@ export function LemonTabs<T extends string | number>({
                 })}
             </ul>
             {activeTab && 'content' in activeTab && (
-                <div className="LemonTabs__content" key={activeKey}>
+                <div className={cn('LemonTabs__content', sceneInset && 'p-4')} key={activeKey}>
                     {activeTab.content}
                 </div>
             )}

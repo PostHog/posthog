@@ -18,6 +18,7 @@ import {
     BreakdownFilter,
     DataWarehouseNode,
     EventsNode,
+    FileSystemIconType,
     HogQLQuery,
     InsightVizNode,
     Node,
@@ -28,7 +29,13 @@ import {
     ResultCustomizationByPosition,
     ResultCustomizationByValue,
 } from '~/queries/schema/schema-general'
-import { isDataWarehouseNode, isEventsNode } from '~/queries/utils'
+import {
+    containsHogQLQuery,
+    isDataTableNode,
+    isDataWarehouseNode,
+    isEventsNode,
+    isInsightVizNode,
+} from '~/queries/utils'
 import { cleanInsightQuery } from '~/scenes/insights/utils/queryUtils'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import {
@@ -411,7 +418,6 @@ export const INSIGHT_TYPE_URLS = {
     JSON: urls.insightNew({ query: examples.EventsTableFull }),
     HOG: urls.insightNew({ query: examples.Hoggonacci }),
     SQL: urls.sqlEditor((examples.HogQLForDataVisualization as HogQLQuery)['query']),
-    CALENDAR_HEATMAP: urls.insightNew({ type: InsightType.CALENDAR_HEATMAP }),
 }
 
 /** Combines a list of words, separating with the correct punctuation. For example: [a, b, c, d] -> "a, b, c, and d"  */
@@ -543,7 +549,7 @@ export function getTrendResultCustomization(
 ): ResultCustomization | undefined {
     const resultCustomizationKey = getTrendResultCustomizationKey(resultCustomizationBy, dataset)
     return resultCustomizations && Object.keys(resultCustomizations).includes(resultCustomizationKey)
-        ? resultCustomizations[resultCustomizationKey]
+        ? (resultCustomizations as any)[resultCustomizationKey]
         : undefined
 }
 
@@ -694,4 +700,35 @@ export function compareInsightTopLevelSections(obj1: any, obj2: any): string[] {
     }
 
     return Array.from(changedLabels).sort()
+}
+
+export function getInsightIconTypeFromQuery(query: any): FileSystemIconType {
+    if (!query?.kind) {
+        return 'product_analytics'
+    }
+
+    let nodeKind: NodeKind
+    if ((isDataTableNode(query) && containsHogQLQuery(query)) || isInsightVizNode(query)) {
+        nodeKind = query.source.kind
+    } else {
+        nodeKind = query.kind
+    }
+
+    // Map NodeKind to the fileSystemType color names
+    const nodeKindToColor: Partial<Record<NodeKind, FileSystemIconType>> = {
+        [NodeKind.TrendsQuery]: 'insight/trends',
+        [NodeKind.FunnelsQuery]: 'insight/funnels',
+        [NodeKind.RetentionQuery]: 'insight/retention',
+        [NodeKind.PathsQuery]: 'insight/paths',
+        [NodeKind.StickinessQuery]: 'insight/stickiness',
+        [NodeKind.LifecycleQuery]: 'insight/lifecycle',
+        [NodeKind.HogQuery]: 'insight/hog',
+        [NodeKind.HogQLQuery]: 'insight/hog',
+        [NodeKind.DataVisualizationNode]: 'insight/hog',
+        [NodeKind.DataTableNode]: 'insight/hog',
+    }
+
+    const mappedIconType: FileSystemIconType = nodeKindToColor[nodeKind] || 'product_analytics'
+
+    return mappedIconType
 }

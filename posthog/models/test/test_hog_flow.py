@@ -1,5 +1,6 @@
-from django.test import TestCase
 from unittest.mock import patch
+
+from django.test import TestCase
 
 from posthog.models.action.action import Action
 from posthog.models.hog_flow.hog_flow import HogFlow

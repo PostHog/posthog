@@ -1,0 +1,29 @@
+#!/bin/bash
+set -e
+export DEBUG=1
+export IN_EVAL_TESTING=1
+export EVAL_MODE=offline
+export EXPORT_EVAL_RESULTS=1
+
+cleanup() {
+    echo "🧹 Cleaning up..."
+    docker compose -f docker-compose.dev.yml -p evals down -v --remove-orphans || true
+}
+trap cleanup EXIT INT TERM
+
+echo "127.0.0.1 kafka clickhouse objectstorage db" >> /etc/hosts
+
+echo "🚀 Starting services..."
+docker compose -f docker-compose.dev.yml -p evals up -d db clickhouse objectstorage
+
+echo "🔄 Waiting for services to start..."
+bin/check_postgres_up & bin/check_kafka_clickhouse_up
+
+echo "🏃 Running evaluation..."
+if [ -z "$EVAL_SCRIPT" ]; then
+    echo "Error: EVAL_SCRIPT environment variable is not set"
+    exit 1
+fi
+$EVAL_SCRIPT
+
+echo "🎉 Done."

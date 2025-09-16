@@ -35,7 +35,7 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
         let flag_service = FlagService::new(
             context.state.redis_reader.clone(),
             context.state.redis_writer.clone(),
-            context.state.reader.clone(),
+            context.state.database_pools.non_persons_reader.clone(),
         );
 
         let (original_distinct_id, verified_token, request) =
@@ -80,8 +80,14 @@ pub async fn process_request(context: RequestContext) -> Result<FlagsResponse, F
 
             tracing::debug!("Distinct ID resolved: {}", distinct_id);
 
-            let (filtered_flags, had_flag_errors) =
-                flags::fetch_and_filter(&flag_service, team.project_id, &context.meta).await?;
+            let (filtered_flags, had_flag_errors) = flags::fetch_and_filter(
+                &flag_service,
+                team.project_id,
+                &context.meta,
+                &context.headers,
+                None,
+            )
+            .await?;
 
             tracing::debug!("Flags filtered: {} flags found", filtered_flags.flags.len());
 

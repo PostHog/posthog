@@ -1,27 +1,28 @@
 import re
 from typing import cast
+
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    Option,
     SourceConfig,
     SourceFieldInputConfig,
-    SourceFieldSelectConfig,
     SourceFieldInputConfigType,
-    Option,
+    SourceFieldSelectConfig,
 )
+
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.sources.vitally.vitally import (
-    validate_credentials as validate_vitally_credentials,
-    vitally_source,
-)
+from posthog.temporal.data_imports.sources.generated_configs import VitallySourceConfig
 from posthog.temporal.data_imports.sources.vitally.settings import (
     ENDPOINTS as VITALLY_ENDPOINTS,
     INCREMENTAL_FIELDS as VITALLY_INCREMENTAL_FIELDS,
 )
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
-from posthog.temporal.data_imports.sources.generated_configs import VitallySourceConfig
+from posthog.temporal.data_imports.sources.vitally.vitally import (
+    validate_credentials as validate_vitally_credentials,
+    vitally_source,
+)
 from posthog.warehouse.types import ExternalDataSourceType
 
 
@@ -31,7 +32,7 @@ class VitallySource(BaseSource[VitallySourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.VITALLY
 
-    def get_schemas(self, config: VitallySourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(self, config: VitallySourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,
@@ -53,19 +54,30 @@ class VitallySource(BaseSource[VitallySourceConfig]):
         return False, "Invalid credentials"
 
     def source_for_pipeline(self, config: VitallySourceConfig, inputs: SourceInputs) -> SourceResponse:
-        return dlt_source_to_source_response(
-            vitally_source(
-                secret_token=config.secret_token,
-                region=config.region.selection,
-                subdomain=config.region.subdomain,
-                endpoint=inputs.schema_name,
-                team_id=inputs.team_id,
-                job_id=inputs.job_id,
-                should_use_incremental_field=inputs.should_use_incremental_field,
-                db_incremental_field_last_value=inputs.db_incremental_field_last_value
-                if inputs.should_use_incremental_field
-                else None,
-            )
+        items = vitally_source(
+            secret_token=config.secret_token,
+            region=config.region.selection,
+            subdomain=config.region.subdomain,
+            endpoint=inputs.schema_name,
+            team_id=inputs.team_id,
+            job_id=inputs.job_id,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
+            logger=inputs.logger,
+        )
+
+        return SourceResponse(
+            name=inputs.schema_name,
+            items=items,
+            primary_keys=["id"],
+            partition_count=1,  # this enables partitioning
+            partition_size=1,  # this enables partitioning
+            partition_mode="datetime",
+            partition_format="month",
+            partition_keys=["created_at"],
+            sort_mode="desc",
         )
 
     @property
@@ -73,6 +85,7 @@ class VitallySource(BaseSource[VitallySourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.VITALLY,
             caption="",
+            iconPath="/static/services/vitally.png",
             fields=cast(
                 list[FieldType],
                 [

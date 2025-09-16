@@ -1,8 +1,12 @@
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
-from django.template import Engine, Context
+
+from django.template import Context, Engine
+
 import tiktoken
+
+from ee.hogai.session_summaries.constants import MAX_SESSION_IDS_COMBINED_LOGGING_LENGTH
 
 
 def get_column_index(columns: list[str], column_name: str) -> int:
@@ -135,11 +139,6 @@ def unpack_full_event_id(full_event_id: str | None, session_id: str | None = Non
     return unpacked_session_id, event_uuid
 
 
-def strip_raw_llm_content(raw_content: str) -> str:
-    """Strip the first and the last line of the content to load the YAML data only into JSON"""
-    return raw_content.strip("```yaml\n").strip("```").strip()  # noqa: B005
-
-
 def estimate_tokens_from_strings(strings: list[str], model: str) -> int:
     """Estimate the token count for a list of strings."""
     if not strings:
@@ -150,3 +149,9 @@ def estimate_tokens_from_strings(strings: list[str], model: str) -> int:
         if string:
             total_tokens += len(encoding.encode(string))
     return total_tokens
+
+
+def logging_session_ids(session_ids: list[str]) -> str:
+    """Log a list of session ids in a readable format."""
+    # Having 150 chars (4 uuids) is enough to identify the sessions and stay readable
+    return f"Session IDs: {str(session_ids)[:MAX_SESSION_IDS_COMBINED_LOGGING_LENGTH]}"

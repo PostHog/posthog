@@ -1,8 +1,9 @@
-from typing import Any
 from collections.abc import Sequence
+from typing import Any
+
+from posthog.hogql.hogql import HogQLContext
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
-from posthog.hogql.hogql import HogQLContext
 from posthog.models.action.util import format_action_filter, format_action_filter_event_only
 from posthog.models.entity import Entity
 from posthog.queries.util import PersonPropertiesMode

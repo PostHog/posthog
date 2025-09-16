@@ -1,18 +1,20 @@
 from typing import cast
+
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
-    SourceFieldOauthConfig,
     SourceFieldInputConfigType,
+    SourceFieldOauthConfig,
 )
+
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+from posthog.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
 from posthog.temporal.data_imports.sources.meta_ads.meta_ads import meta_ads_source
 from posthog.temporal.data_imports.sources.meta_ads.schemas import ENDPOINTS, INCREMENTAL_FIELDS
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
 from posthog.warehouse.types import ExternalDataSourceType
 
 
@@ -22,7 +24,7 @@ class MetaAdsSource(BaseSource[MetaAdsSourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.METAADS
 
-    def get_schemas(self, config: MetaAdsSourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(self, config: MetaAdsSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,
@@ -52,6 +54,7 @@ class MetaAdsSource(BaseSource[MetaAdsSourceConfig]):
             name=SchemaExternalDataSourceType.META_ADS,
             label="Meta Ads",
             caption="Ensure you have granted PostHog access to your Meta Ads account, learn how to do this in the [documentation](https://posthog.com/docs/cdp/sources/meta-ads).",
+            iconPath="/static/services/meta-ads.png",
             fields=cast(
                 list[FieldType],
                 [
@@ -71,4 +74,5 @@ class MetaAdsSource(BaseSource[MetaAdsSourceConfig]):
                 ],
             ),
             betaSource=True,
+            featureFlag="meta-ads-dwh",
         )

@@ -1,11 +1,8 @@
 from infi.clickhouse_orm import migrations
 
-from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.clickhouse.client import sync_execute
-from posthog.models.event.sql import (
-    EVENTS_TABLE_JSON_MV_SQL,
-    KAFKA_EVENTS_TABLE_JSON_SQL,
-)
+from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
+from posthog.models.event.sql import EVENTS_TABLE_JSON_MV_SQL, KAFKA_EVENTS_TABLE_JSON_SQL
 from posthog.settings import CLICKHOUSE_CLUSTER
 
 ADD_COLUMNS_BASE_SQL = """

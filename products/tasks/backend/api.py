@@ -1,15 +1,19 @@
-from rest_framework import viewsets, status
-from rest_framework.decorators import action
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
+import logging
+from typing import cast
+
 from django.utils import timezone
+
+from rest_framework import status, viewsets
+from rest_framework.decorators import action
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
+
 from .models import Task, TaskProgress
-from typing import cast
 from .serializers import TaskSerializer
 from .temporal.client import execute_task_processing_workflow
-import logging
 
 
 class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):

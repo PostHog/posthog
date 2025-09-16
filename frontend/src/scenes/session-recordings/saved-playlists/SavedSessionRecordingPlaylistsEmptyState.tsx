@@ -4,8 +4,9 @@ import { IconPlus } from '@posthog/icons'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { getAppContext } from 'lib/utils/getAppContext'
 
-import { ReplayTabs } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ReplayTabs } from '~/types'
 
 import { createPlaylist } from '../playlist/playlistUtils'
 import { savedSessionRecordingPlaylistsLogic } from './savedSessionRecordingPlaylistsLogic'
@@ -25,6 +26,12 @@ export function SavedSessionRecordingPlaylistsEmptyState(): JSX.Element {
                     data-attr="add-session-playlist-button-empty-state"
                     icon={<IconPlus />}
                     onClick={() => void createPlaylist({ type: 'collection' }, true)}
+                    accessControl={{
+                        resourceType: AccessControlResourceType.SessionRecording,
+                        minAccessLevel: AccessControlLevel.Editor,
+                        userAccessLevel:
+                            getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
+                    }}
                 >
                     New collection
                 </LemonButton>

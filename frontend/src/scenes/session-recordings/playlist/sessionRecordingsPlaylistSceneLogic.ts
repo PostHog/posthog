@@ -3,9 +3,8 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import api from 'lib/api'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -46,7 +45,7 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
     props({} as SessionRecordingsPlaylistLogicProps),
     key((props) => props.shortId),
     connect(() => ({
-        values: [cohortsModel, ['cohortsById'], sceneLogic, ['activeSceneId']],
+        values: [cohortsModel, ['cohortsById'], sceneLogic, ['activeSceneId'], featureFlagLogic, ['featureFlags']],
         actions: [sessionRecordingEventUsageLogic, ['reportRecordingPlaylistCreated']],
     })),
     actions({
@@ -177,15 +176,10 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
         },
     })),
 
-    selectors(({ asyncActions }) => ({
+    selectors(() => ({
         breadcrumbs: [
-            (s) => [s.playlist],
+            (s) => [s.playlist, s.featureFlags],
             (playlist): Breadcrumb[] => [
-                {
-                    key: Scene.Replay,
-                    name: 'Replay',
-                    path: urls.replay(),
-                },
                 {
                     key: ReplayTabs.Playlists,
                     name: 'Collections',
@@ -194,13 +188,6 @@ export const sessionRecordingsPlaylistSceneLogic = kea<sessionRecordingsPlaylist
                 {
                     key: [Scene.ReplayPlaylist, playlist?.short_id || 'new'],
                     name: playlist?.name || playlist?.derived_name || 'Unnamed',
-                    onRename: async (name: string) => {
-                        if (!playlist) {
-                            lemonToast.error('Cannot rename unsaved playlist')
-                            return
-                        }
-                        await asyncActions.updatePlaylist({ short_id: playlist.short_id, name })
-                    },
                 },
             ],
         ],

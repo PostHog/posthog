@@ -106,7 +106,6 @@ export function SurveyForm({ id }: { id: string }): JSX.Element {
                     </div>
                 }
             />
-            <LemonDivider />
             <SurveyEdit />
             <LemonDivider />
             <SurveyDisplaySummary id={id} survey={survey} targetingFlagFilters={targetingFlagFilters} />

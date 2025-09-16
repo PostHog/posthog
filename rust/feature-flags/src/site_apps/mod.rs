@@ -426,9 +426,9 @@ mod tests {
         assert!(site_app.url.ends_with('/'));
 
         // The hash should be 32 characters (MD5 hex)
-        let url_parts: Vec<&str> = site_app.url.split('/').collect();
-        assert_eq!(url_parts.len(), 6); // ["", "site_app", config_id, token, hash, ""]
-        let hash = url_parts[4];
+        let mut url_parts = site_app.url.split('/');
+        assert_eq!(url_parts.clone().count(), 6); // ["", "site_app", config_id, token, hash, ""]
+        let hash = url_parts.nth(4).expect("URL should have hash part");
         assert_eq!(hash.len(), 32);
         assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
     }

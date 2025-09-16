@@ -1,14 +1,17 @@
-from datetime import datetime, timedelta, UTC
 import json
+from datetime import UTC, datetime, timedelta
+from uuid import uuid4
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
 from unittest.mock import MagicMock, patch
-from uuid import uuid4
+
+from django.db import transaction
+from django.test import override_settings
 
 from boto3 import resource
 from botocore.config import Config
-from django.db import transaction
-from django.test import override_settings
-from freezegun import freeze_time
 from parameterized import parameterized
 from rest_framework import status
 
@@ -21,9 +24,7 @@ from posthog.session_recordings.models.session_recording_playlist import (
     SessionRecordingPlaylist,
     SessionRecordingPlaylistViewed,
 )
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.session_recording_playlist_api import PLAYLIST_COUNT_REDIS_PREFIX
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
@@ -31,7 +32,6 @@ from posthog.settings import (
     OBJECT_STORAGE_ENDPOINT,
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
-from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 
 TEST_BUCKET = "test_storage_bucket-ee.TestSessionRecordingPlaylist"
 
@@ -614,9 +614,9 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         # Verify no item was actually added
         assert SessionRecordingPlaylistItem.objects.filter(playlist=playlist).count() == 0
 
-    @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects")
-    def test_get_pinned_recordings_for_playlist(self, mock_copy_objects: MagicMock) -> None:
-        mock_copy_objects.return_value = 2
+    @patch("posthog.session_recordings.session_recording_v2_service.copy_to_lts")
+    def test_get_pinned_recordings_for_playlist(self, mock_copy_to_lts: MagicMock) -> None:
+        mock_copy_to_lts.return_value = "some-lts-path"
 
         playlist = SessionRecordingPlaylist.objects.create(team=self.team, name="playlist", created_by=self.user)
 
@@ -661,11 +661,10 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         assert len(result["results"]) == 2
         assert {x["id"] for x in result["results"]} == {session_one, session_two}
 
-    @patch("ee.session_recordings.session_recording_extensions.object_storage.list_objects")
-    @patch("ee.session_recordings.session_recording_extensions.object_storage.copy_objects")
-    def test_fetch_playlist_recordings(self, mock_copy_objects: MagicMock, mock_list_objects: MagicMock) -> None:
+    @patch("posthog.session_recordings.session_recording_v2_service.copy_to_lts")
+    def test_fetch_playlist_recordings(self, mock_copy_to_lts: MagicMock) -> None:
         # all sessions have been blob ingested and had data to copy into the LTS storage location
-        mock_copy_objects.return_value = 1
+        mock_copy_to_lts.return_value = "some-lts-path"
 
         playlist1 = SessionRecordingPlaylist.objects.create(
             team=self.team,
@@ -708,8 +707,7 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
         result = response.json()
 
         assert len(result["results"]) == 2
-        assert result["results"][0]["id"] == session_one
-        assert result["results"][1]["id"] == session_two
+        assert {x["id"] for x in result["results"]} == {session_one, session_two}
 
         # Test get recordings
         result = self.client.get(

@@ -26,9 +26,9 @@ import { resultCustomizationsModalLogic } from '../../../../queries/nodes/Insigh
 import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from './funnelStepTableUtils'
 
 export function FunnelStepsTable(): JSX.Element | null {
-    const { insightProps, insightLoading } = useValues(insightLogic)
+    const { insightProps, insightLoading, editingDisabledReason } = useValues(insightLogic)
     const { breakdownFilter } = useValues(insightVizDataLogic(insightProps))
-    const { steps, flattenedBreakdowns, hiddenLegendBreakdowns, getFunnelsColor } = useValues(
+    const { steps, flattenedBreakdowns, hiddenLegendBreakdowns, getFunnelsColor, isStepOptional } = useValues(
         funnelDataLogic(insightProps)
     )
     const { setHiddenLegendBreakdowns, toggleLegendBreakdownVisibility, setBreakdownSortOrder } = useActions(
@@ -36,7 +36,6 @@ export function FunnelStepsTable(): JSX.Element | null {
     )
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
-    const { hasInsightColors } = useValues(resultCustomizationsModalLogic(insightProps))
     const { openModal } = useActions(resultCustomizationsModalLogic(insightProps))
 
     const isOnlySeries = flattenedBreakdowns.length <= 1
@@ -56,7 +55,7 @@ export function FunnelStepsTable(): JSX.Element | null {
     in by experiments as a measure of detecting wether we are in an experiment context.
     Likely this can be done in a better way once experiments are re-written to use their own
     queries. */
-    const showCustomizationIcon = hasInsightColors && !insightProps.cachedInsight?.disable_baseline
+    const showCustomizationIcon = !insightProps.cachedInsight?.disable_baseline
 
     const columnsGrouped = [
         {
@@ -77,6 +76,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                             }}
                             label={<span className="font-bold">Breakdown</span>}
                             size="small"
+                            disabledReason={editingDisabledReason}
                         />
                     ),
                     dataIndex: 'breakdown_value',
@@ -132,6 +132,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                         color={color}
                                         type="tertiary"
                                         size="small"
+                                        disabledReason={editingDisabledReason}
                                     />
                                 )}
                             </div>
@@ -145,6 +146,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                                     toggleLegendBreakdownVisibility(getVisibilityKey(breakdown.breakdown_value))
                                 }
                                 label={label}
+                                disabledReason={editingDisabledReason}
                             />
                         )
                     },
@@ -173,7 +175,10 @@ export function FunnelStepsTable(): JSX.Element | null {
                     style={{ font: 'inherit', padding: 0 }}
                     size="small"
                 >
-                    <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
+                    <EntityFilterInfo
+                        filter={getActionFilterFromFunnelStep(step)}
+                        isOptional={isStepOptional(stepIndex + 1)}
+                    />
                 </LemonRow>
             ),
             children: [

@@ -313,7 +313,7 @@ describe('dashboardLogic', () => {
             jest.spyOn(api, 'update')
 
             await expectLogic(logic, () => {
-                logic.actions.updateFiltersAndLayoutsAndVariables()
+                logic.actions.saveEditModeChanges()
             }).toFinishAllListeners()
 
             expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}/dashboards/5`, {
@@ -461,7 +461,7 @@ describe('dashboardLogic', () => {
             // TODO: Not sure why this test is not working
             await expectLogic(logic, () => {
                 // try and load dashboard items data once dashboard is loaded
-                logic.actions.triggerDashboardItemRefresh({
+                logic.actions.refreshDashboardItem({
                     tile: {
                         insight: {
                             id: 1001,
@@ -521,8 +521,7 @@ describe('dashboardLogic', () => {
                     .toDispatchActions([
                         // starts loading
                         'triggerDashboardRefresh',
-                        'loadDashboard',
-                        'updateDashboardItems',
+                        'refreshDashboardItems',
                         // sets the "reloading" status
                         logic.actionCreators.setRefreshStatuses([insight1.short_id, insight2.short_id], false, true),
                     ])
@@ -597,7 +596,7 @@ describe('dashboardLogic', () => {
                     .toDispatchActions([
                         // starts loading
                         'loadDashboard',
-                        'updateDashboardItems',
+                        'refreshDashboardItems',
                         // sets the "reloading" status for the stale insight
                         logic.actionCreators.setRefreshStatuses([staleInsight.short_id], false, true),
                     ])

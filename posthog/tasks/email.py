@@ -3,18 +3,21 @@ from datetime import datetime
 from enum import Enum
 from typing import Literal, Optional
 
-import posthoganalytics
-import structlog
-from celery import shared_task
 from django.conf import settings
-from django.utils import timezone
 from django.db.models import OuterRef, Subquery
+from django.utils import timezone
 
+import structlog
+import posthoganalytics
+from celery import shared_task
 
 from posthog.batch_exports.models import BatchExportRun
+from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.cloud_utils import is_cloud
-from posthog.constants import INVITE_DAYS_VALIDITY
+from posthog.constants import INVITE_DAYS_VALIDITY, SOCIAL_AUTH_PROVIDER_DISPLAY_NAMES
 from posthog.email import EMAIL_TASK_KWARGS, EmailMessage, is_email_available
+from posthog.event_usage import groups
+from posthog.geoip import get_geoip_properties
 from posthog.models import (
     Organization,
     OrganizationInvite,
@@ -25,16 +28,12 @@ from posthog.models import (
     Team,
     User,
 )
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.error_tracking import ErrorTrackingIssueAssignment
 from posthog.models.hog_functions.hog_function import HogFunction
-from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.utils import UUIDT
-from posthog.user_permissions import UserPermissions
-from posthog.caching.login_device_cache import check_and_cache_login_device
-from posthog.geoip import get_geoip_properties
-from posthog.event_usage import groups
 from posthog.ph_client import get_client
-
+from posthog.user_permissions import UserPermissions
 
 logger = structlog.get_logger(__name__)
 
@@ -459,7 +458,7 @@ def send_two_factor_auth_backup_code_used_email(user_id: int) -> None:
 
 @shared_task(**EMAIL_TASK_KWARGS)
 def login_from_new_device_notification(
-    user_id: int, login_time: datetime, short_user_agent: str, ip_address: str
+    user_id: int, login_time: datetime, short_user_agent: str, ip_address: str, backend_name: str
 ) -> None:
     """Send login notification email if login is from a new device"""
     if not is_email_available(with_absolute_urls=True):
@@ -483,7 +482,10 @@ def login_from_new_device_notification(
         return
 
     login_time_str = login_time.strftime("%B %-d, %Y at %H:%M UTC")
-    country = get_geoip_properties(ip_address).get("$geoip_country_name", "Unknown")
+    geoip_properties = get_geoip_properties(ip_address)
+    country = geoip_properties.get("$geoip_country_name", "Unknown")
+    city = geoip_properties.get("$geoip_city_name", "Unknown")
+    login_method = SOCIAL_AUTH_PROVIDER_DISPLAY_NAMES.get(backend_name, "SSO")
 
     is_new_device = check_and_cache_login_device(user_id, country, short_user_agent)
     if not is_new_device:
@@ -499,6 +501,7 @@ def login_from_new_device_notification(
             "ip_address": ip_address,
             "location": country,
             "browser": short_user_agent,
+            "login_method": login_method,
         },
     )
     message.add_recipient(user.email)
@@ -511,8 +514,10 @@ def login_from_new_device_notification(
         event="login notification sent",
         properties={
             "ip_address": ip_address,
-            "location": country,
+            "geoip_country": country,
+            "geoip_city": city,
             "short_user_agent": short_user_agent,
+            "login_method": login_method,
         },
         groups=groups(user.current_organization, user.current_team),
     )

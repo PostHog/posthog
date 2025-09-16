@@ -2,18 +2,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional, cast
 from uuid import UUID
 
-from django.utils import timezone
 from freezegun import freeze_time
-
-from posthog.constants import INSIGHT_FUNNELS
-from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
-from posthog.models import Cohort
-from posthog.models.event.util import bulk_create_events
-from posthog.models.person.util import bulk_create_persons
-from posthog.models.team.team import Team
-from posthog.schema import ActorsQuery, BaseMathType, FunnelsActorsQuery, FunnelsQuery
-from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -22,6 +11,19 @@ from posthog.test.base import (
     also_test_with_materialized_columns,
     snapshot_clickhouse_queries,
 )
+
+from django.utils import timezone
+
+from posthog.schema import ActorsQuery, BaseMathType, FunnelsActorsQuery, FunnelsQuery
+
+from posthog.constants import INSIGHT_FUNNELS
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
+from posthog.models import Cohort
+from posthog.models.event.util import bulk_create_events
+from posthog.models.person.util import bulk_create_persons
+from posthog.models.team.team import Team
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"

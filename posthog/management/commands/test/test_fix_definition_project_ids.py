@@ -1,10 +1,12 @@
-from posthog.test.test_utils import create_group_type_mapping_without_created_at
-from django.core.management import call_command
-from django.test import TestCase
 from io import StringIO
+
 from unittest.mock import patch
 
-from posthog.models import Organization, Team, EventDefinition, PropertyDefinition, GroupTypeMapping
+from django.core.management import call_command
+from django.test import TestCase
+
+from posthog.models import EventDefinition, GroupTypeMapping, Organization, PropertyDefinition, Team
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 class TestFixDefinitionProjectIds(TestCase):

@@ -1,25 +1,24 @@
-from typing import Optional, Union
 import math
+from typing import Optional, Union
+
+import structlog
+
+from posthog.schema import (
+    CachedWebOverviewQueryResponse,
+    HogQLQueryModifiers,
+    WebOverviewQuery,
+    WebOverviewQueryResponse,
+)
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.exchange_rate import revenue_sum_expression_for_events
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.web_analytics.web_analytics_query_runner import (
-    WebAnalyticsQueryRunner,
-)
-from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import (
-    WebOverviewPreAggregatedQueryBuilder,
-)
+
+from posthog.hogql_queries.web_analytics.web_analytics_query_runner import WebAnalyticsQueryRunner
+from posthog.hogql_queries.web_analytics.web_overview_pre_aggregated import WebOverviewPreAggregatedQueryBuilder
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.schema import (
-    CachedWebOverviewQueryResponse,
-    WebOverviewQueryResponse,
-    WebOverviewQuery,
-    HogQLQueryModifiers,
-)
-from posthog.hogql.database.schema.exchange_rate import revenue_sum_expression_for_events
-import structlog
 
 logger = structlog.get_logger(__name__)
 
@@ -29,9 +28,11 @@ class WebOverviewQueryRunner(WebAnalyticsQueryRunner[WebOverviewQueryResponse]):
     cached_response: CachedWebOverviewQueryResponse
     preaggregated_query_builder: WebOverviewPreAggregatedQueryBuilder
 
-    def __init__(self, *args, use_v2_tables: bool = False, **kwargs):
+    def __init__(self, *args, use_v2_tables: bool = True, **kwargs):
         super().__init__(*args, **kwargs)
-        self.use_v2_tables = use_v2_tables
+        # Determine table version from team property, fallback to parameter for compatibility
+        team_version = getattr(self.team, "web_analytics_pre_aggregated_tables_version", "v2")
+        self.use_v2_tables = team_version == "v2" if team_version else use_v2_tables
         self.preaggregated_query_builder = WebOverviewPreAggregatedQueryBuilder(self)
 
     def to_query(self) -> ast.SelectQuery:

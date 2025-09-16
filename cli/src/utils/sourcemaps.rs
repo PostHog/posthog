@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Ok, Result};
+use anyhow::{anyhow, bail, Context, Ok, Result};
 use core::str;
 use globset::{Glob, GlobSetBuilder};
 use magic_string::{GenerateDecodedMapOptions, MagicString};
@@ -161,7 +161,7 @@ pub fn read_pairs(directory: &PathBuf, ignore_globs: &[String]) -> Result<Vec<So
 
     let mut builder = GlobSetBuilder::new();
     for glob in ignore_globs {
-        builder.add(Glob::new(&glob)?);
+        builder.add(Glob::new(glob)?);
     }
     let set: globset::GlobSet = builder.build()?;
 
@@ -179,7 +179,7 @@ pub fn read_pairs(directory: &PathBuf, ignore_globs: &[String]) -> Result<Vec<So
             let source = SourceFile::load(&entry_path)?;
             let sourcemap_path = get_sourcemap_path(&source)?;
             if let Some(path) = sourcemap_path {
-                let sourcemap = SourceFile::load(&path)?;
+                let sourcemap = SourceFile::load(&path).context(format!("reading {path:?}"))?;
                 let chunk_id = get_chunk_id(&sourcemap);
                 pairs.push(SourcePair {
                     chunk_id,

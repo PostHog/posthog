@@ -1,8 +1,10 @@
 from typing import cast
+
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
+
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.generated_configs import MailchimpSourceConfig
@@ -21,6 +23,7 @@ class MailchimpSource(BaseSource[MailchimpSourceConfig]):
             name=SchemaExternalDataSourceType.MAILCHIMP,
             label="Mailchimp",
             caption="",
+            iconPath="/static/services/mailchimp.png",
             fields=cast(list[FieldType], []),
             unreleasedSource=True,
         )

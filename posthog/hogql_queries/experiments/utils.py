@@ -1,7 +1,5 @@
 from typing import TypeVar
 
-from posthog.errors import ExposedCHQueryError
-from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
 from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
@@ -15,19 +13,13 @@ from posthog.schema import (
     ExperimentVariantResultFrequentist,
     ExperimentVariantTrendsBaseStats,
 )
+
+from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
+
 from products.experiments.stats.bayesian.method import BayesianConfig, BayesianMethod
-from products.experiments.stats.frequentist.method import (
-    FrequentistConfig,
-    FrequentistMethod,
-    TestType,
-)
+from products.experiments.stats.frequentist.method import FrequentistConfig, FrequentistMethod, TestType
 from products.experiments.stats.shared.enums import DifferenceType
-from products.experiments.stats.shared.statistics import (
-    ProportionStatistic,
-    RatioStatistic,
-    SampleMeanStatistic,
-    StatisticError,
-)
+from products.experiments.stats.shared.statistics import ProportionStatistic, RatioStatistic, SampleMeanStatistic
 
 V = TypeVar("V", ExperimentVariantTrendsBaseStats, ExperimentVariantFunnelsBaseStats, ExperimentStatsBase)
 
@@ -168,14 +160,11 @@ def get_frequentist_experiment_result(
     control_variant_validated = validate_variant_result(control_variant, metric, is_baseline=True)
     test_variants_validated = [validate_variant_result(test_variant, metric) for test_variant in test_variants]
 
-    try:
-        control_stat = (
-            metric_variant_to_statistic(metric, control_variant_validated)
-            if not control_variant_validated.validation_failures
-            else None
-        )
-    except StatisticError as e:
-        raise ExposedCHQueryError(str(e), code=None) from e
+    control_stat = (
+        metric_variant_to_statistic(metric, control_variant_validated)
+        if not control_variant_validated.validation_failures
+        else None
+    )
 
     variants: list[ExperimentVariantResultFrequentist] = []
 
@@ -199,11 +188,8 @@ def get_frequentist_experiment_result(
 
         # Check if we can perform statistical analysis
         if control_stat and not test_variant_validated.validation_failures:
-            try:
-                test_stat = metric_variant_to_statistic(metric, test_variant_validated)
-                result = method.run_test(test_stat, control_stat)
-            except StatisticError as e:
-                raise ExposedCHQueryError(str(e), code=None) from e
+            test_stat = metric_variant_to_statistic(metric, test_variant_validated)
+            result = method.run_test(test_stat, control_stat)
 
             confidence_interval = [result.confidence_interval[0], result.confidence_interval[1]]
 
@@ -241,14 +227,11 @@ def get_bayesian_experiment_result(
     control_variant_validated = validate_variant_result(control_variant, metric, is_baseline=True)
     test_variants_validated = [validate_variant_result(test_variant, metric) for test_variant in test_variants]
 
-    try:
-        control_stat = (
-            metric_variant_to_statistic(metric, control_variant_validated)
-            if not control_variant_validated.validation_failures
-            else None
-        )
-    except StatisticError as e:
-        raise ExposedCHQueryError(str(e), code=None) from e
+    control_stat = (
+        metric_variant_to_statistic(metric, control_variant_validated)
+        if not control_variant_validated.validation_failures
+        else None
+    )
 
     variants: list[ExperimentVariantResultBayesian] = []
 
@@ -272,11 +255,8 @@ def get_bayesian_experiment_result(
 
         # Check if we can perform statistical analysis
         if control_stat and not test_variant_validated.validation_failures:
-            try:
-                test_stat = metric_variant_to_statistic(metric, test_variant_validated)
-                result = method.run_test(test_stat, control_stat)
-            except StatisticError as e:
-                raise ExposedCHQueryError(str(e), code=None) from e
+            test_stat = metric_variant_to_statistic(metric, test_variant_validated)
+            result = method.run_test(test_stat, control_stat)
 
             # Convert credible interval to percentage
             credible_interval = [result.credible_interval[0], result.credible_interval[1]]

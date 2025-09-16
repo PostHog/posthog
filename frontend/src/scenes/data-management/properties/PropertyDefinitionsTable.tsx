@@ -2,12 +2,12 @@ import './PropertyDefinitionsTable.scss'
 
 import { useActions, useValues } from 'kea'
 
+import { IconApps } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { cn } from 'lib/utils/css-classes'
@@ -16,7 +16,9 @@ import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
-import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { PropertyDefinition } from '~/types'
 
 export function PropertyDefinitionsTable(): JSX.Element {
@@ -24,7 +26,6 @@ export function PropertyDefinitionsTable(): JSX.Element {
         useValues(propertyDefinitionsTableLogic)
     const { loadPropertyDefinitions, setFilters, setPropertyType } = useActions(propertyDefinitionsTableLogic)
     const { hasTagging } = useValues(organizationLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const columns: LemonTableColumns<PropertyDefinition> = [
         {
@@ -81,11 +82,11 @@ export function PropertyDefinitionsTable(): JSX.Element {
                 description="Properties are additional fields you can configure to be sent along with an event capture."
                 resourceType={{
                     type: 'property',
-                    typePlural: 'properties',
+                    forceIcon: <IconApps />,
                 }}
             />
             <SceneDivider />
-            <LemonBanner className={cn(!newSceneLayout && 'mb-4')} type="info">
+            <LemonBanner type="info">
                 Looking for {filters.type === 'person' ? 'person ' : ''}property usage statistics?{' '}
                 <Link
                     to={urls.insightNewHogQL({
@@ -101,7 +102,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
                     Query with SQL
                 </Link>
             </LemonBanner>
-            <div className={cn('flex gap-2 flex-wrap', !newSceneLayout && 'mb-4')}>
+            <div className={cn('flex gap-2 flex-wrap')}>
                 <LemonInput
                     type="search"
                     placeholder="Search for properties"

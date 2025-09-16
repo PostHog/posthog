@@ -1,5 +1,5 @@
-from ee.models.dashboard_privilege import DashboardPrivilege
-from ee.models.explicit_team_membership import ExplicitTeamMembership
+from posthog.test.base import BaseTest
+
 from posthog.constants import AvailableFeature
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
@@ -7,8 +7,10 @@ from posthog.models.insight import Insight
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.test.base import BaseTest
 from posthog.user_permissions import UserPermissions
+
+from ee.models.dashboard_privilege import DashboardPrivilege
+from ee.models.explicit_team_membership import ExplicitTeamMembership
 
 
 class WithPermissionsBase:

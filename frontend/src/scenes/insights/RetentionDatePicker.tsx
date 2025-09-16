@@ -8,7 +8,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { retentionLogic } from 'scenes/retention/retentionLogic'
 
 export function RetentionDatePicker(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { dateRange, dateMappings } = useValues(retentionLogic(insightProps))
     const { updateDateRange } = useActions(retentionLogic(insightProps))
 
@@ -30,6 +30,7 @@ export function RetentionDatePicker(): JSX.Element {
                     )}
                 </>
             )}
+            disabledReason={editingDisabledReason}
         />
     )
 }

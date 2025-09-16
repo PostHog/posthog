@@ -1,14 +1,14 @@
+from posthog.test.base import BaseTest
 from unittest import mock
 from unittest.mock import patch
 
-from django.utils import timezone
 from django.core.cache import cache
+from django.utils import timezone
 
 from posthog.models import Organization, OrganizationInvite, Plugin
 from posthog.models.organization import OrganizationMembership
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 from posthog.plugins.test.plugin_archives import HELLO_WORLD_PLUGIN_GITHUB_ZIP
-from posthog.test.base import BaseTest
 
 
 class TestOrganization(BaseTest):

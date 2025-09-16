@@ -1,20 +1,22 @@
 import re
 from typing import cast
+
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
-from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
-from posthog.temporal.data_imports.sources.common.schema import SourceSchema
+
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.chargebee.chargebee import (
     chargebee_source,
     validate_credentials as validate_chargebee_credentials,
 )
 from posthog.temporal.data_imports.sources.chargebee.settings import ENDPOINTS, INCREMENTAL_FIELDS
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
+from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
+from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
+from posthog.temporal.data_imports.sources.common.schema import SourceSchema
 from posthog.temporal.data_imports.sources.common.utils import dlt_source_to_source_response
 from posthog.temporal.data_imports.sources.generated_configs import ChargebeeSourceConfig
 from posthog.warehouse.types import ExternalDataSourceType
@@ -26,7 +28,7 @@ class ChargebeeSource(BaseSource[ChargebeeSourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CHARGEBEE
 
-    def get_schemas(self, config: ChargebeeSourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(self, config: ChargebeeSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         return [
             SourceSchema(
                 name=endpoint,
@@ -67,6 +69,7 @@ class ChargebeeSource(BaseSource[ChargebeeSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.CHARGEBEE,
             caption="",
+            iconPath="/static/services/chargebee.png",
             fields=cast(
                 list[FieldType],
                 [

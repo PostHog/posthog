@@ -3,9 +3,12 @@ import './LemonSwitch.scss'
 import clsx from 'clsx'
 import { forwardRef, useMemo, useState } from 'react'
 
+import { getAccessControlDisabledReason } from 'lib/components/AccessControlAction'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 export interface LemonSwitchProps {
     className?: string
@@ -26,6 +29,12 @@ export interface LemonSwitchProps {
     sliderColorOverrideChecked?: string
     sliderColorOverrideUnchecked?: string
     loading?: boolean
+    /** Access control props for automatic permission checking */
+    accessControl?: {
+        resourceType: AccessControlResourceType
+        minAccessLevel: AccessControlLevel
+        userAccessLevel?: AccessControlLevel
+    }
 }
 
 /** Counter used for collision-less automatic switch IDs. */
@@ -51,6 +60,7 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
             sliderColorOverrideChecked,
             sliderColorOverrideUnchecked,
             loading = false,
+            accessControl,
         },
         ref
     ): JSX.Element {
@@ -60,6 +70,22 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
         const conditionalProps: { 'aria-label'?: string } = {}
         if (ariaLabel) {
             conditionalProps['aria-label'] = ariaLabel
+        }
+
+        // Handle access control
+        if (accessControl) {
+            const { userAccessLevel, minAccessLevel, resourceType } = accessControl
+            const accessControlDisabledReason = getAccessControlDisabledReason(
+                resourceType,
+                userAccessLevel,
+                minAccessLevel
+            )
+            if (accessControlDisabledReason) {
+                disabled = true
+                if (!disabledReason) {
+                    disabledReason = accessControlDisabledReason
+                }
+            }
         }
 
         let tooltipContent: JSX.Element | null = null

@@ -1,23 +1,26 @@
-import pydantic
 from django.db.models.functions import Lower
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
+
+import pydantic
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.shared import UserBasicSerializer
-from posthog.api.tagged_item import TaggedItemSerializerMixin
-from posthog.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
-from posthog.models.signals import model_activity_signal
-from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between
 from posthog.schema import (
     ExperimentFunnelMetric,
     ExperimentFunnelsQuery,
     ExperimentMeanMetric,
     ExperimentMetricType,
+    ExperimentRatioMetric,
     ExperimentTrendsQuery,
 )
+
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemSerializerMixin
+from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
+from posthog.models.signals import model_activity_signal
 
 
 class ExperimentToSavedMetricSerializer(serializers.ModelSerializer):
@@ -83,8 +86,10 @@ class ExperimentSavedMetricSerializer(TaggedItemSerializerMixin, serializers.Mod
                     ExperimentMeanMetric(**metric_query)
                 elif metric_query["metric_type"] == ExperimentMetricType.FUNNEL:
                     ExperimentFunnelMetric(**metric_query)
+                elif metric_query["metric_type"] == ExperimentMetricType.RATIO:
+                    ExperimentRatioMetric(**metric_query)
                 else:
-                    raise ValidationError("ExperimentMetric metric_type must be 'mean' or 'funnel'")
+                    raise ValidationError("ExperimentMetric metric_type must be 'mean', 'funnel', or 'ratio'")
             elif metric_query["kind"] == "ExperimentTrendsQuery":
                 ExperimentTrendsQuery(**metric_query)
             elif metric_query["kind"] == "ExperimentFunnelsQuery":
@@ -109,14 +114,12 @@ class ExperimentSavedMetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
 @receiver(model_activity_signal, sender=ExperimentSavedMetric)
 def handle_experiment_saved_metric_change(
-    sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
     log_activity(
         organization_id=after_update.team.organization_id,
         team_id=after_update.team_id,
-        user=after_update.created_by
-        if activity == "created"
-        else getattr(after_update, "last_modified_by", after_update.created_by),
+        user=user,
         was_impersonated=was_impersonated,
         item_id=after_update.id,
         scope="Experiment",  # log under Experiment scope so it appears in experiment activity log

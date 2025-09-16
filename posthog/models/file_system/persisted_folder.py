@@ -1,6 +1,6 @@
-from django.utils import timezone
 from django.db import models
 from django.db.models.expressions import F
+from django.utils import timezone
 
 from posthog.models.team import Team
 from posthog.models.user import User

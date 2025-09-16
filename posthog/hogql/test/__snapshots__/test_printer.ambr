@@ -70,3 +70,33 @@
   LIMIT 50000
   '''
 # ---
+# name: TestPrinter.test_s3_tables_global_join_anonymous_tables_0
+  "SELECT e.event AS event, ij.remote_id AS remote_id FROM events AS e GLOBAL INNER JOIN (SELECT person_id AS person_id, remote_id AS remote_id FROM (SELECT p.id AS person_id, rt.id AS remote_id FROM (SELECT person.id AS id FROM person WHERE equals(person.team_id, 99999) GROUP BY person.id HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS p LEFT JOIN (SELECT test_table.id AS id FROM s3(%(hogql_val_2_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_5_sensitive)s, 'Parquet', %(hogql_val_3)s) AS test_table) AS rt ON equals(rt.id, p.id))) AS ij ON equals(e.event, ij.remote_id) WHERE equals(e.team_id, 99999) LIMIT 50000"
+# ---
+# name: TestPrinter.test_s3_tables_global_join_anonymous_tables_1
+  "SELECT e.event AS event, ij.remote_id AS remote_id FROM events AS e INNER JOIN (SELECT person_id AS person_id, remote_id AS remote_id FROM (SELECT p.id AS person_id, rt.id AS remote_id FROM (SELECT person.id AS id FROM person WHERE equals(person.team_id, 99999) GROUP BY person.id HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))), 0)) SETTINGS optimize_aggregation_in_order=1) AS p LEFT JOIN (SELECT test_table.id AS id FROM s3(%(hogql_val_2_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_5_sensitive)s, 'Parquet', %(hogql_val_3)s) AS test_table) AS rt ON equals(rt.id, p.id))) AS ij ON equals(e.event, ij.remote_id) WHERE equals(e.team_id, 99999) LIMIT 50000"
+# ---
+# name: TestPrinter.test_s3_tables_global_join_with_cte_0
+  "SELECT events.event AS event FROM events GLOBAL JOIN (SELECT test_table.id AS id FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_3_sensitive)s, 'Parquet', %(hogql_val_1)s) AS test_table) AS some_remote_table ON equals(events.event, toString(some_remote_table.id)) WHERE equals(events.team_id, 99999) LIMIT 50000"
+# ---
+# name: TestPrinter.test_s3_tables_global_join_with_cte_1
+  "SELECT events.event AS event FROM events JOIN (SELECT test_table.id AS id FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_3_sensitive)s, 'Parquet', %(hogql_val_1)s) AS test_table) AS some_remote_table ON equals(events.event, toString(some_remote_table.id)) WHERE equals(events.team_id, 99999) LIMIT 50000"
+# ---
+# name: TestPrinter.test_s3_tables_global_join_with_cte_nested_0
+  "SELECT some_remote_table.event AS event FROM events GLOBAL JOIN (SELECT e.event AS event, t.id AS id FROM events AS e GLOBAL JOIN (SELECT * FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_3_sensitive)s, 'Parquet', %(hogql_val_1)s)) AS t ON equals(toString(t.id), e.event) WHERE equals(e.team_id, 99999)) AS some_remote_table ON equals(events.event, toString(some_remote_table.id)) WHERE equals(events.team_id, 99999) LIMIT 50000"
+# ---
+# name: TestPrinter.test_s3_tables_global_join_with_cte_nested_1
+  "SELECT some_remote_table.event AS event FROM events JOIN (SELECT e.event AS event, t.id AS id FROM events AS e JOIN (SELECT * FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_3_sensitive)s, 'Parquet', %(hogql_val_1)s)) AS t ON equals(toString(t.id), e.event) WHERE equals(e.team_id, 99999)) AS some_remote_table ON equals(events.event, toString(some_remote_table.id)) WHERE equals(events.team_id, 99999) LIMIT 50000"
+# ---
+# name: TestPrinter.test_s3_tables_global_join_with_in_and_property_type_0
+  'SELECT events.event AS event FROM events WHERE and(equals(events.team_id, 99999), ifNull(globalIn(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), \'\'), \'null\'), \'^"|"$\', \'\'), (SELECT test_table.id AS id FROM s3(%(hogql_val_1_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, \'Parquet\', %(hogql_val_2)s) AS test_table)), 0)) LIMIT 50000'
+# ---
+# name: TestPrinter.test_s3_tables_global_join_with_in_and_property_type_1
+  'SELECT events.event AS event FROM events WHERE and(equals(events.team_id, 99999), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_0)s), \'\'), \'null\'), \'^"|"$\', \'\'), (SELECT test_table.id AS id FROM s3(%(hogql_val_1_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, \'Parquet\', %(hogql_val_2)s) AS test_table))) LIMIT 50000'
+# ---
+# name: TestPrinter.test_s3_tables_global_join_with_multiple_joins_0
+  "SELECT e.event, s.event AS event, t.id AS id FROM events AS e GLOBAL JOIN (SELECT events.event AS event FROM events WHERE equals(events.team_id, 99999)) AS s ON equals(e.event, s.event) GLOBAL LEFT JOIN (SELECT * FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_3_sensitive)s, 'Parquet', %(hogql_val_1)s)) AS t ON equals(e.event, toString(t.id)) WHERE equals(e.team_id, 99999) LIMIT 50000"
+# ---
+# name: TestPrinter.test_s3_tables_global_join_with_multiple_joins_1
+  "SELECT e.event, s.event AS event, t.id AS id FROM events AS e JOIN (SELECT events.event AS event FROM events WHERE equals(events.team_id, 99999)) AS s ON equals(e.event, s.event) LEFT JOIN s3(%(hogql_val_0_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_3_sensitive)s, 'Parquet', %(hogql_val_1)s) AS t ON equals(e.event, toString(t.id)) WHERE equals(e.team_id, 99999) LIMIT 50000"
+# ---

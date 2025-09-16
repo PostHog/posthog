@@ -1,23 +1,6 @@
 from datetime import datetime
+
 from freezegun import freeze_time
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
-from posthog.models.team import WeekStartDay
-from posthog.models.utils import UUIDT
-from posthog.schema import (
-    BreakdownFilter,
-    DashboardFilter,
-    DateRange,
-    IntervalType,
-    LifecycleQuery,
-    EventsNode,
-    EventPropertyFilter,
-    PropertyOperator,
-    PersonPropertyFilter,
-    ActionsNode,
-    CohortPropertyFilter,
-    HogQLPropertyFilter,
-)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -26,9 +9,30 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+
+from posthog.schema import (
+    ActionsNode,
+    BreakdownFilter,
+    CohortPropertyFilter,
+    DashboardFilter,
+    DateRange,
+    EventPropertyFilter,
+    EventsNode,
+    HogQLPropertyFilter,
+    IntervalType,
+    LifecycleQuery,
+    PersonPropertyFilter,
+    PropertyOperator,
+)
+
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.hogql_queries.insights.lifecycle_query_runner import LifecycleQueryRunner
 from posthog.models import Action, Cohort
 from posthog.models.group.util import create_group
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.team import WeekStartDay
+from posthog.models.utils import UUIDT
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 

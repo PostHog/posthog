@@ -21,7 +21,9 @@ import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsMan
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { CohortType, ProductKey } from '~/types'
 
 const RESOURCE_TYPE = 'cohort'
@@ -152,7 +154,7 @@ export function Cohorts(): JSX.Element {
     ]
 
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             <PersonsManagementSceneTabs
                 tabKey="cohorts"
                 buttons={
@@ -171,9 +173,7 @@ export function Cohorts(): JSX.Element {
                 description="A catalog of identified persons and your created cohorts."
                 resourceType={{
                     type: RESOURCE_TYPE,
-                    typePlural: 'cohorts',
                 }}
-                docsURL="https://posthog.com/docs/data/cohorts"
             />
             <SceneDivider />
 

@@ -35,7 +35,8 @@ export function getPublicSupportSnippet(
     includeCurrentLocation = true
 ): string {
     if (!cloudRegion) {
-        return ''
+        // we don't call this without region being available, so we return some value so we can see errors in visual regression tests
+        return '🚫'
     }
     return (
         (includeCurrentLocation ? getCurrentLocationLink() : '') +
@@ -215,9 +216,9 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'Group analytics',
             },
             {
-                value: 'llm-observability',
-                'data-attr': `support-form-target-area-llm-observability`,
-                label: 'LLM observability',
+                value: 'llm-analytics',
+                'data-attr': `support-form-target-area-llm-analytics`,
+                label: 'LLM analytics',
             },
             {
                 value: 'max-ai',

@@ -47,6 +47,7 @@ export const VariablesForDashboard = (): JSX.Element => {
                     variableOverridesAreSet={false}
                     emptyState={<i className="text-xs">No override set</i>}
                     insightsUsingVariable={n.insightNames}
+                    size="small"
                 />
             ))}
         </>
@@ -296,6 +297,7 @@ interface VariableComponentProps {
     variableSettingsOnClick?: () => void
     insightsUsingVariable?: string[]
     emptyState?: JSX.Element | string
+    size?: 'small' | 'medium'
 }
 
 export const VariableComponent = ({
@@ -307,6 +309,7 @@ export const VariableComponent = ({
     variableSettingsOnClick,
     insightsUsingVariable,
     emptyState = '',
+    size = 'medium',
 }: VariableComponentProps): JSX.Element => {
     const [isPopoverOpen, setPopoverOpen] = useState(false)
 
@@ -360,6 +363,7 @@ export const VariableComponent = ({
                         className="min-w-32 DataVizVariable_Button"
                         onClick={() => setPopoverOpen(!isPopoverOpen)}
                         disabledReason={variableOverridesAreSet && 'Discard dashboard variables to change'}
+                        size={size}
                     >
                         {variable.isNull
                             ? 'Set to null'

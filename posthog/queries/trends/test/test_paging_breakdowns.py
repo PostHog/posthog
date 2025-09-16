@@ -1,10 +1,10 @@
 from typing import Optional
 
 from freezegun import freeze_time
+from posthog.test.base import APIBaseTest
 
 from posthog.models import Filter
 from posthog.queries.trends.trends import Trends
-from posthog.test.base import APIBaseTest
 from posthog.test.test_journeys import journeys_for
 
 BREAKDOWN_OTHER_DISPLAY = "Other (i.e. all remaining values)"

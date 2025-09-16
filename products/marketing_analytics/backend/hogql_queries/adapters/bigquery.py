@@ -1,12 +1,14 @@
 # BigQuery Marketing Source Adapter
 
 from posthog.hogql import ast
-from .base import ExternalConfig, MarketingSourceAdapter, ValidationResult
+
 from products.marketing_analytics.backend.hogql_queries.constants import (
     MARKETING_ANALYTICS_SCHEMA,
     UNKNOWN_CAMPAIGN,
     UNKNOWN_SOURCE,
 )
+
+from .base import ExternalConfig, MarketingSourceAdapter, ValidationResult
 
 
 class BigQueryAdapter(MarketingSourceAdapter[ExternalConfig]):
@@ -82,6 +84,18 @@ class BigQueryAdapter(MarketingSourceAdapter[ExternalConfig]):
             inner_expr = ast.Constant(value=0)
         else:
             inner_expr = ast.Field(chain=[clicks_field])
+
+        coalesce = ast.Call(name="coalesce", args=[inner_expr, ast.Constant(value=0)])
+        return ast.Call(name="toFloat", args=[coalesce])
+
+    def _get_reported_conversion_field(self) -> ast.Expr:
+        reported_conversion_field = self.config.source_map.reported_conversion
+
+        inner_expr: ast.Expr
+        if reported_conversion_field is None:
+            inner_expr = ast.Constant(value=0)
+        else:
+            inner_expr = ast.Field(chain=[reported_conversion_field])
 
         coalesce = ast.Call(name="coalesce", args=[inner_expr, ast.Constant(value=0)])
         return ast.Call(name="toFloat", args=[coalesce])

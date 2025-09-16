@@ -1,22 +1,24 @@
 from typing import cast
-import pytest
 
-from posthog.management.commands.generate_source_configs import SourceConfigGenerator
+import pytest
+from posthog.test.base import ClickhouseTestMixin
+
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    Option,
     SourceConfig,
+    SourceFieldFileUploadConfig,
     SourceFieldFileUploadJsonFormatConfig,
     SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceFieldOauthConfig,
+    SourceFieldSelectConfig,
     SourceFieldSSHTunnelConfig,
     SourceFieldSwitchGroupConfig,
-    SourceFieldInputConfigType,
-    SourceFieldSelectConfig,
-    Option,
-    SourceFieldOauthConfig,
-    SourceFieldFileUploadConfig,
 )
+
+from posthog.management.commands.generate_source_configs import SourceConfigGenerator
 from posthog.temporal.data_imports.sources.common.base import FieldType
-from posthog.test.base import ClickhouseTestMixin
 from posthog.warehouse.types import ExternalDataSourceType
 
 
@@ -32,6 +34,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -134,6 +137,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -156,6 +160,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -177,6 +182,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -198,6 +204,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -234,6 +241,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -257,6 +265,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -280,6 +289,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -301,6 +311,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -359,6 +370,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -382,6 +394,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -398,6 +411,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -419,6 +433,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [

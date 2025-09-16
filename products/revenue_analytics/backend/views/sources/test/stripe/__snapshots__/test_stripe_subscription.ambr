@@ -8,8 +8,36 @@
          customer_id AS customer_id,
          status AS status,
          created_at AS started_at,
-         if(greater(ended_at, today()), NULL, ended_at) AS ended_at,
+         ended_at AS ended_at,
          metadata AS metadata
   FROM stripe_test_subscription
+  '''
+# ---
+# name: TestSubscriptionStripeBuilder.test_build_with_no_subscription_schema
+  '''
+  SELECT NULL AS id,
+         NULL AS source_label,
+         NULL AS plan_id,
+         NULL AS product_id,
+         NULL AS customer_id,
+         NULL AS status,
+         NULL AS started_at,
+         NULL AS ended_at,
+         NULL AS metadata
+  WHERE false
+  '''
+# ---
+# name: TestSubscriptionStripeBuilder.test_build_with_subscription_schema_but_no_table
+  '''
+  SELECT NULL AS id,
+         NULL AS source_label,
+         NULL AS plan_id,
+         NULL AS product_id,
+         NULL AS customer_id,
+         NULL AS status,
+         NULL AS started_at,
+         NULL AS ended_at,
+         NULL AS metadata
+  WHERE false
   '''
 # ---

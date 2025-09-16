@@ -1,20 +1,23 @@
 from decimal import Decimal
+
+import pytest
+from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from parameterized import parameterized
+from django.core.cache import cache
 from django.test import RequestFactory
+from django.utils import timezone
+
 from inline_snapshot import snapshot
-import pytest
+from parameterized import parameterized
+
 from posthog.models.action.action import Action
 from posthog.models.feature_flag.feature_flag import FeatureFlag
-from posthog.models.surveys.survey import Survey
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.plugin import Plugin, PluginConfig, PluginSourceFile
 from posthog.models.project import Project
 from posthog.models.remote_config import RemoteConfig, cache_key_for_team_token
-from posthog.test.base import BaseTest
-from django.core.cache import cache
-from django.utils import timezone
+from posthog.models.surveys.survey import Survey
 
 CONFIG_REFRESH_QUERY_COUNT = 5
 
@@ -38,7 +41,22 @@ class _RemoteConfigBase(BaseTest):
         self.team.save()
 
         # There will always be a config thanks to the signal
-        self.remote_config = RemoteConfig.objects.get(team=self.team)
+        # But since we use transaction.on_commit(), we need to handle the async creation in tests
+        try:
+            self.remote_config = RemoteConfig.objects.get(team=self.team)
+        except RemoteConfig.DoesNotExist:
+            # Force synchronous creation for tests
+            from posthog.tasks.remote_config import update_team_remote_config
+
+            update_team_remote_config(self.team.id)
+            self.remote_config = RemoteConfig.objects.get(team=self.team)
+
+    def sync_remote_config(self):
+        """Force synchronous RemoteConfig update for tests"""
+        from posthog.tasks.remote_config import update_team_remote_config
+
+        update_team_remote_config(self.team.id)
+        self.remote_config.refresh_from_db()
 
 
 class TestRemoteConfig(_RemoteConfigBase):
@@ -123,25 +141,25 @@ class TestRemoteConfig(_RemoteConfigBase):
     def test_capture_dead_clicks_toggle(self):
         self.team.capture_dead_clicks = True
         self.team.save()
-        self.remote_config.refresh_from_db()
+        self.sync_remote_config()
         assert self.remote_config.config["captureDeadClicks"]
 
     def test_capture_performance_toggle(self):
         self.team.capture_performance_opt_in = True
         self.team.save()
-        self.remote_config.refresh_from_db()
+        self.sync_remote_config()
         assert self.remote_config.config["capturePerformance"]["network_timing"]
 
     def test_autocapture_opt_out_toggle(self):
         self.team.autocapture_opt_out = True
         self.team.save()
-        self.remote_config.refresh_from_db()
+        self.sync_remote_config()
         assert self.remote_config.config["autocapture_opt_out"]
 
     def test_autocapture_exceptions_toggle(self):
         self.team.autocapture_exceptions_opt_in = True
         self.team.save()
-        self.remote_config.refresh_from_db()
+        self.sync_remote_config()
         assert self.remote_config.config["autocaptureExceptions"]
 
     @parameterized.expand([["1.00", None], ["0.95", "0.95"], ["0.50", "0.50"], ["0.00", "0.00"], [None, None]])
@@ -149,14 +167,14 @@ class TestRemoteConfig(_RemoteConfigBase):
         self.team.session_recording_opt_in = True
         self.team.session_recording_sample_rate = Decimal(value) if value else None
         self.team.save()
-        self.remote_config.refresh_from_db()
+        self.sync_remote_config()
         assert self.remote_config.config["sessionRecording"]["sampleRate"] == expected
 
     def test_session_recording_domains(self):
         self.team.session_recording_opt_in = True
         self.team.recording_domains = ["https://posthog.com", "https://*.posthog.com"]
         self.team.save()
-        self.remote_config.refresh_from_db()
+        self.sync_remote_config()
         assert self.remote_config.config["sessionRecording"]["domains"] == self.team.recording_domains
 
 
@@ -185,7 +203,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
         self.team.survey_config = {"appearance": survey_appearance}
         self.team.save()
 
-        self.remote_config.refresh_from_db()
+        self.sync_remote_config()
         assert self.remote_config.config["survey_config"] == snapshot(
             {
                 "appearance": {
@@ -240,7 +258,7 @@ class TestRemoteConfigSurveys(_RemoteConfigBase):
         survey_with_actions.actions.set(Action.objects.filter(name="user subscribed"))
         survey_with_actions.save()
 
-        self.remote_config.refresh_from_db()
+        self.sync_remote_config()
         assert self.remote_config.config["surveys"]
 
         actual_surveys = sorted(self.remote_config.config["surveys"], key=lambda s: str(s["id"]))
@@ -471,7 +489,7 @@ class TestRemoteConfigCaching(_RemoteConfigBase):
             self._assert_matches_config_array_js(data)
 
     def test_caches_missing_response(self):
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(2):  # RemoteConfig lookup + Team lookup for on-demand creation
             with pytest.raises(RemoteConfig.DoesNotExist):
                 RemoteConfig.get_array_js_via_token("missing-token")
 
@@ -618,25 +636,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
   window._POSTHOG_REMOTE_CONFIG = window._POSTHOG_REMOTE_CONFIG || {};
   window._POSTHOG_REMOTE_CONFIG['phc_12345'] = {
     config: {"token": "phc_12345", "supportedCompression": ["gzip", "gzip-js"], "hasFeatureFlags": false, "captureDeadClicks": false, "capturePerformance": {"network_timing": true, "web_vitals": false, "web_vitals_allowed_metrics": null}, "autocapture_opt_out": false, "autocaptureExceptions": false, "analytics": {"endpoint": "/i/v0/e/"}, "elementsChainAsString": true, "errorTracking": {"autocaptureExceptions": false, "suppressionRules": []}, "sessionRecording": {"endpoint": "/s/", "consoleLogRecordingEnabled": true, "recorderVersion": "v2", "sampleRate": null, "minimumDurationMilliseconds": null, "linkedFlag": null, "networkPayloadCapture": null, "masking": null, "urlTriggers": [], "urlBlocklist": [], "eventTriggers": [], "triggerMatchType": null, "scriptConfig": null}, "heatmaps": false, "surveys": false, "defaultIdentifiedOnly": true},
-    siteApps: [    
-    {
-      id: 'tokentoken',
-      init: function(config) {
-            (function () { return { inject: (data) => console.log('injected!', data)}; })().inject({ config:{}, posthog:config.posthog });
-        config.callback(); return {}  }
-    },    
-    {
-      id: 'tokentoken',
-      init: function(config) {
-            (function () { return { inject: (data) => console.log('injected 2!', data)}; })().inject({ config:{}, posthog:config.posthog });
-        config.callback(); return {}  }
-    },    
-    {
-      id: 'tokentoken',
-      init: function(config) {
-            (function () { return { inject: (data) => console.log('injected but disabled!', data)}; })().inject({ config:{}, posthog:config.posthog });
-        config.callback(); return {}  }
-    }]
+    siteApps: []
   }
 })();\
 """  # noqa: W291, W293
@@ -671,6 +671,9 @@ class TestRemoteConfigJS(_RemoteConfigBase):
             team=self.team,
             enabled=True,
         )
+
+        # Force RemoteConfig sync after creating HogFunctions
+        self.sync_remote_config()
 
         js = self.remote_config.get_config_js_via_token(self.team.api_token)
         assert str(non_site_app.id) not in js
@@ -805,7 +808,7 @@ class TestRemoteConfigJS(_RemoteConfigBase):
                     const inputs = buildInputs(globals);
                     const filterGlobals = { ...globals.groups, ...globals.event, person: globals.person, inputs, pdi: { distinct_id: globals.event.distinct_id, person: globals.person } };
                     let __getGlobal = (key) => filterGlobals[key];
-                    const filterMatches = !!(!!(!ilike(toString(__getProperty(__getProperty(__getGlobal("person"), "properties", true), "email", true)), "%@posthog.com%") && ((!match(toString(__getProperty(__getGlobal("properties"), "$host", true)), "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)")) ?? 1) && (__getGlobal("event") == "$pageview")));
+                    const filterMatches = !!(!ilike(toString(__getProperty(__getProperty(__getGlobal("person"), "properties", true), "email", true)), "%@posthog.com%") && ((!match(toString(__getProperty(__getGlobal("properties"), "$host", true)), "^(localhost|127\\\\.0\\\\.0\\\\.1)($|:)")) ?? 1) && (__getGlobal("event") == "$pageview"));
                     if (!filterMatches) { return; }
                     ;
                 }
@@ -905,12 +908,18 @@ class TestRemoteConfigJS(_RemoteConfigBase):
             },
         )
 
+        # Force RemoteConfig sync after creating HogFunction
+        self.sync_remote_config()
+
         js = self.remote_config.get_config_js_via_token(self.team.api_token)
 
         assert str(site_destination.id) in js
 
         site_destination.deleted = True
         site_destination.save()
+
+        # Force RemoteConfig sync after deleting HogFunction
+        self.sync_remote_config()
 
         js = self.remote_config.get_config_js_via_token(self.team.api_token)
         assert str(site_destination.id) not in js

@@ -1,23 +1,25 @@
 from typing import cast
-from posthog.exceptions_capture import capture_exception
+
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
+
+from posthog.exceptions_capture import capture_exception
+from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.mixins import ValidateDatabaseHostMixin
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
+from posthog.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig
 from posthog.temporal.data_imports.sources.mongodb.mongo import (
-    get_schemas as get_mongo_schemas,
-    filter_mongo_incremental_fields,
     _parse_connection_string,
+    filter_mongo_incremental_fields,
+    get_schemas as get_mongo_schemas,
     mongo_source,
 )
-from posthog.temporal.data_imports.sources.generated_configs import MongoDBSourceConfig
 from posthog.warehouse.types import ExternalDataSourceType
 
 
@@ -27,7 +29,7 @@ class MongoDBSource(BaseSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.MONGODB
 
-    def get_schemas(self, config: MongoDBSourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(self, config: MongoDBSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         mongo_schemas = get_mongo_schemas(config)
 
         filtered_results = [
@@ -99,6 +101,7 @@ class MongoDBSource(BaseSource[MongoDBSourceConfig], ValidateDatabaseHostMixin):
             label="MongoDB",
             caption="Enter your MongoDB connection string to automatically pull your MongoDB data into the PostHog Data warehouse.",
             betaSource=True,
+            iconPath="/static/services/Mongodb.svg",
             fields=cast(
                 list[FieldType],
                 [

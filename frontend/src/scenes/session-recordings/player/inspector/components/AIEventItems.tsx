@@ -3,9 +3,9 @@ import { IconExclamation } from 'lib/lemon-ui/icons'
 import { isObject } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 
-import { ConversationMessagesDisplay } from 'products/llm_observability/frontend/ConversationDisplay/ConversationMessagesDisplay'
-import { LLMInputOutput } from 'products/llm_observability/frontend/LLMInputOutput'
-import { normalizeMessages } from 'products/llm_observability/frontend/utils'
+import { ConversationMessagesDisplay } from 'products/llm_analytics/frontend/ConversationDisplay/ConversationMessagesDisplay'
+import { LLMInputOutput } from 'products/llm_analytics/frontend/LLMInputOutput'
+import { normalizeMessages } from 'products/llm_analytics/frontend/utils'
 
 export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.Element {
     let input = event.properties.$ai_input_state

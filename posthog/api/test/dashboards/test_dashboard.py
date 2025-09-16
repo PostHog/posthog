@@ -1,13 +1,15 @@
-from posthog.test.test_utils import create_group_type_mapping_without_created_at
 import json
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
 from unittest import mock
 from unittest.mock import ANY, MagicMock, patch
 
-from dateutil.parser import isoparse
 from django.test import override_settings
 from django.utils import timezone
 from django.utils.timezone import now
-from freezegun import freeze_time
+
+from dateutil.parser import isoparse
 from rest_framework import status
 
 from posthog.api.dashboards.dashboard import DashboardSerializer
@@ -21,12 +23,8 @@ from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mute_selected_signals
-from posthog.test.base import (
-    APIBaseTest,
-    FuzzyInt,
-    QueryMatchingTest,
-    snapshot_postgres_queries,
-)
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
 from ee.models.rbac.access_control import AccessControl
 
 valid_template: dict = {
@@ -277,15 +275,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 11):
+            with self.assertNumQueries(baseline + 11 + 13):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 11):
+            with self.assertNumQueries(baseline + 11 + 13):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(baseline + 11 + 11):
+            with self.assertNumQueries(baseline + 11 + 13):
                 self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     @snapshot_postgres_queries
@@ -603,6 +601,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         mock_view.action = "retrieve"
         mock_request = MagicMock()
         mock_request.query_params.get.return_value = None
+        mock_request.user = self.user
+
+        # Create a proper user access control for the serializer
+        from posthog.rbac.user_access_control import UserAccessControl
+
+        user_access_control = UserAccessControl(self.user, organization_id=str(self.user.current_organization_id))
+
         dashboard_data = DashboardSerializer(
             dashboard,
             context={
@@ -610,6 +615,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "request": mock_request,
                 "get_team": lambda: self.team,
                 "insight_variables": [],
+                "user_access_control": user_access_control,
             },
         ).data
         assert len(dashboard_data["tiles"]) == 1
@@ -1271,6 +1277,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert response.json()["tiles"] == [
             {
                 "color": None,
+                "filters_overrides": {},
                 "id": ANY,
                 "insight": None,
                 "is_cached": False,
@@ -1330,6 +1337,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert response.json()["tiles"] == [
             {
                 "color": None,
+                "filters_overrides": {},
                 "id": ANY,
                 "insight": {
                     "columns": None,
@@ -1360,6 +1368,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "last_refresh": None,
                     "name": None,
                     "next_allowed_client_refresh": None,
+                    "alerts": [],
                     "cache_target_age": ANY,
                     "order": None,
                     "query": {

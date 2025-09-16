@@ -5,11 +5,7 @@ This module provides common setup and utilities specifically for testing
 event-based revenue analytics view sources.
 """
 
-from posthog.schema import (
-    CurrencyCode,
-    RevenueAnalyticsEventItem,
-    RevenueCurrencyPropertyConfig,
-)
+from posthog.schema import CurrencyCode, RevenueAnalyticsEventItem, RevenueCurrencyPropertyConfig
 
 from products.revenue_analytics.backend.views.sources.test.base import RevenueAnalyticsViewSourceBaseTest
 
@@ -21,6 +17,9 @@ class EventsSourceBaseTest(RevenueAnalyticsViewSourceBaseTest):
     Provides common setup for testing event-based revenue analytics views,
     including sample event configurations and helper methods.
     """
+
+    PURCHASE_EVENT_NAME = "purchase"
+    SUBSCRIPTION_CHARGE_EVENT_NAME = "subscription_charge"
 
     def setup_revenue_analytics_events(self):
         """
@@ -35,13 +34,13 @@ class EventsSourceBaseTest(RevenueAnalyticsViewSourceBaseTest):
         self.configure_events(
             [
                 {
-                    "eventName": "purchase",
+                    "eventName": self.PURCHASE_EVENT_NAME,
                     "revenueProperty": "amount",
                     "currencyAwareDecimal": True,
                     "revenueCurrencyProperty": {"static": "USD"},
                 },
                 {
-                    "eventName": "subscription_charge",
+                    "eventName": self.SUBSCRIPTION_CHARGE_EVENT_NAME,
                     "revenueProperty": "price",
                     "currencyAwareDecimal": False,
                     "revenueCurrencyProperty": {"property": "currency"},

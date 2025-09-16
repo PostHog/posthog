@@ -22,6 +22,7 @@ import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 
 import { PosthogStoriesContainer } from '~/layout/navigation/PosthogStories/PosthogStoriesContainer'
+import { SceneActions } from '~/layout/scenes/SceneActions'
 import { DashboardPlacement } from '~/types'
 
 export const scene: SceneExport = {
@@ -92,7 +93,7 @@ function HomeDashboard({ dashboardLogicProps }: { dashboardLogicProps: Dashboard
     return (
         <>
             {featureFlags[FEATURE_FLAGS.POSTHOG_STORIES] && <PosthogStoriesContainer />}
-            <div className="ProjectHomepage__dashboardheader">
+            <div className="ProjectHomepage__dashboardheader mt-0">
                 <div className="ProjectHomepage__dashboardheader__title">
                     {!dashboard && <LemonSkeleton className="w-20 h-4" />}
                     {dashboard?.name && (
@@ -104,6 +105,7 @@ function HomeDashboard({ dashboardLogicProps }: { dashboardLogicProps: Dashboard
                         </>
                     )}
                 </div>
+                <SceneActions />
             </div>
             <LemonDivider className="mt-3 mb-4" />
             <Dashboard id={dashboardLogicProps.id.toString()} placement={DashboardPlacement.ProjectHomepage} />

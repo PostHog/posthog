@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -11,6 +11,9 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { performQuery } from '~/queries/query'
 import {
     ExperimentMetric,
@@ -20,7 +23,7 @@ import {
     isExperimentMeanMetric,
     isExperimentRatioMetric,
 } from '~/queries/schema/schema-general'
-import { ExperimentMetricMathType, FilterType } from '~/types'
+import { ExperimentMetricGoal, ExperimentMetricMathType, FilterType } from '~/types'
 
 import { ExperimentMetricConversionWindowFilter } from './ExperimentMetricConversionWindowFilter'
 import { ExperimentMetricFunnelOrderSelector } from './ExperimentMetricFunnelOrderSelector'
@@ -97,17 +100,13 @@ export function ExperimentMetricForm({
     const [eventCount, setEventCount] = useState<number | null>(null)
     const [isLoading, setIsLoading] = useState(false)
 
-    // if the metric already is a ratio metric, we want to show the option regardless of the feature state
-    const isRatioMetricEnabled =
-        useFeatureFlag('EXPERIMENTS_RATIO_METRIC') || metric.metric_type == ExperimentMetricType.RATIO
-
     const getEventTypeLabel = (): string => {
-        if (metric.metric_type === ExperimentMetricType.MEAN) {
+        if (isExperimentMeanMetric(metric)) {
             return metric.source.kind === NodeKind.ActionsNode ? 'actions' : 'events'
-        } else if (metric.metric_type === ExperimentMetricType.FUNNEL) {
+        } else if (isExperimentFunnelMetric(metric)) {
             const lastStep = metric.series[metric.series.length - 1]
             return lastStep?.kind === NodeKind.ActionsNode ? 'actions' : 'events'
-        } else if (metric.metric_type === ExperimentMetricType.RATIO) {
+        } else if (isExperimentRatioMetric(metric)) {
             return 'events'
         }
         return 'events'
@@ -124,7 +123,12 @@ export function ExperimentMetricForm({
     }
 
     const handleMetricTypeChange = (newMetricType: ExperimentMetricType): void => {
-        handleSetMetric(getDefaultExperimentMetric(newMetricType))
+        handleSetMetric({
+            ...getDefaultExperimentMetric(newMetricType),
+            // Keep the current uuid and name
+            uuid: metric.uuid,
+            name: metric.name,
+        })
     }
 
     const radioOptions = [
@@ -140,16 +144,12 @@ export function ExperimentMetricForm({
             description:
                 'Calculates the value per user exposed to the experiment. Useful for measuring count of clicks, revenue or other numeric values.',
         },
-        ...(isRatioMetricEnabled
-            ? [
-                  {
-                      value: ExperimentMetricType.RATIO,
-                      label: 'Ratio',
-                      description:
-                          'Calculates the ratio between two metrics. Useful when you want to use a different denominator than users exposed to the experiment.',
-                  },
-              ]
-            : []),
+        {
+            value: ExperimentMetricType.RATIO,
+            label: 'Ratio',
+            description:
+                'Calculates the ratio between two metrics. Useful when you want to use a different denominator than users exposed to the experiment.',
+        },
     ]
 
     const metricFilter = getFilter(metric)
@@ -168,20 +168,20 @@ export function ExperimentMetricForm({
     const hideDeleteBtn = (_: any, index: number): boolean => index === 0
 
     return (
-        <div className="deprecated-space-y-4">
-            <div>
-                <LemonLabel className="mb-1">Type</LemonLabel>
-                <LemonRadio
-                    data-attr="metrics-selector"
-                    value={metric.metric_type}
-                    onChange={handleMetricTypeChange}
-                    options={radioOptions}
-                />
-            </div>
-            <div>
-                <LemonLabel className="mb-1">Metric</LemonLabel>
-
-                {metric.metric_type === ExperimentMetricType.MEAN && (
+        <SceneContent>
+            <SceneSection title="Shared metric type" className="max-w-prose">
+                <div>
+                    <LemonRadio
+                        data-attr="metrics-selector"
+                        value={metric.metric_type}
+                        onChange={handleMetricTypeChange}
+                        options={radioOptions}
+                    />
+                </div>
+            </SceneSection>
+            <SceneDivider />
+            <SceneSection title="Metric" className="max-w-prose">
+                {isExperimentMeanMetric(metric) && (
                     <>
                         <ActionFilter
                             bordered
@@ -198,7 +198,7 @@ export function ExperimentMetricForm({
                             dataWarehousePopoverFields={dataWarehousePopoverFields}
                             {...commonActionFilterProps}
                         />
-                        {isExperimentMeanMetric(metric) && metric.source.math === ExperimentMetricMathType.HogQL && (
+                        {metric.source.math === ExperimentMetricMathType.HogQL && (
                             <div className="text-muted text-sm mt-2">
                                 SQL expressions allow you to write custom computations and aggregations. The expression
                                 should return a numeric value and will be evaluated for each user in the experiment.{' '}
@@ -214,7 +214,7 @@ export function ExperimentMetricForm({
                     </>
                 )}
 
-                {metric.metric_type === ExperimentMetricType.FUNNEL && (
+                {isExperimentFunnelMetric(metric) && (
                     <ActionFilter
                         bordered
                         filters={metricFilter}
@@ -222,7 +222,7 @@ export function ExperimentMetricForm({
                         typeKey="experiment-metric"
                         buttonCopy="Add step"
                         showSeriesIndicator={false}
-                        hideRename={true}
+                        hideRename={false}
                         hideDeleteBtn={hideDeleteBtn}
                         sortable={true}
                         showNestedArrow={true}
@@ -237,26 +237,24 @@ export function ExperimentMetricForm({
                     />
                 )}
 
-                {metric.metric_type === ExperimentMetricType.RATIO && (
+                {isExperimentRatioMetric(metric) && (
                     <div className="space-y-4">
                         <div>
                             <LemonLabel className="mb-1">Numerator (what you're measuring)</LemonLabel>
                             <ActionFilter
                                 bordered
-                                filters={isExperimentRatioMetric(metric) ? createFilterForSource(metric.numerator) : {}}
+                                filters={createFilterForSource(metric.numerator)}
                                 setFilters={(filters) => {
-                                    if (isExperimentRatioMetric(metric)) {
-                                        const source = filterToMetricSource(
-                                            filters.actions,
-                                            filters.events,
-                                            filters.data_warehouse
-                                        )
-                                        if (source) {
-                                            handleSetMetric({
-                                                ...metric,
-                                                numerator: source,
-                                            })
-                                        }
+                                    const source = filterToMetricSource(
+                                        filters.actions,
+                                        filters.events,
+                                        filters.data_warehouse
+                                    )
+                                    if (source) {
+                                        handleSetMetric({
+                                            ...metric,
+                                            numerator: source,
+                                        })
                                     }
                                 }}
                                 typeKey="experiment-metric-numerator"
@@ -275,22 +273,18 @@ export function ExperimentMetricForm({
                             <LemonLabel className="mb-1">Denominator (what you're dividing by)</LemonLabel>
                             <ActionFilter
                                 bordered
-                                filters={
-                                    isExperimentRatioMetric(metric) ? createFilterForSource(metric.denominator) : {}
-                                }
+                                filters={createFilterForSource(metric.denominator)}
                                 setFilters={(filters) => {
-                                    if (isExperimentRatioMetric(metric)) {
-                                        const source = filterToMetricSource(
-                                            filters.actions,
-                                            filters.events,
-                                            filters.data_warehouse
-                                        )
-                                        if (source) {
-                                            handleSetMetric({
-                                                ...metric,
-                                                denominator: source,
-                                            })
-                                        }
+                                    const source = filterToMetricSource(
+                                        filters.actions,
+                                        filters.events,
+                                        filters.data_warehouse
+                                    )
+                                    if (source) {
+                                        handleSetMetric({
+                                            ...metric,
+                                            denominator: source,
+                                        })
                                     }
                                 }}
                                 typeKey="experiment-metric-denominator"
@@ -306,38 +300,60 @@ export function ExperimentMetricForm({
                         </div>
                     </div>
                 )}
-            </div>
+            </SceneSection>
+            <SceneDivider />
+            <SceneSection title="Goal" className="max-w-prose">
+                <div className="flex flex-col gap-1">
+                    <LemonSelect<ExperimentMetricGoal>
+                        value={metric.goal || ExperimentMetricGoal.Increase}
+                        onChange={(value) => handleSetMetric({ ...metric, goal: value })}
+                        options={[
+                            { value: ExperimentMetricGoal.Increase, label: 'Increase' },
+                            { value: ExperimentMetricGoal.Decrease, label: 'Decrease' },
+                        ]}
+                    />
+                    <div className="text-muted text-sm">
+                        For example, conversion rates should increase, while bounce rates should decrease.
+                    </div>
+                </div>
+            </SceneSection>
+            <SceneDivider />
             <ExperimentMetricConversionWindowFilter metric={metric} handleSetMetric={handleSetMetric} />
+            <SceneDivider />
             {isExperimentFunnelMetric(metric) && (
-                <ExperimentMetricFunnelOrderSelector metric={metric} handleSetMetric={handleSetMetric} />
+                <>
+                    <ExperimentMetricFunnelOrderSelector metric={metric} handleSetMetric={handleSetMetric} />
+                    <SceneDivider />
+                </>
             )}
             {isExperimentMeanMetric(metric) && (
-                <ExperimentMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
+                <>
+                    <ExperimentMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
+                    <SceneDivider />
+                </>
             )}
-            <div>
-                <LemonLabel
-                    className="mb-1"
-                    info={
-                        <div className="flex flex-col gap-2">
-                            <div>This shows recent activity for your selected metric over the past 2 weeks.</div>
-                            <div>
-                                It's a quick health check to ensure your tracking is working properly, so that you'll
-                                receive accurate results when your experiment starts.
-                            </div>
-                            <div>
-                                If you see zero activity, double-check that this metric is being tracked properly in
-                                your application. Head to{' '}
-                                <Link target="_blank" className="font-semibold" to={urls.insightNew()}>
-                                    Product analytics
-                                    <IconOpenInNew fontSize="18" />
-                                </Link>{' '}
-                                to do a detailed analysis of the events received so far.
-                            </div>
+            <SceneSection
+                title="Recent activity"
+                className="max-w-prose"
+                titleHelper={
+                    <div className="flex flex-col gap-2">
+                        <div>This shows recent activity for your selected metric over the past 2 weeks.</div>
+                        <div>
+                            It's a quick health check to ensure your tracking is working properly, so that you'll
+                            receive accurate results when your experiment starts.
                         </div>
-                    }
-                >
-                    Recent activity
-                </LemonLabel>
+                        <div>
+                            If you see zero activity, double-check that this metric is being tracked properly in your
+                            application. Head to{' '}
+                            <Link target="_blank" className="font-semibold" to={urls.insightNew()}>
+                                Product analytics
+                                <IconOpenInNew fontSize="18" />
+                            </Link>{' '}
+                            to do a detailed analysis of the events received so far.
+                        </div>
+                    </div>
+                }
+            >
                 <div className="border rounded p-4 bg-bg-light">
                     {isLoading ? (
                         <div className="flex items-center gap-2">
@@ -357,7 +373,7 @@ export function ExperimentMetricForm({
                         </div>
                     )}
                 </div>
-            </div>
-        </div>
+            </SceneSection>
+        </SceneContent>
     )
 }

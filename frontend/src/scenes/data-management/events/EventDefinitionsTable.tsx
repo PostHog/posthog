@@ -7,7 +7,6 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EVENT_DEFINITIONS_PER_PAGE } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -19,7 +18,9 @@ import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventD
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 
-import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { EventDefinition, EventDefinitionType, FilterLogicalOperator, ReplayTabs } from '~/types'
 
 const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
@@ -40,7 +41,6 @@ export function EventDefinitionsTable(): JSX.Element {
     const { eventDefinitions, eventDefinitionsLoading, filters } = useValues(eventDefinitionsTableLogic)
     const { loadEventDefinitions, setFilters } = useActions(eventDefinitionsTableLogic)
     const { hasTagging } = useValues(organizationLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const columns: LemonTableColumns<EventDefinition> = [
         {
@@ -133,12 +133,11 @@ export function EventDefinitionsTable(): JSX.Element {
                 description="Event definitions are a way to define events that can be used in your app or website."
                 resourceType={{
                     type: 'event',
-                    typePlural: 'events',
                     forceIcon: <IconApps />,
                 }}
             />
             <SceneDivider />
-            <LemonBanner className={cn(!newSceneLayout && 'mb-4')} type="info">
+            <LemonBanner type="info">
                 Looking for{' '}
                 {filters.event_type === 'event_custom'
                     ? 'custom '
@@ -166,7 +165,7 @@ export function EventDefinitionsTable(): JSX.Element {
                 </Link>
             </LemonBanner>
 
-            <div className={cn('flex justify-between items-center gap-2', !newSceneLayout && 'mb-4')}>
+            <div className={cn('flex justify-between items-center gap-2')}>
                 <LemonInput
                     type="search"
                     placeholder="Search for events"

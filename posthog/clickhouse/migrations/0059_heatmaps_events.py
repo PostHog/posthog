@@ -1,9 +1,9 @@
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.heatmaps.sql import (
-    HEATMAPS_TABLE_MV_SQL,
-    KAFKA_HEATMAPS_TABLE_SQL,
-    HEATMAPS_TABLE_SQL,
     DISTRIBUTED_HEATMAPS_TABLE_SQL,
+    HEATMAPS_TABLE_MV_SQL,
+    HEATMAPS_TABLE_SQL,
+    KAFKA_HEATMAPS_TABLE_SQL,
     WRITABLE_HEATMAPS_TABLE_SQL,
 )
 

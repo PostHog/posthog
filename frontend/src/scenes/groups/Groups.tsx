@@ -15,7 +15,9 @@ import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsMan
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { SceneContent, SceneDivider, SceneTitleSection } from '~/layout/scenes/SceneContent'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { groupsModel } from '~/models/groupsModel'
 import { Query } from '~/queries/Query/Query'
 import { QueryContext } from '~/queries/types'
@@ -53,7 +55,6 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
                     description="Associate events with a group or entity - such as a company, community, or project. Analyze these events as if they were sent by that entity itself. Great for B2B, marketplaces, and more."
                     resourceType={{
                         type: groupTypeName,
-                        typePlural: groupTypeNamePlural,
                         forceIcon: <IconPeople />,
                     }}
                 />
@@ -93,7 +94,6 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
                 description={`A catalog of all ${groupTypeNamePlural} for this project`}
                 resourceType={{
                     type: groupTypeName,
-                    typePlural: groupTypeNamePlural,
                     forceIcon: <IconPeople />,
                 }}
             />

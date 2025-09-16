@@ -1,8 +1,10 @@
 from typing import cast
+
 from posthog.schema import (
     ExternalDataSourceType as SchemaExternalDataSourceType,
     SourceConfig,
 )
+
 from posthog.temporal.data_imports.sources.common.base import BaseSource, FieldType
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.generated_configs import RedshiftSourceConfig
@@ -21,6 +23,7 @@ class RedshiftSource(BaseSource[RedshiftSourceConfig]):
             name=SchemaExternalDataSourceType.REDSHIFT,
             label="Redshift",
             caption="",
+            iconPath="/static/services/redshift.png",
             fields=cast(list[FieldType], []),
             unreleasedSource=True,
         )

@@ -1,4 +1,5 @@
 from django.urls import path, re_path
+
 from posthog.api import oauth
 from posthog.utils import opt_slash_path
 

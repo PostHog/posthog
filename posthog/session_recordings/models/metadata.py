@@ -1,6 +1,6 @@
 import dataclasses
 from datetime import datetime
-from typing import Optional, TypedDict, Union, Literal
+from typing import Literal, Optional, TypedDict, Union
 
 SnapshotData = dict
 WindowId = Optional[str]
@@ -67,6 +67,7 @@ class RecordingMetadata(TypedDict):
     block_first_timestamps: list[datetime]
     block_last_timestamps: list[datetime]
     block_urls: list[str]
+    retention_period_days: Optional[int]
 
 
 class RecordingMatchingEvents(TypedDict):
