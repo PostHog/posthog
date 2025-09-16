@@ -110,6 +110,10 @@ class ObjectStorage(ObjectStorageClient):
     def __init__(self, aws_client) -> None:
         self.aws_client = aws_client
 
+        # Ensure bucket exists in test/debug environments
+        if settings.TEST or settings.DEBUG:
+            self._ensure_bucket_exists(settings.OBJECT_STORAGE_BUCKET)
+
     def head_bucket(self, bucket: str) -> bool:
         try:
             return bool(self.aws_client.head_bucket(Bucket=bucket))
@@ -250,6 +254,16 @@ class ObjectStorage(ObjectStorageClient):
             capture_exception(e)
             raise ObjectStorageError("delete failed") from e
 
+    def _ensure_bucket_exists(self, bucket_name: str) -> None:
+        """Ensure the bucket exists, creating it if necessary. Used in test/debug environments."""
+        try:
+            if not self.head_bucket(bucket_name):
+                self.aws_client.create_bucket(Bucket=bucket_name)
+                logger.info("object_storage.bucket_created", bucket=bucket_name)
+        except Exception as e:
+            # Log but don't fail - bucket might exist but head_bucket failed for other reasons
+            logger.info("object_storage.bucket_creation_attempted", bucket=bucket_name, error=str(e))
+
 
 _client: ObjectStorageClient = UnavailableStorage()
 
@@ -275,22 +289,7 @@ def object_storage_client() -> ObjectStorageClient:
 
         _client = ObjectStorage(aws_client)
 
-        # Ensure bucket exists in test/debug environments
-        if settings.TEST or settings.DEBUG:
-            _ensure_bucket_exists(_client, settings.OBJECT_STORAGE_BUCKET)
-
     return _client
-
-
-def _ensure_bucket_exists(client: ObjectStorage, bucket_name: str) -> None:
-    """Ensure the bucket exists, creating it if necessary. Used in test/debug environments."""
-    try:
-        if not client.head_bucket(bucket_name):
-            client.aws_client.create_bucket(Bucket=bucket_name)
-            logger.info("object_storage.bucket_created", bucket=bucket_name)
-    except Exception as e:
-        # Log but don't fail - bucket might exist but head_bucket failed for other reasons
-        logger.info("object_storage.bucket_creation_attempted", bucket=bucket_name, error=str(e))
 
 
 def write(file_name: str, content: Union[str, bytes], extras: dict | None = None, bucket: str | None = None) -> None:
