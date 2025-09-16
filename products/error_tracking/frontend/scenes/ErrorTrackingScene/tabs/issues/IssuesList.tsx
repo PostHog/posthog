@@ -2,17 +2,26 @@ import { BindLogic, useValues } from 'kea'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { humanFriendlyLargeNumber } from 'lib/utils'
+import { currencyFormatter } from 'scenes/billing/billing-utils'
+import { urls } from 'scenes/urls'
 
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { Query } from '~/queries/Query/Query'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
-import { QueryContext, QueryContextColumnComponent, QueryContextColumnTitleComponent } from '~/queries/types'
+import {
+    QueryContext,
+    QueryContextColumn,
+    QueryContextColumnComponent,
+    QueryContextColumnTitleComponent,
+} from '~/queries/types'
 import { InsightLogicProps } from '~/types'
 
 import { IssueActions } from 'products/error_tracking/frontend/components/IssueActions/IssueActions'
 import { IssueQueryOptions } from 'products/error_tracking/frontend/components/IssueQueryOptions/IssueQueryOptions'
+import { issueQueryOptionsLogic } from 'products/error_tracking/frontend/components/IssueQueryOptions/issueQueryOptionsLogic'
 import { OccurrenceSparkline } from 'products/error_tracking/frontend/components/OccurrenceSparkline'
 import { IssueListTitleColumn, IssueListTitleHeader } from 'products/error_tracking/frontend/components/TableColumns'
 import { useSparklineData } from 'products/error_tracking/frontend/hooks/use-sparkline-data'
@@ -21,24 +30,32 @@ import { issuesDataNodeLogic } from 'products/error_tracking/frontend/logics/iss
 import { errorTrackingSceneLogic } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/errorTrackingSceneLogic'
 import { ERROR_TRACKING_LISTING_RESOLUTION } from 'products/error_tracking/frontend/utils'
 
+const insightProps: InsightLogicProps = {
+    dashboardItemId: 'new-ErrorTrackingQuery',
+}
+
 export function IssuesList(): JSX.Element {
-    const insightProps: InsightLogicProps = {
-        dashboardItemId: 'new-ErrorTrackingQuery',
+    const { orderBy } = useValues(issueQueryOptionsLogic)
+    const { query } = useValues(errorTrackingSceneLogic)
+
+    const columns: Record<string, QueryContextColumn> = {
+        error: {
+            width: '50%',
+            render: TitleColumn,
+            renderTitle: TitleHeader,
+        },
+        occurrences: { align: 'center', render: CountColumn },
+        sessions: { align: 'center', render: CountColumn },
+        users: { align: 'center', render: CountColumn },
+        volume: { align: 'right', renderTitle: VolumeColumnHeader, render: VolumeColumn },
     }
 
-    const { query } = useValues(errorTrackingSceneLogic)
+    if (orderBy === 'revenue') {
+        columns['revenue'] = { align: 'center', render: CurrencyColumn }
+    }
+
     const context: QueryContext = {
-        columns: {
-            error: {
-                width: '50%',
-                render: TitleColumn,
-                renderTitle: TitleHeader,
-            },
-            occurrences: { align: 'center', render: CountColumn },
-            sessions: { align: 'center', render: CountColumn },
-            users: { align: 'center', render: CountColumn },
-            volume: { align: 'right', renderTitle: VolumeColumnHeader, render: VolumeColumn },
-        },
+        columns: columns,
         showOpenEditorButton: false,
         insightProps: insightProps,
         emptyStateHeading: 'No issues found',
@@ -78,6 +95,7 @@ const VolumeColumnHeader: QueryContextColumnTitleComponent = ({ columnName }) =>
 
 const TitleHeader: QueryContextColumnTitleComponent = (): JSX.Element => {
     const { results } = useValues(issuesDataNodeLogic)
+
     return <IssueListTitleHeader results={results} />
 }
 
@@ -102,6 +120,12 @@ const CountColumn = ({ record, columnName }: { record: unknown; columnName: stri
             )}
         </span>
     )
+}
+
+const CurrencyColumn = ({ record }: { record: unknown }): JSX.Element => {
+    const revenue = (record as ErrorTrackingIssue).revenue!
+
+    return <LemonTableLink to={urls.revenueAnalytics()} title={currencyFormatter(revenue)} />
 }
 
 const ListOptions = (): JSX.Element => {

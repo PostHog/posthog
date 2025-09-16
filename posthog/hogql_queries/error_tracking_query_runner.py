@@ -17,7 +17,6 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_select
 
 from posthog.api.error_tracking import ErrorTrackingIssueSerializer
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
@@ -96,8 +95,24 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         )
 
     def from_expr(self):
-        # for the second iteration of this query, we just need to select from the events table
-        return parse_select("SELECT 1 FROM events").select_from  # type: ignore
+        expr = ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e")
+
+        if self.query.orderBy == "revenue":
+            expr.next_join = ast.JoinExpr(
+                table=ast.Field(chain=["groups_revenue_analytics"]),
+                join_type="INNER JOIN",
+                alias="r",
+                constraint=ast.JoinConstraint(
+                    constraint_type="ON",
+                    expr=ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Field(chain=["e", f"${self.query.revenueEntity}"]),
+                        right=ast.Field(chain=["r", "group_key"]),
+                    ),
+                ),
+            )
+
+        return expr
 
     def select(self):
         # First, the easy groups - distinct uuid as occurrances, etc
@@ -177,6 +192,19 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                             ast.Field(chain=["timestamp"]),
                         ],
                     ),
+                )
+            )
+
+        if self.query.orderBy == "revenue":
+            exprs.append(
+                ast.Call(
+                    name="sum",
+                    args=[
+                        ast.Call(
+                            name="uniqExactCombined",
+                            args=[ast.Field(chain=["person_id"]), ast.Field(chain=["revenue"])],
+                        )
+                    ],
                 )
             )
 
@@ -523,22 +551,18 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
 
     @property
     def order_by(self):
-        return (
-            [
-                ast.OrderExpr(
-                    expr=ast.Field(chain=[self.query.orderBy]),
-                    order=(
-                        self.query.orderDirection.value
-                        if self.query.orderDirection
-                        else "ASC"
-                        if self.query.orderBy == "first_seen"
-                        else "DESC"
-                    ),
-                )
-            ]
-            if self.query.orderBy
-            else None
-        )
+        return [
+            ast.OrderExpr(
+                expr=ast.Field(chain=[self.query.orderBy]),
+                order=(
+                    self.query.orderDirection.value
+                    if self.query.orderDirection
+                    else "ASC"
+                    if self.query.orderBy == "first_seen"
+                    else "DESC"
+                ),
+            )
+        ]
 
     def error_tracking_issues(self, ids):
         status = self.query.status

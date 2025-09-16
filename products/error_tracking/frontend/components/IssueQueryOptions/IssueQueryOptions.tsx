@@ -1,14 +1,40 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonSelect, Spinner } from '@posthog/lemon-ui'
+
+import { capitalizeFirstLetter } from 'lib/utils'
+import { urls } from 'scenes/urls'
+
+import { groupsModel } from '~/models/groupsModel'
+
+import { revenueAnalyticsLogic } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
 
 import { issuesDataNodeLogic } from '../../logics/issuesDataNodeLogic'
-import { issueQueryOptionsLogic } from './issueQueryOptionsLogic'
+import { ErrorTrackingQueryRevenueEntity, issueQueryOptionsLogic } from './issueQueryOptionsLogic'
+
+const labels = {
+    last_seen: 'Last seen',
+    first_seen: 'First seen',
+    occurrences: 'Occurrences',
+    users: 'Users',
+    sessions: 'Sessions',
+    revenue: 'Revenue',
+}
 
 export const IssueQueryOptions = (): JSX.Element => {
-    const { orderBy, orderDirection } = useValues(issueQueryOptionsLogic)
-    const { setOrderBy, setOrderDirection } = useActions(issueQueryOptionsLogic)
+    const { groupTypesRaw } = useValues(groupsModel)
+    const { orderBy, orderDirection, revenuePeriod } = useValues(issueQueryOptionsLogic)
+    const { setOrderBy, setRevenueEntity, setOrderDirection, setRevenuePeriod } = useActions(issueQueryOptionsLogic)
+    const { hasRevenueTables, hasRevenueEvents } = useValues(revenueAnalyticsLogic)
+
+    const hasRevenueAnalytics = hasRevenueTables || hasRevenueEvents
+
+    const onSelectRevenueEntity = (entity: ErrorTrackingQueryRevenueEntity): void => {
+        setOrderBy('revenue')
+        setRevenueEntity(entity)
+    }
 
     return (
         <span className="flex items-center justify-between gap-2 self-end">
@@ -16,48 +42,87 @@ export const IssueQueryOptions = (): JSX.Element => {
             <div className="flex items-center gap-2 self-end">
                 <div className="flex items-center gap-1">
                     <span>Sort by:</span>
-                    <LemonSelect
-                        onChange={setOrderBy}
-                        value={orderBy}
-                        options={[
+
+                    <LemonMenu
+                        items={[
                             {
-                                value: 'last_seen',
-                                label: 'Last seen',
+                                label: labels['last_seen'],
+                                onClick: () => setOrderBy('last_seen'),
                             },
                             {
-                                value: 'first_seen',
-                                label: 'First seen',
+                                label: labels['first_seen'],
+                                onClick: () => setOrderBy('first_seen'),
                             },
                             {
-                                value: 'occurrences',
-                                label: 'Occurrences',
+                                label: labels['occurrences'],
+                                onClick: () => setOrderBy('occurrences'),
                             },
                             {
-                                value: 'users',
-                                label: 'Users',
+                                label: labels['users'],
+                                onClick: () => setOrderBy('users'),
                             },
                             {
-                                value: 'sessions',
-                                label: 'Sessions',
+                                label: labels['sessions'],
+                                onClick: () => setOrderBy('sessions'),
+                            },
+                            {
+                                label: 'Revenue',
+                                ...(hasRevenueAnalytics
+                                    ? { onClick: () => router.actions.push(urls.revenueSettings()) }
+                                    : {
+                                          placement: 'right-start',
+                                          items: [
+                                              {
+                                                  label: 'Persons',
+                                                  onClick: () => onSelectRevenueEntity('person'),
+                                              },
+                                              ...groupTypesRaw.map(({ group_type, group_type_index }) => ({
+                                                  label: capitalizeFirstLetter(group_type),
+                                                  onClick: () => onSelectRevenueEntity(`group_${group_type_index}`),
+                                              })),
+                                          ],
+                                      }),
                             },
                         ]}
-                        size="small"
-                    />
-                    <LemonSelect
-                        onChange={setOrderDirection}
-                        value={orderDirection}
-                        options={[
-                            {
-                                value: 'DESC',
-                                label: 'Descending',
-                            },
-                            {
-                                value: 'ASC',
-                                label: 'Ascending',
-                            },
-                        ]}
-                        size="small"
-                    />
+                    >
+                        <LemonButton size="small" type="secondary">
+                            {labels[orderBy]}
+                        </LemonButton>
+                    </LemonMenu>
+
+                    {orderBy === 'revenue' ? (
+                        <LemonSelect
+                            onChange={setRevenuePeriod}
+                            value={revenuePeriod}
+                            options={[
+                                {
+                                    value: 'last_30_days',
+                                    label: 'Last 30 days',
+                                },
+                                {
+                                    value: 'all_time',
+                                    label: 'All time',
+                                },
+                            ]}
+                            size="small"
+                        />
+                    ) : (
+                        <LemonSelect
+                            onChange={setOrderDirection}
+                            value={orderDirection}
+                            options={[
+                                {
+                                    value: 'DESC',
+                                    label: 'Descending',
+                                },
+                                {
+                                    value: 'ASC',
+                                    label: 'Ascending',
+                                },
+                            ]}
+                            size="small"
+                        />
+                    )}
                 </div>
             </div>
         </span>

@@ -141,7 +141,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         filterTestAccounts=False,
         searchQuery=None,
         filterGroup=None,
-        orderBy=None,
+        orderBy="last_seen",
         status=None,
         volumeResolution=1,
         withAggregations=False,
@@ -441,10 +441,10 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([r["id"] for r in results], [self.issue_id_one])
 
         results = self._calculate()["results"]
-        self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_one, self.issue_id_two])
+        self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_two, self.issue_id_one])
 
         results = self._calculate(status="all")["results"]
-        self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_one, self.issue_id_two])
+        self.assertEqual([r["id"] for r in results], [self.issue_id_three, self.issue_id_two, self.issue_id_one])
 
     @freeze_time("2022-01-10T12:11:00")
     @snapshot_clickhouse_queries
