@@ -7,18 +7,11 @@ import { DataDrivenStepBar } from './DataDrivenStepBar'
 interface DataDrivenStepBarsProps {
     step: FunnelStepWithConversionMetrics
     stepIndex: number
-    showPersonsModal: boolean
 }
 
-export function DataDrivenStepBars({ step, stepIndex, showPersonsModal }: DataDrivenStepBarsProps): JSX.Element {
-    // For simplicity, we'll assume isOptional is always false
-    const isOptional = false
-
+export function DataDrivenStepBars({ step, stepIndex }: DataDrivenStepBarsProps): JSX.Element {
     return (
-        <div
-            className={clsx('StepBars', stepIndex === 0 && 'StepBars--first')}
-            style={{ opacity: isOptional ? 0.6 : 1 }}
-        >
+        <div className={clsx('StepBars', stepIndex === 0 && 'StepBars--first')}>
             <div className="StepBars__grid">
                 {Array(5)
                     .fill(null)
@@ -35,16 +28,8 @@ export function DataDrivenStepBars({ step, stepIndex, showPersonsModal }: DataDr
                     step={step}
                     stepIndex={stepIndex}
                     series={series}
-                    showPersonsModal={showPersonsModal}
                 />
-            )) || (
-                <DataDrivenStepBar
-                    step={step}
-                    stepIndex={stepIndex}
-                    series={step}
-                    showPersonsModal={showPersonsModal}
-                />
-            )}
+            )) || <DataDrivenStepBar step={step} stepIndex={stepIndex} series={step} />}
         </div>
     )
 }

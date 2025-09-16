@@ -12,11 +12,9 @@ interface DataDrivenStepLegendProps {
     step: FunnelStepWithConversionMetrics
     stepIndex: number
     showTime: boolean
-    showPersonsModal: boolean
 }
 
 export function DataDrivenStepLegend({ step, stepIndex, showTime }: DataDrivenStepLegendProps): JSX.Element {
-    const isOptional = false // For simplicity
     const aggregationTargetLabel = { singular: 'user', plural: 'users' }
 
     const convertedCountPresentation = pluralize(
@@ -44,10 +42,9 @@ export function DataDrivenStepLegend({ step, stepIndex, showTime }: DataDrivenSt
     )
 
     return (
-        <div className="StepLegend" style={{ opacity: isOptional ? 0.6 : 1 }}>
+        <div className="StepLegend">
             <LemonRow icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}>
                 <span title={step.name}>{step.custom_name || step.name}</span>
-                {isOptional ? <div className="ml-1 text-xs font-normal">(optional)</div> : null}
             </LemonRow>
             <LemonRow icon={<IconTrendingFlat />} status="success" style={{ color: 'unset' }}>
                 <Tooltip

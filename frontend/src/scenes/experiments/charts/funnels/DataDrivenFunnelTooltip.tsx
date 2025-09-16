@@ -20,7 +20,6 @@ export interface FunnelTooltipData {
 }
 
 interface FunnelTooltipProps {
-    showPersonsModal: boolean
     stepIndex: number
     series: FunnelStepWithConversionMetrics
     embedded?: boolean
@@ -87,7 +86,7 @@ function DataDrivenFunnelTooltipContent({ stepIndex, series, embedded = false }:
     )
 }
 
-export function useDataDrivenFunnelTooltip(showPersonsModal: boolean): {
+export function useDataDrivenFunnelTooltip(): {
     vizRef: React.RefObject<HTMLDivElement>
     showTooltip: (rect: [number, number, number], stepIndex: number, series: FunnelStepWithConversionMetrics) => void
     hideTooltip: () => void
@@ -123,11 +122,7 @@ export function useDataDrivenFunnelTooltip(showPersonsModal: boolean): {
 
         if (tooltipOrigin && currentTooltip) {
             tooltipRoot.render(
-                <DataDrivenFunnelTooltipContent
-                    showPersonsModal={showPersonsModal}
-                    stepIndex={currentTooltip.stepIndex}
-                    series={currentTooltip.series}
-                />
+                <DataDrivenFunnelTooltipContent stepIndex={currentTooltip.stepIndex} series={currentTooltip.series} />
             )
 
             // Put the tooltip to the bottom right of the cursor, but flip to left if tooltip doesn't fit
@@ -148,7 +143,7 @@ export function useDataDrivenFunnelTooltip(showPersonsModal: boolean): {
             tooltipEl.style.left = 'revert'
             tooltipEl.style.top = 'revert'
         }
-    }, [isTooltipShown, tooltipOrigin, currentTooltip, showPersonsModal]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [isTooltipShown, tooltipOrigin, currentTooltip]) // eslint-disable-line react-hooks/exhaustive-deps
 
     return { vizRef, showTooltip, hideTooltip }
 }

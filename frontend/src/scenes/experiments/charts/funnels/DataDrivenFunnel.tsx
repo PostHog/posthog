@@ -79,7 +79,6 @@ export function DataDrivenFunnel({
     inCardView = false,
     ...chartParams
 }: DataDrivenFunnelProps): JSX.Element {
-    // Process the raw data into the format needed by visualization components
     const processedData = useMemo(() => {
         const options: FunnelDataProcessingOptions = {
             stepReference,
@@ -90,12 +89,10 @@ export function DataDrivenFunnel({
         return processFunnelData(steps, options)
     }, [steps, stepReference, layout, disableBaseline, hiddenLegendBreakdowns])
 
-    // Process time conversion data if provided
     const histogramData = useMemo(() => {
         return timeConversionData ? processTimeConversionData(timeConversionData) : null
     }, [timeConversionData])
 
-    // Create the context value
     const contextValue: FunnelDataContext = useMemo(
         () => ({
             visibleStepsWithConversionMetrics: processedData.visibleStepsWithConversionMetrics,
