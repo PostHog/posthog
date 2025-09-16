@@ -24,6 +24,7 @@ from ee.hogai.graph.dashboards.types import (
     PartialDashboardInsightCreationTaskExecutionState,
     PartialDashboardInsightSearchTaskExecutionState,
 )
+from ee.hogai.utils.helpers import build_dashboard_url, build_insight_url
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import (
     InsightCreationArtifact,
@@ -307,14 +308,14 @@ class TestDashboardCreationNode(TestCase):
     def test_build_insight_url(self):
         """Test _build_insight_url creates correct URL."""
         insight_id = "test_insight_id"
-        url = self.node._build_insight_url(insight_id)
+        url = build_insight_url(self.mock_team, insight_id)
         expected_url = f"/project/{self.mock_team.id}/insights/{insight_id}"
         self.assertEqual(url, expected_url)
 
     def test_build_dashboard_url(self):
         """Test _build_dashboard_url creates correct URL."""
         dashboard_id = 123
-        url = self.node._build_dashboard_url(dashboard_id)
+        url = build_dashboard_url(self.mock_team, dashboard_id)
         expected_url = f"/project/{self.mock_team.id}/dashboard/{dashboard_id}"
         self.assertEqual(url, expected_url)
 

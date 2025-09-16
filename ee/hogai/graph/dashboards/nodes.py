@@ -2,6 +2,8 @@ import uuid
 from typing import Any, Literal, Union
 from uuid import uuid4
 
+from django.db import transaction
+
 import structlog
 from langchain_core.messages import AIMessageChunk, HumanMessage, SystemMessage
 from langchain_core.runnables import RunnableConfig
@@ -33,7 +35,7 @@ from ee.hogai.graph.dashboards.types import (
 from ee.hogai.graph.insights.nodes import InsightSearchNode
 from ee.hogai.graph.task_executor.base import GenericTaskExecutorNode, TaskExecutorTool
 from ee.hogai.graph.task_executor.tools import NodeTaskExecutorTool, SubgraphTaskExecutorTool
-from ee.hogai.utils.helpers import cast_assistant_query
+from ee.hogai.utils.helpers import build_dashboard_url, build_insight_url, cast_assistant_query
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import InsightCreationTaskExecutionResult, InsightQuery, InsightSearchTaskExecutionResult
 
@@ -291,14 +293,6 @@ class DashboardCreationNode(AssistantNode):
             )
             return self._create_error_response(DASHBOARD_CREATION_ERROR_MESSAGE, state.root_tool_call_id or "unknown")
 
-    def _build_insight_url(self, id: str) -> str:
-        """Build the URL for an insight."""
-        return f"/project/{self._team.id}/insights/{id}"
-
-    def _build_dashboard_url(self, id: int) -> str:
-        """Build the URL for a dashboard."""
-        return f"/project/{self._team.id}/dashboard/{id}"
-
     async def _create_insights(
         self,
         left_to_create: dict[str, InsightQuery],
@@ -387,6 +381,7 @@ class DashboardCreationNode(AssistantNode):
         return queries_metadata
 
     @database_sync_to_async
+    @transaction.atomic
     def _save_insights(
         self, task_results: list[InsightCreationTaskExecutionResult], query_metadata: dict[str, QueryMetadata]
     ) -> dict[str, set[int]]:
@@ -459,6 +454,7 @@ class DashboardCreationNode(AssistantNode):
         self._stream_reasoning(progress_message="Saving your dashboard", writer=self._get_stream_writer())
 
         @database_sync_to_async
+        @transaction.atomic
         def create_dashboard_sync():
             all_insights: list[Insight] = []
             # Create the dashboard
@@ -469,14 +465,17 @@ class DashboardCreationNode(AssistantNode):
             )
 
             # Add insights to the dashboard via DashboardTile
-            for insight_id in insights:
-                insight = Insight.objects.get(id=insight_id, team=self._team)
-                DashboardTile.objects.create(
+            all_insights = list(Insight.objects.filter(id__in=insights, team=self._team))
+
+            tiles_to_create = [
+                DashboardTile(
                     dashboard=dashboard,
                     insight_id=insight_id,
                     layouts={},  # Default layout
                 )
-                all_insights.append(insight)
+                for insight_id in insights
+            ]
+            DashboardTile.objects.bulk_create(tiles_to_create)
 
             return dashboard, all_insights
 
@@ -494,7 +493,7 @@ class DashboardCreationNode(AssistantNode):
         insight_plural = "" if insight_count == 1 else "s"
 
         insights_list = "\n".join(
-            [f"[{insight.name}]({self._build_insight_url(insight.short_id)})" for insight in insights]
+            [f"[{insight.name}]({build_insight_url(self._team, insight.short_id)})" for insight in insights]
         )
 
         success_message = DASHBOARD_SUCCESS_MESSAGE_TEMPLATE.format(
@@ -502,7 +501,7 @@ class DashboardCreationNode(AssistantNode):
             insight_count=insight_count,
             insight_plural=insight_plural,
             insights_list=insights_list,
-            dashboard_url=self._build_dashboard_url(dashboard.id),
+            dashboard_url=build_dashboard_url(self._team, dashboard.id),
         )
 
         if queries_without_insights:

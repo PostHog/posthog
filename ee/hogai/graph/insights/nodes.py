@@ -26,6 +26,7 @@ from posthog.models import Insight
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
 from ee.hogai.graph.root.nodes import MAX_SUPPORTED_QUERY_KIND_TO_MODEL
+from ee.hogai.utils.helpers import build_insight_url
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 
 from .prompts import (
@@ -198,7 +199,7 @@ class InsightSearchNode(AssistantNode):
             self._evaluation_selections[insight_id] = {"insight": insight, "explanation": explanation}
 
             name = insight["name"] or insight["derived_name"] or "Unnamed"
-            insight_url = self._build_insight_url(insight)
+            insight_url = build_insight_url(self._team, insight["short_id"])
             return f"Selected insight {insight_id}: {name} (url: {insight_url})"
 
         @tool
@@ -331,10 +332,6 @@ class InsightSearchNode(AssistantNode):
         description = insight["description"] or ""
         base = f"ID: {insight['id']} | {name}"
         return f"{base} - {description}" if description else base
-
-    def _build_insight_url(self, insight: InsightDict) -> str:
-        """Build the URL for an insight."""
-        return f"/project/{self._team.id}/insights/{insight['short_id']}"
 
     @timing_logger("InsightSearchNode._load_insights_page")
     async def _load_insights_page(self, page_number: int) -> list[InsightDict]:
@@ -677,7 +674,7 @@ class InsightSearchNode(AssistantNode):
             except Exception as e:
                 capture_exception(e)
 
-        insight_url = self._build_insight_url(insight)
+        insight_url = build_insight_url(self._team, insight["short_id"])
         hyperlink_format = f"[{name}]({insight_url})"
 
         summary_parts = [
@@ -906,7 +903,7 @@ class InsightSearchNode(AssistantNode):
                 visualization_messages.append(visualization_message)
 
             insight_name = insight["name"] or insight["derived_name"] or "Unnamed"
-            insight_url = self._build_insight_url(insight)
+            insight_url = build_insight_url(self._team, insight["short_id"])
             insight_hyperlink = f"[{insight_name}]({insight_url})"
             explanations.append(f"- {insight_hyperlink}: {selection['explanation']}")
 

@@ -222,15 +222,13 @@ class NodeTaskExecutorTool(TaskExecutorTool[InsightSearchTaskExecutionResult]):
                 logger.warning("Task failed: no artifacts extracted", task_id=task.id)
                 return self._failed_result(task)
 
-            final_result = await self._generate_final_result(task, task_result, config)
-
             if self._task_progress_callback:
                 self._task_progress_callback(task.id, None)
 
             return InsightSearchTaskExecutionResult(
                 id=task.id,
                 description=task.description,
-                result=final_result,
+                result=task_result,
                 artifacts=extracted_artifacts,
                 status=TaskExecutionStatus.COMPLETED,
             )

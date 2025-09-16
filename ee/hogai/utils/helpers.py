@@ -244,3 +244,13 @@ def cast_assistant_query(
         return HogQLQuery(**query.model_dump())
     else:
         raise ValueError(f"Unsupported query type: {query.kind}")
+
+
+def build_insight_url(team: Team, id: str) -> str:
+    """Build the URL for an insight."""
+    return f"/project/{team.id}/insights/{id}"
+
+
+def build_dashboard_url(team: Team, id: int) -> str:
+    """Build the URL for a dashboard."""
+    return f"/project/{team.id}/dashboard/{id}"
