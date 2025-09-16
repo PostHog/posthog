@@ -11,10 +11,10 @@ interface DataDrivenStepBarsProps {
     showPersonsModal: boolean
 }
 
-export function DataDrivenStepBars({ 
-    step, 
-    stepIndex, 
-    showPersonsModal 
+export function DataDrivenStepBars({
+    step,
+    stepIndex,
+    showPersonsModal: _showPersonsModal
 }: DataDrivenStepBarsProps): JSX.Element {
     const { visibleStepsWithConversionMetrics } = useFunnelData()
 

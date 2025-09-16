@@ -1,7 +1,6 @@
 import { FunnelLayout } from 'lib/constants'
 
 import { FunnelStepReference, FunnelVizType } from '~/types'
-import { EntityType } from '~/types'
 
 import { DataDrivenFunnel } from './DataDrivenFunnel'
 
@@ -18,9 +17,11 @@ export function DataDrivenFunnelExample(): JSX.Element {
             custom_name: null,
             order: 0,
             count: 1000,
-            type: EntityType.EVENTS,
+            type: 'events' as const,
             average_conversion_time: null,
             median_conversion_time: null,
+            converted_people_url: '',
+            dropped_people_url: null,
             // No breakdown for this example
         },
         {
@@ -29,9 +30,11 @@ export function DataDrivenFunnelExample(): JSX.Element {
             custom_name: null,
             order: 1,
             count: 650,
-            type: EntityType.EVENTS,
+            type: 'events' as const,
             average_conversion_time: 120, // 2 minutes
             median_conversion_time: 90,
+            converted_people_url: '',
+            dropped_people_url: null,
             // Example with breakdown by source
             nested_breakdown: [
                 {
@@ -39,9 +42,11 @@ export function DataDrivenFunnelExample(): JSX.Element {
                     name: 'Signed Up',
                     order: 1,
                     count: 400,
-                    type: EntityType.EVENTS,
+                    type: 'events' as const,
                     average_conversion_time: 110,
                     median_conversion_time: 85,
+                    converted_people_url: '',
+                    dropped_people_url: null,
                     breakdown_value: 'organic',
                 },
                 {
@@ -49,9 +54,11 @@ export function DataDrivenFunnelExample(): JSX.Element {
                     name: 'Signed Up',
                     order: 1,
                     count: 250,
-                    type: EntityType.EVENTS,
+                    type: 'events' as const,
                     average_conversion_time: 140,
                     median_conversion_time: 100,
+                    converted_people_url: '',
+                    dropped_people_url: null,
                     breakdown_value: 'paid',
                 },
             ],
@@ -62,18 +69,22 @@ export function DataDrivenFunnelExample(): JSX.Element {
             custom_name: 'Converted to Customer',
             order: 2,
             count: 195,
-            type: EntityType.EVENTS,
+            type: 'events' as const,
             average_conversion_time: 86400, // 1 day
             median_conversion_time: 43200, // 12 hours
+            converted_people_url: '',
+            dropped_people_url: null,
             nested_breakdown: [
                 {
                     action_id: 'step3',
                     name: 'Made First Purchase',
                     order: 2,
                     count: 130,
-                    type: EntityType.EVENTS,
+                    type: 'events' as const,
                     average_conversion_time: 72000,
                     median_conversion_time: 36000,
+                    converted_people_url: '',
+                    dropped_people_url: null,
                     breakdown_value: 'organic',
                 },
                 {
@@ -81,9 +92,11 @@ export function DataDrivenFunnelExample(): JSX.Element {
                     name: 'Made First Purchase',
                     order: 2,
                     count: 65,
-                    type: EntityType.EVENTS,
+                    type: 'events' as const,
                     average_conversion_time: 108000,
                     median_conversion_time: 54000,
+                    converted_people_url: '',
+                    dropped_people_url: null,
                     breakdown_value: 'paid',
                 },
             ],
@@ -92,6 +105,7 @@ export function DataDrivenFunnelExample(): JSX.Element {
 
     // Example time-to-convert data for histogram
     const exampleTimeConversionData = {
+        average_conversion_time: 180,
         bins: [
             [0, 50], // 0-60s: 50 conversions
             [60, 120], // 60-120s: 120 conversions
@@ -99,7 +113,7 @@ export function DataDrivenFunnelExample(): JSX.Element {
             [180, 150], // 180-240s: 150 conversions
             [240, 80], // 240-300s: 80 conversions
             [300, 30], // 300-360s: 30 conversions
-        ],
+        ] as [number, number][],
     }
 
     return (
@@ -118,7 +132,7 @@ export function DataDrivenFunnelExample(): JSX.Element {
                 />
             </div>
 
-            <div style={{ marginBottom: '2rem' }}>
+            {/* <div style={{ marginBottom: '2rem' }}>
                 <h3>Horizontal Steps Funnel</h3>
                 <DataDrivenFunnel
                     steps={exampleFunnelSteps}
@@ -139,7 +153,7 @@ export function DataDrivenFunnelExample(): JSX.Element {
                     showPersonsModal={false}
                     inCardView={true}
                 />
-            </div>
+            </div> */}
         </div>
     )
 }
@@ -148,7 +162,7 @@ export function DataDrivenFunnelExample(): JSX.Element {
  * Helper function to convert experiment data to funnel steps format.
  * This shows how you might transform experiment results into the format needed by DataDrivenFunnel.
  */
-export function convertExperimentDataToFunnelSteps(experimentData: any): any[] {
+export function convertExperimentDataToFunnelSteps(_experimentData: any): any[] {
     // This is a placeholder - you would implement the actual conversion logic
     // based on your experiment data structure
     return [

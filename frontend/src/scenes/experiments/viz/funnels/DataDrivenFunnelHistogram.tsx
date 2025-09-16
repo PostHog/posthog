@@ -2,11 +2,11 @@ import { ChartParams } from '~/types'
 
 import { useFunnelData } from './DataDrivenFunnel'
 
-export function DataDrivenFunnelHistogram({ 
-    showPersonsModal: showPersonsModalProp = true 
+export function DataDrivenFunnelHistogram({
+    showPersonsModal: _showPersonsModalProp = true
 }: ChartParams): JSX.Element {
     const { histogramGraphData } = useFunnelData()
-    const showPersonsModal = showPersonsModalProp
+    // const showPersonsModal = showPersonsModalProp
 
     if (!histogramGraphData || histogramGraphData.length === 0) {
         return (

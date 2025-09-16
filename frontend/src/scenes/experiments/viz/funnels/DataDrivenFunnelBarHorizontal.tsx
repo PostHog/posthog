@@ -6,11 +6,11 @@ import { ChartParams } from '~/types'
 
 import { useFunnelData } from './DataDrivenFunnel'
 
-export function DataDrivenFunnelBarHorizontal({ 
-    showPersonsModal: showPersonsModalProp = true 
+export function DataDrivenFunnelBarHorizontal({
+    showPersonsModal: _showPersonsModalProp = true
 }: ChartParams): JSX.Element {
     const { visibleStepsWithConversionMetrics } = useFunnelData()
-    const showPersonsModal = showPersonsModalProp
+    // const showPersonsModal = showPersonsModalProp
 
     if (!visibleStepsWithConversionMetrics.length) {
         return <div>No funnel data available</div>
