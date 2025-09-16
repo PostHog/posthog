@@ -291,7 +291,7 @@ export const DetailFilters = (): JSX.Element => {
                 placeholder="Add detail filter"
                 searchPlaceholder="Search fields..."
                 icon={<IconPlus />}
-                className="w-1/4 min-w-100"
+                className="w-[200px]"
             />
         </div>
     )

@@ -34,7 +34,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                     <label className="block text-sm font-medium mb-1">User</label>
                     <LemonInputSelect
                         mode="multiple"
-                        displayMode="snacks"
+                        displayMode="count"
                         bulkActions="select-and-clear-all"
                         value={filters.users || []}
                         onChange={(users) => setFilters({ users })}
@@ -55,7 +55,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                     <label className="block text-sm font-medium mb-1">Scope</label>
                     <LemonInputSelect
                         mode="multiple"
-                        displayMode="snacks"
+                        displayMode="count"
                         bulkActions="select-and-clear-all"
                         value={filters.scopes || []}
                         onChange={(scopes) => setFilters({ scopes: scopes as ActivityScope[] })}
@@ -76,7 +76,7 @@ export const BasicFiltersTab = (): JSX.Element => {
                     <label className="block text-sm font-medium mb-1">Action</label>
                     <LemonInputSelect
                         mode="multiple"
-                        displayMode="snacks"
+                        displayMode="count"
                         bulkActions="select-and-clear-all"
                         value={filters.activities || []}
                         onChange={(activities) => setFilters({ activities })}
