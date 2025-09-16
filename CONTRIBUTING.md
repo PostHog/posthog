@@ -19,7 +19,7 @@ We welcome contributions. A few quick notes so you know how we operate:
 
 Before we do a full review, please:
 
-- Ensure CI is green and resolve merge conflicts (rebasing onto the current default branch helps).
+- Ensure that you've run tests locally and you've resolved any merge conflicts before submitting.
 - Respond to automated review feedback (e.g. Greptile comments) where applicable.
 - Keep the change focused; add tests and docs where it meaningfully improves clarity.
 - Follow existing patterns and conventions in the areas you touch.
