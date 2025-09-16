@@ -48,7 +48,8 @@ function calculateClipTimes(currentTimeMs: number | null, sessionDurationMs: num
 }
 
 export function ClipOverlay(): JSX.Element | null {
-    const { currentPlayerTime, sessionPlayerData, showingClipParams } = useValues(sessionRecordingPlayerLogic)
+    const { currentPlayerTime, sessionPlayerData, showingClipParams, sessionRecordingId } =
+        useValues(sessionRecordingPlayerLogic)
     const { getClip, setShowingClipParams } = useActions(sessionRecordingPlayerLogic)
     const [duration, setDuration] = useState(5)
     const [format, setFormat] = useState(ExporterFormat.MP4)
@@ -58,6 +59,8 @@ export function ClipOverlay(): JSX.Element | null {
         sessionPlayerData.durationMs,
         duration
     )
+
+    const filename = `replay-${sessionRecordingId}-${startClip}-${endClip}`
 
     if (!showingClipParams) {
         return null
@@ -112,7 +115,7 @@ export function ClipOverlay(): JSX.Element | null {
 
             <LemonButton
                 onClick={() => {
-                    getClip(format, duration)
+                    getClip(format, duration, filename)
                     setShowingClipParams(false)
                 }}
                 type="primary"
