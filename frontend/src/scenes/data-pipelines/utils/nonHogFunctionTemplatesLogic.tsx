@@ -45,7 +45,9 @@ export const nonHogFunctionTemplatesLogic = kea<nonHogFunctionTemplatesLogicType
                         name: connector.name,
                         icon_url: connector.iconPath,
                         status: connector.unreleasedSource ? 'coming_soon' : connector.betaSource ? 'beta' : 'stable',
-                        description: (
+                        description: connector.unreleasedSource ? (
+                            'Get notified when this source is available to connect'
+                        ) : (
                             <>
                                 Data will be synced to PostHog and regularly refreshed.{' '}
                                 <Link to="https://posthog.com/docs/cdp/sources">Learn more</Link>
