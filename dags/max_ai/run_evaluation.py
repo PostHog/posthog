@@ -54,7 +54,7 @@ class PreparedDataset(BaseModel):
     description="Pulls the dataset and dataset items and validates inputs, outputs, metadata, and team_id presence in metadata."
 )
 def prepare_dataset(context: dagster.OpExecutionContext, config: PrepareDatasetConfig) -> PreparedDataset:
-    dataset = Dataset.objects.get(id=config.dataset_id, team_id=2)
+    dataset = Dataset.objects.get(id=config.dataset_id, team_id=2 if not settings.DEBUG else 1)
     dataset_items = DatasetItem.objects.filter(dataset=dataset).iterator(500)
 
     dataset_inputs: list[DatasetInput] = []
