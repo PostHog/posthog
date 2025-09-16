@@ -13,7 +13,7 @@ import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
-import { AvailableFeature, CyclotronJobFiltersType, HogFunctionType, HogFunctionTypeType, UserType } from '~/types'
+import { CyclotronJobFiltersType, HogFunctionType, HogFunctionTypeType, UserType } from '~/types'
 
 import type { hogFunctionsListLogicType } from './hogFunctionsListLogicType'
 
@@ -126,11 +126,6 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                     return values.hogFunctions.filter((x) => x.id !== hogFunction.id)
                 },
                 toggleEnabled: async ({ hogFunction, enabled }) => {
-                    if (enabled && !values.canEnableHogFunction(hogFunction)) {
-                        lemonToast.error('Data pipelines add-on is required for enabling new destinations.')
-                        return values.hogFunctions
-                    }
-
                     const { hogFunctions } = values
                     const hogFunctionIndex = hogFunctions.findIndex((hf) => hf.id === hogFunction.id)
                     const response = await api.hogFunctions.update(hogFunction.id, {
@@ -190,15 +185,6 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                     }
                     return true
                 })
-            },
-        ],
-
-        canEnableHogFunction: [
-            (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature): ((hogFunction: HogFunctionType) => boolean) => {
-                return (hogFunction: HogFunctionType) => {
-                    return hogFunction?.template?.free || hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
-                }
             },
         ],
 

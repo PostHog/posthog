@@ -52,6 +52,7 @@ class DoItSource(BaseSource[DoItSourceConfig]):
             name=SchemaExternalDataSourceType.DO_IT,
             label="DoIt",
             caption="",
+            iconPath="/static/services/doit.svg",
             fields=cast(
                 list[FieldType],
                 [

@@ -41,7 +41,7 @@ export function RevenueAnalyticsSettings(): JSX.Element {
         !dataWarehouseSources?.results.filter((source) => source.source_type === 'Stripe').length
 
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             <SceneTitleSection name="Revenue" description={DESCRIPTION} resourceType={{ type: 'revenue_analytics' }} />
             <SceneDivider />
             <ProductIntroduction

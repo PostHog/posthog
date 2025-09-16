@@ -5,7 +5,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "0854_add_activitylog_detail_gin_path_ops_index"),
+        ("posthog", "0857_dashboardtile_filters_overrides"),
     ]
 
     operations = [
