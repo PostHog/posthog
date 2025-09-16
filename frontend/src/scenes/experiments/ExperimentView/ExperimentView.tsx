@@ -173,8 +173,6 @@ const MetricsTab = (): JSX.Element => {
                     <Metrics isSecondary={true} />
                 </>
             )}
-
-            <DataDrivenFunnelExample />
         </>
     )
 }
