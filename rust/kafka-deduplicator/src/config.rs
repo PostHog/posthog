@@ -92,9 +92,6 @@ pub struct Config {
     #[envconfig(default = "300")] // 5 minutes in seconds
     pub checkpoint_interval_secs: u64,
 
-    #[envconfig(default = "120")] // 2 minutes in seconds
-    pub cleanup_interval_secs: u64,
-
     #[envconfig(default = "3")]
     pub max_concurrent_checkpoints: usize,
 
@@ -208,11 +205,6 @@ impl Config {
     /// Get flush interval as Duration
     pub fn flush_interval(&self) -> Duration {
         Duration::from_secs(self.flush_interval_secs)
-    }
-
-    /// Get cleanup interval as Duration
-    pub fn cleanup_interval(&self) -> Duration {
-        Duration::from_secs(self.cleanup_interval_secs)
     }
 
     /// Get producer send timeout as Duration

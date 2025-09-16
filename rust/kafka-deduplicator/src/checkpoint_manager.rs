@@ -1,6 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
@@ -373,12 +376,14 @@ impl CheckpointManager {
         }
     }
 
-    /// Start the periodic flush task
-    pub fn start(&mut self) {
+    /// Start the periodic flush task, returning the inner worker
+    /// threads' health reporter flag for bubbling up failures
+    pub fn start(&mut self) -> Option<Arc<AtomicBool>> {
         if self.checkpoint_task.is_some() {
             warn!("Checkpoint manager already started");
-            return;
+            return None;
         }
+        let health_reporter = Arc::new(AtomicBool::new(true));
 
         info!(
             "Starting checkpoint manager with interval: {:?}",
@@ -400,6 +405,7 @@ impl CheckpointManager {
         let is_checkpointing: Arc<Mutex<HashSet<Partition>>> = Arc::new(Mutex::new(HashSet::new()));
         let checkpoint_counters: Arc<Mutex<HashMap<Partition, u32>>> =
             Arc::new(Mutex::new(HashMap::new()));
+        let checkpoint_health_reporter = health_reporter.clone();
 
         let submit_handle = tokio::spawn(async move {
             // limit parallel checkpoint attempts. This loop
@@ -551,11 +557,15 @@ impl CheckpointManager {
                     }
                 } // end tokio::select! block
             } // end 'outer loop
+
+            checkpoint_health_reporter.store(false, Ordering::SeqCst);
         });
         self.checkpoint_task = Some(submit_handle);
 
         let cleanup_config = self.config.clone();
         let cancel_cleanup_loop_token = self.cancel_token.child_token();
+        let cleanup_health_reporter = health_reporter.clone();
+
         let cleanup_handle = tokio::spawn(async move {
             let mut interval = tokio::time::interval(cleanup_config.cleanup_interval);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -577,8 +587,12 @@ impl CheckpointManager {
                     }
                 }
             }
+
+            cleanup_health_reporter.store(false, Ordering::SeqCst);
         });
         self.cleanup_task = Some(cleanup_handle);
+
+        Some(health_reporter.clone())
     }
 
     /// Stop the checkpoint manager
@@ -601,6 +615,10 @@ impl CheckpointManager {
         // TODO: await is_checkpointing tasks to complete? just bail at first, see how it goes?
 
         info!("Checkpoint manager stopped");
+    }
+
+    pub fn export_enabled(&self) -> bool {
+        self.exporter.is_some()
     }
 
     /// Trigger an immediate flush of all stores (currenty used only in tests)
