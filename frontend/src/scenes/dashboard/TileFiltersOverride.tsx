@@ -4,7 +4,7 @@ import './TileFiltersOverride.scss'
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconCalendar } from '@posthog/icons'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -25,8 +25,8 @@ export function TileFiltersOverride({
     tile: DashboardTile<QueryBasedInsightModel>
     dashboardId: number
 }): JSX.Element {
-    const { overrides, hasOverrides } = useValues(tileLogic)
-    const { setDates, setProperties, setBreakdown, resetOverrides } = useActions(tileLogic)
+    const { overrides } = useValues(tileLogic)
+    const { setDates, setProperties, setBreakdown } = useActions(tileLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const insightProps: InsightLogicProps = {
         dashboardItemId: tile.insight?.short_id,
@@ -113,17 +113,6 @@ export function TileFiltersOverride({
                     </BindLogic>
                 </div>
             </div>
-
-            {hasOverrides && (
-                <>
-                    <LemonDivider />
-                    <div className="flex justify-end">
-                        <LemonButton type="secondary" onClick={resetOverrides} size="small">
-                            Clear All Overrides
-                        </LemonButton>
-                    </div>
-                </>
-            )}
         </div>
     )
 }

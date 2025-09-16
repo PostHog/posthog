@@ -67,10 +67,13 @@ export function LemonDialog({
         if (!button) {
             return null
         }
+
+        const { preventClosing, ...buttonProps } = button
+
         return (
             <LemonButton
                 type="secondary"
-                {...button}
+                {...buttonProps}
                 loading={button === primaryButton && shouldAwaitSubmit ? isLoading : undefined}
                 // eslint-disable-next-line @typescript-eslint/no-misused-promises
                 onClick={async (e) => {
@@ -87,7 +90,10 @@ export function LemonDialog({
                     } else {
                         button.onClick?.(e)
                     }
-                    setIsOpen(false)
+
+                    if (!preventClosing) {
+                        setIsOpen(false)
+                    }
                 }}
             />
         )

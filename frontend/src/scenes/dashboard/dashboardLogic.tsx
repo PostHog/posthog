@@ -1840,6 +1840,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         <TileFiltersOverride tile={tile} dashboardId={props.id} />
                     </BindLogic>
                 ),
+                tertiaryButton: {
+                    children: 'Clear All Overrides',
+                    onClick: () => {
+                        logic.actions.resetOverrides()
+                    },
+                    preventClosing: true,
+                },
                 onSubmit: async () => {
                     const tileFilterOverrides = logic.values.overrides
 
