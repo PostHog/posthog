@@ -9,11 +9,11 @@ interface DataDrivenStepLegendProps {
     showPersonsModal: boolean
 }
 
-export function DataDrivenStepLegend({ 
-    step, 
-    stepIndex, 
-    showTime, 
-    showPersonsModal 
+export function DataDrivenStepLegend({
+    step,
+    stepIndex,
+    showTime,
+    showPersonsModal: _showPersonsModal
 }: DataDrivenStepLegendProps): JSX.Element {
     return (
         <div className="StepLegend">

@@ -4,7 +4,6 @@ import {
     FunnelStepReference,
     FunnelStepWithConversionMetrics,
     FunnelStepWithNestedBreakdown,
-    FunnelVizType,
     FunnelsTimeConversionBins,
     HistogramGraphDatum,
 } from '~/types'
