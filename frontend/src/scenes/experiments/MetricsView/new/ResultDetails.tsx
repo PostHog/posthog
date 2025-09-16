@@ -243,6 +243,7 @@ export function ResultDetails({
                     showPersonsModal={false}
                     disableBaseline={true}
                     inCardView={true}
+                    experimentResult={result}
                 />
             )}
         </div>

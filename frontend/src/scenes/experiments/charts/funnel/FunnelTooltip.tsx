@@ -5,6 +5,7 @@ import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
+import { IconHandClick } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
@@ -23,9 +24,15 @@ interface FunnelTooltipProps {
     stepIndex: number
     series: FunnelStepWithConversionMetrics
     embedded?: boolean
+    hasSampledRecordings?: boolean
 }
 
-function FunnelTooltipContent({ stepIndex, series, embedded = false }: FunnelTooltipProps): JSX.Element {
+function FunnelTooltipContent({
+    stepIndex,
+    series,
+    embedded = false,
+    hasSampledRecordings = false,
+}: FunnelTooltipProps): JSX.Element {
     return (
         <div
             className={clsx('FunnelTooltip InsightTooltip', {
@@ -82,13 +89,27 @@ function FunnelTooltipContent({ stepIndex, series, embedded = false }: FunnelToo
                     )}
                 </tbody>
             </table>
+            {hasSampledRecordings && (
+                <>
+                    <LemonDivider className="my-2" />
+                    <div className="text-xs text-muted flex items-center gap-1">
+                        <IconHandClick className="text-base" />
+                        Click to view sampled recordings
+                    </div>
+                </>
+            )}
         </div>
     )
 }
 
 export function useFunnelTooltip(): {
     vizRef: React.RefObject<HTMLDivElement>
-    showTooltip: (rect: [number, number, number], stepIndex: number, series: FunnelStepWithConversionMetrics) => void
+    showTooltip: (
+        rect: [number, number, number],
+        stepIndex: number,
+        series: FunnelStepWithConversionMetrics,
+        hasSampledRecordings?: boolean
+    ) => void
     hideTooltip: () => void
 } {
     const vizRef = useRef<HTMLDivElement>(null)
@@ -97,15 +118,18 @@ export function useFunnelTooltip(): {
     const [isTooltipShown, setIsTooltipShown] = useState(false)
     const [currentTooltip, setCurrentTooltip] = useState<FunnelTooltipData | null>(null)
     const [tooltipOrigin, setTooltipOrigin] = useState<[number, number, number] | null>(null)
+    const [hasSampledRecordings, setHasSampledRecordings] = useState(false)
 
     const showTooltip = (
         rect: [number, number, number],
         stepIndex: number,
-        series: FunnelStepWithConversionMetrics
+        series: FunnelStepWithConversionMetrics,
+        hasSampledRecordings: boolean = false
     ): void => {
         setIsTooltipShown(true)
         setCurrentTooltip({ stepIndex, series })
         setTooltipOrigin(rect)
+        setHasSampledRecordings(hasSampledRecordings)
     }
 
     const hideTooltip = (): void => {
@@ -122,7 +146,11 @@ export function useFunnelTooltip(): {
 
         if (tooltipOrigin && currentTooltip) {
             tooltipRoot.render(
-                <FunnelTooltipContent stepIndex={currentTooltip.stepIndex} series={currentTooltip.series} />
+                <FunnelTooltipContent
+                    stepIndex={currentTooltip.stepIndex}
+                    series={currentTooltip.series}
+                    hasSampledRecordings={hasSampledRecordings}
+                />
             )
 
             // Put the tooltip to the bottom right of the cursor, but flip to left if tooltip doesn't fit

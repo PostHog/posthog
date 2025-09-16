@@ -21,6 +21,8 @@ export interface FunnelChartProps extends ChartParams {
     hiddenLegendBreakdowns?: string[]
     /** Disable baseline for experiments */
     disableBaseline?: boolean
+    /** Experiment result containing sampled session IDs */
+    experimentResult?: any
 }
 
 export interface FunnelChartDataContext {
@@ -28,6 +30,7 @@ export interface FunnelChartDataContext {
     stepsWithConversionMetrics: FunnelStepWithConversionMetrics[]
     steps: FunnelStepWithNestedBreakdown[]
     hasFunnelResults: boolean
+    experimentResult?: any
 }
 
 const FunnelChartDataContext = createContext<FunnelChartDataContext | null>(null)
@@ -51,6 +54,7 @@ export function FunnelChart({
     hiddenLegendBreakdowns = [],
     disableBaseline = false,
     inCardView = false,
+    experimentResult,
     ...chartParams
 }: FunnelChartProps): JSX.Element {
     const processedData = useMemo(() => {
@@ -68,8 +72,9 @@ export function FunnelChart({
             stepsWithConversionMetrics: processedData.stepsWithConversionMetrics,
             steps: processedData.steps,
             hasFunnelResults: processedData.hasFunnelResults,
+            experimentResult,
         }),
-        [processedData]
+        [processedData, experimentResult]
     )
 
     return (
