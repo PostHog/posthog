@@ -24,7 +24,7 @@ from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.query_runner import SYNC
+from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES
 from posthog.models.named_query import NamedQuery
 from posthog.rate_limit import APIQueriesBurstThrottle, APIQueriesSustainedThrottle
 
@@ -191,7 +191,7 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
             )
             self._tag_client_query_id(client_query_id)
 
-            if execution_mode not in ASYNC_MODES:
+            if execution_mode not in BLOCKING_EXECUTION_MODES:
                 raise ValidationError("only sync modes are supported (refresh param)")
 
             result = process_query_model(
