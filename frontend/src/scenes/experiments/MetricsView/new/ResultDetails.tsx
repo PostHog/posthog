@@ -100,7 +100,9 @@ function convertExperimentResultToFunnelSteps(
                 converted_people_url: '',
                 dropped_people_url: null,
                 breakdown_value: variantKey,
-            } as FunnelStep
+                // Add a custom property to track the variant index for color matching
+                breakdownIndex: variantIndex,
+            } as FunnelStep & { breakdownIndex: number }
         })
 
         // Use the first variant's step as the base, but sum up counts from all variants
