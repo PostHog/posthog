@@ -301,7 +301,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                     </div>
                                 ) : (
                                     <div className="flex w-full h-full">
-                                        <div className="flex flex-col flex-1 w-full">
+                                        <div className="flex flex-col flex-1 w-full relative">
                                             <div className="relative">
                                                 {showMeta ? (
                                                     <>
