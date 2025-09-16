@@ -51,28 +51,25 @@ RUN cp frontend/node_modules/@posthog/rrweb/dist/image-bitmap-data-url-worker-*.
 FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.88-node_22.17.1 AS plugin-server-build
 
 # Compile and install system dependencies
-# Add Confluent's APT repository for librdkafka 2.10.1
+# Add Confluent's client repository for librdkafka 2.10.1
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    "curl" \
+    "wget" \
     "gnupg" \
-    "lsb-release" \
     && \
-    curl -fsSL https://packages.confluent.io/deb/7.6/archive.key | gpg --dearmor -o /usr/share/keyrings/confluent-archive-keyring.gpg && \
-    echo "deb [signed-by=/usr/share/keyrings/confluent-archive-keyring.gpg] https://packages.confluent.io/deb/7.6 stable main" > /etc/apt/sources.list.d/confluent.list && \
+    mkdir -p /etc/apt/keyrings && \
+    wget -qO - https://packages.confluent.io/clients/deb/archive.key | gpg --dearmor -o /etc/apt/keyrings/confluent-clients.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/confluent-clients.gpg] https://packages.confluent.io/clients/deb/ bookworm main" > /etc/apt/sources.list.d/confluent-clients.list && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
     "make" \
     "g++" \
     "gcc" \
     "python3" \
-    "libssl-dev=3.0.17-1~deb12u2" \
+    "libssl-dev=3.0.15-1~deb12u1" \
+    "libssl3=3.0.15-1~deb12u1" \
     "zlib1g-dev" \
-    "librdkafka-dev=2.10.1-1~deb12" \
-    "libsasl2-dev=2.1.28+dfsg-10" \
-    "libzstd-dev=1.5.4+dfsg2-5" \
-    "liblz4-dev=1.9.4-1" \
-    "libcurl4-openssl-dev=7.88.1-10+deb12u14" \
+    "librdkafka-dev=2.10.1-1.cflt~deb12" \
     && \
     rm -rf /var/lib/apt/lists/*
 
@@ -190,15 +187,15 @@ ENV PYTHONUNBUFFERED 1
 
 # Install OS runtime dependencies.
 # Note: please add in this stage runtime dependences only!
-# Add Confluent's APT repository for librdkafka runtime
+# Add Confluent's client repository for librdkafka runtime
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    "curl" \
+    "wget" \
     "gnupg" \
-    "lsb-release" \
     && \
-    curl -fsSL https://packages.confluent.io/deb/7.6/archive.key | gpg --dearmor -o /usr/share/keyrings/confluent-archive-keyring.gpg && \
-    echo "deb [signed-by=/usr/share/keyrings/confluent-archive-keyring.gpg] https://packages.confluent.io/deb/7.6 stable main" > /etc/apt/sources.list.d/confluent.list && \
+    mkdir -p /etc/apt/keyrings && \
+    wget -qO - https://packages.confluent.io/clients/deb/archive.key | gpg --dearmor -o /etc/apt/keyrings/confluent-clients.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/confluent-clients.gpg] https://packages.confluent.io/clients/deb/ bookworm main" > /etc/apt/sources.list.d/confluent-clients.list && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
     "chromium" \
@@ -209,12 +206,9 @@ RUN apt-get update && \
     "libxml2" \
     "gettext-base" \
     "ffmpeg=7:5.1.7-0+deb12u1" \
-    "librdkafka1=2.10.1-1~deb12" \
-    "libssl3=3.0.17-1~deb12u2" \
-    "libsasl2-2=2.1.28+dfsg-10" \
-    "libzstd1=1.5.4+dfsg2-5" \
-    "liblz4-1=1.9.4-1" \
-    "libcurl4=7.88.1-10+deb12u14" \
+    "librdkafka1=2.10.1-1.cflt~deb12" \
+    "libssl-dev=3.0.15-1~deb12u1" \
+    "libssl3=3.0.15-1~deb12u1" \
     && \
     rm -rf /var/lib/apt/lists/*
 
