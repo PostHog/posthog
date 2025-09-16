@@ -17,7 +17,6 @@ export function HogFunctionCode(): JSX.Element {
         showSource,
         configuration,
         sampleGlobalsWithInputs,
-        hasAddon,
         templateHasChanged,
         type,
         mightDropEvents,
@@ -72,12 +71,6 @@ export function HogFunctionCode(): JSX.Element {
                                 })
                             }, 100)
                         }}
-                        disabledReason={
-                            // We allow editing the source code for transformations without the Data Pipelines addon
-                            !hasAddon && type !== 'transformation'
-                                ? 'Editing the source code requires the Data Pipelines addon'
-                                : undefined
-                        }
                     >
                         Edit source code
                     </LemonButton>
