@@ -1,3 +1,5 @@
+import '../../../funnels/FunnelBarVertical/FunnelBarVertical.scss'
+
 import { createContext, useContext, useLayoutEffect, useRef, useState } from 'react'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -5,7 +7,6 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
 import { ChartParams } from '~/types'
 
-import '../../../funnels/FunnelBarVertical/FunnelBarVertical'
 import { useFunnelData } from './Funnel'
 import { useFunnelTooltip } from './FunnelTooltip'
 import { StepBarLabels } from './StepBarLabels'
