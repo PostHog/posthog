@@ -128,8 +128,11 @@ class TestCSVExporter(APIBaseTest):
             config=Config(signature_version="s3v4"),
             region_name="us-east-1",
         )
-        bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
-        bucket.objects.filter(Prefix=TEST_PREFIX).delete()
+        try:
+            bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
+            bucket.objects.filter(Prefix=TEST_PREFIX).delete()
+        except s3.meta.client.exceptions.NoSuchBucket:
+            pass  # Bucket doesn't exist, nothing to clean up
 
     def test_csv_exporter_writes_to_asset_when_object_storage_is_disabled(self) -> None:
         exported_asset = self._create_asset()
