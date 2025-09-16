@@ -498,12 +498,12 @@ class _SessionSummarizer:
                 summary = data
                 tasks_available = await database_sync_to_async(
                     check_is_feature_available_for_team, thread_sensitive=False
-                )(self._team.id, "TASK_SUMMARIES")
+                )(self._node._team.id, "TASK_SUMMARIES")
                 summary_content = generate_notebook_content_from_summary(
                     summary=summary,
                     session_ids=session_ids,
-                    project_name=self._team.name,
-                    team_id=self._team.id,
+                    project_name=self._node._team.name,
+                    team_id=self._node._team.id,
                     tasks_available=tasks_available,
                     summary_title=summary_title,
                 )
