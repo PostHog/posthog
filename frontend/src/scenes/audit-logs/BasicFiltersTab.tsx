@@ -1,9 +1,8 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect } from '@posthog/lemon-ui'
-
 import { humanizeActivity, humanizeScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 
 import { ActivityScope } from '~/types'
 
@@ -14,8 +13,8 @@ export const BasicFiltersTab = (): JSX.Element => {
     const { setFilters } = useActions(advancedActivityLogsLogic)
 
     return (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 pt-4">
-            <div>
+        <div className="flex gap-4 flex-start flex-wrap pt-4">
+            <div className="flex flex-col gap-1">
                 <label className="block text-sm font-medium mb-1">Date Range</label>
                 <DateFilter
                     dateFrom={filters.start_date}
@@ -25,57 +24,70 @@ export const BasicFiltersTab = (): JSX.Element => {
                     }}
                     placeholder="All time"
                     data-attr="audit-logs-date-filter"
+                    className="h-8 flex items-center"
                 />
             </div>
 
-            <div>
+            <div className="flex flex-col gap-1">
                 <label className="block text-sm font-medium mb-1">User</label>
-                <LemonSelect
-                    value={filters.users?.[0] || null}
-                    onChange={(user) => setFilters({ users: user ? [user] : [] })}
+                <LemonInputSelect
+                    mode="multiple"
+                    displayMode="snacks"
+                    bulkActions="select-and-clear-all"
+                    value={filters.users || []}
+                    onChange={(users) => setFilters({ users })}
                     options={
                         availableFilters?.static_filters?.users?.map((u: any) => ({
+                            key: u.value,
                             label: u.label,
-                            value: u.value,
                         })) || []
                     }
                     placeholder="All users"
-                    allowClear
+                    allowCustomValues={false}
                     data-attr="audit-logs-user-filter"
+                    className="min-w-50 min-h-10"
                 />
             </div>
 
-            <div>
+            <div className="flex flex-col gap-1">
                 <label className="block text-sm font-medium mb-1">Scope</label>
-                <LemonSelect
-                    value={filters.scopes?.[0] || null}
-                    onChange={(scope) => setFilters({ scopes: scope ? [scope as ActivityScope] : [] })}
+                <LemonInputSelect
+                    mode="multiple"
+                    displayMode="snacks"
+                    bulkActions="select-and-clear-all"
+                    value={filters.scopes || []}
+                    onChange={(scopes) => setFilters({ scopes: scopes as ActivityScope[] })}
                     options={
                         availableFilters?.static_filters?.scopes?.map((s: any) => ({
+                            key: s.value,
                             label: humanizeScope(s.value, true),
-                            value: s.value,
                         })) || []
                     }
                     placeholder="All scopes"
-                    allowClear
+                    allowCustomValues={false}
                     data-attr="audit-logs-scope-filter"
+                    className="min-w-50 min-h-10"
                 />
             </div>
 
-            <div>
+            <div className="flex flex-col gap-1">
                 <label className="block text-sm font-medium mb-1">Action</label>
-                <LemonSelect
-                    value={filters.activities?.[0] || null}
-                    onChange={(activity) => setFilters({ activities: activity ? [activity] : [] })}
+                <LemonInputSelect
+                    mode="multiple"
+                    displayMode="snacks"
+                    bulkActions="select-and-clear-all"
+                    value={filters.activities || []}
+                    onChange={(activities) => setFilters({ activities })}
                     options={
                         availableFilters?.static_filters?.activities?.map((a: any) => ({
+                            key: a.value,
                             label: humanizeActivity(a.value),
-                            value: a.value,
                         })) || []
                     }
                     placeholder="All actions"
-                    allowClear
+                    allowCustomValues={false}
                     data-attr="audit-logs-action-filter"
+                    className="min-w-50 min-h-10"
                 />
             </div>
         </div>

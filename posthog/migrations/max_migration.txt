@@ -1,1 +1,1 @@
-0848_activitylog_detail_gin_index
+0856_add_web_analytics_tables_version

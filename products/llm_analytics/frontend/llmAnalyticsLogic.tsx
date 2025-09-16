@@ -1,12 +1,14 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from 'lib/utils'
 import { isDefinitionStale } from 'lib/utils/definitions'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -767,7 +769,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         ],
     }),
 
-    urlToAction(({ actions, values }) => {
+    tabAwareUrlToAction(({ actions, values }) => {
         function applySearchParams({ filters, date_from, date_to, filter_test_accounts }: Record<string, any>): void {
             // Normal parameter handling
             const parsedFilters = isAnyPropertyFilters(filters) ? filters : []
@@ -797,7 +799,7 @@ export const llmAnalyticsLogic = kea<llmAnalyticsLogicType>([
         }
     }),
 
-    actionToUrl(() => ({
+    tabAwareActionToUrl(() => ({
         setPropertyFilters: ({ propertyFilters }) => [
             router.values.location.pathname,
             {

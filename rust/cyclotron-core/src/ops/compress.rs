@@ -1,5 +1,4 @@
-use flate2::{read::GzDecoder, write::GzEncoder, Compression};
-use std::io::{Read, Write};
+use common_compression::{compress_data, CompressionFormat};
 
 use crate::{error::QueueError, types::Bytes};
 use common_metrics::inc;
@@ -12,18 +11,17 @@ const COMPRESS_METRICS_KEY: &str = "compress_vm_state";
 pub fn decompress_vm_state(maybe_compressed: Option<Bytes>) -> Option<Bytes> {
     match &maybe_compressed {
         Some(in_buffer) => {
-            let mut decoder = GzDecoder::new(&in_buffer[..]);
-            let mut out_buffer = Vec::new();
-            match decoder.read_to_end(&mut out_buffer) {
-                Ok(_) => {
+            // Use common compression library with multi-format support
+            match common_compression::decompress_data(in_buffer) {
+                Ok(decompressed_str) => {
                     inc(
                         DECOMPRESS_METRICS_KEY,
                         &[("result".to_string(), "success".to_string())],
                         1,
                     );
-                    Some(out_buffer)
+                    Some(decompressed_str.into_bytes())
                 }
-                _ => {
+                Err(_) => {
                     inc(
                         DECOMPRESS_METRICS_KEY,
                         &[("result".to_string(), "fail_or_no_op".to_string())],
@@ -56,37 +54,28 @@ pub fn compress_vm_state(uncompressed: Option<Bytes>) -> Result<Option<Bytes>, Q
             return Ok(uncompressed);
         }
 
-        let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
-        if let Err(e) = encoder.write_all(&in_buffer[..]) {
-            inc(
-                COMPRESS_METRICS_KEY,
-                &[("result".to_string(), "failed_write".to_string())],
-                1,
-            );
-            return Err(QueueError::CompressionError(e.to_string()));
-        }
-
-        match encoder.finish() {
-            Ok(out) => {
+        // Use common compression library with gzip (maintaining backward compatibility)
+        match compress_data(in_buffer, CompressionFormat::Gzip) {
+            Ok(compressed) => {
                 inc(
                     COMPRESS_METRICS_KEY,
                     &[("result".to_string(), "success".to_string())],
                     1,
                 );
-                return Ok(Some(out));
+                Ok(Some(compressed))
             }
             Err(e) => {
                 inc(
                     COMPRESS_METRICS_KEY,
-                    &[("result".to_string(), "failed_finish".to_string())],
+                    &[("result".to_string(), "failed".to_string())],
                     1,
                 );
-                return Err(QueueError::CompressionError(e.to_string()));
+                Err(QueueError::CompressionError(e.to_string()))
             }
         }
+    } else {
+        Ok(uncompressed)
     }
-
-    Ok(uncompressed)
 }
 
 #[cfg(test)]
