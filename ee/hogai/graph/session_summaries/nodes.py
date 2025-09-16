@@ -20,6 +20,7 @@ from posthog.schema import (
 )
 
 from posthog.models.notebook.notebook import Notebook
+from posthog.models.team.team import check_is_feature_available_for_team
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
@@ -495,12 +496,16 @@ class _SessionSummarizer:
                     )
                 # Replace the intermediate state with final report
                 summary = data
+                tasks_available = await database_sync_to_async(
+                    check_is_feature_available_for_team, thread_sensitive=False
+                )(self._node._team.id, "TASK_SUMMARIES")
                 summary_content = generate_notebook_content_from_summary(
                     summary=summary,
                     session_ids=session_ids,
                     project_name=self._node._team.name,
                     team_id=self._node._team.id,
-                    summary_title=state.summary_title,
+                    tasks_available=tasks_available,
+                    summary_title=summary_title,
                 )
                 self._node._stream_notebook_content(summary_content, state, partial=False)
                 # Update the notebook through BE for cases where the chat was closed

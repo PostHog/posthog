@@ -21,7 +21,7 @@ export function TaskCard({ task, onScope, onClick, draggable = false }: TaskCard
 
     return (
         <LemonCard
-            className={`p-3 ${draggable ? 'cursor-move' : 'cursor-pointer'}`}
+            className={`p-3 ${draggable ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
             hoverEffect={true}
             onClick={handleCardClick}
         >
