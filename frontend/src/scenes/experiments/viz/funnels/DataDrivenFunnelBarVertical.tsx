@@ -33,7 +33,8 @@ interface FunnelBarVerticalCSSProperties extends React.CSSProperties {
 }
 
 export function DataDrivenFunnelBarVertical({
-    showPersonsModal: showPersonsModalProp = true
+    showPersonsModal: showPersonsModalProp = true,
+    inCardView = false
 }: ChartParams): JSX.Element {
     const { visibleStepsWithConversionMetrics } = useFunnelData()
     const showPersonsModal = showPersonsModalProp // Simplified - no person modal logic for now
@@ -50,7 +51,8 @@ export function DataDrivenFunnelBarVertical({
         ),
         1 // Ensure at least 1 even if no steps
     )
-    const barWidthPx =
+    // Calculate base bar width based on series count
+    const baseBarWidthPx =
         seriesCount >= 60
             ? 4
             : seriesCount >= 20
@@ -72,6 +74,10 @@ export function DataDrivenFunnelBarVertical({
             : seriesCount >= 2
             ? 96
             : 192
+
+    // In card view, CSS will apply calc(var(--bar-width) / 2), so we need to compensate
+    // by doubling the width we set so the final rendered width is appropriate
+    const barWidthPx = inCardView ? baseBarWidthPx * 2 : baseBarWidthPx
 
     const scrollRef = useRef<HTMLDivElement | null>(null)
     const stepLegendRowRef = useRef<HTMLTableRowElement | null>(null)
