@@ -24,7 +24,7 @@ from posthog.storage.object_storage import (
     write,
 )
 
-TEST_BUCKET = "test_storage_bucket"
+TEST_PREFIX = "test_storage_bucket"
 
 
 class TestStorage(APIBaseTest):
@@ -38,7 +38,7 @@ class TestStorage(APIBaseTest):
             region_name="us-east-1",
         )
         bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
-        bucket.objects.filter(Prefix=TEST_BUCKET).delete()
+        bucket.objects.filter(Prefix=TEST_PREFIX).delete()
 
     @patch("posthog.storage.object_storage.client")
     def test_does_not_create_client_if_storage_is_disabled(self, patched_s3_client) -> None:
@@ -51,7 +51,7 @@ class TestStorage(APIBaseTest):
             session_id = str(uuid.uuid4())
             chunk_id = uuid.uuid4()
             name = f"{session_id}/{0}-{chunk_id}"
-            file_name = f"{TEST_BUCKET}/test_write_and_read_works_with_known_content/{name}"
+            file_name = f"{TEST_PREFIX}/test_write_and_read_works_with_known_content/{name}"
             write(file_name, "my content")
             assert read(file_name) == "my content"
 
@@ -60,7 +60,7 @@ class TestStorage(APIBaseTest):
             session_id = str(uuid.uuid4())
             chunk_id = uuid.uuid4()
             name = f"{session_id}/{0}-{chunk_id}"
-            file_name = f"{TEST_BUCKET}/test_write_and_read_works_with_known_content/{name}"
+            file_name = f"{TEST_PREFIX}/test_write_and_read_works_with_known_content/{name}"
             write(file_name, b"my content")
             assert read(file_name) == "my content"
 
@@ -69,37 +69,37 @@ class TestStorage(APIBaseTest):
             session_id = str(uuid.uuid4())
             chunk_id = uuid.uuid4()
             name = f"{session_id}/{0}-{chunk_id}"
-            file_name = f"{TEST_BUCKET}/test_can_generate_presigned_url_for_existing_file/{name}"
+            file_name = f"{TEST_PREFIX}/test_can_generate_presigned_url_for_existing_file/{name}"
             write(file_name, b"my content")
 
             presigned_url = get_presigned_url(file_name)
             assert presigned_url is not None
             assert re.match(
-                r"^http://localhost:\d+/posthog/test_storage_bucket/test_can_generate_presigned_url_for_existing_file/.*\?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=.*$",
+                r"^http://objectstorage:\d+/posthog/test_storage_bucket/test_can_generate_presigned_url_for_existing_file/.*\?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=.*$",
                 presigned_url,
             )
 
     def test_can_generate_presigned_url_for_non_existent_file(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True):
             name = "a/b-c"
-            file_name = f"{TEST_BUCKET}/test_can_ignore_presigned_url_for_non_existent_file/{name}"
+            file_name = f"{TEST_PREFIX}/test_can_ignore_presigned_url_for_non_existent_file/{name}"
 
             presigned_url = get_presigned_url(file_name)
             assert presigned_url is not None
             assert re.match(
-                r"^http://localhost:\d+/posthog/test_storage_bucket/test_can_ignore_presigned_url_for_non_existent_file/.*?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=.*$",
+                r"^http://objectstorage:\d+/posthog/test_storage_bucket/test_can_ignore_presigned_url_for_non_existent_file/.*?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=.*$",
                 presigned_url,
             )
 
     def test_can_generate_presigned_post_url(self) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=True):
-            file_name = f"{TEST_BUCKET}/test_can_generate_presigned_upload_url/{uuid.uuid4()}"
+            file_name = f"{TEST_PREFIX}/test_can_generate_presigned_upload_url/{uuid.uuid4()}"
 
             presigned_url = get_presigned_post(file_name, conditions=[])
             assert presigned_url is not None
             assert "fields" in presigned_url
             assert re.match(
-                r"^http://localhost:\d+/posthog",
+                r"^http://objectstorage:\d+/posthog",
                 presigned_url["url"],
             )
 
@@ -108,10 +108,10 @@ class TestStorage(APIBaseTest):
             shared_prefix = "a_shared_prefix"
 
             for file in ["a", "b", "c"]:
-                file_name = f"{TEST_BUCKET}/{shared_prefix}/{file}"
+                file_name = f"{TEST_PREFIX}/{shared_prefix}/{file}"
                 write(file_name, b"my content")
 
-            listing = list_objects(prefix=f"{TEST_BUCKET}/{shared_prefix}")
+            listing = list_objects(prefix=f"{TEST_PREFIX}/{shared_prefix}")
 
             assert listing == [
                 "test_storage_bucket/a_shared_prefix/a",
@@ -132,16 +132,16 @@ class TestStorage(APIBaseTest):
             shared_prefix = "a_shared_prefix"
 
             for file in ["a", "b", "c"]:
-                file_name = f"{TEST_BUCKET}/{shared_prefix}/{file}"
+                file_name = f"{TEST_PREFIX}/{shared_prefix}/{file}"
                 write(file_name, b"my content")
 
             copied_count = copy_objects(
-                source_prefix=f"{TEST_BUCKET}/{shared_prefix}",
-                target_prefix=f"{TEST_BUCKET}/the_destination/folder",
+                source_prefix=f"{TEST_PREFIX}/{shared_prefix}",
+                target_prefix=f"{TEST_PREFIX}/the_destination/folder",
             )
             assert copied_count == 3
 
-            listing = list_objects(prefix=f"{TEST_BUCKET}")
+            listing = list_objects(prefix=f"{TEST_PREFIX}")
 
             assert listing == [
                 "test_storage_bucket/a_shared_prefix/a",
@@ -157,16 +157,16 @@ class TestStorage(APIBaseTest):
             shared_prefix = "a_shared_prefix"
 
             for file in ["a", "b", "c"]:
-                file_name = f"{TEST_BUCKET}/{shared_prefix}/{file}"
+                file_name = f"{TEST_PREFIX}/{shared_prefix}/{file}"
                 write(file_name, b"my content")
 
             copied_count = copy_objects(
                 source_prefix=f"nothing_here",
-                target_prefix=f"{TEST_BUCKET}/the_destination/folder",
+                target_prefix=f"{TEST_PREFIX}/the_destination/folder",
             )
             assert copied_count == 0
 
-            listing = list_objects(prefix=f"{TEST_BUCKET}")
+            listing = list_objects(prefix=f"{TEST_PREFIX}")
 
             assert listing == [
                 "test_storage_bucket/a_shared_prefix/a",
