@@ -18,7 +18,10 @@ export const queryEndpointLogic = kea<queryEndpointLogicType>([
         setActiveCodeExampleTab: (tab: CodeExampleTab) => ({ tab }),
     }),
     reducers({
-        queryEndpointName: [null, { setQueryEndpointName: (_, { queryEndpointName }) => queryEndpointName }],
+        queryEndpointName: [
+            null as string | null,
+            { setQueryEndpointName: (_, { queryEndpointName }) => queryEndpointName },
+        ],
         activeCodeExampleTab: ['terminal' as CodeExampleTab, { setActiveCodeExampleTab: (_, { tab }) => tab }],
     }),
 ])

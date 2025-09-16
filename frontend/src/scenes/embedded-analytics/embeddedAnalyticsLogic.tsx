@@ -105,7 +105,7 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
             },
         ],
         requestNameBreakdownEnabled: [
-            INITIAL_REQUEST_NAME_BREAKDOWN_ENABLED,
+            INITIAL_REQUEST_NAME_BREAKDOWN_ENABLED as boolean,
             {
                 setRequestNameBreakdownEnabled: (_, { enabled }) => enabled,
             },

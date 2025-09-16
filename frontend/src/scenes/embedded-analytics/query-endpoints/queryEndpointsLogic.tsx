@@ -45,7 +45,7 @@ export const queryEndpointsLogic = kea<queryEndpointsLogicType>([
                                 distinct_id: '123',
                             },
                             url: 'https://query-endpoint-1.example.com',
-                            sql: 'SELECT * FROM events WHERE event = \'$pageview\' LIMIT 100',
+                            sql: "SELECT * FROM events WHERE event = '$pageview' LIMIT 100",
                             user_access_level: AccessControlLevel.Editor,
                         },
                         {
@@ -67,7 +67,6 @@ export const queryEndpointsLogic = kea<queryEndpointsLogicType>([
                         },
                     ]
 
-                    // Apply search filter
                     if (values.filters.search) {
                         const fuse = new Fuse<QueryEndpointType>(haystack, {
                             keys: ['name', 'description', 'sql'],
@@ -76,7 +75,6 @@ export const queryEndpointsLogic = kea<queryEndpointsLogicType>([
                         haystack = fuse.search(values.filters.search).map((result) => result.item)
                     }
 
-                    // Apply createdBy filter
                     if (values.filters.createdBy !== 'All users') {
                         haystack = haystack.filter(
                             (endpoint) =>

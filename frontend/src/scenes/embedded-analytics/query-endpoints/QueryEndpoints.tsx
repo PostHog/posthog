@@ -1,18 +1,20 @@
-import { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useState } from 'react'
+
+import { IconCode, IconPageChart, IconPencil } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Popover } from 'lib/lemon-ui/Popover'
+import { urls } from 'scenes/urls'
 
 import { QueryEndpointType } from '~/types'
 
 import { queryEndpointsLogic } from './queryEndpointsLogic'
-import { IconCode, IconPageChart, IconPencil } from '@posthog/icons'
 
-const SQLButton = ({ sql }: { sql: string }) => {
+const SQLButton = ({ sql }: { sql: string }): JSX.Element => {
     const [popoverVisible, setPopoverVisible] = useState(false)
 
     return (
@@ -23,9 +25,7 @@ const SQLButton = ({ sql }: { sql: string }) => {
             overlay={
                 <div className="p-2 max-w-md">
                     <div className="text-sm font-medium mb-2">SQL Query</div>
-                    <pre className="text-xs bg-gray-100 p-2 rounded overflow-x-auto whitespace-pre-wrap">
-                        {sql}
-                    </pre>
+                    <pre className="text-xs bg-gray-100 p-2 rounded overflow-x-auto whitespace-pre-wrap">{sql}</pre>
                 </div>
             }
             placement="top"
@@ -116,7 +116,8 @@ export const QueryEndpointsTable = (): JSX.Element => {
                         size="small"
                         icon={<IconPencil />}
                         onClick={() => {
-                            router.actions.push(`/sql?sql=${encodeURIComponent(record.sql)}#tab=query-endpoint`)
+                            // TODO: Once editor is refactored, allow sending #output-pane-tab=query-endpoint
+                            router.actions.push(urls.sqlEditor(record.sql))
                         }}
                     />
                 </div>

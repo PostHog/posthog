@@ -1,6 +1,10 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
+import { PageHeader } from 'lib/components/PageHeader'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs/LemonTabs'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
@@ -9,23 +13,20 @@ import { EmbeddedTiles } from './EmbeddedAnalyticsTiles'
 import { EmbeddedTab } from './common'
 import { embeddedAnalyticsLogic } from './embeddedAnalyticsLogic'
 import { QueryEndpoints } from './query-endpoints/QueryEndpoints'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { router } from 'kea-router'
-import { PageHeader } from 'lib/components/PageHeader'
 
 export function EmbeddedAnalyticsDashboard(): JSX.Element {
     return (
         <BindLogic logic={embeddedAnalyticsLogic} props={{}}>
             <SceneContent className="EmbeddedAnalyticsDashboard w-full flex flex-col">
                 <EmbeddedAnalyticsTabs />
-                {/* <Filters tabs={<></>} /> */}
 
                 <PageHeader
                     buttons={
                         <LemonButton
                             data-attr="new-query-endpoint"
                             onClick={() => {
-                                router.actions.push('/sql#tab=query-endpoint')
+                                // TODO: Once editor is refactored, allow sending #output-pane-tab=query-endpoint
+                                router.actions.push(urls.sqlEditor())
                             }}
                             type="primary"
                             tooltip="This will redirect you to the SQL Editor."
