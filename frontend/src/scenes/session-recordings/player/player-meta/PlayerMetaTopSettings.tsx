@@ -14,6 +14,7 @@ import { SettingsBar, SettingsButton, SettingsMenu } from 'scenes/session-record
 import { PlayerInspectorButton } from 'scenes/session-recordings/player/player-meta/PlayerInspectorButton'
 import {
     PLAYBACK_SPEEDS,
+    SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
@@ -117,10 +118,12 @@ function TTLWarning(): JSX.Element | null {
 
 export function PlayerMetaTopSettings({ playerIsHovering }: { playerIsHovering?: boolean }): JSX.Element {
     const {
-        logicProps: { noInspector },
+        logicProps: { noInspector, mode },
     } = useValues(sessionRecordingPlayerLogic)
     const { setPause, openHeatmap } = useActions(sessionRecordingPlayerLogic)
-    const hoverUIEnabled = useFeatureFlag('REPLAY_HOVER_UI')
+
+    // we don't want the hover UI in sharing mode where users might not be used to the player and be confused by no chrome
+    const hoverUIEnabled = useFeatureFlag('REPLAY_HOVER_UI') && mode === SessionRecordingPlayerMode.Standard
 
     return (
         <div
