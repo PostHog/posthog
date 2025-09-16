@@ -9,7 +9,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog, Change
 from posthog.models.utils import UUIDT
 
 from .fields_cache import cache_fields, get_cached_fields
-from .queries import QueryBuilder
+from .queries import SMALL_ORG_THRESHOLD, QueryBuilder
 
 
 class ScopeFields(TypedDict):
@@ -17,19 +17,12 @@ class ScopeFields(TypedDict):
 
 
 DetailFieldsResult = dict[str, ScopeFields]
-
-# Simple in-memory lock to prevent concurrent field discovery for the same org
 _analysis_locks = {}
 
 
 class AdvancedActivityLogFieldDiscovery:
-    """
-    Handles discovery and analysis of filterable fields in activity log details.
-    """
-
     def __init__(self, organization_id: UUIDT):
         self.organization_id = organization_id
-        self.query_builder = QueryBuilder()
 
     def get_available_filters(self, base_queryset: QuerySet) -> dict[str, Any]:
         cached = get_cached_fields(str(self.organization_id))
@@ -50,7 +43,6 @@ class AdvancedActivityLogFieldDiscovery:
         return result
 
     def _get_static_filters(self, queryset: QuerySet) -> dict[str, list[dict[str, str]]]:
-        """Get static filter options for users, scopes, and activities."""
         return {
             "users": self._get_available_users(queryset),
             "scopes": self._get_available_scopes(queryset),
@@ -108,25 +100,61 @@ class AdvancedActivityLogFieldDiscovery:
         return result
 
     def _get_org_record_count(self) -> int:
-        """Get count of activity log records for this organization."""
         return ActivityLog.objects.filter(organization_id=self.organization_id).count()
 
     def _compute_nested_fields_realtime(self) -> list[tuple[str, str, list[str]]]:
-        """Compute nested fields in real-time using iterative approach."""
-        queries = self.query_builder.build_nested_fields_queries(str(self.organization_id))
+        org_record_count = self._get_org_record_count()
 
-        results = []
-        with connection.cursor() as cursor:
-            for query, params in queries:
-                cursor.execute(query, params)
-                query_results = cursor.fetchall()
-                results.extend([(scope, field_name, field_types) for scope, field_name, field_types in query_results])
+        if org_record_count <= SMALL_ORG_THRESHOLD:
+            results = self._compute_fields_full_traversal()
+        else:
+            results = self._compute_fields_with_batching_and_sampling()
 
         return results
 
+    def _compute_fields_full_traversal(self) -> list[tuple[str, str, list[str]]]:
+        results = []
+
+        query_tuples = QueryBuilder.build_queries(str(self.organization_id), type="full")
+        queries = [query for query, _ in query_tuples]
+
+        with connection.cursor() as cursor:
+            for query in queries:
+                cursor.execute(query, [str(self.organization_id)])
+                query_results = cursor.fetchall()
+                results.extend([(scope, field_name, field_types) for scope, field_name, field_types in query_results])
+
+        return self._deduplicate_results(results)
+
+    def _compute_fields_with_batching_and_sampling(self) -> list[tuple[str, str, list[str]]]:
+        results = []
+
+        query_tuples = QueryBuilder.build_queries(str(self.organization_id), type="batched_sampling")
+        queries = [query for query, _ in query_tuples]
+
+        with connection.cursor() as cursor:
+            for query in queries:
+                cursor.execute(query, [str(self.organization_id)])
+                query_results = cursor.fetchall()
+                results.extend([(scope, field_name, field_types) for scope, field_name, field_types in query_results])
+
+        return self._deduplicate_results(results)
+
+    def _deduplicate_results(self, all_results: list[tuple[str, str, list[str]]]) -> list[tuple[str, str, list[str]]]:
+        field_map = {}
+        for scope, field_path, field_types in all_results:
+            key = (scope, field_path)
+            if key in field_map:
+                existing_types = set(field_map[key])
+                new_types = set(field_types)
+                field_map[key] = list(existing_types.union(new_types))
+            else:
+                field_map[key] = field_types
+
+        return [(scope, field_path, field_types) for (scope, field_path), field_types in field_map.items()]
+
     def _get_top_level_fields(self) -> list[tuple[str, str, list[str]]]:
-        """Discover top-level fields like name, label."""
-        query, params = self.query_builder.build_top_level_fields_query(str(self.organization_id))
+        query, params = QueryBuilder.build_top_level_fields_query(str(self.organization_id))
 
         with connection.cursor() as cursor:
             cursor.execute(query, params)
