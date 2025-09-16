@@ -16,10 +16,13 @@ from ee.hogai.eval.schema import DatasetInput
 async def _filter_data(data: EvalData[Input, Output], case_filter: str | None = None):
     # Resolve async data
     if asyncio.iscoroutine(data):
+        # Async iterator
         if hasattr(data, "__aiter__"):
             data = [case async for case in data]
+        # asyncio.iscoroutine may return True for sync generators
         elif hasattr(data, "__iter__"):
             data = list(data)
+        # Regular awaitable
         else:
             data = await data
     cases = []
@@ -30,6 +33,7 @@ async def _filter_data(data: EvalData[Input, Output], case_filter: str | None = 
 
         # Reset trace IDs for DatasetInput, so we use distinct IDs instead
         if os.getenv("EVAL_MODE") == "offline" and isinstance(case.input, DatasetInput):
+            # Mutating the input in place is intentional here. Just avoiding copying the whole object.
             case.input.trace_id = str(uuid7())
 
         # Filter by --case <eval_case_name_part> pytest flag

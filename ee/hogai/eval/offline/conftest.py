@@ -82,7 +82,7 @@ class EvaluationContext(BaseModel):
             "ai_experiment_name": self.formatted_experiment_name,
         }
 
-    def get_openai_client_for_tracing(self, trace_id: UUID | str | None) -> AsyncOpenAI:
+    def get_openai_client_for_tracing(self, trace_id: UUID | str | None) -> TracedLLMClient:
         """Override the OpenAI client to inject tracing parameters."""
         client = AsyncOpenAI(posthog_client=self.client)
         original_create = client.chat.completions.create
@@ -101,7 +101,7 @@ class EvaluationContext(BaseModel):
             kwargs.setdefault("posthog_distinct_id", self.distinct_id)
             return await original_create(*args, **kwargs)
 
-        client.completions.create = patched_create  # type: ignore
+        client.chat.completions.create = patched_create  # type: ignore
 
         return TracedLLMClient(
             openai=client,
