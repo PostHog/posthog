@@ -322,18 +322,20 @@ class DashboardCreationNode(AssistantNode):
         result = await executor_node.arun(task_executor_state, config)
         final_task_executor_state = PartialDashboardInsightCreationTaskExecutionState.model_validate(result)
 
-        created_insights = await self._save_insights(final_task_executor_state.task_results, query_metadata)
+        query_metadata = await self._process_insight_creation_results(
+            final_task_executor_state.task_results, query_metadata
+        )
 
-        for task in final_task_executor_state.task_results:
-            if task.status == TaskExecutionStatus.COMPLETED:
-                query_metadata[task.id].created_insight_ids.update(created_insights[task.id])
-                query_metadata[task.id].created_insight_messages.append(
-                    f"\n -{query_metadata[task.id].query.name}: Insight was created successfully with the description **{query_metadata[task.id].query.description}**"
-                )
-            else:
-                query_metadata[task.id].created_insight_messages.append(
-                    f"\n -{query_metadata[task.id].query.name}: Could not create insights for the query with the description **{task.description}**"
-                )
+        # for task in final_task_executor_state.task_results:
+        #     if task.status == TaskExecutionStatus.COMPLETED:
+        #         query_metadata[task.id].created_insight_ids.update(created_insights[task.id])
+        #         query_metadata[task.id].created_insight_messages.append(
+        #             f"\n -{query_metadata[task.id].query.name}: Insight was created successfully with the description **{query_metadata[task.id].query.description}**"
+        #         )
+        #     else:
+        #         query_metadata[task.id].created_insight_messages.append(
+        #             f"\n -{query_metadata[task.id].query.name}: Could not create insights for the query with the description **{task.description}**"
+        #         )
 
         return query_metadata
 
@@ -380,21 +382,24 @@ class DashboardCreationNode(AssistantNode):
                         )
         return queries_metadata
 
-    @database_sync_to_async
     @transaction.atomic
-    def _save_insights(
-        self, task_results: list[InsightCreationTaskExecutionResult], query_metadata: dict[str, QueryMetadata]
-    ) -> dict[str, set[int]]:
-        created_insights: dict[str, set[int]] = {
-            task.id: set() for task in task_results if task.status == TaskExecutionStatus.COMPLETED
-        }
+    def _save_insights(self, insights_to_create: list[Insight]) -> list[Insight]:
+        return Insight.objects.bulk_create(insights_to_create)
 
+    @database_sync_to_async
+    def _process_insight_creation_results(
+        self, task_results: list[InsightCreationTaskExecutionResult], query_metadata: dict[str, QueryMetadata]
+    ) -> dict[str, QueryMetadata]:
         insights_to_create = []
         insight_metadata = []
 
         for task_result in task_results:
             if task_result.status != TaskExecutionStatus.COMPLETED:
+                query_metadata[task_result.id].created_insight_messages.append(
+                    f"\n -{query_metadata[task_result.id].query.name}: Could not create insights for the query with the description **{task_result.result}**"
+                )
                 continue
+
             for artifact in task_result.artifacts:
                 insight_name = query_metadata[task_result.id].query.name[:400]  # Max 400 chars
                 insight_description = query_metadata[task_result.id].query.description[:400]  # Max 400 chars
@@ -415,12 +420,15 @@ class DashboardCreationNode(AssistantNode):
                 insights_to_create.append(insight)
                 insight_metadata.append(task_result.id)
 
-        created_insight_objects = Insight.objects.bulk_create(insights_to_create)
+        created_insight_objects = self._save_insights(insights_to_create)
 
         for insight, task_id in zip(created_insight_objects, insight_metadata):
-            created_insights[task_id].add(insight.id)
+            query_metadata[task_id].created_insight_ids.add(insight.id)
+            query_metadata[task_id].created_insight_messages.append(
+                f"\n -{query_metadata[task_id].query.name}: Insight was created successfully with the description **{query_metadata[task_id].query.description}**"
+            )
 
-        return created_insights
+        return query_metadata
 
     async def _generate_dashboard_name(self, query: str, last_messages: list[str]) -> str:
         """Generate a dashboard name based on the query and insights."""

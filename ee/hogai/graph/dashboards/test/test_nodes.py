@@ -1,3 +1,4 @@
+import pytest
 from unittest import TestCase
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -235,9 +236,9 @@ class TestDashboardInsightCreationTaskExecutorNode(TestCase):
         self.assertEqual(result.messages[0].content, "No tasks to execute")
 
 
-class TestDashboardCreationNode(TestCase):
-    def setUp(self):
-        super().setUp()
+class TestDashboardCreationNode:
+    @pytest.fixture(autouse=True)
+    def setup_method(self):
         self.mock_team = MagicMock(spec=Team)
         self.mock_team.id = 1
         self.mock_user = MagicMock(spec=User)
@@ -246,22 +247,22 @@ class TestDashboardCreationNode(TestCase):
 
     def test_initialization(self):
         """Test node initialization."""
-        self.assertEqual(self.node._team, self.mock_team)
-        self.assertEqual(self.node._user, self.mock_user)
-        self.assertIsNone(self.node._stream_writer)
+        assert self.node._team == self.mock_team
+        assert self.node._user == self.mock_user
+        assert self.node._stream_writer is None
 
     def test_get_stream_writer_success(self):
         """Test _get_stream_writer returns stream writer when available."""
         mock_writer = MagicMock()
         with patch("ee.hogai.graph.dashboards.nodes.get_stream_writer", return_value=mock_writer):
             writer = self.node._get_stream_writer()
-            self.assertEqual(writer, mock_writer)
+            assert writer == mock_writer
 
     def test_get_stream_writer_failure(self):
         """Test _get_stream_writer returns None when stream writer unavailable."""
         with patch("ee.hogai.graph.dashboards.nodes.get_stream_writer", side_effect=Exception("No writer")):
             writer = self.node._get_stream_writer()
-            self.assertIsNone(writer)
+            assert writer is None
 
     def test_stream_reasoning_with_writer(self):
         """Test _stream_reasoning with available writer."""
@@ -274,8 +275,8 @@ class TestDashboardCreationNode(TestCase):
 
             mock_writer.assert_called_once()
             call_args = mock_writer.call_args[0][0]
-            self.assertEqual(call_args[0], "dashboard_creation_node")
-            self.assertEqual(call_args[1], "messages")
+            assert call_args[0] == "dashboard_creation_node"
+            assert call_args[1] == "messages"
 
     def test_stream_reasoning_without_writer(self):
         """Test _stream_reasoning without writer logs warning."""
@@ -303,22 +304,23 @@ class TestDashboardCreationNode(TestCase):
         }
 
         count = self.node._get_found_insight_count(queries_metadata)
-        self.assertEqual(count, 5)  # 3 + 2
+        assert count == 5  # 3 + 2
 
     def test_build_insight_url(self):
         """Test _build_insight_url creates correct URL."""
         insight_id = "test_insight_id"
         url = build_insight_url(self.mock_team, insight_id)
         expected_url = f"/project/{self.mock_team.id}/insights/{insight_id}"
-        self.assertEqual(url, expected_url)
+        assert url == expected_url
 
     def test_build_dashboard_url(self):
         """Test _build_dashboard_url creates correct URL."""
         dashboard_id = 123
         url = build_dashboard_url(self.mock_team, dashboard_id)
         expected_url = f"/project/{self.mock_team.id}/dashboard/{dashboard_id}"
-        self.assertEqual(url, expected_url)
+        assert url == expected_url
 
+    @pytest.mark.asyncio
     @patch("ee.hogai.graph.dashboards.nodes.get_stream_writer")
     async def test_arun_missing_create_dashboard_query(self, mock_get_stream_writer):
         """Test arun returns error when create_dashboard_query is missing."""
@@ -334,11 +336,12 @@ class TestDashboardCreationNode(TestCase):
 
         result = await self.node.arun(state, config)
 
-        self.assertIsInstance(result, PartialAssistantState)
-        self.assertEqual(len(result.messages), 1)
+        assert isinstance(result, PartialAssistantState)
+        assert len(result.messages) == 1
         assert isinstance(result.messages[0], AssistantToolCallMessage)
-        self.assertIn("Dashboard creation query is required", result.messages[0].content)
+        assert "Dashboard creation query is required" in result.messages[0].content
 
+    @pytest.mark.asyncio
     @patch("ee.hogai.graph.dashboards.nodes.get_stream_writer")
     async def test_arun_missing_search_insights_queries(self, mock_get_stream_writer):
         """Test arun returns error when search_insights_queries is missing."""
@@ -354,11 +357,12 @@ class TestDashboardCreationNode(TestCase):
 
         result = await self.node.arun(state, config)
 
-        self.assertIsInstance(result, PartialAssistantState)
-        self.assertEqual(len(result.messages), 1)
+        assert isinstance(result, PartialAssistantState)
+        assert len(result.messages) == 1
         assert isinstance(result.messages[0], AssistantToolCallMessage)
-        self.assertIn("Search insights queries are required", result.messages[0].content)
+        assert "Search insights queries are required" in result.messages[0].content
 
+    @pytest.mark.asyncio
     @patch("ee.hogai.graph.dashboards.nodes.get_stream_writer")
     @patch.object(DashboardCreationNode, "_search_insights")
     @patch.object(DashboardCreationNode, "_create_insights")
@@ -411,12 +415,13 @@ class TestDashboardCreationNode(TestCase):
 
         result = await self.node.arun(state, config)
 
-        self.assertIsInstance(result, PartialAssistantState)
-        self.assertEqual(len(result.messages), 1)
+        assert isinstance(result, PartialAssistantState)
+        assert len(result.messages) == 1
         assert isinstance(result.messages[0], AssistantToolCallMessage)
-        self.assertIn("Dashboard Created", result.messages[0].content)
-        self.assertIn("Test Dashboard", result.messages[0].content)
+        assert "Dashboard Created" in result.messages[0].content
+        assert "Test Dashboard" in result.messages[0].content
 
+    @pytest.mark.asyncio
     @patch("ee.hogai.graph.dashboards.nodes.get_stream_writer")
     @patch.object(DashboardCreationNode, "_search_insights")
     @patch.object(DashboardCreationNode, "_create_insights")
@@ -449,11 +454,12 @@ class TestDashboardCreationNode(TestCase):
 
         result = await self.node.arun(state, config)
 
-        self.assertIsInstance(result, PartialAssistantState)
-        self.assertEqual(len(result.messages), 1)
+        assert isinstance(result, PartialAssistantState)
+        assert len(result.messages) == 1
         assert isinstance(result.messages[0], AssistantToolCallMessage)
-        self.assertIn("No existing insights matched", result.messages[0].content)
+        assert "No existing insights matched" in result.messages[0].content
 
+    @pytest.mark.asyncio
     @patch("ee.hogai.graph.dashboards.nodes.get_stream_writer")
     @patch.object(DashboardCreationNode, "_search_insights")
     @patch("ee.hogai.graph.dashboards.nodes.logger")
@@ -472,10 +478,10 @@ class TestDashboardCreationNode(TestCase):
 
         result = await self.node.arun(state, config)
 
-        self.assertIsInstance(result, PartialAssistantState)
-        self.assertEqual(len(result.messages), 1)
+        assert isinstance(result, PartialAssistantState)
+        assert len(result.messages) == 1
         assert isinstance(result.messages[0], AssistantToolCallMessage)
-        self.assertIn("I encountered an issue while creating the dashboard", result.messages[0].content)
+        assert "I encountered an issue while creating the dashboard" in result.messages[0].content
         mock_logger.exception.assert_called_once()
 
     def test_create_success_response(self):
@@ -497,49 +503,50 @@ class TestDashboardCreationNode(TestCase):
             ["Query without insights"],
         )
 
-        self.assertIsInstance(result, PartialAssistantState)
-        self.assertEqual(len(result.messages), 1)
+        assert isinstance(result, PartialAssistantState)
+        assert len(result.messages) == 1
         assert isinstance(result.messages[0], AssistantToolCallMessage)
-        self.assertIn("Dashboard Created", result.messages[0].content)
-        self.assertIn("Test Dashboard", result.messages[0].content)
-        self.assertIn("2 insights", result.messages[0].content)
-        self.assertIn("Query without insights", result.messages[0].content)
+        assert "Dashboard Created" in result.messages[0].content
+        assert "Test Dashboard" in result.messages[0].content
+        assert "2 insights" in result.messages[0].content
+        assert "Query without insights" in result.messages[0].content
 
     def test_create_no_insights_response(self):
         """Test _create_no_insights_response creates correct no insights message."""
         result = self.node._create_no_insights_response("test_call", "No insights found")
 
-        self.assertIsInstance(result, PartialAssistantState)
-        self.assertEqual(len(result.messages), 1)
+        assert isinstance(result, PartialAssistantState)
+        assert len(result.messages) == 1
         assert isinstance(result.messages[0], AssistantToolCallMessage)
-        self.assertIn("No existing insights matched", result.messages[0].content)
-        self.assertIn("No insights found", result.messages[0].content)
+        assert "No existing insights matched" in result.messages[0].content
+        assert "No insights found" in result.messages[0].content
 
     def test_create_error_response(self):
         """Test _create_error_response creates correct error message."""
         with patch("ee.hogai.graph.dashboards.nodes.capture_exception") as mock_capture:
             result = self.node._create_error_response("Test error", "test_call")
 
-            self.assertIsInstance(result, PartialAssistantState)
-            self.assertEqual(len(result.messages), 1)
+            assert isinstance(result, PartialAssistantState)
+            assert len(result.messages) == 1
             assert isinstance(result.messages[0], AssistantToolCallMessage)
-            self.assertEqual(result.messages[0].content, "Test error")
+            assert result.messages[0].content == "Test error"
             assert isinstance(result.messages[0], AssistantToolCallMessage)
-            self.assertEqual(result.messages[0].tool_call_id, "test_call")
+            assert result.messages[0].tool_call_id == "test_call"
             mock_capture.assert_called_once()
 
 
-class TestDashboardCreationNodeAsyncMethods(TestCase):
-    def setUp(self):
-        super().setUp()
+class TestDashboardCreationNodeAsyncMethods:
+    @pytest.fixture(autouse=True)
+    def setup_method(self):
         self.mock_team = MagicMock(spec=Team)
         self.mock_team.id = 1
         self.mock_user = MagicMock(spec=User)
         self.mock_user.id = 1
         self.node = DashboardCreationNode(self.mock_team, self.mock_user)
 
+    @pytest.mark.asyncio
     @patch("ee.hogai.graph.dashboards.nodes.get_stream_writer")
-    @patch("ee.hogai.graph.dashboards.nodes.InsightsAssistantGraph")
+    @patch("ee.hogai.graph.graph.InsightsAssistantGraph")
     async def test_create_insights(self, mock_graph_class, mock_get_stream_writer):
         """Test _create_insights method."""
         mock_writer = MagicMock()
@@ -561,14 +568,23 @@ class TestDashboardCreationNodeAsyncMethods(TestCase):
             ],
             status=TaskExecutionStatus.COMPLETED,
         )
-        mock_executor_node.arun.return_value = PartialDashboardInsightCreationTaskExecutionState(
-            task_results=[mock_task_result]
+        mock_executor_node.arun = AsyncMock(
+            return_value=PartialDashboardInsightCreationTaskExecutionState(task_results=[mock_task_result])
         )
 
         with patch(
             "ee.hogai.graph.dashboards.nodes.DashboardInsightCreationTaskExecutorNode", return_value=mock_executor_node
         ):
-            with patch.object(self.node, "_save_insights", return_value={"task_1": {1, 2}}):
+            # Mock _process_insight_creation_results to return the modified query_metadata
+            async def mock_process_insight_creation_results(task_results, query_metadata):
+                query_metadata["task_1"].created_insight_ids.add(1)
+                query_metadata["task_1"].created_insight_ids.add(2)
+                query_metadata["task_1"].created_insight_messages.append("Insight created")
+                return query_metadata
+
+            with patch.object(
+                self.node, "_process_insight_creation_results", side_effect=mock_process_insight_creation_results
+            ):
                 left_to_create = {"task_1": InsightQuery(name="Query 1", description="Description 1")}
                 query_metadata = {
                     "task_1": QueryMetadata(
@@ -585,12 +601,13 @@ class TestDashboardCreationNodeAsyncMethods(TestCase):
 
                 result = await self.node._create_insights(left_to_create, query_metadata, state, config)
 
-                self.assertIn("task_1", result)
-                self.assertEqual(len(result["task_1"].created_insight_ids), 2)
-                self.assertEqual(len(result["task_1"].created_insight_messages), 1)
+                assert "task_1" in result
+                assert len(result["task_1"].created_insight_ids) == 2
+                assert len(result["task_1"].created_insight_messages) == 1
 
+    @pytest.mark.asyncio
     @patch("ee.hogai.graph.dashboards.nodes.get_stream_writer")
-    @patch("ee.hogai.graph.dashboards.nodes.InsightSearchNode")
+    @patch("ee.hogai.graph.insights.nodes.InsightSearchNode")
     async def test_search_insights(self, mock_search_node_class, mock_get_stream_writer):
         """Test _search_insights method."""
         mock_writer = MagicMock()
@@ -612,8 +629,8 @@ class TestDashboardCreationNodeAsyncMethods(TestCase):
             status=TaskExecutionStatus.COMPLETED,
             result="Task completed successfully",
         )
-        mock_executor_node.arun.return_value = PartialDashboardInsightSearchTaskExecutionState(
-            task_results=[mock_task_result]
+        mock_executor_node.arun = AsyncMock(
+            return_value=PartialDashboardInsightSearchTaskExecutionState(task_results=[mock_task_result])
         )
 
         with patch(
@@ -634,10 +651,11 @@ class TestDashboardCreationNodeAsyncMethods(TestCase):
 
             result = await self.node._search_insights(queries_metadata, state, config)
 
-            self.assertIn("task_1", result)
-            self.assertEqual(len(result["task_1"].found_insight_ids), 2)
-            self.assertEqual(len(result["task_1"].found_insight_messages), 1)
+            assert "task_1" in result
+            assert len(result["task_1"].found_insight_ids) == 2
+            assert len(result["task_1"].found_insight_messages) == 1
 
+    @pytest.mark.asyncio
     @patch("ee.hogai.graph.dashboards.nodes.get_stream_writer")
     @patch.object(DashboardCreationNode, "_model")
     async def test_generate_dashboard_name_success(self, mock_model, mock_get_stream_writer):
@@ -647,13 +665,14 @@ class TestDashboardCreationNodeAsyncMethods(TestCase):
 
         mock_response = MagicMock()
         mock_response.content = "User Engagement Dashboard"
-        mock_model.ainvoke.return_value = mock_response
+        mock_model.ainvoke = AsyncMock(return_value=mock_response)
 
         result = await self.node._generate_dashboard_name("Create user engagement dashboard", ["Found insights"])
 
-        self.assertEqual(result, "User Engagement Dashboard")
+        assert result == "User Engagement Dashboard"
         mock_model.ainvoke.assert_called_once()
 
+    @pytest.mark.asyncio
     @patch("ee.hogai.graph.dashboards.nodes.get_stream_writer")
     @patch.object(DashboardCreationNode, "_model")
     async def test_generate_dashboard_name_exception(self, mock_model, mock_get_stream_writer):
@@ -666,10 +685,11 @@ class TestDashboardCreationNodeAsyncMethods(TestCase):
             with patch("ee.hogai.graph.dashboards.nodes.logger") as mock_logger:
                 result = await self.node._generate_dashboard_name("Create dashboard", [])
 
-                self.assertEqual(result, "Analytics Dashboard")
+                assert result == "Analytics Dashboard"
                 mock_capture.assert_called_once()
                 mock_logger.exception.assert_called_once()
 
+    @pytest.mark.asyncio
     @patch("ee.hogai.graph.dashboards.nodes.get_stream_writer")
     @patch("ee.hogai.graph.dashboards.nodes.database_sync_to_async")
     async def test_create_dashboard_with_insights(self, mock_db_sync, mock_get_stream_writer):
@@ -690,46 +710,88 @@ class TestDashboardCreationNodeAsyncMethods(TestCase):
 
         result = await self.node._create_dashboard_with_insights("Test Dashboard", {1, 2})
 
-        self.assertEqual(result[0], mock_dashboard)
-        self.assertEqual(result[1], mock_insights)
+        assert result[0] == mock_dashboard
+        assert result[1] == mock_insights
         mock_sync_func.assert_called_once()
 
-    async def test_save_insights(self):
-        """Test _save_insights method."""
-        mock_insight1 = MagicMock(spec=Insight)
-        mock_insight1.id = 1
-        mock_insight2 = MagicMock(spec=Insight)
-        mock_insight2.id = 2
+    @pytest.mark.asyncio
+    async def test_process_insight_creation_results(self):
+        """Test _process_insight_creation_results method."""
+        # Create simple mocked Team and User instances like other tests
+        team = MagicMock(spec=Team)
+        team.id = 1
+        team._state = MagicMock()
+        team._state.db = None
 
-        with patch(
-            "ee.hogai.graph.dashboards.nodes.Insight.objects.bulk_create", return_value=[mock_insight1, mock_insight2]
-        ):
-            task_results = [
-                InsightCreationTaskExecutionResult(
-                    id="task_1",
-                    description="Test task",
-                    result="Task completed successfully",
-                    artifacts=[
-                        InsightCreationArtifact(
-                            id="art_1", description="Test artifact", query=AssistantHogQLQuery(query="SELECT 1")
-                        )
-                    ],
-                    status=TaskExecutionStatus.COMPLETED,
-                )
-            ]
-            query_metadata = {
-                "task_1": QueryMetadata(
-                    found_insight_ids=set(),
-                    created_insight_ids=set(),
-                    found_insight_messages=[],
-                    created_insight_messages=[],
-                    query=InsightQuery(name="Query 1", description="Description 1"),
-                )
-            }
+        user = MagicMock(spec=User)
+        user.id = 1
+        user._state = MagicMock()
+        user._state.db = None
 
-            result = await self.node._save_insights(task_results, query_metadata)
+        # Create a node with mocked models
+        node = DashboardCreationNode(team, user)
 
-            self.assertIn("task_1", result)
-            self.assertEqual(len(result["task_1"]), 2)
-            self.assertIn(1, result["task_1"])
-            self.assertIn(2, result["task_1"])
+        task_results = [
+            InsightCreationTaskExecutionResult(
+                id="task_1",
+                description="Test task",
+                result="Task completed successfully",
+                artifacts=[
+                    InsightCreationArtifact(
+                        id="art_1", description="Test artifact", query=AssistantHogQLQuery(query="SELECT 1")
+                    )
+                ],
+                status=TaskExecutionStatus.COMPLETED,
+            ),
+            InsightCreationTaskExecutionResult(
+                id="task_2",
+                description="Test task failed",
+                result="Task failed",
+                artifacts=[
+                    InsightCreationArtifact(
+                        id="art_2", description="Test artifact", query=AssistantHogQLQuery(query="SELECT 1")
+                    )
+                ],
+                status=TaskExecutionStatus.FAILED,
+            ),
+        ]
+        query_metadata = {
+            "task_1": QueryMetadata(
+                found_insight_ids=set(),
+                created_insight_ids=set(),
+                found_insight_messages=[],
+                created_insight_messages=[],
+                query=InsightQuery(name="Query 1", description="Description 1"),
+            ),
+            "task_2": QueryMetadata(
+                found_insight_ids=set(),
+                created_insight_ids=set(),
+                found_insight_messages=[],
+                created_insight_messages=[],
+                query=InsightQuery(name="Query 2", description="Description 2"),
+            ),
+        }
+
+        # Mock only the database bulk creation method
+        mock_insight = MagicMock(spec=Insight)
+        mock_insight.id = 123
+
+        with patch.object(node, "_save_insights", return_value=[mock_insight]):
+            result = await node._process_insight_creation_results(task_results, query_metadata)
+
+        assert "task_1" in result
+        # Check that exactly one insight was created
+        assert len(result["task_1"].created_insight_ids) == 1
+        assert 123 in result["task_1"].created_insight_ids
+        assert len(result["task_1"].created_insight_messages) == 1
+        assert (
+            result["task_1"].created_insight_messages[0]
+            == "\n -Query 1: Insight was created successfully with the description **Description 1**"
+        )
+        assert "task_2" in result
+        assert len(result["task_2"].created_insight_ids) == 0
+        assert len(result["task_2"].created_insight_messages) == 1
+        assert (
+            result["task_2"].created_insight_messages[0]
+            == "\n -Query 2: Could not create insights for the query with the description **Task failed**"
+        )
