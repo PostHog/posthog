@@ -23,6 +23,7 @@ class RevenueCatSource(BaseSource[RevenueCatSourceConfig]):
             name=SchemaExternalDataSourceType.REVENUE_CAT,
             label="RevenueCat",
             caption="",
+            iconPath="/static/services/revenuecat.png",
             fields=cast(list[FieldType], []),
             unreleasedSource=True,
         )

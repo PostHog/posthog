@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 import { ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 
 import { SparklineData } from '../components/SparklineChart/SparklineChart'
-import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
+import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 import { ERROR_TRACKING_DETAILS_RESOLUTION } from '../utils'
 
 type NotUndefined<T> = T extends undefined ? never : T

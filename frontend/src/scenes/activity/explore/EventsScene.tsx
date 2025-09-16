@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconApps } from '@posthog/icons'
 
 import { PageHeader } from 'lib/components/PageHeader'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -22,7 +21,6 @@ const RESOURCE_TYPE = 'event'
 export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     const { query } = useValues(eventsSceneLogic)
     const { setQuery } = useActions(eventsSceneLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     return (
         <SceneContent>
@@ -41,7 +39,7 @@ export function EventsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                         link: urls.activity(ActivityTab.LiveEvents),
                     },
                 ]}
-                sceneInset={newSceneLayout}
+                sceneInset
             />
             <SceneTitleSection
                 name="Explore events"

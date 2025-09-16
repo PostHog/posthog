@@ -4,7 +4,6 @@ import { IconCalendar } from '@posthog/icons'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { cn } from 'lib/utils/css-classes'
@@ -22,12 +21,11 @@ export function SavedInsightsFilters({
     setFilters: (filters: Partial<SavedInsightFilters>) => void
 }): JSX.Element {
     const { nameSortedDashboards } = useValues(dashboardsModel)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const { tab, createdBy, insightType, dateFrom, dateTo, dashboardId, search } = filters
 
     return (
-        <div className={cn('flex justify-between gap-2 mb-2 items-center flex-wrap', newSceneLayout && 'mb-0')}>
+        <div className={cn('flex justify-between gap-2 mb-2 items-center flex-wrap mb-0')}>
             <LemonInput
                 type="search"
                 placeholder="Search for insights"

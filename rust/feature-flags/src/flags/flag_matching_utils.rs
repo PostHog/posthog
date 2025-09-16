@@ -94,6 +94,17 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         ),
     ];
     let conn_timer = common_metrics::timing_guard(FLAG_DB_CONNECTION_TIME, &labels);
+
+    // Log pool stats before attempting connection
+    if let Some(stats) = reader.as_ref().get_pool_stats() {
+        info!(
+            pool_size = stats.size,
+            pool_idle = stats.num_idle,
+            pool_in_use = stats.size.saturating_sub(stats.num_idle as u32),
+            "Connection pool stats before acquiring connection"
+        );
+    }
+
     let conn_acquisition_start = Instant::now();
     let conn_result = reader.as_ref().get_connection().await;
     let conn_acquisition_duration = conn_acquisition_start.elapsed();
@@ -107,8 +118,22 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             conn
         }
         Err(e) => {
+            let (pool_size, pool_idle, pool_in_use) =
+                if let Some(stats) = reader.as_ref().get_pool_stats() {
+                    (
+                        stats.size,
+                        stats.num_idle as u32,
+                        stats.size.saturating_sub(stats.num_idle as u32),
+                    )
+                } else {
+                    (0, 0, 0) // Default values if stats unavailable
+                };
+
             warn!(
                 conn_acquisition_ms = conn_acquisition_duration.as_millis(),
+                pool_size = pool_size,
+                pool_idle = pool_idle,
+                pool_in_use = pool_in_use,
                 error = ?e,
                 "Failed to acquire database connection"
             );
@@ -249,10 +274,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
 
     // Always add distinct_id to person properties to match Python implementation
     // This allows flags to filter on distinct_id even when no other person properties exist
-    all_person_properties.insert(
-        "distinct_id".to_string(),
-        Value::String(distinct_id.clone()),
-    );
+    all_person_properties.insert("distinct_id".to_string(), Value::String(distinct_id));
 
     flag_evaluation_state.set_person_properties(all_person_properties);
     person_processing_timer.fin();
@@ -271,7 +293,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         "#;
 
         let group_type_indexes_vec: Vec<GroupTypeIndex> =
-            group_type_indexes.iter().cloned().collect();
+            group_type_indexes.iter().copied().collect();
         let group_keys_vec: Vec<String> = group_keys.iter().cloned().collect();
 
         let group_query_start = Instant::now();

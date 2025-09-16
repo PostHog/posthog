@@ -29,14 +29,12 @@ import {
 } from '@posthog/icons'
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { Alerts } from 'lib/components/Alerts/views/Alerts'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TZLabel } from 'lib/components/TZLabel'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -477,6 +475,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconAI,
         inMenu: false,
     },
+    [NodeKind.TraceQuery]: {
+        name: 'LLM Analytics Trace',
+        icon: IconAI,
+        inMenu: false,
+    },
     [NodeKind.VectorSearchQuery]: {
         name: 'Vector Search',
         icon: IconHogQL,
@@ -561,7 +564,7 @@ export function InsightIcon({
 
 export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Element {
     return (
-        <AccessControlledLemonButton
+        <LemonButton
             type="primary"
             to={urls.insightNew()}
             sideAction={{
@@ -576,12 +579,14 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
             data-attr="saved-insights-new-insight-button"
             size="small"
             icon={<IconPlusSmall />}
-            resourceType={AccessControlResourceType.Insight}
-            minAccessLevel={AccessControlLevel.Editor}
-            userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight]}
+            accessControl={{
+                resourceType: AccessControlResourceType.Insight,
+                minAccessLevel: AccessControlLevel.Editor,
+                userAccessLevel: getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight],
+            }}
         >
             New
-        </AccessControlledLemonButton>
+        </LemonButton>
     )
 }
 
@@ -638,8 +643,6 @@ export function SavedInsights(): JSX.Element {
     const startCount = (page - 1) * INSIGHTS_PER_PAGE + 1
     const endCount = page * INSIGHTS_PER_PAGE < count ? page * INSIGHTS_PER_PAGE : count
 
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
-
     const columns: LemonTableColumns<QueryBasedInsightModel> = [
         {
             key: 'id',
@@ -661,10 +664,12 @@ export function SavedInsights(): JSX.Element {
                                 <>
                                     {name || <i>{summarizeInsight(insight.query)}</i>}
 
-                                    <AccessControlledLemonButton
-                                        userAccessLevel={insight.user_access_level}
-                                        minAccessLevel={AccessControlLevel.Editor}
-                                        resourceType={AccessControlResourceType.Insight}
+                                    <LemonButton
+                                        accessControl={{
+                                            resourceType: AccessControlResourceType.Insight,
+                                            minAccessLevel: AccessControlLevel.Editor,
+                                            userAccessLevel: insight.user_access_level,
+                                        }}
                                         className="ml-1"
                                         size="xsmall"
                                         onClick={(e) => {
@@ -732,26 +737,30 @@ export function SavedInsights(): JSX.Element {
 
                                 <LemonDivider />
 
-                                <AccessControlledLemonButton
-                                    userAccessLevel={insight.user_access_level}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                    resourceType={AccessControlResourceType.Insight}
+                                <LemonButton
+                                    accessControl={{
+                                        resourceType: AccessControlResourceType.Insight,
+                                        minAccessLevel: AccessControlLevel.Editor,
+                                        userAccessLevel: insight.user_access_level,
+                                    }}
                                     to={urls.insightEdit(insight.short_id)}
                                     fullWidth
                                 >
                                     Edit
-                                </AccessControlledLemonButton>
+                                </LemonButton>
 
-                                <AccessControlledLemonButton
-                                    userAccessLevel={insight.user_access_level}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                    resourceType={AccessControlResourceType.Insight}
+                                <LemonButton
+                                    accessControl={{
+                                        resourceType: AccessControlResourceType.Insight,
+                                        minAccessLevel: AccessControlLevel.Editor,
+                                        userAccessLevel: insight.user_access_level,
+                                    }}
                                     onClick={() => renameInsight(insight)}
                                     data-attr={`insight-item-${insight.short_id}-dropdown-rename`}
                                     fullWidth
                                 >
                                     Rename
-                                </AccessControlledLemonButton>
+                                </LemonButton>
 
                                 <LemonButton
                                     onClick={() => duplicateInsight(insight)}
@@ -763,10 +772,12 @@ export function SavedInsights(): JSX.Element {
 
                                 <LemonDivider />
 
-                                <AccessControlledLemonButton
-                                    userAccessLevel={insight.user_access_level}
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                    resourceType={AccessControlResourceType.Insight}
+                                <LemonButton
+                                    accessControl={{
+                                        resourceType: AccessControlResourceType.Insight,
+                                        minAccessLevel: AccessControlLevel.Editor,
+                                        userAccessLevel: insight.user_access_level,
+                                    }}
                                     status="danger"
                                     onClick={() =>
                                         void deleteInsightWithUndo({
@@ -779,7 +790,7 @@ export function SavedInsights(): JSX.Element {
                                     fullWidth
                                 >
                                     Delete insight
-                                </AccessControlledLemonButton>
+                                </LemonButton>
                             </>
                         }
                     />
@@ -789,7 +800,7 @@ export function SavedInsights(): JSX.Element {
     ]
 
     return (
-        <SceneContent className={cn('saved-insights', !newSceneLayout && 'block')}>
+        <SceneContent className={cn('saved-insights')}>
             <PageHeader buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />} />
             <SceneTitleSection
                 name="Product analytics"
@@ -812,7 +823,7 @@ export function SavedInsights(): JSX.Element {
                         label: <div className="flex items-center gap-2">Alerts</div>,
                     },
                 ]}
-                sceneInset={newSceneLayout}
+                sceneInset
             />
 
             {tab === SavedInsightsTabs.History ? (
@@ -822,13 +833,8 @@ export function SavedInsights(): JSX.Element {
             ) : (
                 <>
                     <SavedInsightsFilters filters={filters} setFilters={setSavedInsightsFilters} />
-                    <LemonDivider className={cn('my-4', newSceneLayout && 'my-0')} />
-                    <div
-                        className={cn(
-                            'flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center',
-                            newSceneLayout && 'my-0'
-                        )}
-                    >
+                    <LemonDivider className={cn('my-4 my-0')} />
+                    <div className={cn('flex justify-between mb-4 gap-2 flex-wrap mt-2 items-center', 'my-0')}>
                         <span className="text-secondary">
                             {count
                                 ? `${startCount}${endCount - startCount > 1 ? '-' + endCount : ''} of ${count} insight${

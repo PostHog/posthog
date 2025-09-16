@@ -36,11 +36,6 @@ export const campaignSceneLogic = kea<campaignSceneLogicType>([
             (id): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.Messaging,
-                        name: 'Messaging',
-                        path: urls.messaging('campaigns'),
-                    },
-                    {
                         key: [Scene.Messaging, 'campaigns'],
                         name: 'Campaigns',
                         path: urls.messaging('campaigns'),

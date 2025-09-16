@@ -56,7 +56,7 @@ export const WebAnalyticsModal = (): JSX.Element | null => {
                 <div className="flex flex-row justify-end">
                     {modal.canOpenInsight ? (
                         <LemonButton
-                            to={urls.insightNew({ query: modal.query })}
+                            to={urls.insightNew({ query: modal.query, sceneSource: 'web-analytics' })}
                             icon={<IconOpenInNew />}
                             size="small"
                             type="secondary"

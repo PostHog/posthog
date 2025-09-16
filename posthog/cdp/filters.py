@@ -1,5 +1,7 @@
 from typing import Optional
 
+from django.conf import settings
+
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, ast, property_to_expr
@@ -157,8 +159,35 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
         if "bytecode_error" in filters:
             del filters["bytecode_error"]
     except Exception as e:
-        # TODO: Better reporting of this issue
+        error_msg = str(e)
+
+        # Check if the error is about cohorts and if test account filters are involved
+        if "Can't use cohorts in real-time filters" in error_msg and filters.get("filter_test_accounts", False):
+            # Check if team has cohort filters in test account filters
+            if team.test_account_filters:
+                cohort_filters = [
+                    f
+                    for f in team.test_account_filters
+                    if isinstance(f, dict)
+                    and f.get("type") in ["cohort", "static-cohort", "precalculated-cohort", "dynamic-cohort"]
+                ]
+                if cohort_filters:
+                    # Extract cohort information for the error message
+                    cohort_info = []
+                    for cohort_filter in cohort_filters:
+                        value = cohort_filter.get("value")
+                        if value:
+                            cohort_info.append(f"cohort id={value}")
+
+                    cohort_names = " (" + ", ".join(cohort_info) + ")" if cohort_info else ""
+                    site_url = settings.SITE_URL.rstrip("/")
+                    error_msg = (
+                        f"Can't use cohorts in real-time filters. "
+                        f"Update your filters at: {site_url}/project/{team.id}/settings/project#internal-user-filtering. "
+                        f"Please inline the relevant expressions{cohort_names}."
+                    )
+
         filters["bytecode"] = None
-        filters["bytecode_error"] = str(e)
+        filters["bytecode_error"] = error_msg
 
     return filters

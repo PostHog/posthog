@@ -35,7 +35,7 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Tasks',
-            category: 'Development',
+            category: 'Unreleased',
             type: 'task',
             href: urls.taskTracker(),
             flag: FEATURE_FLAGS.TASKS,

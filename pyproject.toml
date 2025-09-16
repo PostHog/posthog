@@ -213,7 +213,7 @@ dev = [
     "ruff~=0.8.1",
     "sqlalchemy==2.0.38",
     "stpyv8==13.1.201.22; sys_platform != 'linux' or (platform_machine != 'aarch64' and platform_machine != 'arm64')",
-    "syrupy~=4.6.0",
+    "syrupy~=4.9.1",
     "tach~=0.20.0",
     "types-aioboto3[s3]>=14.3.0",
     "types-boto3[essential]==1.37.6",

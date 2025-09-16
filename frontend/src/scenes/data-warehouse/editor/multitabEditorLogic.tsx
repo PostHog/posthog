@@ -228,7 +228,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             draft,
         }),
         loadUpstream: (modelId: string) => ({ modelId }),
-        deleteTab: (tab: QueryTab) => ({ tab }),
+        deleteTab: (tab: QueryTab, options?: { force?: boolean }) => ({ tab, options }),
         _deleteTab: (tab: QueryTab) => ({ tab }),
         removeTab: (tab: QueryTab) => ({ tab }),
         selectTab: (tab: QueryTab) => ({ tab }),
@@ -788,12 +788,18 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 })
             }
         },
-        deleteTab: ({ tab: tabToRemove }) => {
+        deleteTab: ({ tab: tabToRemove, options: { force } = {} }) => {
+            if (force) {
+                actions._deleteTab(tabToRemove)
+                return
+            }
+
             if (
                 (values.activeModelUri?.view && values.queryInput !== values.sourceQuery.source.query) ||
                 (values.activeModelUri?.draft && values.queryInput !== tabToRemove.draft?.query.query)
             ) {
                 const viewOrDraft = values.activeModelUri?.draft ? 'draft' : 'view'
+
                 LemonDialog.open({
                     title: 'Close tab',
                     description: `Are you sure you want to close this ${viewOrDraft}? There are unsaved changes.`,

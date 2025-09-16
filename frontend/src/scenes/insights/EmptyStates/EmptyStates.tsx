@@ -17,7 +17,6 @@ import {
 } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -752,19 +751,20 @@ export function SavedInsightsEmptyState({
             {filters.tab !== SavedInsightsTabs.Favorites && (
                 <div className="flex justify-center">
                     <Link to={urls.insightNew()}>
-                        <AccessControlledLemonButton
+                        <LemonButton
                             type="primary"
                             data-attr="add-insight-button-empty-state"
                             icon={<IconPlusSmall />}
                             className="add-insight-button"
-                            resourceType={AccessControlResourceType.Insight}
-                            minAccessLevel={AccessControlLevel.Editor}
-                            userAccessLevel={
-                                getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight]
-                            }
+                            accessControl={{
+                                resourceType: AccessControlResourceType.Insight,
+                                minAccessLevel: AccessControlLevel.Editor,
+                                userAccessLevel:
+                                    getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight],
+                            }}
                         >
                             New insight
-                        </AccessControlledLemonButton>
+                        </LemonButton>
                     </Link>
                 </div>
             )}

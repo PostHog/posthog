@@ -20,9 +20,9 @@ interface RevenueSource {
     isConnected: boolean
 }
 
-// NOTE: This should NOT be used except for testing purposes (storybook)
 interface InlineSetupProps {
-    initialSetupView?: InlineSetupView
+    closeOnboarding: () => void
+    initialSetupView?: InlineSetupView // NOTE: This should NOT be used except for testing purposes (storybook)
 }
 
 export type InlineSetupView = 'overview' | 'add-source'
@@ -32,7 +32,7 @@ export type InlineSetupView = 'overview' | 'add-source'
 const REVENUE_SOURCE_TYPES: ExternalDataSourceType[] = ['Stripe', 'Chargebee', 'Polar', 'RevenueCat']
 const AVAILABLE_REVENUE_SOURCE_TYPES: Set<ExternalDataSourceType> = new Set(['Stripe'])
 
-export function InlineSetup({ initialSetupView }: InlineSetupProps): JSX.Element {
+export function InlineSetup({ closeOnboarding, initialSetupView }: InlineSetupProps): JSX.Element {
     const { events, enabledDataWarehouseSources } = useValues(revenueAnalyticsSettingsLogic)
 
     const hasEvents = events.length > 0
@@ -71,7 +71,7 @@ export function InlineSetup({ initialSetupView }: InlineSetupProps): JSX.Element
     return (
         <div className="space-y-6">
             {/* Main Setup Card */}
-            <LemonCard className="border-2 border-dashed border-border" hoverEffect={false}>
+            <LemonCard hoverEffect={false}>
                 <div className="space-y-4">
                     <div className="flex items-center justify-between">
                         <div>
@@ -82,7 +82,7 @@ export function InlineSetup({ initialSetupView }: InlineSetupProps): JSX.Element
                             <LemonButton
                                 type="primary"
                                 size="small"
-                                onClick={() => window.location.reload()}
+                                onClick={closeOnboarding}
                                 icon={<IconCheckCircle />}
                             >
                                 View Dashboard
@@ -93,8 +93,8 @@ export function InlineSetup({ initialSetupView }: InlineSetupProps): JSX.Element
                     {/* Current Status */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {/* Events Status */}
-                        <div className="flex items-center gap-3 p-3 rounded-lg border border-border">
-                            <div className="flex items-center justify-center w-10 h-10 rounded-full bg-white border border-border">
+                        <div className="flex items-center gap-3 p-3 rounded-lg border border-primary">
+                            <div className="flex items-center justify-center w-10 h-10 rounded-full bg-bg-light border border-primary">
                                 {hasEvents ? (
                                     <IconCheckCircle className="w-6 h-6" />
                                 ) : (
@@ -114,8 +114,8 @@ export function InlineSetup({ initialSetupView }: InlineSetupProps): JSX.Element
                         </div>
 
                         {/* Sources Status */}
-                        <div className="flex items-center gap-3 p-3 rounded-lg border border-border">
-                            <div className="flex items-center justify-center w-10 h-10 rounded-full bg-white border border-border">
+                        <div className="flex items-center gap-3 p-3 rounded-lg border border-primary">
+                            <div className="flex items-center justify-center w-10 h-10 rounded-full bg-bg-light border border-primary">
                                 {hasSources ? (
                                     <IconCheckCircle className="w-6 h-6" />
                                 ) : (
@@ -136,7 +136,7 @@ export function InlineSetup({ initialSetupView }: InlineSetupProps): JSX.Element
                     </div>
 
                     {/* Action Buttons */}
-                    <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-border">
+                    <div className="flex flex-col sm:flex-row gap-3 pt-2 border-t border-primary">
                         <LemonButton
                             type="primary"
                             icon={<IconPlus />}
@@ -167,7 +167,7 @@ export function InlineSetup({ initialSetupView }: InlineSetupProps): JSX.Element
                 <LemonCard hoverEffect={false}>
                     <div className="space-y-4">
                         <div className="flex items-center gap-3">
-                            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-white border border-border">
+                            <div className="flex items-center justify-center w-12 h-12 rounded-full bg-white border border-primary">
                                 <IconDatabase className="w-7 h-7" style={{ color: 'var(--primary-3000)' }} />
                             </div>
                             <div>
@@ -185,8 +185,8 @@ export function InlineSetup({ initialSetupView }: InlineSetupProps): JSX.Element
                                         source.isAvailable
                                             ? source.isConnected
                                                 ? 'border-primary bg-primary-lightest'
-                                                : 'border-border bg-bg-light'
-                                            : 'border-border bg-bg-light opacity-60',
+                                                : 'border-primary bg-bg-light'
+                                            : 'border-primary bg-bg-light opacity-60',
                                         source.isAvailable ? 'cursor-pointer' : 'cursor-not-allowed'
                                     )}
                                     onClick={source.isAvailable ? () => handleSourceSelect(source.id) : undefined}

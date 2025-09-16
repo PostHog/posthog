@@ -7,6 +7,32 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { githubIntegrationLogic } from './githubIntegrationLogic'
 
+export type GitHubRepositoryPickerProps = {
+    integrationId: number
+    value: string
+    onChange: (value: string) => void
+}
+
+export const GitHubRepositoryPicker = ({
+    value,
+    onChange,
+    integrationId,
+}: GitHubRepositoryPickerProps): JSX.Element => {
+    const { options, loading } = useRepositories(integrationId)
+
+    return (
+        <LemonInputSelect
+            onChange={(val) => onChange?.(val[0] ?? null)}
+            value={value ? [value] : []}
+            mode="single"
+            data-attr="select-github-repository"
+            placeholder="Select a repository..."
+            options={options}
+            loading={loading}
+        />
+    )
+}
+
 export const GitHubRepositorySelectField = ({ integrationId }: { integrationId: number }): JSX.Element => {
     const { options, loading } = useRepositories(integrationId)
 
