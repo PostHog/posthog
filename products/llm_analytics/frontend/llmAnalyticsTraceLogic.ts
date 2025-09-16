@@ -144,7 +144,6 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
     }),
 
     selectors({
-        // Direct access to message states (no computation needed!)
         inputMessageShowStates: [(s) => [s.messageShowStates], (messageStates) => messageStates.input],
         outputMessageShowStates: [(s) => [s.messageShowStates], (messageStates) => messageStates.output],
         query: [
