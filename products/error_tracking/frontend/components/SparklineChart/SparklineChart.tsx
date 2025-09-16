@@ -56,6 +56,12 @@ export function SparklineChart({ data, events = [], options, className }: Sparkl
             if (occurrences.length < 2) {
                 throw new Error('Not enough data to render chart')
             }
+
+            const allZero = occurrences.every((d) => d.value === 0)
+            if (allZero) {
+                return
+            }
+
             const timeDiff = Math.abs(occurrences[1].date.getTime() - occurrences[0].date.getTime())
             const extent = d3.extent(occurrences.map((d) => d.date)) as [Date, Date]
             const maxDate = new Date(extent[1])
