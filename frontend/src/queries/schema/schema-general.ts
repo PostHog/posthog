@@ -3294,6 +3294,7 @@ export interface LLMTrace {
     inputState?: any
     outputState?: any
     traceName?: string
+    temporalWorkflowId?: string
     events: LLMTraceEvent[]
 }
 

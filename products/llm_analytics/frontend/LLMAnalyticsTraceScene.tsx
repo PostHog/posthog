@@ -26,6 +26,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, isObject, pluralize } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
@@ -128,14 +129,21 @@ function Chip({
     title,
     children,
     icon,
+    textToCopy,
 }: {
     title: string
     children: React.ReactNode
     icon?: JSX.Element
+    textToCopy?: string
 }): JSX.Element {
+    const handleClick = textToCopy
+        ? () => {
+              copyToClipboard(textToCopy, title)
+          }
+        : undefined
     return (
         <Tooltip title={title}>
-            <LemonTag size="medium" className="bg-surface-primary" icon={icon}>
+            <LemonTag size="medium" className="bg-surface-primary" icon={icon} onClick={handleClick}>
                 <span className="sr-only">{title}</span>
                 {children}
             </LemonTag>
@@ -182,6 +190,11 @@ function TraceMetadata({
             {typeof trace.totalCost === 'number' && (
                 <Chip title="Total cost" icon={<IconReceipt />}>
                     {formatLLMCost(trace.totalCost)}
+                </Chip>
+            )}
+            {typeof trace.temporalWorkflowId === 'string' && (
+                <Chip title="Temporal Workflow" icon={<IconMessage />} textToCopy={trace.temporalWorkflowId}>
+                    {trace.temporalWorkflowId}
                 </Chip>
             )}
             {metricEvents.map((metric) => (
