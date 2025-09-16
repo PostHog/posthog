@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Any, cast
+from uuid import UUID
 
 import pytest
 
@@ -12,10 +13,12 @@ from pydantic_avro import AvroBase
 from dags.max_ai.utils import (
     EVALS_S3_BUCKET,
     EVALS_S3_PREFIX,
+    EvaluationResults,
     check_dump_exists,
     compose_clickhouse_dump_path,
     compose_postgres_dump_path,
     dump_model,
+    format_results,
     get_consistent_hash_suffix,
 )
 
@@ -205,3 +208,246 @@ def test_check_dump_exists(s3_resource):
 
     # Test that non-existing file returns False
     assert check_dump_exists(s3_resource, non_existing_file_key) is False
+
+
+# Tests for format_results function
+
+
+def test_format_results_basic():
+    """Test basic formatting with single result and no previous results."""
+    dataset_id = UUID("12345678-1234-5678-9012-123456789012")
+    dataset_name = "Test Dataset"
+    experiment_id = "exp_123"
+
+    results: EvaluationResults = [
+        {
+            "project_name": "test_experiment",
+            "scores": {"accuracy": {"score": 0.85}, "precision": {"score": 0.92}},
+            "metrics": {
+                "duration": {"metric": 12.5},
+                "total_tokens": {"metric": 1500},
+                "estimated_cost": {"metric": 0.0125},
+            },
+        }
+    ]
+
+    blocks, markdown = format_results(dataset_id, dataset_name, experiment_id, results)
+
+    # Check structure
+    assert isinstance(blocks, list)
+    assert len(blocks) == 1
+    assert blocks[0]["type"] == "section"
+    assert blocks[0]["text"]["type"] == "mrkdwn"
+
+    # Check content
+    assert "Test Dataset" in markdown
+    assert "test_experiment" in markdown
+    assert "85.00%" in markdown
+    assert "92.00%" in markdown
+    assert "12.50 s" in markdown
+    assert "1500 tokens" in markdown
+    assert "$0.0125" in markdown
+    assert "🆕" in markdown  # New experiment emoji
+
+
+def test_format_results_with_comparison():
+    """Test formatting with previous results for comparison."""
+    dataset_id = UUID("12345678-1234-5678-9012-123456789012")
+    dataset_name = "Test Dataset"
+    experiment_id = "exp_123"
+
+    results: EvaluationResults = [
+        {
+            "project_name": "test_experiment",
+            "scores": {"accuracy": {"score": 0.88}, "precision": {"score": 0.85}},
+            "metrics": {"duration": {"metric": 10.0}, "total_tokens": {"metric": 1200}},
+        }
+    ]
+
+    prev_results: EvaluationResults = [
+        {"project_name": "test_experiment", "scores": {"accuracy": {"score": 0.85}, "precision": {"score": 0.90}}}
+    ]
+
+    blocks, markdown = format_results(dataset_id, dataset_name, experiment_id, results, prev_results)
+
+    # Check improvement indicators
+    assert "🟢" in markdown  # Improvement emoji for accuracy
+    assert "🔴" in markdown  # Regression emoji for precision
+    assert "+3.00%" in markdown  # Accuracy improvement
+    assert "-5.00%" in markdown  # Precision regression
+    assert "improvements: 1, regressions: 0" in markdown  # For accuracy
+    assert "improvements: 0, regressions: 1" in markdown  # For precision
+
+
+def test_format_results_multiple_experiments():
+    """Test formatting with multiple experiments."""
+    dataset_id = UUID("12345678-1234-5678-9012-123456789012")
+    dataset_name = "Multi Experiment Dataset"
+    experiment_id = "exp_multi"
+
+    results: EvaluationResults = [
+        {
+            "project_name": "experiment_1",
+            "scores": {"accuracy": {"score": 0.80}},
+            "metrics": {"duration": {"metric": 5.0}},
+        },
+        {
+            "project_name": "experiment_2",
+            "scores": {"precision": {"score": 0.75}},
+            "metrics": {"total_tokens": {"metric": 800}},
+        },
+    ]
+
+    blocks, markdown = format_results(dataset_id, dataset_name, experiment_id, results)
+
+    # Should contain both experiments
+    assert "experiment_1" in markdown
+    assert "experiment_2" in markdown
+    assert "80.00%" in markdown
+    assert "75.00%" in markdown
+    assert "Evaluated **2** experiments, comprising **2** metrics" in markdown
+
+
+def test_format_results_exact_zero_change():
+    """Test formatting when scores are exactly the same."""
+    dataset_id = UUID("12345678-1234-5678-9012-123456789012")
+    dataset_name = "Identical Dataset"
+    experiment_id = "exp_identical"
+
+    results: EvaluationResults = [{"project_name": "identical_experiment", "scores": {"accuracy": {"score": 0.85}}}]
+
+    prev_results: EvaluationResults = [
+        {"project_name": "identical_experiment", "scores": {"accuracy": {"score": 0.85}}}
+    ]
+
+    blocks, markdown = format_results(dataset_id, dataset_name, experiment_id, results, prev_results)
+
+    # Should show exact zero change
+    assert "🔵" in markdown  # No change emoji
+    assert "±0.00%" in markdown  # Exact zero change
+    assert "improvements: 0, regressions: 0" in markdown
+
+
+def test_format_results_missing_metrics():
+    """Test formatting when metrics are missing or incomplete."""
+    dataset_id = UUID("12345678-1234-5678-9012-123456789012")
+    dataset_name = "Sparse Dataset"
+    experiment_id = "exp_sparse"
+
+    results: EvaluationResults = [
+        {
+            "project_name": "sparse_experiment",
+            "scores": {"accuracy": {"score": 0.70}},
+            # No metrics field
+        },
+        {
+            "project_name": "partial_metrics_experiment",
+            "scores": {"precision": {"score": 0.65}},
+            "metrics": {
+                "duration": {"metric": 3.0}
+                # Missing other metrics
+            },
+        },
+    ]
+
+    blocks, markdown = format_results(dataset_id, dataset_name, experiment_id, results)
+
+    # Should handle missing metrics gracefully
+    assert "No metrics reported" in markdown
+    assert "3.00 s" in markdown  # Partial metrics should still show
+
+
+def test_format_results_empty_results():
+    """Test formatting with empty results list."""
+    dataset_id = UUID("12345678-1234-5678-9012-123456789012")
+    dataset_name = "Empty Dataset"
+    experiment_id = "exp_empty"
+
+    results: EvaluationResults = []
+
+    blocks, markdown = format_results(dataset_id, dataset_name, experiment_id, results)
+
+    # Should handle empty results
+    assert "Empty Dataset" in markdown
+    assert "Evaluated **0** experiments, comprising **0** metrics" in markdown
+
+
+def test_format_results_non_numeric_scores():
+    """Test formatting with non-numeric score values."""
+    dataset_id = UUID("12345678-1234-5678-9012-123456789012")
+    dataset_name = "String Score Dataset"
+    experiment_id = "exp_string"
+
+    results: EvaluationResults = [
+        {
+            "project_name": "string_score_experiment",
+            "scores": {"quality": {"score": "excellent"}, "status": {"score": "passed"}},
+        }
+    ]
+
+    blocks, markdown = format_results(dataset_id, dataset_name, experiment_id, results)
+
+    # Should handle non-numeric scores
+    assert "excellent" in markdown
+    assert "passed" in markdown
+    # Should not try to format as percentage
+    assert "excellent%" not in markdown
+
+
+def test_format_results_missing_previous_experiment():
+    """Test comparison when previous results don't contain matching experiment."""
+    dataset_id = UUID("12345678-1234-5678-9012-123456789012")
+    dataset_name = "Mismatch Dataset"
+    experiment_id = "exp_mismatch"
+
+    results: EvaluationResults = [{"project_name": "new_experiment", "scores": {"accuracy": {"score": 0.88}}}]
+
+    prev_results: EvaluationResults = [
+        {
+            "project_name": "old_experiment",  # Different name
+            "scores": {"accuracy": {"score": 0.85}},
+        }
+    ]
+
+    blocks, markdown = format_results(dataset_id, dataset_name, experiment_id, results, prev_results)
+
+    # Should treat as new experiment since no matching previous result
+    assert "🆕" in markdown
+    assert "new_experiment" in markdown
+    # Should not show comparison indicators
+    assert "🟢" not in markdown
+    assert "🔴" not in markdown
+
+
+def test_format_results_traces_filter_generation():
+    """Test that traces filter URLs are properly generated."""
+    dataset_id = UUID("12345678-1234-5678-9012-123456789012")
+    dataset_name = "Traces Dataset"
+    experiment_id = "exp_traces_123"
+
+    results: EvaluationResults = [{"project_name": "traced_experiment", "scores": {"accuracy": {"score": 0.90}}}]
+
+    blocks, markdown = format_results(dataset_id, dataset_name, experiment_id, results)
+
+    # Should contain properly encoded traces URL
+    assert "https://us.posthog.com/llm-analytics/traces?filters=" in markdown
+    assert "traced_experiment" in markdown
+    assert "exp_traces_123" in markdown
+    # URL should be properly encoded
+    assert "%22" in markdown  # URL encoded quotes
+
+
+def test_format_results_dataset_link():
+    """Test that dataset link is properly formatted."""
+    dataset_id = UUID("12345678-1234-5678-9012-123456789012")
+    dataset_name = "Linked Dataset"
+    experiment_id = "exp_link"
+
+    results: EvaluationResults = [{"project_name": "linked_experiment", "scores": {"accuracy": {"score": 0.95}}}]
+
+    blocks, markdown = format_results(dataset_id, dataset_name, experiment_id, results)
+
+    # Should contain dataset link with correct UUID
+    expected_link = f"https://us.posthog.com/llm-analytics/datasets/{dataset_id}"
+    assert expected_link in markdown
+    assert f"[{dataset_name}]" in markdown
