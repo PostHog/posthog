@@ -3,7 +3,7 @@ import './LemonSwitch.scss'
 import clsx from 'clsx'
 import { forwardRef, useMemo, useState } from 'react'
 
-import { accessLevelSatisfied, resourceTypeToString } from 'lib/components/AccessControlAction'
+import { getAccessControlDisabledReason } from 'lib/components/AccessControlAction'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
@@ -75,15 +75,15 @@ export const LemonSwitch: React.FunctionComponent<LemonSwitchProps & React.RefAt
         // Handle access control
         if (accessControl) {
             const { userAccessLevel, minAccessLevel, resourceType } = accessControl
-            const hasAccess = userAccessLevel
-                ? accessLevelSatisfied(resourceType, userAccessLevel, minAccessLevel)
-                : true
-            if (!hasAccess) {
+            const accessControlDisabledReason = getAccessControlDisabledReason(
+                resourceType,
+                userAccessLevel,
+                minAccessLevel
+            )
+            if (accessControlDisabledReason) {
                 disabled = true
                 if (!disabledReason) {
-                    disabledReason = `You don't have sufficient permissions for this ${resourceTypeToString(
-                        resourceType
-                    )}. Your access level (${userAccessLevel}) doesn't meet the required level (${minAccessLevel}).`
+                    disabledReason = accessControlDisabledReason
                 }
             }
         }
