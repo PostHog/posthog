@@ -203,7 +203,7 @@ dev = [
     "pytest-django==4.5.2",
     "pytest-env==0.8.2",
     "pytest-icdiff==0.6",
-    "pytest-mock==3.11.1",
+    "pytest-mock==3.15.0",
     "pytest-split==0.9.0",
     "pytest-watch==4.2.0",
     "pytest-xdist==3.6.1",
