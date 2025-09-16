@@ -47,7 +47,7 @@ export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
     { type: 'delay', name: 'Delay', description: 'Wait for a specified duration.', config: { delay_duration: '10m' } },
     {
         type: 'wait_until_time_window',
-        name: 'Wait until time window',
+        name: 'Wait until window',
         description: 'Wait until a specified time window.',
         branchEdges: 1,
         config: {
@@ -92,8 +92,8 @@ export const LOGIC_NODES_TO_SHOW: CreateActionType[] = [
     },
     {
         type: 'random_cohort_branch',
-        name: 'Random cohort branch',
-        description: 'Randomly branch off to a different path based on cohort percentages.',
+        name: 'Cohort branch',
+        description: 'Randomly branch off based on cohort percentages.',
         branchEdges: 1,
         config: {
             cohorts: [

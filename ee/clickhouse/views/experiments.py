@@ -686,13 +686,13 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
 
 
 @receiver(model_activity_signal, sender=Experiment)
-def handle_experiment_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
+def handle_experiment_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
     log_activity(
         organization_id=after_update.team.organization_id,
         team_id=after_update.team_id,
-        user=after_update.created_by
-        if activity == "created"
-        else getattr(after_update, "last_modified_by", after_update.created_by),
+        user=user,
         was_impersonated=was_impersonated,
         item_id=after_update.id,
         scope=scope,

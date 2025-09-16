@@ -154,7 +154,7 @@ export function Cohorts(): JSX.Element {
     ]
 
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             <PersonsManagementSceneTabs
                 tabKey="cohorts"
                 buttons={

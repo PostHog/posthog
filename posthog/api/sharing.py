@@ -765,6 +765,42 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
             except Exception:
                 raise NotFound("No recording found")
+        elif (
+            isinstance(resource, ExportedAsset)
+            and resource.export_context
+            and resource.export_context.get("heatmap_url")
+        ):
+            # Handle heatmap export via export_context
+            heatmap_url = resource.export_context.get("heatmap_url")
+
+            if not heatmap_url:
+                raise NotFound("Invalid replay export - missing heatmap_url")
+
+            try:
+                # Create a JWT to access the heatmap data
+                export_access_token = ""
+                if resource.created_by and resource.created_by.id:
+                    export_access_token = encode_jwt(
+                        {"id": resource.created_by.id},
+                        timedelta(minutes=5),
+                        PosthogJwtAudience.IMPERSONATED_USER,
+                    )
+
+                asset_title = "Heatmap"
+                asset_description = f"Heatmap {heatmap_url}"
+
+                exported_data.update(
+                    {
+                        "type": "heatmap",
+                        "heatmap_url": heatmap_url,
+                        "exportToken": export_access_token,
+                        "noBorder": True,
+                        "heatmap_context": resource.export_context,
+                    }
+                )
+
+            except Exception:
+                raise NotFound("No heatmap found")
         elif isinstance(resource, SharingConfiguration) and resource.recording and not resource.recording.deleted:
             asset_title = "Session Recording"
             recording_data = SessionRecordingSerializer(resource.recording, context=context).data

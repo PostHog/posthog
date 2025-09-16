@@ -301,7 +301,7 @@ export function HeatmapsBrowser(): JSX.Element {
 
     return (
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
-            <SceneContent forceNewSpacing>
+            <SceneContent>
                 <Warnings />
 
                 <ReplayIframeDataIntro />

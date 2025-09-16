@@ -344,7 +344,7 @@ export function HogFunctionScene(): JSX.Element {
     ]
 
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             <BindLogic logic={hogFunctionConfigurationLogic} props={logicProps}>
                 <HogFunctionHeader />
                 <SceneDivider />

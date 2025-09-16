@@ -9,7 +9,7 @@ use tracing::{info, warn};
 
 use crate::{
     config::Config,
-    error::{Error, JsResolveErr},
+    error::{JsResolveErr, ResolveError},
     metric_consts::{
         SOURCEMAP_BODY_FETCHES, SOURCEMAP_BODY_REF_FOUND, SOURCEMAP_FETCH, SOURCEMAP_HEADER_FOUND,
         SOURCEMAP_NOT_FOUND, SOURCEMAP_PARSE,
@@ -89,7 +89,7 @@ impl From<Url> for SourceMappingUrl {
 impl Fetcher for SourcemapProvider {
     type Ref = Url;
     type Fetched = Vec<u8>;
-    type Err = Error;
+    type Err = ResolveError;
     async fn fetch(&self, _: i32, r: Url) -> Result<Vec<u8>, Self::Err> {
         let start = common_metrics::timing_guard(SOURCEMAP_FETCH, &[]);
         let (smu, minified_source) = find_sourcemap_url(&self.client, r).await?;
@@ -122,7 +122,7 @@ impl Fetcher for SourcemapProvider {
 impl Parser for SourcemapProvider {
     type Source = Vec<u8>;
     type Set = OwnedSourceMapCache;
-    type Err = Error;
+    type Err = ResolveError;
     async fn parse(&self, data: Vec<u8>) -> Result<Self::Set, Self::Err> {
         let start = common_metrics::timing_guard(SOURCEMAP_PARSE, &[]);
         let sam: SourceAndMap = read_symbol_data(data).map_err(JsResolveErr::JSDataError)?;
@@ -137,7 +137,7 @@ impl Parser for SourcemapProvider {
 async fn find_sourcemap_url(
     client: &reqwest::Client,
     start: Url,
-) -> Result<(SourceMappingUrl, String), Error> {
+) -> Result<(SourceMappingUrl, String), ResolveError> {
     info!("Fetching script source from {}", start);
 
     // If this request fails, we cannot resolve the frame, and hand this error to the frames
@@ -244,7 +244,7 @@ async fn find_sourcemap_url(
     Err(JsResolveErr::NoSourcemap(final_url.to_string()).into())
 }
 
-async fn fetch_source_map(client: &reqwest::Client, url: Url) -> Result<String, Error> {
+async fn fetch_source_map(client: &reqwest::Client, url: Url) -> Result<String, ResolveError> {
     metrics::counter!(SOURCEMAP_BODY_FETCHES).increment(1);
     let res = client.get(url).send().await.map_err(JsResolveErr::from)?;
     res.error_for_status_ref().map_err(JsResolveErr::from)?;
@@ -264,8 +264,8 @@ struct DataUrlContent {
 fn maybe_as_data_url<T>(
     source_url: &str,
     data: &str,
-    parse_fn: impl FnOnce(DataUrlContent) -> Result<T, Error>,
-) -> Result<Option<T>, Error> {
+    parse_fn: impl FnOnce(DataUrlContent) -> Result<T, ResolveError>,
+) -> Result<Option<T>, ResolveError> {
     if !data.starts_with(DATA_SCHEME) {
         return Ok(None);
     }
@@ -343,7 +343,7 @@ fn maybe_as_data_url<T>(
     Ok(Some(parse_fn(content)?))
 }
 
-fn data_url_to_json_str(content: DataUrlContent) -> Result<String, Error> {
+fn data_url_to_json_str(content: DataUrlContent) -> Result<String, ResolveError> {
     if !content.mime_type.starts_with("application/json") {
         return Err(JsResolveErr::InvalidDataUrl(
             "data".into(),
@@ -362,7 +362,7 @@ fn data_url_to_json_str(content: DataUrlContent) -> Result<String, Error> {
     Ok(data.to_string())
 }
 
-fn assert_is_sourcemap(data: &str) -> Result<(), Error> {
+fn assert_is_sourcemap(data: &str) -> Result<(), ResolveError> {
     if let Err(e) = sourcemap::decode_slice(data.as_bytes()) {
         return Err(JsResolveErr::InvalidSourceMap(e.to_string()).into());
     }

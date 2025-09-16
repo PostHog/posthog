@@ -356,7 +356,7 @@ def execute_accuracy_check(
 
         # Convert results to dict for easier comparison
         def results_to_dict(results: list[WebOverviewItem]) -> dict[str, float]:
-            return {item.key: item.value for item in results if item.value is not None}
+            return {item.key: float(item.value) for item in results if item.value is not None}
 
         pre_agg_metrics = results_to_dict(pre_agg_response.results)
         regular_metrics = results_to_dict(regular_response.results)
@@ -449,9 +449,11 @@ def create_accuracy_check_result(comparison_data: dict[str, Any], team_id: int, 
     for metric_name, metric_values in metrics.items():
         metadata.update(
             {
-                f"{metric_name}_pre_aggregated": MetadataValue.float(metric_values.get("pre_aggregated", 0.0)),
-                f"{metric_name}_regular": MetadataValue.float(metric_values.get("regular", 0.0)),
-                f"{metric_name}_percentage_difference": MetadataValue.float(metric_values.get("pct_difference", 0.0)),
+                f"{metric_name}_pre_aggregated": MetadataValue.float(float(metric_values.get("pre_aggregated", 0.0))),
+                f"{metric_name}_regular": MetadataValue.float(float(metric_values.get("regular", 0.0))),
+                f"{metric_name}_percentage_difference": MetadataValue.float(
+                    float(metric_values.get("pct_difference", 0.0))
+                ),
                 f"{metric_name}_within_tolerance": MetadataValue.bool(metric_values.get("within_tolerance", True)),
             }
         )
