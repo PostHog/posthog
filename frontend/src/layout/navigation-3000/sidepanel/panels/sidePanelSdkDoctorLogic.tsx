@@ -161,10 +161,65 @@ const fetchGitHubReleaseDates = async (): Promise<Record<string, string>> => {
                 releaseDates[version] = release.published_at
             })
 
-        console.info(`[SDK Doctor] Fetched ${Object.keys(releaseDates).length} release dates from GitHub API`)
+        console.info(`[SDK Doctor] Fetched ${Object.keys(releaseDates).length} Web SDK release dates from GitHub API`)
         return releaseDates
     } catch (error) {
-        console.warn('[SDK Doctor] Failed to fetch GitHub release dates:', error)
+        console.warn('[SDK Doctor] Failed to fetch Web SDK GitHub release dates:', error)
+        return {}
+    }
+}
+
+// Fetch Python SDK release dates from GitHub Releases API for time-based detection
+const fetchPythonGitHubReleaseDates = async (): Promise<Record<string, string>> => {
+    try {
+        const response = await fetch('https://api.github.com/repos/PostHog/posthog-python/releases?per_page=100')
+        if (!response.ok) {
+            throw new Error(`GitHub API error: ${response.status}`)
+        }
+
+        const releases = await response.json()
+        const releaseDates: Record<string, string> = {}
+
+        // Python releases use version tags like "v6.7.4"
+        releases
+            .filter((release: any) => release.tag_name?.match(/^v?\d+\.\d+\.\d+$/))
+            .forEach((release: any) => {
+                const version = release.tag_name.replace(/^v/, '') // Remove "v" prefix if present
+                releaseDates[version] = release.published_at
+            })
+
+        console.info(
+            `[SDK Doctor] Fetched ${Object.keys(releaseDates).length} Python SDK release dates from GitHub API`
+        )
+        return releaseDates
+    } catch (error) {
+        console.warn('[SDK Doctor] Failed to fetch Python SDK GitHub release dates:', error)
+        return {}
+    }
+}
+
+// Fetch Node.js SDK release dates from GitHub Releases API for time-based detection
+const fetchNodeGitHubReleaseDates = async (): Promise<Record<string, string>> => {
+    try {
+        const response = await fetch('https://api.github.com/repos/PostHog/posthog-js/releases?per_page=100')
+        if (!response.ok) {
+            throw new Error(`GitHub API error: ${response.status}`)
+        }
+
+        const releases = await response.json()
+        const releaseDates: Record<string, string> = {}
+
+        // Node.js releases use version tags like "posthog-node@5.6.0"
+        const nodeReleases = releases.filter((release: any) => release.tag_name?.startsWith('posthog-node@'))
+
+        nodeReleases.forEach((release: any) => {
+            const version = release.tag_name.replace('posthog-node@', '')
+            releaseDates[version] = release.published_at
+        })
+
+        return releaseDates
+    } catch (error) {
+        console.warn('[SDK Doctor] Failed to fetch Node.js SDK GitHub release dates:', error)
         return {}
     }
 }
@@ -244,7 +299,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             web: { repo: 'posthog-js' },
                             ios: { repo: 'posthog-ios' },
                             android: { repo: 'posthog-android' },
-                            node: { repo: 'posthog-js-lite', subdirectory: 'posthog-node' },
+                            node: { repo: 'posthog-js', subdirectory: 'posthog-node' },
                             python: { repo: 'posthog-python' },
                             php: { repo: 'posthog-php' },
                             ruby: { repo: 'posthog-ruby' },
@@ -367,7 +422,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     return changelogPromise
                                 }
 
-                                // Special handling for Node.js SDK: use CHANGELOG.md instead of GitHub releases
+                                // Special handling for Node.js SDK: use CHANGELOG.md for versions + GitHub Releases for dates
                                 if (sdkType === 'node') {
                                     const changelogPromise = fetch(
                                         'https://raw.githubusercontent.com/PostHog/posthog-js/main/packages/node/CHANGELOG.md'
@@ -378,16 +433,19 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                             }
                                             return r.text()
                                         })
-                                        .then((changelogText) => {
-                                            // Node.js CHANGELOG.md format: "## 5.6.0 – 2025-07-15"
-                                            const versionMatches = changelogText.match(/^## (\d+\.\d+\.\d+) –/gm)
+                                        .then(async (changelogText) => {
+                                            // Node.js CHANGELOG.md format: "## 5.8.4" (no date in header)
+                                            const versionMatches = changelogText.match(/^## (\d+\.\d+\.\d+)$/gm)
 
                                             if (versionMatches) {
                                                 const versions = versionMatches
-                                                    .map((match) => match.replace(/^## /, '').replace(/ –.*$/, '')) // Remove "## " and " – date" parts
+                                                    .map((match) => match.replace(/^## /, '')) // Remove "## " prefix
                                                     .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
 
                                                 if (versions.length > 0) {
+                                                    // Fetch GitHub release dates for accurate time-based detection
+                                                    const releaseDates = await fetchNodeGitHubReleaseDates()
+
                                                     if (IS_DEBUG_MODE) {
                                                         console.info(
                                                             `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
@@ -396,12 +454,15 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                         console.info(
                                                             `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
                                                         )
+                                                        console.info(
+                                                            `[SDK Doctor] ${sdkType} release dates: ${Object.keys(releaseDates).length} found`
+                                                        )
                                                     }
                                                     return {
                                                         sdkType,
                                                         versions: versions,
                                                         latestVersion: versions[0],
-                                                        releaseDates: {},
+                                                        releaseDates: releaseDates,
                                                     }
                                                 }
                                             }
@@ -422,8 +483,8 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                             }
                                             return r.text()
                                         })
-                                        .then((changelogText) => {
-                                            // Python CHANGELOG.md format: "# 6.5.0 - 2025-08-08"
+                                        .then(async (changelogText) => {
+                                            // Python CHANGELOG.md format: "# 6.7.5 - 2025-09-16"
                                             const versionMatches = changelogText.match(
                                                 /^# (\d+\.\d+\.\d+) - \d{4}-\d{2}-\d{2}$/gm
                                             )
@@ -436,6 +497,9 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                     .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
 
                                                 if (versions.length > 0) {
+                                                    // Fetch GitHub release dates for accurate time-based detection
+                                                    const releaseDates = await fetchPythonGitHubReleaseDates()
+
                                                     if (IS_DEBUG_MODE) {
                                                         console.info(
                                                             `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
@@ -444,12 +508,15 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                         console.info(
                                                             `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
                                                         )
+                                                        console.info(
+                                                            `[SDK Doctor] ${sdkType} release dates: ${Object.keys(releaseDates).length} found`
+                                                        )
                                                     }
                                                     return {
                                                         sdkType,
                                                         versions: versions,
                                                         latestVersion: versions[0],
-                                                        releaseDates: {},
+                                                        releaseDates: releaseDates,
                                                     }
                                                 }
                                             }
@@ -809,11 +876,11 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                         return null
                                                     }
 
-                                                    // For Node.js SDK, only consider tags with the "node-" prefix
+                                                    // For Node.js SDK, only consider tags with the "posthog-node@" prefix
                                                     if (isNodeSdk) {
-                                                        if (tagName.startsWith('node-')) {
-                                                            // Remove the "node-" prefix for comparison
-                                                            const nodeVersion = tagName.replace(/^node-/, '')
+                                                        if (tagName.startsWith('posthog-node@')) {
+                                                            // Remove the "posthog-node@" prefix for comparison
+                                                            const nodeVersion = tagName.replace(/^posthog-node@/, '')
                                                             return tryParseVersion(nodeVersion) ? nodeVersion : null
                                                         }
                                                         return null
@@ -934,7 +1001,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     // In dev mode, also filter out test@posthog.com email events (dev UI interactions)
                     const customerEvents = limitedEvents.filter(
                         (event) =>
-                            !event.properties?.$current_url?.includes('/project/1/') &&
+                            !event.properties?.$current_url?.includes('/project/1') &&
                             !(isDemoMode() && event.properties?.email === 'test@posthog.com')
                     )
 
@@ -1182,7 +1249,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     // In dev mode, also filter out test@posthog.com email events (dev UI interactions)
                     const customerEvents = limitedEvents.filter(
                         (event) =>
-                            !event.properties?.$current_url?.includes('/project/1/') &&
+                            !event.properties?.$current_url?.includes('/project/1') &&
                             event.properties?.$lib !== 'posthog-js-lite' &&
                             !(isDemoMode() && event.properties?.email === 'test@posthog.com')
                     )
@@ -1594,7 +1661,13 @@ interface SamplingStrategy {
 
 function isDemoMode(): boolean {
     const url = window.location.href
-    return url.includes('localhost') || url.includes('127.0.0.1') || url.includes('demo') || url.includes(':8000') // PostHog dev server
+    return (
+        url.includes('localhost') ||
+        url.includes('127.0.0.1') ||
+        url.includes('demo') ||
+        url.includes(':8000') ||
+        url.includes(':8010')
+    ) // PostHog dev server
 }
 
 function determineSamplingStrategy(estimatedEventsPerMinute: number): SamplingStrategy {
@@ -1711,28 +1784,6 @@ function checkVersionAgainstLatest(
     isAgeOutdated?: boolean
     deviceContext?: 'mobile' | 'desktop' | 'mixed'
 } {
-    if (IS_DEBUG_MODE) {
-        console.info(`[SDK Doctor] checkVersionAgainstLatest for ${type} version ${version}`)
-        console.info(`[SDK Doctor] Available data:`, Object.keys(latestVersionsData))
-    }
-
-    // Log web SDK data specifically for debugging
-    if (IS_DEBUG_MODE) {
-        if (type === 'web' && latestVersionsData.web) {
-            console.info(`[SDK Doctor] Web SDK latestVersion: "${latestVersionsData.web.latestVersion}"`)
-            console.info(`[SDK Doctor] Web SDK first 5 versions:`, latestVersionsData.web.versions.slice(0, 5))
-        }
-
-        // Log Node.js SDK data specifically for debugging
-        if (type === 'node' && latestVersionsData.node) {
-            console.info(`[SDK Doctor] Node.js SDK latestVersion: "${latestVersionsData.node.latestVersion}"`)
-            console.info(`[SDK Doctor] Node.js SDK first 5 versions:`, latestVersionsData.node.versions.slice(0, 5))
-        } else if (type === 'node') {
-            console.warn(`[SDK Doctor] No Node.js SDK data available in latestVersionsData!`)
-            console.info(`[SDK Doctor] Available types:`, Object.keys(latestVersionsData))
-        }
-    }
-
     // Convert type to lib name for consistency
     let lib = 'web'
     if (type === 'ios') {
@@ -1782,11 +1833,6 @@ function checkVersionAgainstLatest(
     const latestVersion = latestVersionsData[type].latestVersion
     const allVersions = latestVersionsData[type].versions
 
-    if (IS_DEBUG_MODE) {
-        console.info(`[SDK Doctor] Comparing ${version} against latest ${latestVersion}`)
-        console.info(`[SDK Doctor] All versions available:`, allVersions)
-    }
-
     try {
         // Parse versions for comparison
         const currentVersionParsed = parseVersion(version)
@@ -1798,12 +1844,6 @@ function checkVersionAgainstLatest(
         // Count number of versions behind
         const versionIndex = allVersions.indexOf(version)
         let releasesBehind = versionIndex === -1 ? -1 : versionIndex
-
-        if (IS_DEBUG_MODE) {
-            console.info(`[SDK Doctor] Version ${version} is at index ${versionIndex} in versions array`)
-            console.info(`[SDK Doctor] Releases behind: ${releasesBehind}`)
-            console.info(`[SDK Doctor] Version diff:`, diff)
-        }
 
         // Or estimate based on semantic version difference if we don't have the exact version
         if (releasesBehind === -1 && diff) {
@@ -1828,10 +1868,11 @@ function checkVersionAgainstLatest(
             )
         }
 
-        // NEW: Age-based analysis
+        // Age-based analysis
         const deviceContext = determineDeviceContext(type)
         const releaseDates = latestVersionsData[type]?.releaseDates
         const releaseDate = releaseDates?.[version]
+
         let daysSinceRelease: number | undefined
         let isAgeOutdated = false
 
@@ -1843,16 +1884,11 @@ function checkVersionAgainstLatest(
             isAgeOutdated = weeksOld > DEVICE_CONTEXT_CONFIG.ageThresholds.warnAfterWeeks && releasesBehind > 0
         }
 
-        // NEW: Dual check logic - September 2025 enhancement for web snippet rollout delays
-        // Don't flag as "Outdated" if version released <48 hours ago, even if 2+ releases behind
+        // Dual check logic: Don't flag as "Outdated" if version released <48 hours ago, even if 2+ releases behind
         let isRecentRelease = false
 
         if (daysSinceRelease !== undefined) {
-            // If we have actual release date data, use it
             isRecentRelease = daysSinceRelease < 2 // Less than 48 hours (2 days)
-            console.info(
-                `[SDK Doctor] Time-based: v${version} daysSinceRelease=${daysSinceRelease}, isRecentRelease=${isRecentRelease}`
-            )
         } else if (type === 'web' && releasesBehind >= 0 && releasesBehind <= 5) {
             // Fallback for web SDK: assume versions 0-5 releases behind are "recent" when no date data
             // This handles the common case of web snippet rollout delays (PostHog can do 6+ releases per day)
@@ -1860,14 +1896,22 @@ function checkVersionAgainstLatest(
             console.info(
                 `[SDK Doctor] Fallback: web SDK v${version} is ${releasesBehind} releases behind - assuming recent`
             )
+        } else if (type === 'node' && releasesBehind >= 0 && releasesBehind <= 5) {
+            // Fallback for Node.js SDK: assume versions 0-5 releases behind are "recent" when no date data
+            // Node.js SDK follows similar release pattern to web SDK (same monorepo)
+            isRecentRelease = true
+            console.info(
+                `[SDK Doctor] Fallback: Node.js SDK v${version} is ${releasesBehind} releases behind - assuming recent`
+            )
         } else {
             console.info(
                 `[SDK Doctor] No fallback: type=${type}, releasesBehind=${releasesBehind}, daysSinceRelease=${daysSinceRelease}`
             )
         }
 
-        // Final outdated logic: 3+ releases behind OR (2+ releases behind AND >48h old)
-        const isOutdated = releasesBehind >= 3 || (releasesBehind >= 2 && !isRecentRelease)
+        // Final logic: 2+ releases behind AND >48h old
+        // This means even 3+ releases behind shows "Close enough" if released recently
+        const isOutdated = releasesBehind >= 2 && !isRecentRelease
 
         if (IS_DEBUG_MODE) {
             console.info(
