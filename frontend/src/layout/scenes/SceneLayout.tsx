@@ -171,6 +171,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
                                               ? 'Force close Info & actions panel'
                                               : 'Close Info & actions panel'
                                     }
+                                    data-attr="info-actions-panel"
                                 >
                                     <IconX className="size-4" />
                                 </ButtonPrimitive>
