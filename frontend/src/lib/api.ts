@@ -171,6 +171,7 @@ import { Task, TaskUpsertProps } from 'products/tasks/frontend/types'
 import { MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
+    ErrorTrackingFingerprint,
     ErrorTrackingStackFrame,
     ErrorTrackingStackFrameRecord,
     ErrorTrackingSymbolSet,
@@ -1013,6 +1014,10 @@ export class ApiRequest {
 
     public errorTrackingExternalReference(teamId?: TeamType['id']): ApiRequest {
         return this.errorTracking(teamId).addPathComponent('external_references')
+    }
+
+    public errorTrackingIssueFingerprints(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('fingerprints')
     }
 
     public errorTrackingSymbolSets(teamId?: TeamType['id']): ApiRequest {
@@ -2858,6 +2863,16 @@ const api = {
             return await new ApiRequest()
                 .errorTrackingIssueSplit(issueId)
                 .create({ data: { fingerprints: fingerprints, exclusive } })
+        },
+
+        fingerprints: {
+            async list(issueId: ErrorTrackingIssue['id']): Promise<CountedPaginatedResponse<ErrorTrackingFingerprint>> {
+                const queryString = { issue_id: issueId }
+                return await new ApiRequest()
+                    .errorTrackingIssueFingerprints()
+                    .withQueryString(toParams(queryString))
+                    .get()
+            },
         },
 
         symbolSets: {
