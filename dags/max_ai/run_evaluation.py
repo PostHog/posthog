@@ -54,12 +54,12 @@ class PreparedDataset(BaseModel):
     description="Pulls the dataset and dataset items and validates inputs, outputs, metadata, and team_id presence in metadata."
 )
 def prepare_dataset(context: dagster.OpExecutionContext, config: PrepareDatasetConfig) -> PreparedDataset:
-    dataset = Dataset.objects.get(id=config.dataset_id)
+    dataset = Dataset.objects.get(id=config.dataset_id, team_id=2)
     dataset_items = DatasetItem.objects.filter(dataset=dataset).iterator(500)
 
     dataset_inputs: list[DatasetInput] = []
-    try:
-        for dataset_item in dataset_items:
+    for dataset_item in dataset_items:
+        try:
             metadata = dataset_item.metadata or {}
             dataset_inputs.append(
                 DatasetInput(
@@ -69,9 +69,9 @@ def prepare_dataset(context: dagster.OpExecutionContext, config: PrepareDatasetC
                     team_id=metadata.get("team_id"),
                 )
             )
-    except ValidationError:
-        context.log.exception(f"Validation error for dataset item {dataset_item.id}")
-        raise
+        except ValidationError:
+            context.log.exception(f"Validation error for dataset item {dataset_item.id}")
+            raise
 
     return PreparedDataset(dataset_id=dataset.id, dataset_name=dataset.name, dataset_inputs=dataset_inputs)
 

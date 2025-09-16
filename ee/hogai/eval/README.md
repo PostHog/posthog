@@ -27,7 +27,7 @@ For historical eval runs, see the [full Experiments list in Braintrust](https://
 
 ### Datasets
 
-For offline evaluation, you typically need to collect a dataset first. You can do that in [PostHog LLM Analaytics](https://us.posthog.com/llm-analytics/datasets). There are a few requirements for the shape of a dataset item:
+For offline evaluation, you typically need to collect a dataset first. You can do that in [PostHog LLM Analytics](https://us.posthog.com/llm-analytics/datasets). There are a few requirements for the shape of a dataset item:
 
 - The `input`, `output`, `metadata` fields must be valid JSON objects.
 - The `metadata` must contain the `team_id` field.
