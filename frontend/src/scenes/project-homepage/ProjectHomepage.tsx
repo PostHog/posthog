@@ -10,6 +10,7 @@ import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/S
 import { SceneDashboardChoiceRequired } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceRequired'
 import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -42,6 +43,9 @@ export function ProjectHomepage(): JSX.Element {
     const aaTestBayesianLegacy = featureFlags[FEATURE_FLAGS.AA_TEST_BAYESIAN_LEGACY]
     const aaTestBayesianNew = featureFlags[FEATURE_FLAGS.AA_TEST_BAYESIAN_NEW]
 
+    // Test feature flag for validating database reads
+    const personReadTestFlag = useFeatureFlag('PERSON_READ_TEST_FLAG')
+
     const headerButtons = (
         <>
             <LemonButton
@@ -70,6 +74,14 @@ export function ProjectHomepage(): JSX.Element {
             <span className="hidden" data-attr="aa-test-flag-result">
                 AA test flag result: {String(aaTestBayesianLegacy)} {String(aaTestBayesianNew)}
             </span>
+
+            {/* Hidden element for person read feature flag validation */}
+            {personReadTestFlag && (
+                <span className="hidden" data-attr="person-read-test-flag-active">
+                    Person read test flag is active: {String(personReadTestFlag)}
+                </span>
+            )}
+
             <PageHeader buttons={headerButtons} />
             {dashboardLogicProps ? (
                 <HomeDashboard dashboardLogicProps={dashboardLogicProps} />
