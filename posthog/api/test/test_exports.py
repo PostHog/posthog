@@ -597,9 +597,9 @@ class TestExports(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("image/png", 2, "png_export"),  # PNG format with 2 expected results
-            ("text/csv", 1, "csv_export"),  # CSV format with 1 expected result
-            ("image/jpeg", 3, None),  # Unsupported format returns all (3)
+            ("PNG", 2, "png_export"),  # PNG enum key with 2 expected results
+            ("CSV", 1, "csv_export"),  # CSV enum key with 1 expected result
+            ("JPEG", 3, None),  # Unsupported format returns all (3)
             (None, 3, None),  # No filter returns all (3)
         ]
     )

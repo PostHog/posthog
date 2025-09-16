@@ -50,9 +50,9 @@ const ExportsContent = (): JSX.Element => {
                                 label: 'All',
                                 value: null,
                             },
-                            ...Object.entries(ExporterFormat).map(([key, value]) => ({
+                            ...Object.keys(ExporterFormat).map((key) => ({
                                 label: key,
-                                value: value,
+                                value: key,
                             })),
                         ]}
                         value={assetFormat}

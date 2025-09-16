@@ -258,8 +258,9 @@ class ExportedAssetViewSet(
 
             # Add export format filter
             export_format_filter = self.request.query_params.get("export_format")
-            if export_format_filter and export_format_filter in ExportedAsset.SUPPORTED_FORMATS:
-                queryset = queryset.filter(export_format=export_format_filter)
+            if export_format_filter and export_format_filter in ExportedAsset.get_supported_format_keys():
+                format_enum = getattr(ExportedAsset.ExportFormat, export_format_filter)
+                queryset = queryset.filter(export_format=format_enum)
 
         return queryset
 
