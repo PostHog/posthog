@@ -4,9 +4,11 @@ import { useEffect, useMemo, useState } from 'react'
 import { IconInfo, IconMagicWand } from '@posthog/icons'
 import { LemonButton, LemonSelect, LemonTag, Popover, Tooltip } from '@posthog/lemon-ui'
 
-import { GitHubRepositoryPicker } from 'lib/integrations/GitHubIntegrationHelpers'
+import { GitHubRepositoryPicker, useRepositories } from 'lib/integrations/GitHubIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+
+import { releasePreviewLogic } from './ReleasesPreview/releasePreviewLogic'
 
 export type FixWithAIStatus = 'idle' | 'in_progress' | 'done'
 
@@ -40,14 +42,15 @@ export function FixWithAIButton(): JSX.Element {
 }
 
 export function FixWithAIPopoverContent(): JSX.Element {
-    const [status, setStatus] = useState<FixWithAIStatus>('idle')
+    const { getIntegrationsByKind } = useValues(integrationsLogic)
+    const githubIntegrations = getIntegrationsByKind(['github'])
     const [integrationId, setIntegrationId] = useState<number | undefined>(undefined)
+
+    const [status, setStatus] = useState<FixWithAIStatus>('idle')
     const [repository, setRepository] = useState<string>('')
     const prLink = useMemo(() => 'https://github.com/posthog/posthog/pull/42424', [])
     const isInProgress = status === 'in_progress'
     const isDone = status === 'done'
-    const { getIntegrationsByKind } = useValues(integrationsLogic)
-    const githubIntegrations = getIntegrationsByKind(['github'])
 
     useEffect(() => {
         if (!integrationId && githubIntegrations.length === 1) {
@@ -85,14 +88,7 @@ export function FixWithAIPopoverContent(): JSX.Element {
                     {integrationId != null && (
                         <div>
                             <label className="block text-sm font-medium mb-1">Repository</label>
-                            {integrationId != null && (
-                                <GitHubRepositoryPicker
-                                    integrationId={integrationId}
-                                    value={repository}
-                                    onChange={(value) => setRepository(value || '')}
-                                    keepParentPopoverOpenOnClick={true}
-                                />
-                            )}
+                            <RepositoryPicker integrationId={integrationId} />
                         </div>
                     )}
                 </div>
@@ -127,4 +123,23 @@ export function FixWithAIPopoverContent(): JSX.Element {
             </div>
         </div>
     )
+}
+
+function RepositoryPicker({ integrationId }: { integrationId: number }): JSX.Element {
+    const { release } = useValues(releasePreviewLogic)
+    const { options } = useRepositories(integrationId)
+
+    const [repository, setRepository] = useState<string>('')
+
+    useEffect(() => {
+        if (
+            release &&
+            release.metadata?.git?.repo_name &&
+            options.some((option) => option.key === release.metadata?.git?.repo_name)
+        ) {
+            setRepository(release.metadata?.git?.repo_name)
+        }
+    }, [options, release])
+
+    return <GitHubRepositoryPicker integrationId={integrationId} value={repository} onChange={() => {}} />
 }
