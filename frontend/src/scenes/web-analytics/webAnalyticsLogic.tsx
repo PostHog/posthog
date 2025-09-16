@@ -574,6 +574,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             },
         ],
     }),
+    windowValues({
+        isGreaterThanMd: (window: Window) => window.innerWidth > 768,
+    }),
     selectors({
         preAggregatedEnabled: [
             (s) => [s.featureFlags, s.currentTeam],
@@ -2190,9 +2193,6 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
     afterMount(({ actions }) => {
         actions.loadStatusCheck()
         actions.loadShouldShowGeoIPQueries()
-    }),
-    windowValues({
-        isGreaterThanMd: (window: Window) => window.innerWidth > 768,
     }),
 
     actionToUrl(({ values }) => {
