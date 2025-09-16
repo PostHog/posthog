@@ -136,7 +136,11 @@ async def test_create_table_activity(minio_client, activity_environment, ateam, 
         query={"query": query, "kind": "HogQLQuery"},
     )
 
-    create_table_activity_inputs = CreateTableActivityInputs(team_id=ateam.pk, models=[saved_query.id.hex])
+    job = await DataModelingJob.objects.acreate(team=ateam, saved_query=saved_query)
+
+    create_table_activity_inputs = CreateTableActivityInputs(
+        team_id=ateam.pk, models=[saved_query.id.hex], job_id=str(job.id)
+    )
     with (
         override_settings(
             BUCKET_URL=f"s3://{bucket_name}",
@@ -519,26 +523,38 @@ async def saved_queries(ateam):
       from events
       where events.event = '$pageview'
     """
-    parent_saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+    parent_saved_query = DataWarehouseSavedQuery(
         team=ateam,
         name="my_model",
         query={"query": parent_query, "kind": "HogQLQuery"},
     )
-    child_saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+    parent_saved_query.columns = await sync_to_async(parent_saved_query.get_columns)()
+    await parent_saved_query.asave()
+
+    child_saved_query = DataWarehouseSavedQuery(
         team=ateam,
         name="my_model_child",
         query={"query": "select * from my_model where distinct_id = 'b'", "kind": "HogQLQuery"},
     )
-    child_2_saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+    child_saved_query.columns = await sync_to_async(child_saved_query.get_columns)()
+    await child_saved_query.asave()
+
+    child_2_saved_query = DataWarehouseSavedQuery(
         team=ateam,
         name="my_model_child_2",
         query={"query": "select * from my_model where distinct_id = 'a'", "kind": "HogQLQuery"},
     )
-    grand_child_saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+    child_2_saved_query.columns = await sync_to_async(child_2_saved_query.get_columns)()
+    await child_2_saved_query.asave()
+
+    grand_child_saved_query = DataWarehouseSavedQuery(
         team=ateam,
         name="my_model_grand_child",
         query={"query": "select * from my_model_child union all select * from my_model_child_2", "kind": "HogQLQuery"},
     )
+    grand_child_saved_query.columns = await sync_to_async(grand_child_saved_query.get_columns)()
+    await grand_child_saved_query.asave()
+
     await database_sync_to_async(DataWarehouseModelPath.objects.create_from_saved_query)(parent_saved_query)
     await database_sync_to_async(DataWarehouseModelPath.objects.create_from_saved_query)(child_saved_query)
     await database_sync_to_async(DataWarehouseModelPath.objects.create_from_saved_query)(child_2_saved_query)
@@ -857,6 +873,12 @@ async def test_run_workflow_with_minio_bucket(
                 assert warehouse_table.row_count == len(
                     expected_data
                 ), f"Row count for {query.name} not the expected value"
+                assert (
+                    warehouse_table.size_in_s3_mib is not None and warehouse_table.size_in_s3_mib != 0
+                ), f"Table size in mib for {query.name} is not set"
+
+            job = await DataModelingJob.objects.aget(workflow_id=workflow_id)
+            assert job.storage_delta_mib is not None and job.storage_delta_mib != 0, f"Job storage delta is not set"
 
 
 async def test_run_workflow_with_minio_bucket_with_errors(
@@ -1339,9 +1361,12 @@ async def test_create_table_activity_row_count_functionality(minio_client, activ
     saved_query.table = table
     await saved_query.asave()
 
+    job = await DataModelingJob.objects.acreate(team=ateam, saved_query=saved_query)
+
     create_table_activity_inputs = CreateTableActivityInputs(
         models=[str(saved_query.id)],  # Pass UUID, not name
         team_id=ateam.pk,
+        job_id=str(job.id),
     )
 
     with (
@@ -1351,7 +1376,7 @@ async def test_create_table_activity_row_count_functionality(minio_client, activ
         async with asyncio.timeout(10):
             await activity_environment.run(create_table_activity, create_table_activity_inputs)
 
-    mock_create_table.assert_called_once_with(str(saved_query.id), ateam.pk)
+    mock_create_table.assert_called_once_with(str(job.id), str(saved_query.id), ateam.pk)
     mock_get_count.assert_called_once()
     await table.arefresh_from_db()
     assert table.row_count == 42
@@ -1361,9 +1386,12 @@ async def test_create_table_activity_row_count_functionality(minio_client, activ
 async def test_create_table_activity_invalid_uuid_fails(activity_environment, ateam):
     """Test that create_table_activity fails fast when given non-UUID model identifier."""
 
+    job = await DataModelingJob.objects.acreate(team=ateam)
+
     create_table_activity_inputs = CreateTableActivityInputs(
         models=["invalid_model_name"],  # Name instead of UUID
         team_id=ateam.pk,
+        job_id=str(job.id),
     )
 
     with (

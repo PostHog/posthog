@@ -573,7 +573,7 @@ class ExperimentTimeseries:
             team=self.team,
             timings=timings,
             modifiers=create_default_modifiers_for_team(self.team),
-            settings=HogQLGlobalSettings(max_execution_time=180),
+            settings=HogQLGlobalSettings(max_execution_time=180, allow_experimental_analyzer=True),
         )
 
         timeseries = []

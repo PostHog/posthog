@@ -6,7 +6,6 @@ import { useState } from 'react'
 import { IconArrowRight, IconClock, IconEye, IconFilter, IconHide, IconPlus, IconRevert, IconX } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonInput, LemonModal, LemonTab, LemonTabs, Popover } from '@posthog/lemon-ui'
 
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import UniversalFilters from 'lib/components/UniversalFilters/UniversalFilters'
@@ -103,7 +102,6 @@ export const RecordingsUniversalFiltersEmbedButton = ({
     const { setIsFiltersExpanded } = useActions(playlistLogic)
     const { playlistTimestampFormat } = useValues(playerSettingsLogic)
     const { setPlaylistTimestampFormat } = useActions(playerSettingsLogic)
-    const { isCinemaMode } = useValues(playerSettingsLogic)
 
     return (
         <>
@@ -142,34 +140,32 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                     </LemonButton>
                 </>
             </MaxTool>
-            {!isCinemaMode && (
-                <div className="flex gap-2 mt-2 justify-between">
-                    <HideRecordingsMenu />
-                    <SettingsMenu
-                        highlightWhenActive={false}
-                        items={[
-                            {
-                                label: 'UTC',
-                                onClick: () => setPlaylistTimestampFormat(TimestampFormat.UTC),
-                                active: playlistTimestampFormat === TimestampFormat.UTC,
-                            },
-                            {
-                                label: 'Device',
-                                onClick: () => setPlaylistTimestampFormat(TimestampFormat.Device),
-                                active: playlistTimestampFormat === TimestampFormat.Device,
-                            },
-                            {
-                                label: 'Relative',
-                                onClick: () => setPlaylistTimestampFormat(TimestampFormat.Relative),
-                                active: playlistTimestampFormat === TimestampFormat.Relative,
-                            },
-                        ]}
-                        icon={<IconClock />}
-                        label={TimestampFormatToLabel[playlistTimestampFormat]}
-                        rounded={true}
-                    />
-                </div>
-            )}
+            <div className="flex gap-2 mt-2 justify-between">
+                <HideRecordingsMenu />
+                <SettingsMenu
+                    highlightWhenActive={false}
+                    items={[
+                        {
+                            label: 'UTC',
+                            onClick: () => setPlaylistTimestampFormat(TimestampFormat.UTC),
+                            active: playlistTimestampFormat === TimestampFormat.UTC,
+                        },
+                        {
+                            label: 'Device',
+                            onClick: () => setPlaylistTimestampFormat(TimestampFormat.Device),
+                            active: playlistTimestampFormat === TimestampFormat.Device,
+                        },
+                        {
+                            label: 'Relative',
+                            onClick: () => setPlaylistTimestampFormat(TimestampFormat.Relative),
+                            active: playlistTimestampFormat === TimestampFormat.Relative,
+                        },
+                    ]}
+                    icon={<IconClock />}
+                    label={TimestampFormatToLabel[playlistTimestampFormat]}
+                    rounded={true}
+                />
+            </div>
         </>
     )
 }
@@ -478,22 +474,23 @@ export const RecordingsUniversalFiltersEmbed = ({
                                     Update "{appliedSavedFilter.name || 'Unnamed'}"
                                 </LemonButton>
                             ) : (
-                                <AccessControlledLemonButton
+                                <LemonButton
                                     type="secondary"
                                     size="small"
                                     onClick={() => setIsSaveFiltersModalOpen(true)}
                                     disabledReason={(totalFiltersCount ?? 0) === 0 ? 'No filters applied' : undefined}
                                     tooltip="Save filters for later"
-                                    minAccessLevel={AccessControlLevel.Editor}
-                                    resourceType={AccessControlResourceType.SessionRecording}
-                                    userAccessLevel={
-                                        getAppContext()?.resource_access_control?.[
-                                            AccessControlResourceType.SessionRecording
-                                        ]
-                                    }
+                                    accessControl={{
+                                        resourceType: AccessControlResourceType.SessionRecording,
+                                        minAccessLevel: AccessControlLevel.Editor,
+                                        userAccessLevel:
+                                            getAppContext()?.resource_access_control?.[
+                                                AccessControlResourceType.SessionRecording
+                                            ],
+                                    }}
                                 >
                                     Add to "Saved filters"
-                                </AccessControlledLemonButton>
+                                </LemonButton>
                             )}
                         </div>
                         <LemonButton

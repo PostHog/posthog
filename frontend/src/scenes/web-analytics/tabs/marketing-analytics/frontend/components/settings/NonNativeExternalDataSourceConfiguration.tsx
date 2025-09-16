@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 
 import { urls } from 'scenes/urls'
 
-import { ExternalDataSource, PipelineStage } from '~/types'
+import { ExternalDataSource } from '~/types'
 
 import { ExternalTable, marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
 import { NonNativeMarketingSource, VALID_NON_NATIVE_MARKETING_SOURCES } from '../../logic/utils'
@@ -19,7 +19,7 @@ export function NonNativeExternalDataSourceConfiguration(): JSX.Element {
         VALID_NON_NATIVE_MARKETING_SOURCES.includes(source.source_type as NonNativeMarketingSource)
     )
     const handleSourceAdd = (source: ExternalDataSource['source_type']): void => {
-        router.actions.push(urls.pipelineNodeNew(PipelineStage.Source, { source }))
+        router.actions.push(urls.dataWarehouseSourceNew(source))
     }
 
     return (

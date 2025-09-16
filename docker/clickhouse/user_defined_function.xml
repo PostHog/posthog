@@ -2,7 +2,7 @@
     <function>
         <type>executable_pool</type>
         <name>aggregate_funnel</name>
-        <return_type>Array(Tuple(Int8, Nullable(String), Array(Float64), Array(Array(UUID))))</return_type>
+        <return_type>Array(Tuple(Int8, Nullable(String), Array(Float64), Array(Array(UUID)), UInt32))</return_type>
         <return_name>result</return_name>
         <argument>
             <type>UInt8</type>
@@ -25,6 +25,10 @@
             <name>prop_vals</name>
         </argument>
         <argument>
+            <type>Array(Int8)</type>
+            <name>optional_steps</name>
+        </argument>
+        <argument>
             <type>Array(Tuple(Nullable(Float64), UUID, Nullable(String), Array(Int8)))</type>
             <name>value</name>
         </argument>
@@ -36,7 +40,7 @@
     <function>
         <type>executable_pool</type>
         <name>aggregate_funnel_cohort</name>
-        <return_type>Array(Tuple(Int8, UInt64, Array(Float64), Array(Array(UUID))))</return_type>
+        <return_type>Array(Tuple(Int8, UInt64, Array(Float64), Array(Array(UUID)), UInt32))</return_type>
         <return_name>result</return_name>
         <argument>
             <type>UInt8</type>
@@ -59,6 +63,10 @@
             <name>prop_vals</name>
         </argument>
         <argument>
+            <type>Array(Int8)</type>
+            <name>optional_steps</name>
+        </argument>
+        <argument>
             <type>Array(Tuple(Nullable(Float64), UUID, UInt64, Array(Int8)))</type>
             <name>value</name>
         </argument>
@@ -70,7 +78,7 @@
     <function>
         <type>executable_pool</type>
         <name>aggregate_funnel_array</name>
-        <return_type>Array(Tuple(Int8, Array(String), Array(Float64), Array(Array(UUID))))</return_type>
+        <return_type>Array(Tuple(Int8, Array(String), Array(Float64), Array(Array(UUID)), UInt32))</return_type>
         <return_name>result</return_name>
         <argument>
             <type>UInt8</type>
@@ -91,6 +99,10 @@
         <argument>
             <type>Array(Array(String))</type>
             <name>prop_vals</name>
+        </argument>
+        <argument>
+            <type>Array(Int8)</type>
+            <name>optional_steps</name>
         </argument>
         <argument>
             <type>Array(Tuple(Nullable(Float64), UUID, Array(String), Array(Int8)))</type>
@@ -125,6 +137,10 @@
         <argument>
             <type>Array(Array(String))</type>
             <name>prop_vals</name>
+        </argument>
+        <argument>
+            <type>Array(Int8)</type>
+            <name>optional_steps</name>
         </argument>
         <argument>
             <type>Array(Tuple(Nullable(Float64), UUID, Nullable(String), Array(Int8)))</type>

@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { AnyResponseType, DataTableNode, NodeKind, TracesQuery } from '~/queries/schema/schema-general'
+import { AnyResponseType, DataTableNode, NodeKind, TraceQuery } from '~/queries/schema/schema-general'
 import { Breadcrumb, InsightLogicProps } from '~/types'
 
 import type { llmAnalyticsTraceLogicType } from './llmAnalyticsTraceLogicType'
@@ -150,8 +150,8 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
         query: [
             (s) => [s.traceId, s.dateRange],
             (traceId, dateRange): DataTableNode => {
-                const tracesQuery: TracesQuery = {
-                    kind: NodeKind.TracesQuery,
+                const traceQuery: TraceQuery = {
+                    kind: NodeKind.TraceQuery,
                     traceId,
                     dateRange: dateRange?.dateFrom
                         ? // dateFrom is a minimum timestamp of an event for a trace.
@@ -167,7 +167,7 @@ export const llmAnalyticsTraceLogic = kea<llmAnalyticsTraceLogicType>([
 
                 return {
                     kind: NodeKind.DataTableNode,
-                    source: tracesQuery,
+                    source: traceQuery,
                 }
             },
         ],

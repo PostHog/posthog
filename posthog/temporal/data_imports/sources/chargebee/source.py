@@ -69,6 +69,7 @@ class ChargebeeSource(BaseSource[ChargebeeSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.CHARGEBEE,
             caption="",
+            iconPath="/static/services/chargebee.png",
             fields=cast(
                 list[FieldType],
                 [

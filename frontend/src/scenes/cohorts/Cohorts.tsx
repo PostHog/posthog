@@ -154,7 +154,7 @@ export function Cohorts(): JSX.Element {
     ]
 
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             <PersonsManagementSceneTabs
                 tabKey="cohorts"
                 buttons={
@@ -174,7 +174,6 @@ export function Cohorts(): JSX.Element {
                 resourceType={{
                     type: RESOURCE_TYPE,
                 }}
-                docsURL="https://posthog.com/docs/data/cohorts"
             />
             <SceneDivider />
 
