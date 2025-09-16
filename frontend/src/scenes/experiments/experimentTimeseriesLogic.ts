@@ -5,7 +5,7 @@ import api from 'lib/api'
 
 import { ExperimentTimeseriesDataPoint } from '~/queries/schema/schema-general'
 
-import { getVariantInterval } from './MetricsView/new/shared/utils'
+import { getVariantInterval } from './MetricsView/shared/utils'
 import type { experimentTimeseriesLogicType } from './experimentTimeseriesLogicType'
 
 export interface ExperimentTimeseriesResult {
