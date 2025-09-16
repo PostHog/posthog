@@ -33,7 +33,7 @@ export const exportsLogic = kea<exportsLogicType>([
         addFresh: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
         removeFresh: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
         createStaticCohort: (name: string, query: AnyDataNode) => ({ query, name }),
-        setAssetFormat: (format: ExporterFormat | null) => ({ format }),
+        setAssetFormat: (format: string | null) => ({ format }),
         startReplayExport: (
             sessionRecordingId: string,
             format?: ExporterFormat,
@@ -62,7 +62,7 @@ export const exportsLogic = kea<exportsLogicType>([
             },
         ],
         assetFormat: [
-            null as ExporterFormat | null,
+            null as string | null,
             {
                 setAssetFormat: (_, { format }) => format,
             },
