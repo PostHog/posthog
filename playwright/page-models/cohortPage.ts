@@ -14,9 +14,9 @@ export class CohortPage {
         await this.page.locator('[data-attr=prop-filter-person_properties-0]').click()
         await this.page.locator('[data-attr=prop-val]').type('true')
 
-        await this.page.click('[data-attr="cohort-name"]')
+        await this.page.click('.scene-title-textarea')
 
-        await this.page.fill('[data-attr="cohort-name"]', name)
+        await this.page.fill('.scene-title-textarea', name)
         await this.page.click('[data-attr="save-cohort"]')
 
         await expect(this.page.locator('[data-attr=success-toast]')).toHaveText(/Cohort saved/)

@@ -22,7 +22,7 @@ test.describe('Early Access Management', () => {
 
         // set feature name & description
         await page.getByRole('link', { name: 'New feature' }).click()
-        await page.locator('[data-attr="feature-name"]').fill(name)
+        await page.locator('.scene-title-textarea').fill(name)
         await expect(page.locator('[data-attr="save-feature"]')).toContainText('Save as draft')
 
         // save
