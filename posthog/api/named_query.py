@@ -99,7 +99,7 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Vie
             raise ValidationError(f"Failed to create named query: {str(e)}")
 
     @action(methods=["PUT"], detail=False, url_path="d/(?P<query_name>[^/.]+)")
-    def delete(self, request: Request, query_name: str, *args, **kwargs) -> Response:
+    def update_named_query(self, request: Request, query_name: str, *args, **kwargs) -> Response:
         """Update an existing named query."""
         named_query = get_object_or_404(NamedQuery, team=self.team, name=query_name)
         data = request.data
