@@ -63,9 +63,8 @@ def create_data_warehouse_table_from_csv(
             s3_client.head_bucket(Bucket=OBJECT_STORAGE_BUCKET)
         except s3_client.exceptions.NoSuchBucket:
             s3_client.create_bucket(Bucket=OBJECT_STORAGE_BUCKET)
-        except Exception:
-            # Bucket might exist but head_bucket failed for other reasons, ignore
-            pass
+        except Exception as ex:
+            raise Exception(f"could not create bucket {test_bucket} for test", ex)
 
     # Read CSV
     df = pd.read_csv(csv_path)
