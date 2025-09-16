@@ -55,14 +55,8 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     } = useActions(logic)
     const modalLogic = addPersonToCohortModalLogic(logicProps)
     const { showAddPersonToCohortModal } = useActions(modalLogic)
-    const {
-        cohort,
-        cohortLoading,
-        cohortMissing,
-        query,
-        creationPersonQuery,
-        personsToCreateStaticCohort,
-    } = useValues(logic)
+    const { cohort, cohortLoading, cohortMissing, query, creationPersonQuery, personsToCreateStaticCohort } =
+        useValues(logic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
 
