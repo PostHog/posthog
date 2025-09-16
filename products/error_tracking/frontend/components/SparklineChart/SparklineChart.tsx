@@ -59,10 +59,10 @@ export function SparklineChart({ data, events = [], options, className }: Sparkl
                 throw new Error('Not enough data to render chart')
             }
 
-            const hasEnoughtDataToDisplay = !occurrences.every((d) => d.value === 0)
+            const hasEnoughDataToDisplay = !occurrences.every((d) => d.value === 0)
 
             const timeDiff = Math.abs(occurrences[1].date.getTime() - occurrences[0].date.getTime())
-            const extent = hasEnoughtDataToDisplay
+            const extent = hasEnoughDataToDisplay
                 ? (d3.extent(occurrences.map((d) => d.date)) as [Date, Date])
                 : fallbackExtent
             const maxDate = new Date(extent[1])
@@ -83,7 +83,7 @@ export function SparklineChart({ data, events = [], options, className }: Sparkl
                 .style('color', options.axisColor)
                 .call(xAxis)
 
-            if (!hasEnoughtDataToDisplay) {
+            if (!hasEnoughDataToDisplay) {
                 return
             }
 
