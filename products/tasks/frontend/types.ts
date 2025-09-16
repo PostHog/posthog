@@ -13,6 +13,7 @@ export enum OriginProduct {
     EVAL_CLUSTERS = 'eval_clusters',
     USER_CREATED = 'user_created',
     SUPPORT_QUEUE = 'support_queue',
+    SESSION_SUMMARIES = 'session_summaries',
 }
 
 export interface Task {

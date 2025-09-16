@@ -1319,19 +1319,57 @@ class GitHubIntegration:
         return dot_get(self.integration.config, "account.name")
 
     def list_repositories(self, page: int = 1) -> list[str]:
-        access_token = self.integration.sensitive_config["access_token"]
+        # Proactively refresh token if it's close to expiring to avoid intermittent 401s
+        try:
+            if self.access_token_expired():
+                self.refresh_access_token()
+        except Exception:
+            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
 
-        response = requests.get(
-            f"https://api.github.com/installation/repositories?page={page}&per_page=100",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
+        def fetch() -> requests.Response:
+            access_token = self.integration.sensitive_config.get("access_token")
+            return requests.get(
+                f"https://api.github.com/installation/repositories?page={page}&per_page=100",
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            )
+
+        response = fetch()
+
+        # If unauthorized, try a single refresh and retry
+        if response.status_code == 401:
+            try:
+                self.refresh_access_token()
+            except Exception:
+                logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
+            else:
+                response = fetch()
+
+        try:
+            body = response.json()
+        except Exception:
+            logger.warning(
+                "GitHubIntegration: list_repositories non-JSON response",
+                status_code=response.status_code,
+            )
+            return []
+
+        repositories = body.get("repositories")
+        if response.status_code == 200 and isinstance(repositories, list):
+            names: list[str] = [
+                repo["name"] for repo in repositories if isinstance(repo, dict) and isinstance(repo.get("name"), str)
+            ]
+            return names
+
+        logger.warning(
+            "GitHubIntegration: failed to list repositories",
+            status_code=response.status_code,
+            error=body if isinstance(body, dict) else None,
         )
-
-        repositories = response.json()["repositories"]
-        return [repo["name"] for repo in repositories]
+        return []
 
     def create_issue(self, config: dict[str, str]):
         title: str = config.pop("title")
