@@ -4,7 +4,8 @@
 # MinIO to SeaweedFS Migration Script for PostHog
 # ============================================================================
 # 
-# IMPORTANT: This is an EXAMPLE migration script. Your environment may differ.
+# IMPORTANT: This is an EXAMPLE migration script that is 90% AI generated.
+# Your environment may differ.
 # 
 # What this script does:
 #   1. Backs up your existing MinIO data to a local directory
@@ -312,90 +313,333 @@ echo "Starting backup process..."
 echo "This may take several minutes depending on data size..."
 echo ""
 
-# Perform the backup with progress
-if ! mc mirror "$ALIAS_NAME/$BUCKET_NAME" "$BACKUP_DIR" --overwrite; then
+# Perform the backup with progress, but redirect the progress output to avoid confusion
+print_info "Copying files from MinIO to local backup..."
+echo ""
+
+# Track progress with simpler approach that won't hang
+COUNTER=0
+SPINNER=('⠋' '⠙' '⠹' '⠸' '⠼' '⠴' '⠦' '⠧' '⠇' '⠏')
+
+# Run backup in background and capture PID
+mc mirror "$ALIAS_NAME/$BUCKET_NAME" "$BACKUP_DIR" --overwrite > /tmp/minio_backup.log 2>&1 &
+BACKUP_PID=$!
+
+# Show progress while backup runs
+while kill -0 $BACKUP_PID 2>/dev/null; do
+    printf "\r${BLUE}%s${NC} Backing up files... " "${SPINNER[$COUNTER]}"
+    COUNTER=$(( (COUNTER + 1) % 10 ))
+    sleep 0.5
+done
+
+# Check if backup was successful
+wait $BACKUP_PID
+BACKUP_STATUS=$?
+
+# Clear the spinner line
+printf "\r%40s\r" " "
+
+if [ $BACKUP_STATUS -ne 0 ]; then
     print_error "Backup failed"
-    echo "Please check the error messages above and try again."
+    echo "Error details:"
+    tail -20 /tmp/minio_backup.log
+    rm -f /tmp/minio_backup.log
     exit 1
 fi
 
+# Show last few lines of successful output
+print_success "File transfer complete"
+tail -3 /tmp/minio_backup.log | grep -E "Total|Transferred" || true
+rm -f /tmp/minio_backup.log
+
+echo ""
+
+print_info "Finalizing backup..."
+
 # Verify backup
 FILE_COUNT=$(find "$BACKUP_DIR" -type f 2>/dev/null | wc -l | tr -d ' ')
-BACKUP_SIZE=$(du -sb "$BACKUP_DIR" 2>/dev/null | cut -f1)
+
+# Get backup size in a cross-platform way
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS doesn't have du -b, use different approach
+    BACKUP_SIZE=$(find "$BACKUP_DIR" -type f -exec stat -f%z {} + 2>/dev/null | awk '{s+=$1} END {print s}')
+    if [ -z "$BACKUP_SIZE" ]; then
+        BACKUP_SIZE=0
+    fi
+else
+    # Linux has du -b
+    BACKUP_SIZE=$(du -sb "$BACKUP_DIR" 2>/dev/null | cut -f1)
+fi
+
+# Double-check that files were actually copied
+if [ "$FILE_COUNT" -eq 0 ]; then
+    print_error "No files were backed up. Something went wrong."
+    echo "Please check:"
+    echo "  1. MinIO is accessible at $MINIO_ENDPOINT"
+    echo "  2. The bucket '$BUCKET_NAME' exists and contains data"
+    echo "  3. Your credentials are correct"
+    exit 1
+fi
 
 echo ""
 print_success "Backup completed successfully!"
 echo "  • Files backed up: $FILE_COUNT"
-echo "  • Backup size: $(format_bytes $BACKUP_SIZE)"
+echo "  • Backup size: $(format_bytes ${BACKUP_SIZE:-0})"
 echo "  • Location: $BACKUP_DIR"
 
 # ============================================================================
-# Migration Instructions
+# Automated Migration
 # ============================================================================
 echo ""
 echo -e "${BLUE}${BOLD}═══════════════════════════════════════════════════════════════${NC}"
-echo -e "${BLUE}${BOLD}  Migration Instructions${NC}"
+echo -e "${BLUE}${BOLD}  Ready to Migrate${NC}"
 echo -e "${BLUE}${BOLD}═══════════════════════════════════════════════════════════════${NC}"
 
 echo ""
-echo -e "${BOLD}Your data has been safely backed up. Follow these steps to complete the migration:${NC}"
+echo -e "${BOLD}Your data has been safely backed up!${NC}"
+echo ""
+print_info "Backup location: $BACKUP_DIR"
+print_info "You can always restore from this backup if needed"
 echo ""
 
-echo -e "${GREEN}1. Stop current PostHog services:${NC}"
-echo -e "   ${BLUE}docker-compose down${NC}"
+confirm_action "Would you like to proceed with the automated migration to SeaweedFS?"
+
+# ============================================================================
+# Step 7: Check docker-compose configuration
+# ============================================================================
+print_step "7" "Checking docker-compose configuration"
+
+# Check if docker-compose.base.yml exists and uses SeaweedFS
+COMPOSE_FILE="docker-compose.base.yml"
+if [ ! -f "$COMPOSE_FILE" ]; then
+    COMPOSE_FILE="docker-compose.yml"
+fi
+
+if grep -q "chrislusf/seaweedfs" "$COMPOSE_FILE" 2>/dev/null; then
+    print_success "SeaweedFS configuration found in $COMPOSE_FILE"
+else
+    print_warning "SeaweedFS configuration not found in $COMPOSE_FILE"
+    echo ""
+    echo "Please ensure your docker-compose file uses SeaweedFS:"
+    echo "  image: chrislusf/seaweedfs:latest"
+    echo ""
+    read -p "Have you updated your docker-compose configuration? (yes/no): " response
+    if [[ "$response" != "yes" && "$response" != "y" ]]; then
+        echo ""
+        print_info "Please update your docker-compose configuration and re-run this script."
+        echo "Your backup is safe at: $BACKUP_DIR"
+        exit 0
+    fi
+fi
+
+# ============================================================================
+# Step 8: Stop MinIO container
+# ============================================================================
+print_step "8" "Stopping MinIO container"
+
+echo "Stopping object storage service..."
+if docker-compose stop objectstorage 2>/dev/null; then
+    print_success "MinIO container stopped"
+else
+    print_warning "Could not stop objectstorage service (may already be stopped)"
+fi
+
+# ============================================================================
+# Step 9: Remove MinIO container
+# ============================================================================
+print_step "9" "Removing MinIO container"
+
+echo "Removing old container (keeping data volumes)..."
+if docker-compose rm -f objectstorage 2>/dev/null; then
+    print_success "MinIO container removed"
+else
+    print_warning "Could not remove objectstorage container (may already be removed)"
+fi
+
+# ============================================================================
+# Step 10: Start SeaweedFS
+# ============================================================================
+print_step "10" "Starting SeaweedFS container"
+
+echo "Starting SeaweedFS..."
+if ! docker-compose up -d objectstorage; then
+    print_error "Failed to start SeaweedFS container"
+    echo ""
+    echo "Troubleshooting:"
+    echo "  1. Check docker-compose logs:"
+    echo "     docker-compose logs objectstorage"
+    echo "  2. Verify SeaweedFS image is available"
+    echo "  3. Check port 19000 is not in use"
+    echo ""
+    echo "Your backup is safe at: $BACKUP_DIR"
+    exit 1
+fi
+
+print_success "SeaweedFS container started"
+
+# Wait for SeaweedFS to initialize
+echo "Waiting for SeaweedFS to initialize..."
+sleep 10
+
+# ============================================================================
+# Step 11: Configure SeaweedFS
+# ============================================================================
+print_step "11" "Configuring SeaweedFS"
+
+echo "Setting up SeaweedFS connection..."
+if ! mc alias set seaweedfs-local "$MINIO_ENDPOINT" "$MINIO_ACCESS_KEY" "$MINIO_SECRET_KEY" --api S3v4 2>/dev/null; then
+    print_error "Failed to configure SeaweedFS connection"
+    echo ""
+    echo "SeaweedFS may still be initializing. Please wait and try:"
+    echo "  mc alias set seaweedfs-local $MINIO_ENDPOINT $MINIO_ACCESS_KEY $MINIO_SECRET_KEY --api S3v4"
+    echo ""
+    echo "Your backup is safe at: $BACKUP_DIR"
+    exit 1
+fi
+
+print_success "SeaweedFS connection configured"
+
+# Create bucket if needed
+echo "Creating bucket if needed..."
+if mc mb seaweedfs-local/$BUCKET_NAME --ignore-existing 2>/dev/null; then
+    print_success "Bucket ready"
+else
+    print_warning "Could not create bucket (may already exist)"
+fi
+
+# ============================================================================
+# Step 12: Restore data to SeaweedFS
+# ============================================================================
+print_step "12" "Restoring data to SeaweedFS"
+
+echo "This will restore all backed up data to SeaweedFS..."
 echo ""
 
-echo -e "${GREEN}2. Verify docker-compose.base.yml uses SeaweedFS:${NC}"
-echo "   Check that the objectstorage service is configured for SeaweedFS"
+# Show progress for restore
+print_info "Restoring files to SeaweedFS..."
 echo ""
 
-echo -e "${GREEN}3. Start SeaweedFS:${NC}"
-echo -e "   ${BLUE}docker-compose -f docker-compose.hobby.yml up -d objectstorage${NC}"
+# Run restore in background with progress
+mc mirror "$BACKUP_DIR" "seaweedfs-local/$BUCKET_NAME" --overwrite > /tmp/seaweedfs_restore.log 2>&1 &
+RESTORE_PID=$!
+
+# Show progress while restore runs
+COUNTER=0
+while kill -0 $RESTORE_PID 2>/dev/null; do
+    printf "\r${BLUE}%s${NC} Restoring files... " "${SPINNER[$COUNTER]}"
+    COUNTER=$(( (COUNTER + 1) % 10 ))
+    sleep 0.5
+done
+
+# Check if restore was successful
+wait $RESTORE_PID
+RESTORE_STATUS=$?
+
+# Clear the spinner line
+printf "\r%40s\r" " "
+
+if [ $RESTORE_STATUS -ne 0 ]; then
+    print_error "Restore failed"
+    echo "Error details:"
+    tail -20 /tmp/seaweedfs_restore.log
+    rm -f /tmp/seaweedfs_restore.log
+    echo ""
+    echo "To retry manually:"
+    echo "  mc mirror $BACKUP_DIR seaweedfs-local/$BUCKET_NAME --overwrite"
+    exit 1
+fi
+
+print_success "Data restored to SeaweedFS"
+tail -3 /tmp/seaweedfs_restore.log | grep -E "Total|Transferred" || true
+rm -f /tmp/seaweedfs_restore.log
+
+# ============================================================================
+# Step 13: Verify migration
+# ============================================================================
+print_step "13" "Verifying migration"
+
+echo "Checking restored data..."
+RESTORED_COUNT=$(mc ls seaweedfs-local/$BUCKET_NAME --recursive 2>/dev/null | wc -l | tr -d ' ')
+
+if [ "$RESTORED_COUNT" -gt 0 ]; then
+    print_success "Verification complete: $RESTORED_COUNT objects in SeaweedFS"
+    echo ""
+    echo "Sample of migrated files:"
+    mc ls seaweedfs-local/$BUCKET_NAME --recursive 2>/dev/null | head -5
+else
+    print_error "No objects found in SeaweedFS after migration"
+    echo "Please check the logs and retry the restore manually"
+fi
+
+# ============================================================================
+# Step 14: Restart services if needed
+# ============================================================================
+print_step "14" "Finalizing migration"
+
+echo "Would you like to restart other PostHog services?"
+read -p "This is recommended if they were having issues connecting (yes/no): " response
+
+if [[ "$response" == "yes" || "$response" == "y" ]]; then
+    echo "Restarting PostHog services..."
+    if docker-compose restart; then
+        print_success "Services restarted"
+    else
+        print_warning "Could not restart all services"
+    fi
+else
+    print_info "Skipping service restart"
+fi
+
 echo ""
 
-echo -e "${GREEN}4. Wait for SeaweedFS to initialize:${NC}"
-echo -e "   ${BLUE}sleep 10${NC}"
+# ============================================================================
+# Migration Complete!
+# ============================================================================
+echo -e "${GREEN}${BOLD}═══════════════════════════════════════════════════════════════${NC}"
+echo -e "${GREEN}${BOLD}  🎉 Migration Complete!${NC}"
+echo -e "${GREEN}${BOLD}═══════════════════════════════════════════════════════════════${NC}"
 echo ""
 
-echo -e "${GREEN}5. Configure SeaweedFS and restore data:${NC}"
-echo -e "   ${BLUE}# Configure mc for SeaweedFS (same endpoint/credentials)${NC}"
-echo -e "   ${BLUE}mc alias set seaweedfs-local $MINIO_ENDPOINT $MINIO_ACCESS_KEY $MINIO_SECRET_KEY --api S3v4${NC}"
+print_success "Successfully migrated from MinIO to SeaweedFS!"
 echo ""
-echo -e "   ${BLUE}# Create bucket if needed${NC}"
-echo -e "   ${BLUE}mc mb seaweedfs-local/$BUCKET_NAME --ignore-existing${NC}"
-echo ""
-echo -e "   ${BLUE}# Restore your data${NC}"
-echo -e "   ${BLUE}mc mirror $BACKUP_DIR seaweedfs-local/$BUCKET_NAME --overwrite${NC}"
+print_info "Summary:"
+echo "  • Backed up $FILE_COUNT files"
+echo "  • Restored $RESTORED_COUNT objects to SeaweedFS"
+echo "  • Backup preserved at: $BACKUP_DIR"
 echo ""
 
-echo -e "${GREEN}6. Verify the migration:${NC}"
-echo -e "   ${BLUE}mc ls seaweedfs-local/$BUCKET_NAME --recursive | head -20${NC}"
+echo -e "${BOLD}Next Steps:${NC}"
+echo "  1. Test PostHog functionality in your browser"
+echo "  2. Verify that recordings and assets load correctly"
+echo "  3. Monitor logs for any issues:"
+echo -e "     ${BLUE}docker-compose logs -f objectstorage${NC}"
 echo ""
 
-echo -e "${GREEN}7. Start all PostHog services:${NC}"
-echo -e "   ${BLUE}docker-compose up -d${NC}"
+echo -e "${YELLOW}${BOLD}Cleanup (After Testing):${NC}"
+echo "Once you've confirmed everything works correctly:"
+echo ""
+echo "  1. Remove the backup:"
+echo -e "     ${BLUE}rm -rf $BACKUP_DIR${NC}"
+echo ""
+echo "  2. Remove MinIO alias:"
+echo -e "     ${BLUE}mc alias remove $ALIAS_NAME${NC}"
+echo ""
+echo "  3. Remove SeaweedFS alias:"
+echo -e "     ${BLUE}mc alias remove seaweedfs-local${NC}"
 echo ""
 
-echo -e "${GREEN}8. Test PostHog functionality:${NC}"
-echo "   • Open PostHog in your browser"
-echo "   • Verify that recordings and other assets load correctly"
+echo -e "${YELLOW}${BOLD}⚠ Rollback Instructions:${NC}"
+echo "If you encounter issues and need to rollback to MinIO:"
+echo ""
+echo "  1. Stop SeaweedFS:"
+echo -e "     ${BLUE}docker-compose stop objectstorage${NC}"
+echo "  2. Remove SeaweedFS container:"
+echo -e "     ${BLUE}docker-compose rm -f objectstorage${NC}"
+echo "  3. Restore MinIO configuration in docker-compose"
+echo "  4. Start MinIO:"
+echo -e "     ${BLUE}docker-compose up -d objectstorage${NC}"
+echo "  5. Restore data from backup:"
+echo -e "     ${BLUE}mc mirror $BACKUP_DIR minio-local/$BUCKET_NAME --overwrite${NC}"
 echo ""
 
-echo -e "${BLUE}${BOLD}═══════════════════════════════════════════════════════════════${NC}"
-echo -e "${BLUE}${BOLD}  Cleanup (After Verification)${NC}"
-echo -e "${BLUE}${BOLD}═══════════════════════════════════════════════════════════════${NC}"
-echo ""
-
-echo -e "${YELLOW}After confirming everything works:${NC}"
-echo ""
-echo "1. Remove the backup:"
-echo -e "   ${BLUE}rm -rf $BACKUP_DIR${NC}"
-echo ""
-echo "2. Remove old MinIO volumes (if applicable):"
-echo -e "   ${BLUE}docker volume rm posthog_objectstorage-data${NC}"
-echo ""
-echo "3. Remove MinIO mc alias:"
-echo -e "   ${BLUE}mc alias remove $ALIAS_NAME${NC}"
-echo ""
-
-print_success "Backup complete! Follow the instructions above to finish migration."
+print_success "Thank you for using the MinIO to SeaweedFS migration tool!"
