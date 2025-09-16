@@ -67,8 +67,11 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         loadJoiningTablePreview: (tableName: string) => ({ tableName }),
         setSourceTablePreviewData: (data: Record<string, any>[]) => ({ data }),
         setJoiningTablePreviewData: (data: Record<string, any>[]) => ({ data }),
-        setSourceTablePreviewLoading: (loading: boolean) => ({ loading }),
-        setJoiningTablePreviewLoading: (loading: boolean) => ({ loading }),
+        setIsJoinValid: (isValid: boolean) => ({ isValid }),
+        setValidationError: (errorMessage: string) => ({ errorMessage }),
+        setValidationWarning: (validationWarning: string | null) => ({ validationWarning }),
+        validateJoin: () => {},
+        checkKeyTypeMismatch: () => {},
     })),
     reducers({
         joinToEdit: [
@@ -88,6 +91,23 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 toggleEditJoinModal: () => false,
                 toggleNewJoinModal: () => true,
                 clearModalFields: () => false,
+            },
+        ],
+        isJoinValidating: [
+            false as boolean,
+            {
+                validateJoin: () => true,
+                setIsJoinValid: () => false,
+            },
+        ],
+        isJoinValid: [
+            false as boolean,
+            {
+                setIsJoinValid: (_, { isValid }) => isValid,
+                selectSourceKey: () => false,
+                selectSourceTable: () => false,
+                selectJoiningKey: () => false,
+                selectJoiningTable: () => false,
             },
         ],
         selectedSourceTableName: [
@@ -114,6 +134,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 selectSourceKey: (_, { selectedKey }) => selectedKey,
                 toggleNewJoinModal: (_, { join }) => join?.source_table_key ?? null,
                 toggleEditJoinModal: (_, { join }) => join.source_table_key ?? null,
+                clearModalFields: () => null,
             },
         ],
         selectedJoiningKey: [
@@ -122,6 +143,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 selectJoiningKey: (_, { selectedKey }) => selectedKey,
                 toggleNewJoinModal: (_, { join }) => join?.joining_table_key ?? null,
                 toggleEditJoinModal: (_, { join }) => join.joining_table_key ?? null,
+                clearModalFields: () => null,
             },
         ],
         fieldName: [
@@ -167,6 +189,28 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
                 clearModalFields: () => null,
             },
         ],
+        validationError: [
+            null as null | string,
+            {
+                setValidationError: (_, { errorMessage }) => errorMessage,
+                clearModalFields: () => null,
+                selectSourceKey: () => null,
+                selectSourceTable: () => null,
+                selectJoiningKey: () => null,
+                selectJoiningTable: () => null,
+            },
+        ],
+        validationWarning: [
+            null as null | string,
+            {
+                setValidationWarning: (_, { validationWarning }) => validationWarning,
+                clearModalFields: () => null,
+                selectSourceKey: () => null,
+                selectSourceTable: () => null,
+                selectJoiningKey: () => null,
+                selectJoiningTable: () => null,
+            },
+        ],
         sourceTablePreviewData: [
             [] as Record<string, any>[],
             {
@@ -184,15 +228,15 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
         sourceTablePreviewLoading: [
             false as boolean,
             {
-                setSourceTablePreviewLoading: (_, { loading }) => loading,
                 loadSourceTablePreview: () => true,
+                setSourceTablePreviewData: () => false,
             },
         ],
         joiningTablePreviewLoading: [
             false as boolean,
             {
-                setJoiningTablePreviewLoading: (_, { loading }) => loading,
                 loadJoiningTablePreview: () => true,
+                setJoiningTablePreviewData: () => false,
             },
         ],
     }),
@@ -260,7 +304,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             },
         },
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         toggleNewJoinModal: ({ join }) => {
             actions.setViewLinkValues(join ?? NEW_VIEW_LINK)
         },
@@ -278,28 +322,79 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
             }
         },
         selectSourceTable: async ({ selectedTableName }) => {
+            actions.setIsJoinValid(false)
             if (selectedTableName) {
                 actions.loadSourceTablePreview(selectedTableName)
             }
         },
         selectJoiningTable: async ({ selectedTableName }) => {
+            actions.setIsJoinValid(false)
             if (selectedTableName) {
                 actions.loadJoiningTablePreview(selectedTableName)
             }
         },
+        checkKeyTypeMismatch: () => {
+            if (values.selectedSourceKey && values.selectedJoiningKey) {
+                const sourceColumn = Object.values(values.selectedSourceTable?.fields ?? {}).find(
+                    (field) => field.name === values.selectedSourceKey
+                )
+                const joiningColumn = Object.values(values.selectedJoiningTable?.fields ?? {}).find(
+                    (field) => field.name === values.selectedJoiningKey
+                )
+                const sourceKeyDataType = sourceColumn?.type ?? 'unknown'
+                const joiningKeyDataType = joiningColumn?.type ?? 'unknown'
+                const validationWarning =
+                    sourceKeyDataType !== joiningKeyDataType
+                        ? `Key types don't match: Source table key is from type ${sourceKeyDataType} but joining table key is from type ${joiningKeyDataType}`
+                        : null
+                actions.setValidationWarning(validationWarning)
+            }
+        },
+        selectSourceKey: () => {
+            actions.checkKeyTypeMismatch()
+        },
+        selectJoiningKey: () => {
+            actions.checkKeyTypeMismatch()
+        },
         loadSourceTablePreview: async ({ tableName }) => {
-            await loadTablePreviewData(
-                tableName,
-                actions.setSourceTablePreviewData,
-                actions.setSourceTablePreviewLoading
-            )
+            await loadTablePreviewData(tableName, actions.setSourceTablePreviewData)
         },
         loadJoiningTablePreview: async ({ tableName }) => {
-            await loadTablePreviewData(
-                tableName,
-                actions.setJoiningTablePreviewData,
-                actions.setJoiningTablePreviewLoading
-            )
+            await loadTablePreviewData(tableName, actions.setJoiningTablePreviewData)
+        },
+        validateJoin: async () => {
+            if (
+                !values.selectedSourceTableName ||
+                !values.selectedJoiningTableName ||
+                !values.selectedSourceKey ||
+                !values.selectedJoiningKey
+            ) {
+                actions.setIsJoinValid(false)
+                return
+            }
+            try {
+                const sourceTable = hogql.identifier(values.selectedSourceTableName)
+                const sourceKey = hogql.identifier(values.selectedSourceKey)
+                const joiningTable = hogql.identifier(values.selectedJoiningTableName)
+                const joiningKey = hogql.identifier(values.selectedJoiningKey)
+                const response = await hogqlQuery(
+                    hogql`
+                    SELECT ${sourceTable}.${sourceKey}, ${joiningTable}.${joiningKey}
+                    FROM ${sourceTable}
+                    JOIN ${joiningTable}
+                    ON ${sourceTable}.${sourceKey} = ${joiningTable}.${joiningKey}
+                    LIMIT 10`
+                )
+                if (response.results.length === 0) {
+                    actions.setValidationWarning('No matching data found between source and joining tables.')
+                    actions.setIsJoinValid(false)
+                } else {
+                    actions.setIsJoinValid(true)
+                }
+            } catch (error: any) {
+                actions.setValidationError(error.detail)
+                actions.setIsJoinValid(false)
+            }
         },
     })),
     selectors({
@@ -393,8 +488,7 @@ export const viewLinkLogic = kea<viewLinkLogicType>([
 
 async function loadTablePreviewData(
     tableName: string,
-    setDataAction: (data: Record<string, any>[]) => void,
-    setLoadingAction: (loading: boolean) => void
+    setDataAction: (data: Record<string, any>[]) => void
 ): Promise<void> {
     try {
         const response = await hogqlQuery(hogql`SELECT * FROM ${hogql.identifier(tableName)} LIMIT 10`)
@@ -405,7 +499,5 @@ async function loadTablePreviewData(
     } catch (error) {
         posthog.captureException(error)
         setDataAction([])
-    } finally {
-        setLoadingAction(false)
     }
 }
