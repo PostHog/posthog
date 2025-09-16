@@ -68,7 +68,6 @@ export const redditAdsCostTile = (source: NativeSource): DataWarehouseNode | nul
         table_name: table.name,
         math: PropertyMathType.Sum,
         math_property: 'spend',
-        math_property_revenue_currency: { static: CurrencyCode.USD },
         math_multiplier: COST_MICROS_MULTIPLIER,
     }
 }
