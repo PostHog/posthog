@@ -1,12 +1,12 @@
 import json
 from typing import Optional
 
+from posthog.api.advanced_activity_logs.queries import SMALL_ORG_THRESHOLD
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_client
 
 CACHE_TTL_SECONDS = 12 * 60 * 60  # 12 hours
 CACHE_KEY_PREFIX = "activity_log:details_fields"
-REALTIME_FIELD_DISCOVERY_THRESHOLD = 20000
 
 
 def _get_cache_key(organization_id: str) -> str:
@@ -34,7 +34,7 @@ def cache_fields(organization_id: str, fields_data: dict, record_count: int) -> 
         key = _get_cache_key(organization_id)
         json_data = json.dumps(fields_data, default=str)
 
-        if record_count > REALTIME_FIELD_DISCOVERY_THRESHOLD:
+        if record_count > SMALL_ORG_THRESHOLD:
             # Non-expiring cache for large orgs
             client.set(key, json_data)
         else:

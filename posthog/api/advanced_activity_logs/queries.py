@@ -1,12 +1,8 @@
 from typing import Literal
 
-SMALL_ORG_THRESHOLD = 20000
+SMALL_ORG_THRESHOLD = 20000  # Above this many log records, we do sampling and batching
 BATCH_SIZE = 10000
 SAMPLING_PERCENTAGE = 50.0
-
-# Backwards compatibility - MAX_DEPTH and MAX_NESTED_DEPTH no longer used in strategic queries
-MAX_DEPTH = 6
-MAX_NESTED_DEPTH = MAX_DEPTH
 
 
 class QueryBuilder:
