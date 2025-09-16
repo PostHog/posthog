@@ -10,7 +10,6 @@ import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/S
 import { SceneDashboardChoiceRequired } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceRequired'
 import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -43,8 +42,8 @@ export function ProjectHomepage(): JSX.Element {
     const aaTestBayesianLegacy = featureFlags[FEATURE_FLAGS.AA_TEST_BAYESIAN_LEGACY]
     const aaTestBayesianNew = featureFlags[FEATURE_FLAGS.AA_TEST_BAYESIAN_NEW]
 
-    // Test feature flag for validating database reads
-    const personReadTestFlag = useFeatureFlag('PERSON_READ_TEST_FLAG')
+    // #team-ingestion/nickbest TODO: remove after person database migration tests are complete
+    const personReadTestFlag = featureFlags[FEATURE_FLAGS.PERSON_READ_TEST_FLAG]
 
     const headerButtons = (
         <>
