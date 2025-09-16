@@ -75,6 +75,9 @@ const convertFetchResponse = <Data = unknown>(response: FetchResponse, text: str
         // NOTE: The majority of items below aren't used but we need to simulate their response type
         clone: () => modifiedResponse as unknown as Response,
         bodyUsed: false,
+        bytes: () => {
+            throw new Error('Not implemented')
+        },
         arrayBuffer: () => {
             throw new Error('Not implemented')
         },

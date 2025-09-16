@@ -175,17 +175,18 @@ function postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
     databaseUse: PostgresUse
 ): Promise<QueryResult<R>> {
     return withSpan('postgres', 'query.postgres', { tag: tag ?? 'unknown' }, async () => {
-        const queryConfig =
-            typeof queryString === 'string'
-                ? {
-                      // Annotate query string to give context when looking at DB logs
-                      text: `/* plugin-server:${tag} */ ${queryString}`,
-                      values,
-                  }
-                : queryString
+        let result: QueryResult<R>
+        let queryText: string = ''
 
         try {
-            return await client.query(queryConfig, values)
+            if (typeof queryString === 'string') {
+                queryText = `/* plugin-server:${tag} */ ${queryString}`
+                result = await client.query<R>(queryText, values)
+            } else {
+                queryText = queryString.text || ''
+                result = await client.query<R>(queryString)
+            }
+            return result
         } catch (error) {
             if (
                 error.message &&
@@ -195,7 +196,7 @@ function postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
             }
 
             logger[queryFailureLogLevel]('🔴', 'Postgres query error', {
-                query: queryConfig.text,
+                query: queryText,
                 error,
                 stack: error.stack,
             })
