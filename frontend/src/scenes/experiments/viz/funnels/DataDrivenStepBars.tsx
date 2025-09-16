@@ -1,9 +1,6 @@
-import { useMemo } from 'react'
-import { humanFriendlyNumber } from 'lib/utils'
-
+import clsx from 'clsx'
 import { FunnelStepWithConversionMetrics } from '~/types'
-
-import { useFunnelData } from './DataDrivenFunnel'
+import { DataDrivenStepBar } from './DataDrivenStepBar'
 
 interface DataDrivenStepBarsProps {
     step: FunnelStepWithConversionMetrics
@@ -14,48 +11,42 @@ interface DataDrivenStepBarsProps {
 export function DataDrivenStepBars({
     step,
     stepIndex,
-    showPersonsModal: _showPersonsModal
+    showPersonsModal
 }: DataDrivenStepBarsProps): JSX.Element {
-    const { visibleStepsWithConversionMetrics } = useFunnelData()
+    // For simplicity, we'll assume isOptional is always false
+    const isOptional = false
 
-    // Calculate the maximum count for scaling
-    const maxCount = useMemo(() => {
-        return Math.max(...visibleStepsWithConversionMetrics.map(s => s.count))
-    }, [visibleStepsWithConversionMetrics])
-
-    // If there are nested breakdowns, render bars for each breakdown
-    if (step.nested_breakdown && step.nested_breakdown.length > 0) {
-        return (
-            <div className="StepBars">
-                {step.nested_breakdown.map((breakdown, breakdownIndex) => (
-                    <div key={breakdownIndex} className="StepBar">
-                        <div 
-                            className="StepBar--inner"
-                            style={{
-                                height: `${(breakdown.count / maxCount) * 100}%`,
-                                backgroundColor: `hsl(${(breakdownIndex * 137) % 360}, 70%, 50%)`,
-                            }}
-                            title={`${breakdown.name}: ${humanFriendlyNumber(breakdown.count)}`}
-                        />
-                    </div>
-                ))}
-            </div>
-        )
-    }
-
-    // Single bar for step without breakdowns
     return (
-        <div className="StepBars">
-            <div className="StepBar">
-                <div 
-                    className="StepBar--inner"
-                    style={{
-                        height: `${(step.count / maxCount) * 100}%`,
-                        backgroundColor: `hsl(${(stepIndex * 137) % 360}, 70%, 50%)`,
-                    }}
-                    title={`${step.name}: ${humanFriendlyNumber(step.count)}`}
-                />
+        <div
+            className={clsx('StepBars', stepIndex === 0 && 'StepBars--first')}
+            style={{ opacity: isOptional ? 0.6 : 1 }}
+        >
+            <div className="StepBars__grid">
+                {Array(5)
+                    .fill(null)
+                    .map((_, i) => (
+                        <div
+                            key={`gridline-${stepIndex}-${i}`}
+                            className="StepBars__gridline StepBars__gridline--horizontal"
+                        />
+                    ))}
             </div>
+            {step.nested_breakdown?.map((series) => (
+                <DataDrivenStepBar
+                    key={`bar-${stepIndex}-${series.order}`}
+                    step={step}
+                    stepIndex={stepIndex}
+                    series={series}
+                    showPersonsModal={showPersonsModal}
+                />
+            )) || (
+                <DataDrivenStepBar
+                    step={step}
+                    stepIndex={stepIndex}
+                    series={step}
+                    showPersonsModal={showPersonsModal}
+                />
+            )}
         </div>
     )
 }

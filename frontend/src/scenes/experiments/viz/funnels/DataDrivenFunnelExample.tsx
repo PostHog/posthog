@@ -103,18 +103,18 @@ export function DataDrivenFunnelExample(): JSX.Element {
         },
     ]
 
-    // Example time-to-convert data for histogram
-    const exampleTimeConversionData = {
-        average_conversion_time: 180,
-        bins: [
-            [0, 50], // 0-60s: 50 conversions
-            [60, 120], // 60-120s: 120 conversions
-            [120, 200], // 120-180s: 200 conversions
-            [180, 150], // 180-240s: 150 conversions
-            [240, 80], // 240-300s: 80 conversions
-            [300, 30], // 300-360s: 30 conversions
-        ] as [number, number][],
-    }
+    // Example time-to-convert data for histogram (commented out for now)
+    // const exampleTimeConversionData = {
+    //     average_conversion_time: 180,
+    //     bins: [
+    //         [0, 50], // 0-60s: 50 conversions
+    //         [60, 120], // 60-120s: 120 conversions
+    //         [120, 200], // 120-180s: 200 conversions
+    //         [180, 150], // 180-240s: 150 conversions
+    //         [240, 80], // 240-300s: 80 conversions
+    //         [300, 30], // 300-360s: 30 conversions
+    //     ] as [number, number][],
+    // }
 
     return (
         <div>
