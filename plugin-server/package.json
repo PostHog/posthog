@@ -98,7 +98,7 @@
         "luxon": "^3.4.4",
         "lz4-kafkajs": "1.0.0",
         "node-fetch": "^2.6.1",
-        "node-rdkafka": "^3.4.1",
+        "node-rdkafka": "^3.5.0",
         "node-schedule": "^2.1.0",
         "nodemailer": "^7.0.5",
         "p-limit": "3.1.0",
