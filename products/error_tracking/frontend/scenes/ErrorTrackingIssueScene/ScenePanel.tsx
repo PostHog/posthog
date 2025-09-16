@@ -1,5 +1,8 @@
 import { useActions, useValues } from 'kea'
 
+import { IconCopy, IconMagicWand } from '@posthog/icons'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+
 import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
 import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
 import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
@@ -57,6 +60,8 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
             <IssueExternalReference />
             {hasTasks && <IssueTasks />}
             <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
+
+            {/* <IssueAIFix /> */}
 
             {/* Add a div here to break out of the gap-2 */}
             <div>
@@ -163,5 +168,26 @@ const IssueExternalReference = (): JSX.Element => {
         <ScenePanelLabel title="External references">
             <ExternalReferences />
         </ScenePanelLabel>
+    )
+}
+
+const IssueAIFix = (): JSX.Element => {
+    return (
+        <ScenePanelLabel title="AI">
+            <AIFix />
+        </ScenePanelLabel>
+    )
+}
+
+const AIFix = (): JSX.Element => {
+    return (
+        <div className="flex gap-2">
+            <LemonButton type="secondary" size="small" icon={<IconMagicWand />}>
+                Generate fix PR
+            </LemonButton>
+            <LemonButton type="secondary" size="small" icon={<IconCopy />}>
+                Copy fix prompt
+            </LemonButton>
+        </div>
     )
 }

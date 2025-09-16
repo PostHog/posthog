@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconChevronDown, IconMagicWand } from '@posthog/icons'
+import { IconChevronDown, IconSparkles } from '@posthog/icons'
 
 import { ExceptionHeaderProps } from 'lib/components/Errors/StackTraces'
 import { errorPropertiesLogic } from 'lib/components/Errors/errorPropertiesLogic'
@@ -19,6 +19,7 @@ import { TabsPrimitiveContent, TabsPrimitiveContentProps } from 'lib/ui/TabsPrim
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 
 import { ExceptionAttributesPreview } from '../../ExceptionAttributesPreview'
+import { FixWithAIButton } from '../../ExceptionAttributesPreview/FixWithAlButton'
 import { ReleasePreviewPill } from '../../ExceptionAttributesPreview/ReleasesPreview/ReleasePreviewPill'
 import { FixModal } from '../FixModal'
 import { StacktraceBaseDisplayProps, StacktraceEmptyDisplay } from '../Stacktrace/StacktraceBase'
@@ -53,14 +54,15 @@ export function StacktraceTab({
                     <ReleasePreviewPill />
                 </div>
                 <ButtonGroupPrimitive size="sm">
+                    <FixWithAIButton />
                     {showFixButton && (
                         <ButtonPrimitive
                             onClick={() => setShowFixModal(true)}
                             className="px-2 h-[1.4rem]"
-                            tooltip="Generate AI prompt to fix this error"
+                            tooltip="Copy AI prompt"
                         >
-                            <IconMagicWand />
-                            Fix with AI
+                            <IconSparkles />
+                            Prompt
                         </ButtonPrimitive>
                     )}
                     <ShowDropDownMenu>
