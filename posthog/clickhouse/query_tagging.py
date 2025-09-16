@@ -22,6 +22,7 @@ class Product(StrEnum):
     BATCH_EXPORT = "batch_export"
     FEATURE_FLAGS = "feature_flags"
     MAX_AI = "max_ai"
+    MESSAGING = "messaging"
     PRODUCT_ANALYTICS = "product_analytics"
     REPLAY = "replay"
     SESSION_SUMMARY = "session_summary"
@@ -29,6 +30,7 @@ class Product(StrEnum):
 
 
 class Feature(StrEnum):
+    BEHAVIORAL_COHORTS = "behavioral_cohorts"
     COHORT = "cohort"
     QUERY = "query"
     INSIGHT = "insight"

@@ -8,7 +8,6 @@ import { IconBook, IconDownload, IconInfo, IconPlayFilled, IconSidebarClose } fr
 import { LemonDivider, Spinner } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { IconCancel } from 'lib/lemon-ui/icons'
@@ -78,7 +77,6 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
     const { sidebarWidth } = useValues(editorSizingLogic)
     const { resetDefaultSidebarWidth } = useActions(editorSizingLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     const [editingViewDisabledReason, EditingViewButtonIcon] = useMemo(() => {
         if (updatingDataWarehouseSavedQuery) {
             return ['Saving...', Spinner]
@@ -130,7 +128,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
             <div
                 className={cn(
                     'flex flex-row overflow-x-auto z-[var(--z-top-navigation)]',
-                    newSceneLayout && activePanelIdentifier !== 'Database' && !isLayoutPanelVisible && 'rounded-tl'
+                    activePanelIdentifier !== 'Database' && !isLayoutPanelVisible && 'rounded-tl'
                 )}
             >
                 {renderSidebarButton()}

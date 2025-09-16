@@ -59,6 +59,11 @@ class LinkedinAdsAdapter(MarketingSourceAdapter[LinkedinAdsConfig]):
         sum = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "cost_in_usd"])])
         return ast.Call(name="toFloat", args=[sum])
 
+    def _get_reported_conversion_field(self) -> ast.Expr:
+        stats_table_name = self.config.stats_table.name
+        sum = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "external_website_conversions"])])
+        return ast.Call(name="toFloat", args=[sum])
+
     def _get_from(self) -> ast.JoinExpr:
         """Build FROM and JOIN clauses"""
         campaign_table_name = self.config.campaign_table.name
