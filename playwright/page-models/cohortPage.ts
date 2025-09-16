@@ -1,5 +1,7 @@
 import { Page } from '@playwright/test'
 
+import { delay } from 'lib/utils'
+
 import { expect } from '../utils/playwright-test-base'
 
 export class CohortPage {
@@ -16,6 +18,7 @@ export class CohortPage {
 
         await this.page.click('[data-attr="scene-title-textarea"]')
         await this.page.locator('[data-attr="scene-title-textarea"]').pressSequentially(name)
+        await delay(1000)
         await this.page.click('[data-attr="save-cohort"]')
 
         await expect(this.page.locator('[data-attr="success-toast"]')).toHaveText(/Cohort saved/)
