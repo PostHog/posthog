@@ -39,7 +39,7 @@
     },
     "applications": {
         "posthog": {
-            "type": "python 3.11",
+            "type": "python 3.12",
             "processes": $NGINX_UNIT_APP_PROCESSES,
             "working_directory": "/code",
             "path": ".",
@@ -51,7 +51,7 @@
             }
         },
         "metrics": {
-            "type": "python 3.11",
+            "type": "python 3.12",
             "processes": 1,
             "working_directory": "/code/bin",
             "path": ".",
