@@ -286,8 +286,8 @@ export function isInsightQueryWithBreakdown(node?: Record<string, any> | null): 
     return isTrendsQuery(node) || isFunnelsQuery(node) || isRetentionQuery(node)
 }
 
-export function isInsightQueryWithCompare(node?: Record<string, any> | null): node is TrendsQuery | StickinessQuery {
-    return isTrendsQuery(node) || isStickinessQuery(node)
+export function isInsightQueryWithCompare(node?: Record<string, any> | null): node is TrendsQuery | StickinessQuery | FunnelsQuery {
+    return isTrendsQuery(node) || isStickinessQuery(node) || isFunnelsQuery(node)
 }
 
 export function isDatabaseSchemaQuery(node?: Node): node is DatabaseSchemaQuery {

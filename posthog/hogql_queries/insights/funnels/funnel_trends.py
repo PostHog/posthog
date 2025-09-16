@@ -9,6 +9,7 @@ from posthog.hogql_queries.insights.funnels.base import FunnelBase
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.funnels.utils import get_funnel_order_class
 from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql
+from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 from posthog.models.cohort.cohort import Cohort
@@ -63,6 +64,7 @@ class FunnelTrends(FunnelBase):
         query = self.context.query
 
         breakdown_clause = self._get_breakdown_prop()
+        has_compare = query.compareFilter is not None and query.compareFilter.compare
 
         summary = []
 
@@ -74,8 +76,15 @@ class FunnelTrends(FunnelBase):
                 "conversion_rate": period_row[3],
             }
 
+            if has_compare and len(period_row) > 4:
+                # Handle comparison data
+                compare_label = period_row[-1]
+                serialized_result["compare_label"] = compare_label
+
             if breakdown_clause:
-                breakdown_value = period_row[-1]
+                # Adjust index based on whether we have compare data
+                breakdown_index = -2 if has_compare else -1
+                breakdown_value = period_row[breakdown_index]
                 if breakdown_value in (None, [None], 0):
                     serialized_result.update({"breakdown_value": ["None"]})
                 elif isinstance(breakdown_value, str) or (
@@ -123,6 +132,14 @@ class FunnelTrends(FunnelBase):
         return {"count": count, "data": data, "days": days, "labels": labels}
 
     def _date_range(self):
+        if self.context.query.compareFilter is not None and self.context.query.compareFilter.compare and self.context.query.compareFilter.compare_to:
+            return QueryCompareToDateRange(
+                date_range=self.context.query.dateRange,
+                team=self.context.team,
+                interval=self.context.query.interval,
+                now=self.context.now,
+                compare_to=self.context.query.compareFilter.compare_to,
+            )
         return QueryDateRange(
             date_range=self.context.query.dateRange,
             team=self.context.team,

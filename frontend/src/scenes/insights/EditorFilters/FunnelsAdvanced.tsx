@@ -2,7 +2,9 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { Noun } from '~/models/groupsModel'
 import { EditorFilterProps } from '~/types'
@@ -14,6 +16,8 @@ import { FunnelStepOrderPicker } from '../views/Funnels/FunnelStepOrderPicker'
 export function FunnelsAdvanced({ insightProps }: EditorFilterProps): JSX.Element {
     const { querySource, aggregationTargetLabel, advancedOptionsUsedCount } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
+    const { compareFilter } = useValues(insightVizDataLogic(insightProps))
+    const { updateCompareFilter } = useActions(insightVizDataLogic(insightProps))
 
     return (
         <div className="deprecated-space-y-4">
@@ -22,6 +26,10 @@ export function FunnelsAdvanced({ insightProps }: EditorFilterProps): JSX.Elemen
             </LemonField.Pure>
             <LemonField.Pure label="Conversion rate calculation">
                 <FunnelStepReferencePicker />
+            </LemonField.Pure>
+
+            <LemonField.Pure label="Compare to date range">
+                <CompareFilter compareFilter={compareFilter} updateCompareFilter={updateCompareFilter} />
             </LemonField.Pure>
 
             <LemonField.Pure
@@ -46,6 +54,7 @@ export function FunnelsAdvanced({ insightProps }: EditorFilterProps): JSX.Elemen
                                 funnelStepReference: undefined,
                                 exclusions: undefined,
                             })
+                            updateCompareFilter({ compare: false, compare_to: undefined })
                         }}
                     >
                         Reset advanced options
