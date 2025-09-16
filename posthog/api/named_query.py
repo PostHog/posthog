@@ -9,7 +9,7 @@ from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import HogQLQuery, QueryRequest, QueryResponseAlternative
+from posthog.schema import QueryRequest
 
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
@@ -31,12 +31,17 @@ from posthog.rate_limit import APIQueriesBurstThrottle, APIQueriesSustainedThrot
 from common.hogvm.python.utils import HogVMException
 
 
-class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
+class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ModelViewSet):
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "hogql_query"
     # Special case for query - these are all essentially read actions
-    scope_object_read_actions = ["retrieve", "create", "list", "destroy", "run"]
+    scope_object_read_actions = ["retrieve", "create", "list", "destroy", "update", "run"]
     scope_object_write_actions: list[str] = []
+    lookup_field = "name"
+    queryset = NamedQuery.objects.all()
+
+    def get_serializer_class(self):
+        return None  # We use Pydantic models instead
 
     def get_throttles(self):
         return [APIQueriesBurstThrottle(), APIQueriesSustainedThrottle()]
@@ -51,6 +56,28 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Vie
             cache.set(cache_key, new_val)
             return new_val
         return False
+
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        """List all named queries for the team."""
+        queryset = self.get_queryset()
+
+        results = []
+        for named_query in queryset:
+            results.append(
+                {
+                    "id": str(named_query.id),
+                    "name": named_query.name,
+                    "description": named_query.description,
+                    "query": named_query.query,
+                    "parameters": named_query.parameters,
+                    "is_active": named_query.is_active,
+                    "endpoint_path": named_query.endpoint_path,
+                    "created_at": named_query.created_at,
+                    "updated_at": named_query.updated_at,
+                }
+            )
+
+        return Response({"results": results})
 
     @extend_schema(
         request=QueryRequest,
@@ -99,10 +126,9 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Vie
             capture_exception(e)
             raise ValidationError("Failed to create named query")
 
-    @action(methods=["PUT"], detail=False, url_path="d/(?P<query_name>[^/.]+)")
-    def update_named_query(self, request: Request, query_name: str, *args, **kwargs) -> Response:
+    def update(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Update an existing named query."""
-        named_query = get_object_or_404(NamedQuery, team=self.team, name=query_name)
+        named_query = get_object_or_404(NamedQuery, team=self.team, name=name)
         data = request.data
 
         try:
@@ -137,17 +163,16 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Vie
             capture_exception(e)
             raise ValidationError("Failed to update named query")
 
-    @action(methods=["DELETE"], detail=False, url_path="d/(?P<query_name>[^/.]+)")
-    def delete_named_query(self, request: Request, query_name: str, *args, **kwargs) -> Response:
+    def destroy(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Delete a named query."""
-        named_query = get_object_or_404(NamedQuery, team=self.team, name=query_name)
+        named_query = get_object_or_404(NamedQuery, team=self.team, name=name)
         named_query.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
-    @action(methods=["GET", "POST"], detail=False, url_path="d/(?P<query_name>[^/.]+)/run")
-    def execute_named_query(self, request: Request, query_name: str, *args, **kwargs) -> Response:
+    @action(methods=["GET", "POST"], detail=True)
+    def run(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Execute a named query with optional parameters."""
-        named_query = get_object_or_404(NamedQuery, team=self.team, name=query_name, is_active=True)
+        named_query = get_object_or_404(NamedQuery, team=self.team, name=name, is_active=True)
 
         # Get query with parameters applied
         query_data = named_query.get_query_with_parameters(request.query_params.dict())
@@ -188,56 +213,6 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Vie
             )
             return Response(result, status=response_status)
 
-        except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
-            raise ValidationError(str(e), getattr(e, "code_name", None))
-        except ResolutionError as e:
-            raise ValidationError(str(e))
-        except ConcurrencyLimitExceeded as c:
-            raise Throttled(detail=str(c))
-        except Exception as e:
-            self.handle_column_ch_error(e)
-            capture_exception(e)
-            raise
-
-    @extend_schema(
-        request=QueryRequest,
-        responses={
-            200: QueryResponseAlternative,
-        },
-    )
-    # @monitor(feature=Feature.QUERY, endpoint="run", method="POST")
-    @action(methods=["POST"], detail=False, url_path="run")
-    def run(self, request: Request, *args, **kwargs) -> Response:
-        data = self.get_model(request.data, QueryRequest)
-
-        # Only handle HogQLQuery
-        if not isinstance(data.query, HogQLQuery):
-            raise ValidationError("This endpoint only supports HogQLQuery")
-
-        try:
-            query, client_query_id, execution_mode = _process_query_request(
-                data, self.team, data.client_query_id, request.user
-            )
-            self._tag_client_query_id(client_query_id)
-            if execution_mode in ASYNC_MODES:
-                raise ValidationError("only sync modes are supported (refresh param)")
-
-            result = process_query_model(
-                self.team,
-                query,
-                execution_mode=execution_mode,
-                query_id=client_query_id,
-                user=request.user,  # type: ignore[arg-type]
-                is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
-            )
-            if isinstance(result, BaseModel):
-                result = result.model_dump(by_alias=True)
-            response_status = (
-                status.HTTP_202_ACCEPTED
-                if result.get("query_status") and result["query_status"].get("complete") is False
-                else status.HTTP_200_OK
-            )
-            return Response(result, status=response_status)
         except (ExposedHogQLError, ExposedCHQueryError, HogVMException) as e:
             raise ValidationError(str(e), getattr(e, "code_name", None))
         except ResolutionError as e:

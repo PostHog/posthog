@@ -14,6 +14,51 @@ class TestNamedQuery(ClickhouseTestMixin, APIBaseTest):
         super().setUp()
         self.sample_query = {"kind": "HogQLQuery", "query": "SELECT count(1) FROM query_log"}
 
+    def test_list_named_queries(self):
+        """Test listing all named queries for a team."""
+        # Create multiple named queries
+        NamedQuery.objects.create(
+            name="query_one",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            description="First query",
+            created_by=self.user,
+            is_active=True,
+        )
+        NamedQuery.objects.create(
+            name="query_two",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 2"},
+            description="Second query",
+            created_by=self.user,
+            is_active=False,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/named_query/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        # Should return a list with results
+        self.assertIn("results", response_data)
+        self.assertEqual(len(response_data["results"]), 2)
+
+        # Verify query data
+        query_names = [q["name"] for q in response_data["results"]]
+        self.assertIn("query_one", query_names)
+        self.assertIn("query_two", query_names)
+
+        # Verify structure of returned queries
+        for query in response_data["results"]:
+            self.assertIn("id", query)
+            self.assertIn("name", query)
+            self.assertIn("query", query)
+            self.assertIn("description", query)
+            self.assertIn("is_active", query)
+            self.assertIn("endpoint_path", query)
+            self.assertIn("created_at", query)
+            self.assertIn("updated_at", query)
+
     def test_create_named_query(self):
         """Test creating a named query successfully."""
         data = {
@@ -23,7 +68,7 @@ class TestNamedQuery(ClickhouseTestMixin, APIBaseTest):
             "is_active": True,
         }
 
-        response = self.client.post(f"/api/environments/{self.team.id}/named_query", data, format="json")
+        response = self.client.post(f"/api/environments/{self.team.id}/named_query/", data, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         response_data = response.json()
@@ -61,7 +106,7 @@ class TestNamedQuery(ClickhouseTestMixin, APIBaseTest):
         }
 
         response = self.client.put(
-            f"/api/environments/{self.team.id}/named_query/d/update_test", updated_data, format="json"
+            f"/api/environments/{self.team.id}/named_query/{named_query.name}/", updated_data, format="json"
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -88,7 +133,7 @@ class TestNamedQuery(ClickhouseTestMixin, APIBaseTest):
             created_by=self.user,
         )
 
-        response = self.client.delete(f"/api/environments/{self.team.id}/named_query/d/delete_test")
+        response = self.client.delete(f"/api/environments/{self.team.id}/named_query/delete_test/")
 
         self.assertIn(response.status_code, [status.HTTP_204_NO_CONTENT, status.HTTP_200_OK])
 
@@ -103,7 +148,7 @@ class TestNamedQuery(ClickhouseTestMixin, APIBaseTest):
             is_active=True,
         )
 
-        response = self.client.get(f"/api/environments/{self.team.id}/named_query/d/execute_test/run")
+        response = self.client.get(f"/api/environments/{self.team.id}/named_query/execute_test/run/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -123,7 +168,7 @@ class TestNamedQuery(ClickhouseTestMixin, APIBaseTest):
             is_active=False,
         )
 
-        response = self.client.get(f"/api/environments/{self.team.id}/named_query/d/inactive_test/run")
+        response = self.client.get(f"/api/environments/{self.team.id}/named_query/inactive_test/run/")
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
@@ -190,7 +235,7 @@ class TestNamedQuery(ClickhouseTestMixin, APIBaseTest):
         )
 
         # Try to access it from current team - should return 404
-        response = self.client.get(f"/api/environments/{self.team.id}/named_query/d/other_team_query/run")
+        response = self.client.get(f"/api/environments/{self.team.id}/named_query/other_team_query/run/")
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
@@ -205,7 +250,7 @@ class TestNamedQuery(ClickhouseTestMixin, APIBaseTest):
             is_active=True,
         )
 
-        response = self.client.get(f"/api/environments/{self.team.id}/named_query/d/invalid_sql_test/run")
+        response = self.client.get(f"/api/environments/{self.team.id}/named_query/invalid_sql_test/run/")
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("detail", response.json())
