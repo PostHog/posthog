@@ -57,10 +57,45 @@ export class TwoPhaseCommitCoordinator {
             let preparedRight = false
 
             try {
-                lClient = await left.router.connect(left.use)
-                rClient = await right.router.connect(right.use)
+                const clientResults = await Promise.allSettled([
+                    left.router.connect(left.use),
+                    right.router.connect(right.use),
+                ])
 
-                await Promise.all([lClient?.query('BEGIN'), rClient?.query('BEGIN')])
+                if (clientResults[0].status === 'rejected') {
+                    logger.error('Failed to acquire left client for 2PC', {
+                        tag,
+                        side: left.name ?? 'left',
+                        error: clientResults[0].reason,
+                    })
+                    twoPhaseCommitFailuresCounter.labels(tag, 'acquire_left_failed').inc()
+
+                    if (clientResults[1].status === 'fulfilled') {
+                        try {
+                            clientResults[1].value.release()
+                        } catch {}
+                    }
+                    throw new Error(`Failed to acquire left client: ${clientResults[0].reason}`)
+                }
+
+                if (clientResults[1].status === 'rejected') {
+                    logger.error('Failed to acquire right client for 2PC', {
+                        tag,
+                        side: right.name ?? 'right',
+                        error: clientResults[1].reason,
+                    })
+                    twoPhaseCommitFailuresCounter.labels(tag, 'acquire_right_failed').inc()
+
+                    try {
+                        clientResults[0].value.release()
+                    } catch {}
+                    throw new Error(`Failed to acquire right client: ${clientResults[1].reason}`)
+                }
+
+                lClient = clientResults[0].value
+                rClient = clientResults[1].value
+
+                await Promise.all([lClient.query('BEGIN'), rClient.query('BEGIN')])
 
                 const result = await fn(
                     new TransactionClient(left.use, lClient),
@@ -68,8 +103,8 @@ export class TwoPhaseCommitCoordinator {
                 )
 
                 const prepareResults = await Promise.allSettled([
-                    lClient?.query(`PREPARE TRANSACTION ${gidLeftLiteral}`),
-                    rClient?.query(`PREPARE TRANSACTION ${gidRightLiteral}`),
+                    lClient.query(`PREPARE TRANSACTION ${gidLeftLiteral}`),
+                    rClient.query(`PREPARE TRANSACTION ${gidRightLiteral}`),
                 ])
 
                 if (prepareResults[0].status === 'rejected') {
@@ -117,11 +152,9 @@ export class TwoPhaseCommitCoordinator {
                 // After PREPARE TRANSACTION, the transaction is no longer associated with these connections.
                 // The prepared transactions now exist as independent entities in PostgreSQL's shared state
                 // and can be committed or rolled back from ANY connection, not just the original ones.
-                // This is a key feature of 2PC that enables recovery - if this process crashes after PREPARE,
-                // another process can still complete the commit using just the transaction IDs.
                 // Releasing the connections here also improves connection pool efficiency.
-                lClient?.release()
-                rClient?.release()
+                lClient.release()
+                rClient.release()
                 lClient = undefined
                 rClient = undefined
 
