@@ -119,7 +119,6 @@ export function DataDrivenFunnelExample(): JSX.Element {
     return (
         <div>
             <h2>DataDrivenFunnel Examples</h2>
-
             <div style={{ marginBottom: '2rem' }}>
                 <h3>Vertical Steps Funnel</h3>
                 <DataDrivenFunnel
@@ -131,29 +130,6 @@ export function DataDrivenFunnelExample(): JSX.Element {
                     inCardView={true}
                 />
             </div>
-
-            {/* <div style={{ marginBottom: '2rem' }}>
-                <h3>Horizontal Steps Funnel</h3>
-                <DataDrivenFunnel
-                    steps={exampleFunnelSteps}
-                    vizType={FunnelVizType.Steps}
-                    layout={FunnelLayout.horizontal}
-                    stepReference={FunnelStepReference.previous}
-                    showPersonsModal={false}
-                    inCardView={true}
-                />
-            </div>
-
-            <div style={{ marginBottom: '2rem' }}>
-                <h3>Time to Convert Histogram</h3>
-                <DataDrivenFunnel
-                    steps={exampleFunnelSteps}
-                    vizType={FunnelVizType.TimeToConvert}
-                    timeConversionData={exampleTimeConversionData}
-                    showPersonsModal={false}
-                    inCardView={true}
-                />
-            </div> */}
         </div>
     )
 }

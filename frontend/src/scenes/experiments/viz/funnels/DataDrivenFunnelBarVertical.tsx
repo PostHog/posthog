@@ -43,7 +43,13 @@ export function DataDrivenFunnelBarVertical({
     const [scrollbarHeightPx, setScrollbarHeightPx] = useState(0)
     const [stepLegendRowHeightPx, setStepLegendRowHeightPx] = useState(0)
 
-    const seriesCount = visibleStepsWithConversionMetrics[0]?.nested_breakdown?.length ?? 0
+    // Calculate the maximum number of series in any step (for width calculations)
+    const seriesCount = Math.max(
+        ...visibleStepsWithConversionMetrics.map(step =>
+            step.nested_breakdown?.length || 1
+        ),
+        1 // Ensure at least 1 even if no steps
+    )
     const barWidthPx =
         seriesCount >= 60
             ? 4
