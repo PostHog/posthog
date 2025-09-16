@@ -4,9 +4,9 @@ import { randomString } from '../../utils'
 import { expect, test } from '../../utils/playwright-test-base'
 
 async function deleteSurvey(page: Page, name: string): Promise<void> {
-    await page.locator('[data-attr=more-button]').click()
+    await page.locator('[data-attr=info-actions-panel]').click()
     await expect(page.locator('.Popover__content')).toBeVisible()
-    await page.locator('[data-attr=delete-survey]').click()
+    await page.locator('[data-attr=survey-delete]').click()
 
     await expect(page.locator('.LemonModal__layout')).toBeVisible()
     await expect(page.getByText('Delete this survey?')).toBeVisible()
@@ -123,9 +123,6 @@ test.describe('CRUD Survey', () => {
         await expect(page.locator('[data-attr=surveys-table]')).toContainText(name)
 
         await page.locator(`[data-row-key="${name}"]`).getByText(name).click()
-
-        await page.locator('[data-attr="more-button"]').click()
-        await expect(page.locator('.Popover__content')).toBeVisible()
 
         await page.locator('.LemonTabs').getByText('Overview').click()
         await expect(page.getByText('Display conditions summary')).toBeVisible()
