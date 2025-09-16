@@ -43,7 +43,7 @@ const ExperimentFormFields = (): JSX.Element => {
         useValues(experimentLogic)
     const { addVariant, removeVariant, setExperiment, submitExperiment, setExperimentType, validateFeatureFlag } =
         useActions(experimentLogic)
-    const { webExperimentsAvailable } = useValues(experimentsLogic)
+    const { webExperimentsAvailable, unavailableFeatureFlagKeys } = useValues(experimentsLogic)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
     const { reportExperimentFeatureFlagModalOpened, reportExperimentFeatureFlagSelected } = useActions(eventUsageLogic)
@@ -425,6 +425,23 @@ export function ExperimentForm(): JSX.Element {
             </Form>
         </div>
     )
+}
+
+const generateFeatureFlagKey = (name: string, unavailableFeatureFlagKeys: Set<string>): string => {
+    const baseKey = name
+        .toLowerCase()
+        .replace(/[^A-Za-z0-9-_]+/g, '-')
+        .replace(/-+$/, '')
+        .replace(/^-+/, '')
+
+    let key = baseKey
+    let counter = 1
+
+    while (unavailableFeatureFlagKeys.has(key)) {
+        key = `${baseKey}-${counter}`
+        counter++
+    }
+    return key
 }
 
 const SelectExistingFeatureFlagModal = ({
