@@ -442,7 +442,9 @@ class PasswordResetTokenGenerator(DefaultPasswordResetTokenGenerator):
 password_reset_token_generator = PasswordResetTokenGenerator()
 
 
-def social_login_notification(strategy: DjangoStrategy, backend, user: Optional[User] = None, **kwargs):
+def social_login_notification(
+    strategy: DjangoStrategy, backend, user: Optional[User] = None, is_new: bool = False, **kwargs
+):
     """Final pipeline step to notify on OAuth/SAML login"""
     if not user:
         return
@@ -451,7 +453,7 @@ def social_login_notification(strategy: DjangoStrategy, backend, user: Optional[
         return
 
     # Trigger notification and event only on login
-    if not kwargs.get("is_new"):
+    if not is_new:
         report_user_logged_in(user, social_provider=getattr(backend, "name", ""))
 
         request = strategy.request
