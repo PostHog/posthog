@@ -75,6 +75,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             "layouts": {},
             "order": 0,
             "color": color,
+            "filters_overrides": {},
             "text": self._expected_text(
                 body,
                 created_by=created_by,

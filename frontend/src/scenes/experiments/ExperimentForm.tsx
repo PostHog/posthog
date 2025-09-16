@@ -6,7 +6,6 @@ import { IconPlusSmall, IconToggle, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonCheckbox,
-    LemonDivider,
     LemonInput,
     LemonModal,
     LemonTable,
@@ -17,7 +16,6 @@ import {
 
 import { ExperimentVariantNumber } from 'lib/components/SeriesGlyph'
 import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -47,14 +45,13 @@ const ExperimentFormFields = (): JSX.Element => {
         useActions(experimentLogic)
     const { webExperimentsAvailable, unavailableFeatureFlagKeys } = useValues(experimentsLogic)
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const { reportExperimentFeatureFlagModalOpened, reportExperimentFeatureFlagSelected } = useActions(eventUsageLogic)
 
     const [showFeatureFlagSelector, setShowFeatureFlagSelector] = useState(false)
 
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             <SceneTitleSection
                 name={experiment.name}
                 description={null}
@@ -84,24 +81,13 @@ const ExperimentFormFields = (): JSX.Element => {
                     .
                 </LemonBanner>
             )}
-            {!newSceneLayout && (
-                <LemonField name="name" label="Name" className="max-w-120">
-                    <LemonInput placeholder="Pricing page conversion" data-attr="experiment-name" />
-                </LemonField>
-            )}
 
-            <SceneSection
-                title="Feature flag key"
-                description="Each experiment is backed by a feature flag."
-                hideTitleAndDescription={!newSceneLayout}
-            >
+            <SceneSection title="Feature flag key" description="Each experiment is backed by a feature flag.">
                 <LemonField
                     name="feature_flag_key"
-                    label={!newSceneLayout ? 'Feature flag key' : null}
                     className="max-w-120"
                     help={
                         <div className="flex items-center justify-between">
-                            {!newSceneLayout && <span>Each experiment is backed by a feature flag.</span>}
                             <LemonButton
                                 type="secondary"
                                 size="xsmall"
@@ -135,12 +121,8 @@ const ExperimentFormFields = (): JSX.Element => {
             </SceneSection>
 
             <SceneDivider />
-            <SceneSection
-                title="Hypothesis / Description"
-                description="Add your hypothesis for this test"
-                hideTitleAndDescription={!newSceneLayout}
-            >
-                <LemonField name="description" label={!newSceneLayout ? 'Description' : null} className="max-w-120">
+            <SceneSection title="Hypothesis / Description" description="Add your hypothesis for this test">
+                <LemonField name="description" className="max-w-120">
                     <LemonTextArea
                         placeholder="The goal of this experiment is ..."
                         data-attr="experiment-description"
@@ -172,18 +154,8 @@ const ExperimentFormFields = (): JSX.Element => {
                     <SceneSection
                         title="Experiment type"
                         description="Select your experiment setup, this cannot be changed once saved."
-                        hideTitleAndDescription={!newSceneLayout}
-                        className={cn(!newSceneLayout && 'gap-y-0 mt-6')}
+                        className={cn('gap-y-0 mt-6')}
                     >
-                        {!newSceneLayout && (
-                            <>
-                                <h3 className="mb-1">Experiment type</h3>
-                                <div className="text-xs text-secondary font-medium tracking-normal">
-                                    Select your experiment setup, this cannot be changed once saved.
-                                </div>
-                            </>
-                        )}
-                        {!newSceneLayout && <LemonDivider />}
                         <LemonRadio
                             value={experiment.type}
                             className="flex flex-col gap-2"
@@ -221,20 +193,8 @@ const ExperimentFormFields = (): JSX.Element => {
                     <SceneSection
                         title="Participant type"
                         description="Determines on what level you want to aggregate metrics. You can change this later, but flag values for users will change so you need to reset the experiment for accurate results."
-                        hideTitleAndDescription={!newSceneLayout}
-                        className={cn(!newSceneLayout && 'gap-y-0 mt-6')}
+                        className={cn('gap-y-0 mt-6')}
                     >
-                        {!newSceneLayout && (
-                            <>
-                                <h3>Participant type</h3>
-                                <div className="text-xs text-secondary  max-w-150">
-                                    Determines on what level you want to aggregate metrics. You can change this later,
-                                    but flag values for users will change so you need to reset the experiment for
-                                    accurate results.
-                                </div>
-                            </>
-                        )}
-                        {!newSceneLayout && <LemonDivider />}
                         <LemonRadio
                             value={
                                 experiment.parameters.aggregation_group_type_index != undefined
@@ -268,15 +228,7 @@ const ExperimentFormFields = (): JSX.Element => {
                     <SceneSection
                         title="Variants"
                         description="Existing feature flag configuration will be applied to the experiment."
-                        hideTitleAndDescription={!newSceneLayout}
-                        className={cn(!newSceneLayout && 'gap-y-0 mt-6')}
                     >
-                        {!newSceneLayout && (
-                            <>
-                                <h3 className="mb-1">Variants</h3>
-                                <LemonDivider />
-                            </>
-                        )}
                         <LemonBanner type="info">
                             <div className="flex items-center">
                                 <div>Existing feature flag configuration will be applied to the experiment.</div>
@@ -300,21 +252,10 @@ const ExperimentFormFields = (): JSX.Element => {
                         description={
                             <>Add up to {MAX_EXPERIMENT_VARIANTS - 1} variants to test against your control.</>
                         }
-                        hideTitleAndDescription={!newSceneLayout}
-                        className={cn(!newSceneLayout && 'gap-y-0 mt-6')}
                     >
-                        {!newSceneLayout && (
-                            <>
-                                <h3 className="mb-1">Variants</h3>
-                                <div className="text-xs text-secondary">
-                                    Add up to {MAX_EXPERIMENT_VARIANTS - 1} variants to test against your control.
-                                </div>
-                            </>
-                        )}
-                        {!newSceneLayout && <LemonDivider />}
                         <div className="grid grid-cols-2 gap-4 max-w-160">
                             <div className="max-w-60">
-                                <h3 className={cn(newSceneLayout && 'text-sm')}>Control</h3>
+                                <h3 className={cn('text-sm')}>Control</h3>
                                 <div className="flex items-center">
                                     <Group key={0} name={['parameters', 'feature_flag_variants', 0]}>
                                         <ExperimentVariantNumber index={0} className="h-7 w-7 text-base" />
@@ -338,7 +279,7 @@ const ExperimentFormFields = (): JSX.Element => {
                                 </div>
                             </div>
                             <div className="max-w-100">
-                                <h3 className={cn(newSceneLayout && 'text-sm')}>Test(s)</h3>
+                                <h3 className={cn('text-sm')}>Test(s)</h3>
                                 {experiment.parameters.feature_flag_variants?.map((_, index) => {
                                     if (index === 0) {
                                         return null
@@ -399,7 +340,7 @@ const ExperimentFormFields = (): JSX.Element => {
                         </div>
                     </SceneSection>
                     <SceneDivider />
-                    <div className={cn('mt-6 pb-2 max-w-150', newSceneLayout && 'mt-0 pb-0')}>
+                    <div className={cn('mt-6 pb-2 max-w-150 mt-0 pb-0')}>
                         <LemonField name="parameters.ensure_experience_continuity">
                             {({ value, onChange }) => (
                                 <label className="border rounded p-4 group" htmlFor="continuity-checkbox">
@@ -429,7 +370,7 @@ const ExperimentFormFields = (): JSX.Element => {
                 </>
             )}
             <LemonButton
-                className={cn('w-fit', !newSceneLayout && 'mt-2')}
+                className={cn('w-fit')}
                 type="primary"
                 data-attr="save-experiment"
                 onClick={() => submitExperiment()}

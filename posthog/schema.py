@@ -1696,6 +1696,7 @@ class MarketingAnalyticsBaseColumns(StrEnum):
     IMPRESSIONS = "Impressions"
     CPC = "CPC"
     CTR = "CTR"
+    REPORTED_CONVERSION = "Reported Conversion"
 
 
 class MarketingAnalyticsColumnsSchemaNames(StrEnum):
@@ -1706,6 +1707,7 @@ class MarketingAnalyticsColumnsSchemaNames(StrEnum):
     DATE = "date"
     IMPRESSIONS = "impressions"
     SOURCE = "source"
+    REPORTED_CONVERSION = "reported_conversion"
 
 
 class MarketingAnalyticsHelperForColumnNames(StrEnum):
@@ -2483,6 +2485,7 @@ class SourceMap(BaseModel):
     currency: Optional[str] = None
     date: Optional[str] = None
     impressions: Optional[str] = None
+    reported_conversion: Optional[str] = None
     source: Optional[str] = None
 
 
@@ -10708,6 +10711,39 @@ class TeamTaxonomyQueryResponse(BaseModel):
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
+
+
+class TileFilters(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown_filter: Optional[BreakdownFilter] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = None
 
 
 class TraceQuery(BaseModel):

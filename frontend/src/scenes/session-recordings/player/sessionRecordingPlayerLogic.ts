@@ -962,10 +962,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     return null
                 }
                 const snapshot = snapshots[currIndex]
-                return {
+
+                const resolution = {
                     width: snapshot.data?.['width'],
                     height: snapshot.data?.['height'],
                 }
+
+                // For video export: expose resolution via global variable
+                if (typeof window !== 'undefined') {
+                    ;(window as any).__POSTHOG_RESOLUTION__ = resolution
+                }
+
+                return resolution
             },
             {
                 resultEqualityCheck: (prev, next) => {

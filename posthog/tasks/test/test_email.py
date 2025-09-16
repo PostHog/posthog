@@ -718,6 +718,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             login_time=timezone.now(),
             short_user_agent="Chrome 135.0.0 on Mac OS 15.3",
             ip_address="24.114.32.12",  # random ip in Canada
+            backend_name="google-oauth2",
         )
 
         assert len(mocked_email_messages) == 1
@@ -728,3 +729,4 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         html_body = mocked_email_messages[0].html_body
         assert html_body
         assert "Canada" in html_body
+        assert "Google OAuth" in html_body

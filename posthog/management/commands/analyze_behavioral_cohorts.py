@@ -1,4 +1,3 @@
-import json
 import time
 import logging
 from typing import Any
@@ -7,7 +6,9 @@ from django.core.management.base import BaseCommand
 
 import structlog
 
+from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -139,7 +140,14 @@ class Command(BaseCommand):
         """
 
         try:
-            results = sync_execute(query, params)
+            with tags_context(
+                team_id=team_id,
+                feature=Feature.BEHAVIORAL_COHORTS,
+                cohort_id=cohort_id,
+                product=Product.PRODUCT_ANALYTICS,
+                query_type="get_unique_conditions",
+            ):
+                results = sync_execute(query, params, ch_user=ClickHouseUser.COHORTS)
             return [
                 {
                     "team_id": row[0],
@@ -177,15 +185,8 @@ class Command(BaseCommand):
             # Only log every 100th condition to avoid spam
             if idx % 500 == 0 or idx == total_conditions:
                 logger.info(f"Progress: {idx}/{total_conditions}")
-            log_comment = json.dumps(
-                {
-                    "source": "analyze_behavioral_cohorts",
-                    "operation": "get_cohort_memberships",
-                    "cohort_id": cohort_id,
-                }
-            )
 
-            query = f"""
+            query = """
                 SELECT
                     person_id
                 FROM behavioral_cohorts_matches
@@ -196,20 +197,27 @@ class Command(BaseCommand):
                     AND date >= now() - toIntervalDay(%(days)s)
                     AND matches >= %(min_matches)s
                 LIMIT 100000
-                SETTINGS log_comment = '{log_comment}'
             """
 
             try:
-                results = sync_execute(
-                    query,
-                    {
-                        "team_id": team_id,
-                        "cohort_id": cohort_id,
-                        "condition": condition_hash,
-                        "days": days,
-                        "min_matches": min_matches,
-                    },
-                )
+                with tags_context(
+                    team_id=team_id,
+                    feature=Feature.BEHAVIORAL_COHORTS,
+                    cohort_id=cohort_id,
+                    product=Product.PRODUCT_ANALYTICS,
+                    query_type="get_cohort_memberships",
+                ):
+                    results = sync_execute(
+                        query,
+                        {
+                            "team_id": team_id,
+                            "cohort_id": cohort_id,
+                            "condition": condition_hash,
+                            "days": days,
+                            "min_matches": min_matches,
+                        },
+                        ch_user=ClickHouseUser.COHORTS,
+                    )
 
                 for row in results:
                     person_id = row[0]
