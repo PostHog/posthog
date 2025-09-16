@@ -123,7 +123,7 @@ export function PlayerMetaTopSettings({ playerIsHovering }: { playerIsHovering?:
     const { setPause, openHeatmap } = useActions(sessionRecordingPlayerLogic)
 
     // we don't want the hover UI in sharing mode where users might not be used to the player and be confused by no chrome
-    const hoverUIEnabled = useFeatureFlag('REPLAY_HOVER_UI') && mode === SessionRecordingPlayerMode.Standard
+    const hoverUIEnabled = useFeatureFlag('REPLAY_HOVER_UI', 'test') && mode === SessionRecordingPlayerMode.Standard
 
     return (
         <div
