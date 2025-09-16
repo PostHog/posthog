@@ -541,7 +541,7 @@ class _Printer(Visitor[str]):
             else:
                 sql = table_type.table.to_printed_hogql()
 
-            if isinstance(table_type.table, FunctionCallTable) and not isinstance(table_type.table, S3Table):
+            if isinstance(table_type.table, FunctionCallTable) and table_type.table.requires_args:
                 if node.table_args is None:
                     raise QueryError(f"Table function '{table_type.table.name}' requires arguments")
 

@@ -96,6 +96,7 @@ class BaseAssistant(ABC):
         trace_id: Optional[str | UUID] = None,
         billing_context: Optional[MaxBillingContext] = None,
         initial_state: Optional[AssistantMaxGraphState | AssistantMaxPartialGraphState] = None,
+        callback_handler: Optional[BaseCallbackHandler] = None,
     ):
         self._team = team
         self._contextual_tools = contextual_tools or {}
@@ -109,7 +110,7 @@ class BaseAssistant(ABC):
         self._graph = graph
         self._state_type = state_type
         self._partial_state_type = partial_state_type
-        self._callback_handler = (
+        self._callback_handler = callback_handler or (
             CallbackHandler(
                 posthoganalytics.default_client,
                 distinct_id=user.distinct_id if user else None,
