@@ -198,6 +198,34 @@ const fetchPythonGitHubReleaseDates = async (): Promise<Record<string, string>> 
     }
 }
 
+// Fetch React Native SDK release dates from GitHub Releases API for time-based detection
+const fetchReactNativeGitHubReleaseDates = async (): Promise<Record<string, string>> => {
+    try {
+        const response = await fetch('https://api.github.com/repos/PostHog/posthog-js/releases?per_page=100')
+        if (!response.ok) {
+            throw new Error(`GitHub API error: ${response.status}`)
+        }
+
+        const releases = await response.json()
+        const releaseDates: Record<string, string> = {}
+
+        // React Native releases use version tags like "posthog-react-native@4.5.1"
+        const reactNativeReleases = releases.filter((release: any) =>
+            release.tag_name?.startsWith('posthog-react-native@')
+        )
+
+        reactNativeReleases.forEach((release: any) => {
+            const version = release.tag_name.replace('posthog-react-native@', '')
+            releaseDates[version] = release.published_at
+        })
+
+        return releaseDates
+    } catch (error) {
+        console.warn('[SDK Doctor] Failed to fetch React Native SDK GitHub release dates:', error)
+        return {}
+    }
+}
+
 // Fetch Node.js SDK release dates from GitHub Releases API for time-based detection
 const fetchNodeGitHubReleaseDates = async (): Promise<Record<string, string>> => {
     try {
@@ -378,7 +406,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     return changelogPromise
                                 }
 
-                                // Special handling for React Native SDK: use CHANGELOG.md instead of GitHub releases
+                                // Special handling for React Native SDK: use CHANGELOG.md + GitHub releases for time-based detection
                                 if (sdkType === 'react-native') {
                                     const changelogPromise = fetch(
                                         'https://raw.githubusercontent.com/PostHog/posthog-js/main/packages/react-native/CHANGELOG.md'
@@ -389,7 +417,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                             }
                                             return r.text()
                                         })
-                                        .then((changelogText) => {
+                                        .then(async (changelogText) => {
                                             // Extract version numbers using the same regex as test files
                                             const versionMatches = changelogText.match(/^## (\d+\.\d+\.\d+)$/gm)
 
@@ -399,6 +427,9 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                     .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
 
                                                 if (versions.length > 0) {
+                                                    // Fetch GitHub release dates for accurate time-based detection
+                                                    const releaseDates = await fetchReactNativeGitHubReleaseDates()
+
                                                     if (IS_DEBUG_MODE) {
                                                         console.info(
                                                             `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
@@ -407,12 +438,15 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                         console.info(
                                                             `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
                                                         )
+                                                        console.info(
+                                                            `[SDK Doctor] ${sdkType} release dates: ${Object.keys(releaseDates).length} found`
+                                                        )
                                                     }
                                                     return {
                                                         sdkType,
                                                         versions: versions,
                                                         latestVersion: versions[0],
-                                                        releaseDates: {},
+                                                        releaseDates: releaseDates,
                                                     }
                                                 }
                                             }
@@ -1898,11 +1932,10 @@ function checkVersionAgainstLatest(
             )
         } else if (type === 'node' && releasesBehind >= 0 && releasesBehind <= 5) {
             // Fallback for Node.js SDK: assume versions 0-5 releases behind are "recent" when no date data
-            // Node.js SDK follows similar release pattern to web SDK (same monorepo)
             isRecentRelease = true
-            console.info(
-                `[SDK Doctor] Fallback: Node.js SDK v${version} is ${releasesBehind} releases behind - assuming recent`
-            )
+        } else if (type === 'react-native' && releasesBehind >= 0 && releasesBehind <= 5) {
+            // Fallback for React Native SDK: assume versions 0-5 releases behind are "recent" when no date data
+            isRecentRelease = true
         } else {
             console.info(
                 `[SDK Doctor] No fallback: type=${type}, releasesBehind=${releasesBehind}, daysSinceRelease=${daysSinceRelease}`
