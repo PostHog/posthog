@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 
 from django.conf import settings
 
@@ -12,6 +12,8 @@ from posthog.warehouse.s3 import ensure_bucket_exists
 
 
 class DeltaSnapshot:
+    VALID_UNTIL_COLUMN: str = "valid_until"
+
     def __init__(self, saved_query: DataWarehouseSavedQuery):
         self.saved_query = saved_query
 
@@ -78,31 +80,34 @@ class DeltaSnapshot:
             )
 
         # Close out the latest rows from the snapshot
+        now_micros = int(datetime.now(UTC).timestamp() * 1_000_000)
+
         delta_table.merge(
             source=data,
             source_alias="source",
             target_alias="target",
-            predicate="source.id = target.id",
+            predicate="source.merge_key = target.merge_key",
             streamed_exec=True,
         ).when_matched_update(
             updates={
                 # indicates update
-                "valid_until": "source.snapshot_ts",
+                self.VALID_UNTIL_COLUMN: "source.snapshot_ts",
             },
-            predicate="source.row_hash != target.row_hash and target.valid_until IS NULL",
+            predicate="source.row_hash != target.row_hash AND target.{self.VALID_UNTIL_COLUMN} IS NULL",
         ).when_not_matched_by_source_update(
             updates={
                 # indicates deletion
-                "valid_until": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+                self.VALID_UNTIL_COLUMN: f"to_timestamp_micros({now_micros})",
             },
-            predicate="target.valid_until IS NULL",
-        ).execute()
+            predicate=f"target.{self.VALID_UNTIL_COLUMN} IS NULL",
+            # insert brand new rows
+        ).when_not_matched_insert_all().execute()
 
-        # Insert the new rows into the snapshot
-        deltalake.write_deltalake(
-            table_or_uri=delta_table,
-            data=data,
-            mode="append",
-            schema_mode="merge",
-            engine="rust",
-        )
+        # Insert the updated rows
+        delta_table.merge(
+            source=data,
+            source_alias="source",
+            target_alias="target",
+            predicate=f"source.merge_key = target.merge_key AND target.{self.VALID_UNTIL_COLUMN} IS NULL",
+            streamed_exec=True,
+        ).when_not_matched_insert_all().execute()

@@ -496,7 +496,8 @@ async def materialize_model(
                 hogql_table(
                     f"""
                 SELECT
-                    id,
+                    *,
+                    id AS merge_key,
                     toString(cityHash64(concatWithSeparator('_', toString(number)))) AS row_hash,
                     now() AS snapshot_ts
                 FROM ({hogql_query})
@@ -510,7 +511,8 @@ async def materialize_model(
                 batch = _transform_date_and_datetimes(batch, ch_types)
 
                 batch_with_nulls = batch.append_column(
-                    "valid_until", pa.array([] * batch.num_rows, type=pa.timestamp("us", tz="UTC"))
+                    DeltaSnapshot.VALID_UNTIL_COLUMN,
+                    pa.array([None] * batch.num_rows, type=pa.timestamp("us", tz="UTC")),
                 )
                 delta_snapshot = DeltaSnapshot(saved_query)
                 delta_snapshot.snapshot(batch_with_nulls)

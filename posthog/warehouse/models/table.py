@@ -119,6 +119,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     row_count = models.IntegerField(null=True, help_text="How many rows are currently synced in this table")
     size_in_s3_mib = models.FloatField(null=True, help_text="The object size in S3 for this table in MiB")
 
+    is_snapshot = models.BooleanField(default=False, help_text="Whether this table is a snapshot table")
+
     __repr__ = sane_repr("name")
 
     @property
