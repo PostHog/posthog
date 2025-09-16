@@ -86,20 +86,7 @@ const ExperimentFormFields = (): JSX.Element => {
             )}
             {!newSceneLayout && (
                 <LemonField name="name" label="Name" className="max-w-120">
-                    <LemonInput
-                        placeholder="Pricing page conversion"
-                        data-attr="experiment-name"
-                        onBlur={() => {
-                            // bail if feature flag key is already set
-                            if (experiment.feature_flag_key) {
-                                return
-                            }
-
-                            setExperiment({
-                                feature_flag_key: generateFeatureFlagKey(experiment.name, unavailableFeatureFlagKeys),
-                            })
-                        }}
-                    />
+                    <LemonInput placeholder="Pricing page conversion" data-attr="experiment-name" />
                 </LemonField>
             )}
 
@@ -129,7 +116,21 @@ const ExperimentFormFields = (): JSX.Element => {
                         </div>
                     }
                 >
-                    <LemonInput placeholder="pricing-page-conversion" data-attr="experiment-feature-flag-key" />
+                    <LemonInput
+                        placeholder="pricing-page-conversion"
+                        data-attr="experiment-feature-flag-key"
+                        onFocus={() => {
+                            // Auto-generate feature flag key from experiment name when focusing on empty field
+                            if (!experiment.feature_flag_key && experiment.name) {
+                                setExperiment({
+                                    feature_flag_key: generateFeatureFlagKey(
+                                        experiment.name,
+                                        unavailableFeatureFlagKeys
+                                    ),
+                                })
+                            }
+                        }}
+                    />
                 </LemonField>
             </SceneSection>
 
