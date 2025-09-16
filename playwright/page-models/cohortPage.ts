@@ -19,7 +19,7 @@ export class CohortPage {
         await this.page.fill('.scene-title-textarea', name)
         await this.page.click('[data-attr="save-cohort"]')
 
-        await expect(this.page.locator('[data-attr=success-toast]')).toHaveText(/Cohort saved/)
+        await expect(this.page.locator('[data-attr="success-toast"]')).toHaveText(/Cohort saved/)
         await this.page.locator('[data-attr="toast-close-button"]').click()
     }
 }

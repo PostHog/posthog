@@ -51,7 +51,7 @@ test.describe('CRUD Survey', () => {
         await page.locator('[data-attr="new-survey"]').click()
         await page.locator('[data-attr="new-blank-survey"]').click()
 
-        await page.locator('[data-attr="survey-name"]').fill(name)
+        await page.locator('.scene-title-textarea').fill(name)
         await page.locator('[data-attr="survey-question-type-0"]').click()
         await page.getByText('Rating').click()
 
@@ -141,12 +141,12 @@ test.describe('CRUD Survey', () => {
         await page.locator('[data-attr=new-survey]').click()
         await page.locator('[data-attr=new-blank-survey]').click()
 
-        await page.locator('[data-attr=survey-name]').fill(name)
+        await page.locator('.scene-title-textarea').fill(name)
 
         await page.locator('.LemonCollapsePanel', { hasText: 'Completion conditions' }).click()
         await page.locator('[data-attr=survey-collection-until-limit]').first().click()
         await page.locator('[data-attr=survey-responses-limit-input]').fill('228')
-        await page.locator('[data-attr=survey-name]').click()
+        await page.locator('.scene-title-textarea').click()
 
         await page.locator('[data-attr=save-survey]').first().click()
 
