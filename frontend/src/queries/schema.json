@@ -344,7 +344,7 @@
             "type": "object"
         },
         "AggregationAxisFormat": {
-            "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled"],
+            "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled", "currency"],
             "type": "string"
         },
         "AlertCalculationInterval": {
