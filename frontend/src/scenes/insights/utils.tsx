@@ -578,7 +578,13 @@ export function getTrendResultCustomizationColorToken(
     // for result customizations without a configuration, the color is determined
     // by the position in the dataset. colors repeat after all options
     // have been exhausted.
-    const datasetPosition = getTrendDatasetPosition(dataset)
+    // For comparison data (current vs previous periods), use colorIndex to ensure
+    // they get the same base color when customizing by value
+    const isValueBasedCustomization = !resultCustomizationBy || resultCustomizationBy === ResultCustomizationBy.Value
+    const datasetPosition =
+        isValueBasedCustomization && dataset.colorIndex !== undefined
+            ? dataset.colorIndex
+            : getTrendDatasetPosition(dataset)
     const tokenIndex = (datasetPosition % Object.keys(theme).length) + 1
 
     return resultCustomization && resultCustomization.color
