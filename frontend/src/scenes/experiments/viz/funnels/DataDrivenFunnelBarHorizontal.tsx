@@ -5,12 +5,14 @@ import { humanFriendlyNumber, percentage } from 'lib/utils'
 import { ChartParams } from '~/types'
 
 import { useFunnelData } from './DataDrivenFunnel'
+import { useDataDrivenFunnelTooltip } from './DataDrivenFunnelTooltip'
 
 export function DataDrivenFunnelBarHorizontal({
-    showPersonsModal: _showPersonsModalProp = true
+    showPersonsModal: showPersonsModalProp = true
 }: ChartParams): JSX.Element {
     const { visibleStepsWithConversionMetrics } = useFunnelData()
-    // const showPersonsModal = showPersonsModalProp
+    const showPersonsModal = showPersonsModalProp
+    const { vizRef, showTooltip, hideTooltip } = useDataDrivenFunnelTooltip(showPersonsModal)
 
     if (!visibleStepsWithConversionMetrics.length) {
         return <div>No funnel data available</div>
@@ -19,7 +21,7 @@ export function DataDrivenFunnelBarHorizontal({
     const maxCount = Math.max(...visibleStepsWithConversionMetrics.map(step => step.count))
 
     return (
-        <div className="FunnelBarHorizontal" data-attr="funnel-bar-horizontal">
+        <div className="FunnelBarHorizontal" ref={vizRef} data-attr="funnel-bar-horizontal">
             <div className="FunnelBarHorizontal--container">
                 {visibleStepsWithConversionMetrics.map((step, stepIndex) => (
                     <div key={stepIndex} className="FunnelBarHorizontal--step">
@@ -33,12 +35,17 @@ export function DataDrivenFunnelBarHorizontal({
                         </div>
 
                         <div className="FunnelBarHorizontal--bar-container">
-                            <div 
+                            <div
                                 className="FunnelBarHorizontal--bar"
                                 style={{
                                     width: `${(step.count / maxCount) * 100}%`,
                                     backgroundColor: `hsl(${(stepIndex * 137) % 360}, 70%, 50%)`,
                                 }}
+                                onMouseEnter={(e) => {
+                                    const rect = e.currentTarget.getBoundingClientRect()
+                                    showTooltip([rect.x, rect.y, rect.width], stepIndex, step)
+                                }}
+                                onMouseLeave={() => hideTooltip()}
                             />
                             <div className="FunnelBarHorizontal--bar-labels">
                                 <span className="FunnelBarHorizontal--count">

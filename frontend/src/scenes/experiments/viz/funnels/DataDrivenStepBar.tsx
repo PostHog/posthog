@@ -3,6 +3,7 @@ import { useRef } from 'react'
 import { percentage } from 'lib/utils'
 import { FunnelStepWithConversionMetrics } from '~/types'
 import { getSeriesColor } from './funnelDataUtils'
+import { useDataDrivenTooltip } from './DataDrivenFunnelBarVertical'
 
 export interface StepBarProps {
     step: FunnelStepWithConversionMetrics
@@ -16,8 +17,9 @@ interface StepBarCSSProperties extends React.CSSProperties {
     '--conversion-rate': string
 }
 
-export function DataDrivenStepBar({ series, showPersonsModal }: StepBarProps): JSX.Element {
+export function DataDrivenStepBar({ step: _step, stepIndex, series, showPersonsModal }: StepBarProps): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
+    const { showTooltip, hideTooltip } = useDataDrivenTooltip()
 
     // Get color for this series
     const seriesColor = getSeriesColor(series)
@@ -33,6 +35,13 @@ export function DataDrivenStepBar({ series, showPersonsModal }: StepBarProps): J
                 } as StepBarCSSProperties
             }
             ref={ref}
+            onMouseEnter={() => {
+                if (ref.current) {
+                    const rect = ref.current.getBoundingClientRect()
+                    showTooltip([rect.x, rect.y, rect.width], stepIndex, series)
+                }
+            }}
+            onMouseLeave={() => hideTooltip()}
         >
             <div
                 className="StepBar__backdrop"

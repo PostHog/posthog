@@ -2,7 +2,7 @@ import './FunnelBarVertical/FunnelBarVertical.scss'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useRef, useState, createContext, useContext } from 'react'
 
 import { ChartParams } from '~/types'
 
@@ -10,18 +10,34 @@ import { useFunnelData } from './DataDrivenFunnel'
 import { DataDrivenStepBarLabels } from './DataDrivenStepBarLabels'
 import { DataDrivenStepBars } from './DataDrivenStepBars'
 import { DataDrivenStepLegend } from './DataDrivenStepLegend'
+import { useDataDrivenFunnelTooltip } from './DataDrivenFunnelTooltip'
+
+interface TooltipContext {
+    showTooltip: (rect: [number, number, number], stepIndex: number, series: any) => void
+    hideTooltip: () => void
+}
+
+export const DataDrivenTooltipContext = createContext<TooltipContext | null>(null)
+
+export function useDataDrivenTooltip(): TooltipContext {
+    const context = useContext(DataDrivenTooltipContext)
+    if (!context) {
+        throw new Error('useDataDrivenTooltip must be used within DataDrivenTooltipContext')
+    }
+    return context
+}
 
 interface FunnelBarVerticalCSSProperties extends React.CSSProperties {
     '--bar-width': string
     '--bar-row-height': string
 }
 
-export function DataDrivenFunnelBarVertical({ 
-    showPersonsModal: showPersonsModalProp = true 
+export function DataDrivenFunnelBarVertical({
+    showPersonsModal: showPersonsModalProp = true
 }: ChartParams): JSX.Element {
     const { visibleStepsWithConversionMetrics } = useFunnelData()
     const showPersonsModal = showPersonsModalProp // Simplified - no person modal logic for now
-    const vizRef = useRef<HTMLDivElement>(null)
+    const { vizRef, showTooltip, hideTooltip } = useDataDrivenFunnelTooltip(showPersonsModal)
 
     const { height: availableHeight } = useResizeObserver({ ref: vizRef })
     const [scrollbarHeightPx, setScrollbarHeightPx] = useState(0)
@@ -76,9 +92,10 @@ export function DataDrivenFunnelBarVertical({
     const barRowHeight = `max(${minimumBarHeightPx}px, calc(${availableHeight}px - ${borderHeightPx}px - ${stepLegendRowHeightPx}px - ${scrollbarHeightPx}px))`
 
     return (
-        <div className="FunnelBarVertical" ref={vizRef} data-attr="funnel-bar-vertical">
-            <ScrollableShadows scrollRef={scrollRef} direction="horizontal">
-                <table
+        <DataDrivenTooltipContext.Provider value={{ showTooltip, hideTooltip }}>
+            <div className="FunnelBarVertical" ref={vizRef} data-attr="funnel-bar-vertical">
+                <ScrollableShadows scrollRef={scrollRef} direction="horizontal">
+                    <table
                     /* eslint-disable-next-line react/forbid-dom-props */
                     style={
                         {
@@ -123,8 +140,9 @@ export function DataDrivenFunnelBarVertical({
                             ))}
                         </tr>
                     </tbody>
-                </table>
-            </ScrollableShadows>
-        </div>
+                    </table>
+                </ScrollableShadows>
+            </div>
+        </DataDrivenTooltipContext.Provider>
     )
 }
