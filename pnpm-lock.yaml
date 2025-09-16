@@ -1332,8 +1332,8 @@ importers:
         specifier: ^2.6.1
         version: 2.6.9(encoding@0.1.13)
       node-rdkafka:
-        specifier: ^3.4.1
-        version: 3.4.1
+        specifier: ^3.5.0
+        version: 3.5.0
       node-schedule:
         specifier: ^2.1.0
         version: 2.1.1
@@ -14008,8 +14008,8 @@ packages:
     resolution: {integrity: sha512-RM5oyBy45cLEoHqCeh+MNuFAxO0vTFBLskvQbOKnEE7YTTSN4tbN8QWDIPQ6L+WvKsB/qLEGpYe2ZZ9d4W9OIQ==}
     engines: {node: '>=8'}
 
-  node-rdkafka@3.4.1:
-    resolution: {integrity: sha512-qWEjyeZmCNtc7MVUucl9xRsSSXdmMS3lQOiQU15fXIFaLK0K3OZr5T6VTjAAIgz+yoATvaCBDXmMc4RiK65eTg==}
+  node-rdkafka@3.5.0:
+    resolution: {integrity: sha512-KaMJ4lEMJJWrVKKGW1WvWmXbiALJHvTLLBjjJsjWbF7vJyaNDuJW4aPmkbO1yJxS4uKwV40aWTyFEj8iC7vJ0Q==}
     engines: {node: '>=16'}
 
   node-releases@2.0.19:
@@ -29048,7 +29048,7 @@ snapshots:
   cpu-features@0.0.10:
     dependencies:
       buildcheck: 0.0.6
-      nan: 2.22.0
+      nan: 2.23.0
     optional: true
 
   create-ecdh@4.0.4:
@@ -33151,7 +33151,7 @@ snapshots:
     dependencies:
       buffer: 5.7.1
       cuint: 0.2.2
-      nan: 2.22.0
+      nan: 2.23.0
       xxhashjs: 0.2.2
 
   magic-string@0.30.5:
@@ -33777,10 +33777,10 @@ snapshots:
     dependencies:
       process-on-spawn: 1.0.0
 
-  node-rdkafka@3.4.1:
+  node-rdkafka@3.5.0:
     dependencies:
       bindings: 1.5.0
-      nan: 2.22.0
+      nan: 2.23.0
 
   node-releases@2.0.19: {}
 
@@ -36866,7 +36866,7 @@ snapshots:
       bcrypt-pbkdf: 1.0.2
     optionalDependencies:
       cpu-features: 0.0.10
-      nan: 2.22.0
+      nan: 2.23.0
 
   ssim.js@3.5.0: {}
 
