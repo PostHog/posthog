@@ -21,6 +21,7 @@ __all__ = [
     "QueryAndPlanAlignment",
     "TimeRangeRelevancy",
     "InsightEvaluationAccuracy",
+    "SemanticSimilarity",
 ]
 
 
@@ -400,3 +401,44 @@ class InsightEvaluationAccuracy(ScorerWithPartial):
                 "evaluation_explanation": evaluation_result.get("explanation", ""),
             },
         )
+
+
+class SemanticSimilarity(ScorerWithPartial):
+    """Simple semantic similarity scorer for string comparison using embeddings."""
+
+    def __init__(self, *, model: str = "text-embedding-3-small", **kwargs):
+        super().__init__(**kwargs)
+        self.model = model
+
+    def _run_eval_sync(self, output: str | None, expected: str | None = None, **kwargs):
+        if expected is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No expected value provided"})
+        if output is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No output provided"})
+        similarity_scorer = AnswerSimilarity(model=self.model)
+        result = similarity_scorer.eval(output=output, expected=expected)
+        # Return score with threshold consideration
+        return Score(
+            name=self._name(),
+            score=result.score,
+            metadata={
+                "expected_query": expected,
+                "actual_query": output,
+            },
+        )
+
+
+class ExactMatch(ScorerWithPartial):
+    """Evaluate if the output exactly matches the expected value."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def _run_eval_sync(self, output: str | None, expected: str | None = None, **kwargs):
+        if expected is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No expected value provided"})
+        if output is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No output provided"})
+        if output == expected:
+            return Score(name=self._name(), score=1.0, metadata={"output": output, "expected": expected})
+        return Score(name=self._name(), score=0.0, metadata={"output": output, "expected": expected})

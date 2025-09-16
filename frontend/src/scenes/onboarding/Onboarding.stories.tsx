@@ -4,7 +4,6 @@ import { router } from 'kea-router'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
-import empty from 'scenes/data-pipelines/__mocks__/empty.json'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
@@ -36,7 +35,19 @@ const meta: Meta = {
                 '/api/billing/': {
                     ...billingJson,
                 },
-                '/api/environments/:team_id/external_data_sources/wizard': empty,
+                '/api/environments/:team_id/external_data_sources/wizard': () => {
+                    return [
+                        200,
+                        {
+                            Stripe: {
+                                name: 'Stripe',
+                                iconPath: '/static/services/stripe.png',
+                                fields: [],
+                                caption: '',
+                            },
+                        },
+                    ]
+                },
             },
             patch: {
                 '/api/environments/@current/add_product_intent/': {},

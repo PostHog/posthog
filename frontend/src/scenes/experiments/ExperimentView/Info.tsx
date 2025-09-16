@@ -123,7 +123,6 @@ export function Info(): JSX.Element {
                 onNameChange={(name) => updateExperiment({ name })}
                 onDescriptionChange={(description) => updateExperiment({ description })}
                 canEdit
-                forceEdit
                 renameDebounceMs={1000}
             />
             <SceneDivider />

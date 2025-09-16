@@ -559,6 +559,9 @@
                     "$ref": "#/definitions/TracesQuery"
                 },
                 {
+                    "$ref": "#/definitions/TraceQuery"
+                },
+                {
                     "$ref": "#/definitions/VectorSearchQuery"
                 }
             ]
@@ -8981,6 +8984,9 @@
                         },
                         {
                             "$ref": "#/definitions/TracesQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/TraceQuery"
                         }
                     ],
                     "description": "Source of the events"
@@ -12295,13 +12301,13 @@
                 "person",
                 "cohort",
                 "group",
-                "insight_funnel",
-                "insight_trend",
-                "insight_retention",
-                "insight_user_path",
-                "insight_lifecycle",
-                "insight_stickiness",
-                "insight_hogql"
+                "insight/funnels",
+                "insight/trends",
+                "insight/retention",
+                "insight/paths",
+                "insight/lifecycle",
+                "insight/stickiness",
+                "insight/hog"
             ],
             "type": "string"
         },
@@ -16440,6 +16446,7 @@
                 "EventTaxonomyQuery",
                 "ActorsPropertyTaxonomyQuery",
                 "TracesQuery",
+                "TraceQuery",
                 "VectorSearchQuery"
             ],
             "type": "string"
@@ -20820,6 +20827,9 @@
                     "$ref": "#/definitions/TracesQuery"
                 },
                 {
+                    "$ref": "#/definitions/TraceQuery"
+                },
+                {
                     "$ref": "#/definitions/VectorSearchQuery"
                 }
             ],
@@ -23245,11 +23255,17 @@
                 "existingSource": {
                     "type": "boolean"
                 },
+                "featureFlag": {
+                    "type": "string"
+                },
                 "fields": {
                     "items": {
                         "$ref": "#/definitions/SourceFieldConfig"
                     },
                     "type": "array"
+                },
+                "iconPath": {
+                    "type": "string"
                 },
                 "label": {
                     "type": "string"
@@ -23261,7 +23277,7 @@
                     "type": "boolean"
                 }
             },
-            "required": ["name", "caption", "fields"],
+            "required": ["name", "caption", "fields", "iconPath"],
             "type": "object"
         },
         "SourceFieldConfig": {
@@ -24462,6 +24478,47 @@
             "required": ["events"],
             "type": "object"
         },
+        "TraceQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "TraceQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "$ref": "#/definitions/TracesQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "traceId": {
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "traceId"],
+            "type": "object"
+        },
         "TracesQuery": {
             "additionalProperties": false,
             "properties": {
@@ -24500,9 +24557,6 @@
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
-                },
-                "traceId": {
-                    "type": "string"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",

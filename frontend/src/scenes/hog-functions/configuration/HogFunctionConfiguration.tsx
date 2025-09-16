@@ -13,15 +13,12 @@ import {
 } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { hogFunctionConfigurationLogic } from 'scenes/hog-functions/configuration/hogFunctionConfigurationLogic'
 import { HogFunctionFilters } from 'scenes/hog-functions/filters/HogFunctionFilters'
 import { HogFunctionMappings } from 'scenes/hog-functions/mapping/HogFunctionMappings'
 import { HogFunctionEventEstimates } from 'scenes/hog-functions/metrics/HogFunctionEventEstimates'
-
-import { AvailableFeature } from '~/types'
 
 import { humanizeHogFunctionType } from '../hog-function-utils'
 import { HogFunctionStatusIndicator } from '../misc/HogFunctionStatusIndicator'
@@ -53,7 +50,6 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
         loading,
         loaded,
         hogFunction,
-        showPaygate,
         template,
         templateHasChanged,
         type,
@@ -72,10 +68,6 @@ export function HogFunctionConfiguration({ templateId, id, logicKey }: HogFuncti
 
     if (!loaded) {
         return <NotFound object="Hog function" />
-    }
-
-    if (showPaygate) {
-        return <PayGateMini feature={AvailableFeature.DATA_PIPELINES} />
     }
 
     const templateInfo =

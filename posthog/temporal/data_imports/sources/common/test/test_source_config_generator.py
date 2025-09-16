@@ -34,6 +34,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -136,6 +137,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -158,6 +160,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -179,6 +182,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -200,6 +204,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -236,6 +241,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -259,6 +265,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -282,6 +289,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -303,6 +311,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -361,6 +370,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -384,6 +394,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -400,6 +411,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [
@@ -421,6 +433,7 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
             caption="",
+            iconPath="",
             fields=cast(
                 list[FieldType],
                 [

@@ -1,1 +1,1 @@
-0853_create_index_populate_updated_at_flags
+0856_add_web_analytics_tables_version

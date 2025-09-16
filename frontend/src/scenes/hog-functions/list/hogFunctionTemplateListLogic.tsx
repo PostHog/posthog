@@ -13,7 +13,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import {
-    AvailableFeature,
     HogFunctionSubTemplateIdType,
     HogFunctionTemplateType,
     HogFunctionTemplateWithSubTemplateType,
@@ -112,10 +111,17 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             (s) => [
                 s.rawTemplates,
                 s.user,
+                s.featureFlags,
                 (_, p: HogFunctionTemplateListLogicProps) => p.manualTemplates ?? [],
                 (_, p: HogFunctionTemplateListLogicProps) => p.subTemplateIds ?? [],
             ],
-            (rawTemplates, user, manualTemplates, subTemplateIds): HogFunctionTemplateWithSubTemplateType[] => {
+            (
+                rawTemplates,
+                user,
+                featureFlags,
+                manualTemplates,
+                subTemplateIds
+            ): HogFunctionTemplateWithSubTemplateType[] => {
                 let templates: HogFunctionTemplateWithSubTemplateType[] = []
 
                 if (!subTemplateIds?.length) {
@@ -141,6 +147,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                 }
                 return templates
                     .filter((x) => shouldShowHogFunctionTemplate(x, user))
+                    .filter((x) => !x.flag || !!featureFlags[x.flag])
                     .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
             },
         ],
@@ -179,15 +186,6 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                 )
 
                 return [...available, ...comingSoon]
-            },
-        ],
-
-        canEnableHogFunction: [
-            (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature): ((template: HogFunctionTemplateType) => boolean) => {
-                return (template: HogFunctionTemplateType) => {
-                    return template?.free || hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
-                }
             },
         ],
 
