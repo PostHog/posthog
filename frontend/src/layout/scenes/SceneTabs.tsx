@@ -219,7 +219,12 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                 className
             )}
         >
-            <div className={cn('flex-grow text-left max-w-[200px] truncate', tab.customTitle && 'italic')}>
+            <div
+                className={cn(
+                    'scene-tab-title flex-grow text-left max-w-[200px] truncate',
+                    tab.customTitle && 'italic'
+                )}
+            >
                 {tab.customTitle || tab.title}
             </div>
             {canRemoveTab && (
