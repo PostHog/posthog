@@ -946,10 +946,9 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert query is not None, "BigQueryAdapter should generate a query"
         self._validate_query_structure(query, "BigQueryAdapter")
 
-        cost_select: ast.Alias | None = next(
-            (col for col in query.select if hasattr(col, "alias") and col.alias == "cost"), None
-        )
+        cost_select = next((col for col in query.select if hasattr(col, "alias") and col.alias == "cost"), None)
         assert cost_select is not None, "Cost column should exist"
+        assert isinstance(cost_select, ast.Alias), "Cost column should be an Alias"
 
         cost_expr = cost_select.expr
         assert isinstance(cost_expr, ast.Call), "Cost should be a function call"
