@@ -13,7 +13,7 @@ import {
 } from '~/types'
 
 import '../../../funnels/Funnel'
-import { DataDrivenFunnelBarVertical } from './DataDrivenFunnelBarVertical'
+import { DataDrivenFunnelBarVertical } from './FunnelBarVertical'
 import { FunnelDataProcessingOptions, processFunnelData, processTimeConversionData } from './funnelDataUtils'
 
 export interface DataDrivenFunnelProps extends ChartParams {
