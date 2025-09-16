@@ -76,6 +76,8 @@ export interface LemonButtonPropsBase
     'aria-label'?: string
     /** Whether to truncate the button's text if necessary */
     truncate?: boolean
+    /** Prevent dialog from closing when clicked */
+    preventClosing?: boolean
     /** Wrap the main button element with a container element */
     buttonWrapper?: (button: JSX.Element) => JSX.Element
     /** Static offset (px) to adjust tooltip arrow position. Should only be used with fixed tooltipPlacement */

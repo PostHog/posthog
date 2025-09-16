@@ -1277,6 +1277,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert response.json()["tiles"] == [
             {
                 "color": None,
+                "filters_overrides": {},
                 "id": ANY,
                 "insight": None,
                 "is_cached": False,
@@ -1336,6 +1337,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert response.json()["tiles"] == [
             {
                 "color": None,
+                "filters_overrides": {},
                 "id": ANY,
                 "insight": {
                     "columns": None,
