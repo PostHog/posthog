@@ -172,6 +172,19 @@ def spawn_evaluation_container(
 
     context.log.info(f"Running evaluation for the image: {config.image}")
 
+    env: dict[str, str] = {
+        "EVAL_SCRIPT": f"pytest {config.evaluation_module} -s -vv",
+        "OBJECT_STORAGE_ACCESS_KEY_ID": settings.OBJECT_STORAGE_ACCESS_KEY_ID,  # type: ignore
+        "OBJECT_STORAGE_SECRET_ACCESS_KEY": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,  # type: ignore
+        "OPENAI_API_KEY": settings.OPENAI_API_KEY,
+        "ANTHROPIC_API_KEY": settings.ANTHROPIC_API_KEY,
+        "INKEEP_API_KEY": settings.INKEEP_API_KEY,
+        "AZURE_INFERENCE_ENDPOINT": settings.AZURE_INFERENCE_ENDPOINT,
+        "AZURE_INFERENCE_CREDENTIAL": settings.AZURE_INFERENCE_CREDENTIAL,
+    }
+    if settings.OPENAI_BASE_URL:
+        env["OPENAI_BASE_URL"] = settings.OPENAI_BASE_URL
+
     asset_result = docker_pipes_client.run(
         context=context,
         image=config.image,
@@ -179,17 +192,7 @@ def spawn_evaluation_container(
             "privileged": True,
             "auto_remove": True,
         },
-        env={
-            "EVAL_SCRIPT": f"pytest {config.evaluation_module} -s -vv",
-            "OBJECT_STORAGE_ACCESS_KEY_ID": settings.OBJECT_STORAGE_ACCESS_KEY_ID,  # type: ignore
-            "OBJECT_STORAGE_SECRET_ACCESS_KEY": settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,  # type: ignore
-            "OPENAI_API_KEY": settings.OPENAI_API_KEY,
-            "OPENAI_BASE_URL": settings.OPENAI_BASE_URL,
-            "ANTHROPIC_API_KEY": settings.ANTHROPIC_API_KEY,
-            "INKEEP_API_KEY": settings.INKEEP_API_KEY,
-            "AZURE_INFERENCE_ENDPOINT": settings.AZURE_INFERENCE_ENDPOINT,
-            "AZURE_INFERENCE_CREDENTIAL": settings.AZURE_INFERENCE_CREDENTIAL,
-        },
+        env=env,
         extras=evaluation_config.model_dump(exclude_unset=True),
         registry=get_registry_credentials(),
     ).get_materialize_result()
