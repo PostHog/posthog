@@ -41,7 +41,7 @@ import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
 import { InspectorListItem, playerInspectorLogic } from '../playerInspectorLogic'
 import { ItemConsoleLog, ItemConsoleLogDetail } from './ItemConsoleLog'
 import { ItemDoctor, ItemDoctorDetail } from './ItemDoctor'
-import { ItemEvent, ItemEventDetail } from './ItemEvent'
+import { ItemEvent, ItemEventDetail, ItemEventMenu } from './ItemEvent'
 
 const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 1
 
@@ -177,6 +177,14 @@ function RowItemTitle({
             ) : null}
         </div>
     )
+}
+
+/**
+ * Some items show a menu button in the item title bar when expanded.
+ * For example to add sharing actions
+ */
+function RowItemMenu({ item }: { item: InspectorListItem }): JSX.Element | null {
+    return item.type === 'events' ? <ItemEventMenu item={item} /> : null
 }
 
 function RowItemDetail({
@@ -334,6 +342,7 @@ export function PlayerInspectorListItem({
                         <RowItemTitle item={item} finalTimestamp={end} />
                     </div>
                 </div>
+                {isExpanded && <RowItemMenu item={item} />}
                 {item.type !== 'inspector-summary' && item.type !== 'inactivity' && (
                     <LemonButton
                         icon={isExpanded ? <IconCollapse /> : <IconExpand />}
