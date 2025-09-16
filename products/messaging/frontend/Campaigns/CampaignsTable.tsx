@@ -153,6 +153,11 @@ export function CampaignsTable(): JSX.Element {
                                     fullWidth
                                     status={campaign.status === 'draft' ? 'default' : 'danger'}
                                     onClick={() => toggleCampaignStatus(campaign)}
+                                    tooltip={
+                                        campaign.status === 'draft'
+                                            ? 'Enables the campaign to start sending messages'
+                                            : 'Disables the campaign from sending any new messages. In-progress workflows will end immediately.'
+                                    }
                                 >
                                     {campaign.status === 'draft' ? 'Enable' : 'Disable'}
                                 </LemonButton>
