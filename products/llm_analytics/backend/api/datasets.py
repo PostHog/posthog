@@ -155,6 +155,7 @@ class DatasetItemSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
             "created_by",
+            "team",
         ]
         read_only_fields = [
             "id",
