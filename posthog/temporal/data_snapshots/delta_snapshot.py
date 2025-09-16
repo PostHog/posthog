@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from django.conf import settings
 
 import pyarrow as pa
@@ -75,10 +77,32 @@ class DeltaSnapshot:
                 storage_options=self._get_credentials(),
             )
 
+        # Close out the latest rows from the snapshot
         delta_table.merge(
             source=data,
             source_alias="source",
             target_alias="target",
-            predicate=" AND ".join([f"source.{column} = target.{column}" for column in self.columns]),
+            predicate="source.id = target.id",
             streamed_exec=True,
-        ).when_not_matched_insert_all().execute()
+        ).when_matched_update(
+            updates={
+                # indicates update
+                "valid_until": "source.snapshot_ts",
+            },
+            predicate="source.row_hash != target.row_hash and target.valid_until IS NULL",
+        ).when_not_matched_by_source_update(
+            updates={
+                # indicates deletion
+                "valid_until": datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+            },
+            predicate="target.valid_until IS NULL",
+        ).execute()
+
+        # Insert the new rows into the snapshot
+        deltalake.write_deltalake(
+            table_or_uri=delta_table,
+            data=data,
+            mode="append",
+            schema_mode="merge",
+            engine="rust",
+        )

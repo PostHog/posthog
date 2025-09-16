@@ -490,10 +490,30 @@ async def materialize_model(
             job.rows_materialized = row_count
             await database_sync_to_async(job.save)()
 
-            # placeholder to test
-            if saved_query.snapshot_enabled:
+        # # placeholder to test
+        if saved_query.snapshot_enabled:
+            async for _, res in asyncstdlib.enumerate(
+                hogql_table(
+                    f"""
+                SELECT
+                    id,
+                    toString(cityHash64(concatWithSeparator('_', toString(number)))) AS row_hash,
+                    now() AS snapshot_ts
+                FROM ({hogql_query})
+            """,
+                    team,
+                    logger,
+                )
+            ):
+                batch, ch_types = res
+                batch = _transform_unsupported_decimals(batch)
+                batch = _transform_date_and_datetimes(batch, ch_types)
+
+                batch_with_nulls = batch.append_column(
+                    "valid_until", pa.array([] * batch.num_rows, type=pa.timestamp("us", tz="UTC"))
+                )
                 delta_snapshot = DeltaSnapshot(saved_query)
-                delta_snapshot.snapshot(batch)
+                delta_snapshot.snapshot(batch_with_nulls)
                 snapshot_table_uri = delta_snapshot.get_delta_table()
                 file_uris = snapshot_table_uri.file_uris()
 
@@ -551,6 +571,13 @@ async def materialize_model(
             await revert_materialization(saved_query, logger)
             await mark_job_as_failed(job, error_message, logger)
             raise Exception(f"Table reference missing for model {model_label}: {error_message}") from e
+        elif "no log files" in error_message:
+            error_message = f"Query did not return rows. Try changing your time range or query."
+            saved_query.latest_error = error_message
+            await logger.ainfo("Query did not return results for model %s, reverting materialization", model_label)
+            await revert_materialization(saved_query, logger)
+            await mark_job_as_failed(job, error_message, logger)
+            raise Exception(f"Query did not return results for model {model_label}: {error_message}") from e
         elif "Memory limit" in error_message:
             error_message = f"Query exceeded memory limit. Try reducing its scope by changing the time range."
             saved_query.latest_error = error_message
@@ -583,9 +610,6 @@ async def materialize_model(
 
     await logger.adebug("Copying query files in S3")
     prepare_s3_files_for_querying(saved_query.folder_path, saved_query.normalized_name, file_uris, True)
-
-    saved_query.is_materialized = True
-    await database_sync_to_async(saved_query.save)()
 
     await update_table_row_count(saved_query, row_count, logger)
 
@@ -624,7 +648,6 @@ async def revert_materialization(saved_query: DataWarehouseSavedQuery, logger: F
         await logger.ainfo("Successfully reverted materialization for saved query %s", saved_query.name)
 
     except Exception as e:
-        capture_exception(e)
         await logger.aexception("Failed to revert materialization for saved query %s: %s", saved_query.name, str(e))
 
 
@@ -1463,7 +1486,7 @@ class RunWorkflow(PostHogWorkflow):
                 run_dag_activity,
                 run_model_activity_inputs,
                 start_to_close_timeout=dt.timedelta(hours=1),
-                heartbeat_timeout=dt.timedelta(minutes=2),
+                heartbeat_timeout=dt.timedelta(minutes=1),
                 retry_policy=temporalio.common.RetryPolicy(
                     maximum_attempts=1,
                 ),
