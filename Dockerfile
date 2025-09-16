@@ -51,14 +51,28 @@ RUN cp frontend/node_modules/@posthog/rrweb/dist/image-bitmap-data-url-worker-*.
 FROM ghcr.io/posthog/rust-node-container:bookworm_rust_1.88-node_22.17.1 AS plugin-server-build
 
 # Compile and install system dependencies
+# Add Confluent's APT repository for librdkafka 2.10.1
 RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    "curl" \
+    "gnupg" \
+    "lsb-release" \
+    && \
+    curl -fsSL https://packages.confluent.io/deb/7.6/archive.key | gpg --dearmor -o /usr/share/keyrings/confluent-archive-keyring.gpg && \
+    echo "deb [signed-by=/usr/share/keyrings/confluent-archive-keyring.gpg] https://packages.confluent.io/deb/7.6 stable main" > /etc/apt/sources.list.d/confluent.list && \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
     "make" \
     "g++" \
     "gcc" \
     "python3" \
-    "libssl-dev" \
+    "libssl-dev=3.0.17-1~deb12u2" \
     "zlib1g-dev" \
+    "librdkafka-dev=2.10.1-1~deb12" \
+    "libsasl2-dev=2.1.28+dfsg-10" \
+    "libzstd-dev=1.5.4+dfsg2-5" \
+    "liblz4-dev=1.9.4-1" \
+    "libcurl4-openssl-dev=7.88.1-10+deb12u14" \
     && \
     rm -rf /var/lib/apt/lists/*
 
@@ -72,6 +86,9 @@ COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
 COPY ./common/hogvm/typescript/ ./common/hogvm/typescript/
 COPY ./plugin-server/package.json ./plugin-server/tsconfig.json ./plugin-server/
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
+# Use system librdkafka from Confluent (2.10.1) instead of bundled version
+ENV BUILD_LIBRDKAFKA=0
 
 # Compile and install Node.js dependencies.
 # NOTE: we don't actually use the plugin-transpiler with the plugin-server, it's just here for the build.
@@ -173,7 +190,16 @@ ENV PYTHONUNBUFFERED 1
 
 # Install OS runtime dependencies.
 # Note: please add in this stage runtime dependences only!
+# Add Confluent's APT repository for librdkafka runtime
 RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    "curl" \
+    "gnupg" \
+    "lsb-release" \
+    && \
+    curl -fsSL https://packages.confluent.io/deb/7.6/archive.key | gpg --dearmor -o /usr/share/keyrings/confluent-archive-keyring.gpg && \
+    echo "deb [signed-by=/usr/share/keyrings/confluent-archive-keyring.gpg] https://packages.confluent.io/deb/7.6 stable main" > /etc/apt/sources.list.d/confluent.list && \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
     "chromium" \
     "chromium-driver" \
@@ -182,23 +208,25 @@ RUN apt-get update && \
     "libxmlsec1-dev" \
     "libxml2" \
     "gettext-base" \
-    "ffmpeg=7:5.1.7-0+deb12u1"
-
-# Install MS SQL dependencies
-RUN curl https://packages.microsoft.com/keys/microsoft.asc | tee /etc/apt/trusted.gpg.d/microsoft.asc
-RUN curl https://packages.microsoft.com/config/debian/11/prod.list | tee /etc/apt/sources.list.d/mssql-release.list
-RUN apt-get update
-RUN ACCEPT_EULA=Y apt-get install -y msodbcsql18
-
-# Install NodeJS 22.17.1
-RUN apt-get install -y --no-install-recommends \
-    "curl" \
-    && \
-    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
-    apt-get install -y --no-install-recommends \
-    "nodejs" \
+    "ffmpeg=7:5.1.7-0+deb12u1" \
+    "librdkafka1=2.10.1-1~deb12" \
+    "libssl3=3.0.17-1~deb12u2" \
+    "libsasl2-2=2.1.28+dfsg-10" \
+    "libzstd1=1.5.4+dfsg2-5" \
+    "liblz4-1=1.9.4-1" \
+    "libcurl4=7.88.1-10+deb12u14" \
     && \
     rm -rf /var/lib/apt/lists/*
+
+# Install MS SQL dependencies
+RUN curl https://packages.microsoft.com/keys/microsoft.asc | tee /etc/apt/trusted.gpg.d/microsoft.asc && \
+    curl https://packages.microsoft.com/config/debian/11/prod.list | tee /etc/apt/sources.list.d/mssql-release.list && \
+    apt-get update && \
+    ACCEPT_EULA=Y apt-get install -y msodbcsql18 && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install exact Node.js 22.17.1 to match build stage
+RUN curl -fsSL https://nodejs.org/dist/v22.17.1/node-v22.17.1-linux-x64.tar.gz | tar -xz -C /usr/local --strip-components=1
 
 # Install and use a non-root user.
 RUN groupadd -g 1000 posthog && \
@@ -264,7 +292,8 @@ RUN cp ./bin/docker-server-unit ./bin/docker-server
 ENV NODE_ENV=production \
     CHROME_BIN=/usr/bin/chromium \
     CHROME_PATH=/usr/lib/chromium/ \
-    CHROMEDRIVER_BIN=/usr/bin/chromedriver
+    CHROMEDRIVER_BIN=/usr/bin/chromedriver \
+    BUILD_LIBRDKAFKA=0
 
 # Expose container port and run entry point script.
 EXPOSE 8000
