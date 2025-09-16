@@ -66,7 +66,7 @@ def create_data_warehouse_table_from_csv(
         except s3_client.exceptions.BucketAlreadyOwnedByYou:
             pass  # We already own this bucket, that's fine
         except Exception as ex:
-            raise Exception(f"could not create bucket {test_bucket} for test", ex)
+            raise Exception(f"could not create bucket '{test_bucket}' for test", ex)
 
     # Read CSV
     df = pd.read_csv(csv_path)

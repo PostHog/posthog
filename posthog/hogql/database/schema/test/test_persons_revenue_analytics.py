@@ -40,8 +40,8 @@ from products.revenue_analytics.backend.hogql_queries.test.data.structure import
 )
 from products.revenue_analytics.backend.views.schemas.customer import SCHEMA
 
-INVOICES_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_invoices"
-CUSTOMERS_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.insights_query_runner.stripe_customers"
+INVOICES_TEST_BUCKET = "test-bucket-ph-revenue-analytics-query-runner-stripe-invoices"
+CUSTOMERS_TEST_BUCKET = "test-bucket-ph-revenue-analytics-query-runner-stripe-customers"
 
 
 @snapshot_clickhouse_queries
