@@ -141,7 +141,7 @@ class AdvancedActivityLogFieldDiscovery:
         return self._deduplicate_results(results)
 
     def _deduplicate_results(self, all_results: list[tuple[str, str, list[str]]]) -> list[tuple[str, str, list[str]]]:
-        field_map = {}
+        field_map: dict[tuple[str, str], list[str]] = {}
         for scope, field_path, field_types in all_results:
             key = (scope, field_path)
             if key in field_map:
