@@ -345,17 +345,20 @@ async def eval_yaml_fixing(yaml_fix_tester, pytestconfig):
                 input='key: "value with missing quote',
                 expected={"key": "value with missing quote"},
             ),
-            # Mixed symbols in the elements
+            # Mixed symbols in list items with malformed quotes
             EvalCase(
                 input="""
-- key: value's with extra quote
-- another_key: 'quoted string'
-- one_more_key: ```some code```
+- item: 'value's with apostrophe'
+  description: "unclosed quote here
+- item: "double quoted "value" inside"
+  description: "some text with ```backticks around it```, maybe code"
 """,
                 expected=[
-                    {"key": "value's with extra quote"},
-                    {"another_key": "quoted string"},
-                    {"one_more_key": "some code"},
+                    {"description": "unclosed quote here", "item": "value's with apostrophe"},
+                    {
+                        "description": "some text with ```backticks around it```, maybe code",
+                        "item": 'double quoted "value" inside',
+                    },
                 ],
             ),
             # Mixed indentation (tabs and spaces)
