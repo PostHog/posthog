@@ -98,6 +98,7 @@ export function PlayerMetaLinks({ size }: { size: PlayerMetaBreakpoints }): JSX.
                                 })
                             }}
                             tooltip="Comment in a notebook"
+                            data-attr="player-meta-add-replay-to-notebook"
                         />
                     ) : null}
 
