@@ -30,6 +30,7 @@ class Assistant:
         trace_id: Optional[str | UUID] = None,
         initial_state: Optional[AssistantMaxGraphState | AssistantMaxPartialGraphState] = None,
         billing_context: Optional[MaxBillingContext] = None,
+        workflow_id: Optional[str] = None,
     ) -> BaseAssistant:
         assistant_class: type[BaseAssistant]
         if mode == AssistantMode.ASSISTANT:
@@ -49,4 +50,5 @@ class Assistant:
             trace_id=trace_id,
             billing_context=billing_context,
             initial_state=initial_state,  # type: ignore
+            workflow_id=workflow_id,
         )
