@@ -1,4 +1,7 @@
+import { getSeriesBackgroundColor } from 'lib/colors'
 import { FunnelLayout } from 'lib/constants'
+import { percentage, sum } from 'lib/utils'
+
 import {
     FlattenedFunnelStepByBreakdown,
     FunnelStepReference,
@@ -7,7 +10,7 @@ import {
     FunnelsTimeConversionBins,
     HistogramGraphDatum,
 } from '~/types'
-import { percentage, sum } from 'lib/utils'
+
 import { flattenedStepsByBreakdown, stepsWithConversionMetrics } from './funnelUtils'
 
 export interface FunnelDataProcessingOptions {
@@ -27,19 +30,13 @@ export interface ProcessedFunnelData {
 }
 
 /**
- * Get a consistent color for a funnel series based on breakdown value.
- * This ensures the same breakdown value always gets the same color.
+ * Get a consistent color for a funnel series using the same index-based approach as exposure charts.
  */
 export function getSeriesColor(series: FunnelStepWithConversionMetrics): string {
-    // Use a hash of the breakdown value to generate a consistent color
-    const breakdownKey = series.breakdown_value?.toString() || series.order?.toString() || '0'
-    const hash = breakdownKey.split('').reduce((acc, char) => {
-        return char.charCodeAt(0) + ((acc << 5) - acc)
-    }, 0)
-
-    // Generate HSL color - use the hash to determine hue
-    const hue = Math.abs(hash) % 360
-    return `hsl(${hue}, 70%, 50%)`
+    // Use the breakdownIndex if available (added by experiment conversion)
+    // This matches exactly what the exposure chart does with getSeriesColor(index)
+    const index = (series as any).breakdownIndex ?? 0
+    return getSeriesBackgroundColor(index)
 }
 
 /**
@@ -135,11 +132,7 @@ function getVisibleStepsWithConversionMetrics(
                 ...b,
                 order: breakdownIndex,
             }))
-            ?.filter(
-                (b) =>
-                    isOnlySeries ||
-                    !hiddenLegendBreakdowns?.includes(getVisibilityKey(b.breakdown_value))
-            ),
+            ?.filter((b) => isOnlySeries || !hiddenLegendBreakdowns?.includes(getVisibilityKey(b.breakdown_value))),
     }))
 }
 
