@@ -1,7 +1,6 @@
 import { LemonCheckbox } from '@posthog/lemon-ui'
 
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ExperimentMeanMetric, ExperimentMetric } from '~/queries/schema/schema-general'
@@ -21,16 +20,6 @@ export function ExperimentMetricOutlierHandling({
                 <>Set winsorization lower and upper bounds to cap metric values at the specified percentiles.</>
             }
         >
-            <>
-                <LemonLabel
-                    className="mb-1"
-                    info="Prevent outliers from skewing results by capping the lower and upper bounds of a metric."
-                />
-                <p className="text-sm text-muted-alt">
-                    Set winsorization lower and upper bounds to cap metric values at the specified percentiles.
-                </p>
-            </>
-
             <div className="flex flex-col gap-2">
                 <div className="flex items-center gap-2">
                     <LemonCheckbox

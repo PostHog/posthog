@@ -234,7 +234,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 }
                                 className={cn('ph-ignore-input')}
                             >
-                                {!isNewCohort && true && (
+                                {!isNewCohort && (
                                     <div className="flex flex-col gap-y-0 flex-1 justify-center">
                                         <h3 className="text-sm">Upload a CSV</h3>
                                         <span className="max-w-prose">
@@ -249,11 +249,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 {/* TODO: @adamleithp Tell users that adding ANOTHER file will NOT(?) replace the current one */}
                                 {/* TODO: @adamleithp Render the csv file and validate it */}
                                 {/* TODO: @adamleithp Adding a csv file doesn't show up with cohort.csv... */}
-                                <LemonField
-                                    name="csv"
-                                    label={true ? null : isNewCohort ? null : 'Upload users'}
-                                    data-attr="cohort-csv"
-                                >
+                                <LemonField name="csv" data-attr="cohort-csv">
                                     {({ onChange }) => (
                                         <LemonFileInput
                                             accept=".csv"
