@@ -806,7 +806,7 @@ class TestSignupAPI(APIBaseTest):
     ):
         with self.is_cloud(True):
             self.run_test_for_allowed_domain(mock_sso_providers, mock_request, mock_capture)
-        assert mock_update_billing_organization_users.called_once()
+        mock_update_billing_organization_users.assert_called_once()
 
     @patch("posthoganalytics.capture")
     @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_organization_users")
@@ -824,7 +824,7 @@ class TestSignupAPI(APIBaseTest):
     ):
         with self.is_cloud(True):
             self.run_test_for_allowed_domain(mock_sso_providers, mock_request, mock_capture, use_invite=True)
-        assert mock_update_billing_organization_users.called_once()
+        mock_update_billing_organization_users.assert_called_once()
 
     @patch("posthoganalytics.capture")
     @mock.patch("ee.billing.billing_manager.BillingManager.update_billing_organization_users")
@@ -844,7 +844,7 @@ class TestSignupAPI(APIBaseTest):
             self.run_test_for_allowed_domain(
                 mock_sso_providers, mock_request, mock_capture, use_invite=True, expired_invite=True
             )
-        assert mock_update_billing_organization_users.called_once()
+        mock_update_billing_organization_users.assert_called_once()
 
     @mock.patch("social_core.backends.base.BaseAuth.request")
     @mock.patch("posthog.api.authentication.get_instance_available_sso_providers")
