@@ -744,6 +744,151 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 conversionGoal,
             }),
         ],
+        replayFilters: [
+            (s) => [s.webAnalyticsFilters, s.dateFilter, s.shouldFilterTestAccounts, s.conversionGoal],
+            (
+                webAnalyticsFilters: WebAnalyticsPropertyFilters,
+                dateFilter,
+                shouldFilterTestAccounts,
+                conversionGoal
+            ): RecordingUniversalFilters => {
+                const filters: UniversalFiltersGroupValue[] = [...webAnalyticsFilters]
+                if (conversionGoal) {
+                    if ('actionId' in conversionGoal) {
+                        filters.push({
+                            id: conversionGoal.actionId,
+                            name: String(conversionGoal.actionId),
+                            type: 'actions',
+                        })
+                    } else if ('customEventName' in conversionGoal) {
+                        filters.push({
+                            id: conversionGoal.customEventName,
+                            name: conversionGoal.customEventName,
+                            type: 'events',
+                        })
+                    }
+                }
+
+                return {
+                    filter_test_accounts: shouldFilterTestAccounts,
+
+                    date_from: dateFilter.dateFrom,
+                    date_to: dateFilter.dateTo,
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: filters,
+                            },
+                        ],
+                    },
+                    duration: [
+                        {
+                            type: PropertyFilterType.Recording,
+                            key: 'active_seconds',
+                            operator: PropertyOperator.GreaterThan,
+                            value: 1,
+                        },
+                    ],
+                }
+            },
+        ],
+        hasCountryFilter: [
+            (s) => [s.webAnalyticsFilters],
+            (webAnalyticsFilters: WebAnalyticsPropertyFilters) => {
+                return webAnalyticsFilters.some((filter) => filter.key === '$geoip_country_code')
+            },
+        ],
+        webVitalsMetricQuery: [
+            (s) => [
+                s.webVitalsPercentile,
+                s.webVitalsTab,
+                s.dateFilter,
+                s.webAnalyticsFilters,
+                s.shouldFilterTestAccounts,
+            ],
+            (
+                webVitalsPercentile,
+                webVitalsTab,
+                { dateFrom, dateTo, interval },
+                webAnalyticsFilters,
+                filterTestAccounts
+            ): InsightVizNode<TrendsQuery> => ({
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    dateRange: {
+                        date_from: dateFrom,
+                        date_to: dateTo,
+                    },
+                    interval,
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            event: '$web_vitals',
+                            name: '$web_vitals',
+                            custom_name: webVitalsTab,
+                            math: webVitalsPercentile,
+                            math_property: `$web_vitals_${webVitalsTab}_value`,
+                        },
+                    ],
+                    trendsFilter: {
+                        display: ChartDisplayType.ActionsLineGraph,
+                        aggregationAxisFormat: webVitalsTab === 'CLS' ? 'numeric' : 'duration_ms',
+                        goalLines: [
+                            {
+                                label: 'Good',
+                                value: WEB_VITALS_THRESHOLDS[webVitalsTab].good,
+                                displayLabel: false,
+                                borderColor: WEB_VITALS_COLORS.good,
+                            },
+                            {
+                                label: 'Poor',
+                                value: WEB_VITALS_THRESHOLDS[webVitalsTab].poor,
+                                displayLabel: false,
+                                borderColor: WEB_VITALS_COLORS.needs_improvements,
+                            },
+                        ],
+                    } as TrendsFilter,
+                    filterTestAccounts,
+                    properties: webAnalyticsFilters,
+                    tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
+                },
+                embedded: false,
+            }),
+        ],
+        authorizedDomains: [
+            (s) => [s.authorizedUrls],
+            (authorizedUrls) => {
+                // There are a couple problems with the raw `authorizedUrls` which we need to fix here:
+                // - They are URLs, we want domains
+                // - There might be duplicates, so clean them up
+                // - There might be duplicates across http/https, so clean them up
+
+                // First create URL objects and group them by hostname+port
+                const urlsByDomain = new Map<string, URL[]>()
+
+                for (const urlStr of authorizedUrls) {
+                    try {
+                        const url = new URL(urlStr)
+                        const key = url.host // hostname + port if present
+                        if (!urlsByDomain.has(key)) {
+                            urlsByDomain.set(key, [])
+                        }
+                        urlsByDomain.get(key)!.push(url)
+                    } catch {
+                        // Silently skip URLs that can't be parsed
+                    }
+                }
+
+                // For each domain, prefer https over http
+                return Array.from(urlsByDomain.values()).map((urls) => {
+                    const preferredUrl = urls.find((url) => url.protocol === 'https:') ?? urls[0]
+                    return preferredUrl.origin
+                })
+            },
+        ],
     }),
     selectors(({ actions }) => ({
         tiles: [
@@ -2038,154 +2183,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     )
             },
         ],
-    })),
-    selectors(() => ({
-        hasCountryFilter: [
-            (s) => [s.webAnalyticsFilters],
-            (webAnalyticsFilters: WebAnalyticsPropertyFilters) => {
-                return webAnalyticsFilters.some((filter) => filter.key === '$geoip_country_code')
-            },
-        ],
-        replayFilters: [
-            (s) => [s.webAnalyticsFilters, s.dateFilter, s.shouldFilterTestAccounts, s.conversionGoal],
-            (
-                webAnalyticsFilters: WebAnalyticsPropertyFilters,
-                dateFilter,
-                shouldFilterTestAccounts,
-                conversionGoal
-            ): RecordingUniversalFilters => {
-                const filters: UniversalFiltersGroupValue[] = [...webAnalyticsFilters]
-                if (conversionGoal) {
-                    if ('actionId' in conversionGoal) {
-                        filters.push({
-                            id: conversionGoal.actionId,
-                            name: String(conversionGoal.actionId),
-                            type: 'actions',
-                        })
-                    } else if ('customEventName' in conversionGoal) {
-                        filters.push({
-                            id: conversionGoal.customEventName,
-                            name: conversionGoal.customEventName,
-                            type: 'events',
-                        })
-                    }
-                }
-
-                return {
-                    filter_test_accounts: shouldFilterTestAccounts,
-
-                    date_from: dateFilter.dateFrom,
-                    date_to: dateFilter.dateTo,
-                    filter_group: {
-                        type: FilterLogicalOperator.And,
-                        values: [
-                            {
-                                type: FilterLogicalOperator.And,
-                                values: filters,
-                            },
-                        ],
-                    },
-                    duration: [
-                        {
-                            type: PropertyFilterType.Recording,
-                            key: 'active_seconds',
-                            operator: PropertyOperator.GreaterThan,
-                            value: 1,
-                        },
-                    ],
-                }
-            },
-        ],
-        webVitalsMetricQuery: [
-            (s) => [
-                s.webVitalsPercentile,
-                s.webVitalsTab,
-                s.dateFilter,
-                s.webAnalyticsFilters,
-                s.shouldFilterTestAccounts,
-            ],
-            (
-                webVitalsPercentile,
-                webVitalsTab,
-                { dateFrom, dateTo, interval },
-                webAnalyticsFilters,
-                filterTestAccounts
-            ): InsightVizNode<TrendsQuery> => ({
-                kind: NodeKind.InsightVizNode,
-                source: {
-                    kind: NodeKind.TrendsQuery,
-                    dateRange: {
-                        date_from: dateFrom,
-                        date_to: dateTo,
-                    },
-                    interval,
-                    series: [
-                        {
-                            kind: NodeKind.EventsNode,
-                            event: '$web_vitals',
-                            name: '$web_vitals',
-                            custom_name: webVitalsTab,
-                            math: webVitalsPercentile,
-                            math_property: `$web_vitals_${webVitalsTab}_value`,
-                        },
-                    ],
-                    trendsFilter: {
-                        display: ChartDisplayType.ActionsLineGraph,
-                        aggregationAxisFormat: webVitalsTab === 'CLS' ? 'numeric' : 'duration_ms',
-                        goalLines: [
-                            {
-                                label: 'Good',
-                                value: WEB_VITALS_THRESHOLDS[webVitalsTab].good,
-                                displayLabel: false,
-                                borderColor: WEB_VITALS_COLORS.good,
-                            },
-                            {
-                                label: 'Poor',
-                                value: WEB_VITALS_THRESHOLDS[webVitalsTab].poor,
-                                displayLabel: false,
-                                borderColor: WEB_VITALS_COLORS.needs_improvements,
-                            },
-                        ],
-                    } as TrendsFilter,
-                    filterTestAccounts,
-                    properties: webAnalyticsFilters,
-                    tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-                },
-                embedded: false,
-            }),
-        ],
         getNewInsightUrl: [(s) => [s.tiles], (tiles: WebAnalyticsTile[]) => getNewInsightUrlFactory(tiles)],
-        authorizedDomains: [
-            (s) => [s.authorizedUrls],
-            (authorizedUrls) => {
-                // There are a couple problems with the raw `authorizedUrls` which we need to fix here:
-                // - They are URLs, we want domains
-                // - There might be duplicates, so clean them up
-                // - There might be duplicates across http/https, so clean them up
-
-                // First create URL objects and group them by hostname+port
-                const urlsByDomain = new Map<string, URL[]>()
-
-                for (const urlStr of authorizedUrls) {
-                    try {
-                        const url = new URL(urlStr)
-                        const key = url.host // hostname + port if present
-                        if (!urlsByDomain.has(key)) {
-                            urlsByDomain.set(key, [])
-                        }
-                        urlsByDomain.get(key)!.push(url)
-                    } catch {
-                        // Silently skip URLs that can't be parsed
-                    }
-                }
-
-                // For each domain, prefer https over http
-                return Array.from(urlsByDomain.values()).map((urls) => {
-                    const preferredUrl = urls.find((url) => url.protocol === 'https:') ?? urls[0]
-                    return preferredUrl.origin
-                })
-            },
-        ],
     })),
 
     // start the loaders after mounting the logic
