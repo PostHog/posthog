@@ -290,6 +290,8 @@ export const FEATURE_FLAGS = {
     TASKS: 'tasks', // owner: #team-llm-analytics
     LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT: 'llm-observability-show-input-output', // owner: #team-llm-analytics
     MAX_SESSION_SUMMARIZATION: 'max-session-summarization', // owner: #team-max-ai
+    TASK_SUMMARIES: 'task-summaries', // owner: #team-llm-analytics
+    EXPERIMENTS_RATIO_METRIC: 'experiments-ratio-metric', // owner: @andehen #team-experiments
     CDP_NEW_PRICING: 'cdp-new-pricing', // owner: #team-messaging
     IMPROVED_COOKIELESS_MODE: 'improved-cookieless-mode', // owner: @robbie-c #team-web-analytics
     REPLAY_EXPORT_FULL_VIDEO: 'replay-export-full-video', // owner: @veryayskiy #team-replay
