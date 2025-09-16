@@ -203,6 +203,7 @@ function SceneName({
                             debouncedOnChange(e.target.value)
                         }}
                         className={cn(
+                            'scene-title-textarea',
                             buttonPrimitiveVariants({
                                 inert: true,
                                 className: `${textClasses} field-sizing-content w-full hover:bg-fill-input`,
@@ -311,6 +312,7 @@ function SceneDescription({
                             debouncedOnDescriptionChange(e.target.value)
                         }}
                         className={cn(
+                            'scene-description-textarea',
                             buttonPrimitiveVariants({
                                 inert: true,
                                 className: `${textClasses} field-sizing-content w-full hover:bg-fill-input`,
