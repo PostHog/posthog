@@ -2,17 +2,15 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconLock } from '@posthog/icons'
-import { LemonDialog, LemonInput, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { FeatureFlagHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -52,6 +50,7 @@ import {
 } from '~/types'
 
 import { createMaxToolSurveyConfig } from './FeatureFlag'
+import { FeatureFlagFiltersSection } from './FeatureFlagFilters'
 import { featureFlagLogic } from './featureFlagLogic'
 import { FLAGS_PER_PAGE, FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
 
@@ -245,7 +244,6 @@ export function OverViewTab({
     const { featureFlagsLoading, featureFlags, count, pagination, filters, shouldShowEmptyState } = useValues(flagLogic)
     const { setFeatureFlagsFilters } = useActions(flagLogic)
     const { hasAvailableFeature } = useValues(userLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const page = filters.page || 1
     const startCount = (page - 1) * FLAGS_PER_PAGE + 1
@@ -386,135 +384,22 @@ export function OverViewTab({
     ]
 
     const filtersSection = (
-        <div className="flex justify-between gap-2 flex-wrap">
-            <LemonInput
-                className="w-60"
-                type="search"
-                placeholder={searchPlaceholder || ''}
-                onChange={(search) => setFeatureFlagsFilters({ search, page: 1 })}
-                value={filters.search || ''}
-                data-attr="feature-flag-search"
-            />
-            <div className="flex items-center gap-2">
-                <span>
-                    <b>Type</b>
-                </span>
-                <LemonSelect
-                    dropdownMatchSelectWidth={false}
-                    size="small"
-                    onChange={(type) => {
-                        if (type) {
-                            if (type === 'all') {
-                                if (filters) {
-                                    const { type, ...restFilters } = filters
-                                    setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
-                                }
-                            } else {
-                                setFeatureFlagsFilters({ type, page: 1 })
-                            }
-                        }
-                    }}
-                    options={[
-                        { label: 'All', value: 'all' },
-                        { label: 'Boolean', value: 'boolean' },
-                        {
-                            label: 'Multiple variants',
-                            value: 'multivariant',
-                            'data-attr': 'feature-flag-select-type-option-multiple-variants',
-                        },
-                        { label: 'Experiment', value: 'experiment' },
-                        { label: 'Remote config', value: 'remote_config' },
-                    ]}
-                    value={filters.type ?? 'all'}
-                    data-attr="feature-flag-select-type"
-                />
-                <span>
-                    <b>Status</b>
-                </span>
-                <LemonSelect
-                    dropdownMatchSelectWidth={false}
-                    size="small"
-                    onChange={(status) => {
-                        const { active, ...restFilters } = filters || {}
-                        if (status === 'all') {
-                            setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
-                        } else if (status === 'STALE') {
-                            setFeatureFlagsFilters({ ...restFilters, active: 'STALE', page: 1 }, true)
-                        } else {
-                            setFeatureFlagsFilters({ ...restFilters, active: status, page: 1 }, true)
-                        }
-                    }}
-                    options={[
-                        { label: 'All', value: 'all', 'data-attr': 'feature-flag-select-status-all' },
-                        { label: 'Enabled', value: 'true' },
-                        {
-                            label: 'Disabled',
-                            value: 'false',
-                            'data-attr': 'feature-flag-select-status-disabled',
-                        },
-                        {
-                            label: 'Stale',
-                            value: 'STALE',
-                            'data-attr': 'feature-flag-select-status-stale',
-                        },
-                    ]}
-                    value={filters.active ?? 'all'}
-                    data-attr="feature-flag-select-status"
-                />
-                <span className="ml-1">
-                    <b>Created by</b>
-                </span>
-                <MemberSelect
-                    defaultLabel="Any user"
-                    value={filters.created_by_id ?? null}
-                    onChange={(user) => {
-                        if (!user) {
-                            if (filters) {
-                                const { created_by_id, ...restFilters } = filters
-                                setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
-                            }
-                        } else {
-                            setFeatureFlagsFilters({ created_by_id: user.id, page: 1 })
-                        }
-                    }}
-                    data-attr="feature-flag-select-created-by"
-                />
-                {enabledFeaturesLogic.values.featureFlags?.[FEATURE_FLAGS.FLAG_EVALUATION_RUNTIMES] && (
-                    <>
-                        <span className="ml-1">
-                            <b>Runtime</b>
-                        </span>
-                        <LemonSelect
-                            dropdownMatchSelectWidth={false}
-                            size="small"
-                            onChange={(runtime) => {
-                                const { evaluation_runtime, ...restFilters } = filters || {}
-                                if (runtime === 'any') {
-                                    setFeatureFlagsFilters({ ...restFilters, page: 1 }, true)
-                                } else {
-                                    setFeatureFlagsFilters(
-                                        { ...restFilters, evaluation_runtime: runtime, page: 1 },
-                                        true
-                                    )
-                                }
-                            }}
-                            options={[
-                                { label: 'Any', value: 'any', 'data-attr': 'feature-flag-select-runtime-any' },
-                                { label: 'All', value: FeatureFlagEvaluationRuntime.ALL },
-                                { label: 'Client', value: FeatureFlagEvaluationRuntime.CLIENT },
-                                { label: 'Server', value: FeatureFlagEvaluationRuntime.SERVER },
-                            ]}
-                            value={filters.evaluation_runtime ?? 'any'}
-                            data-attr="feature-flag-select-runtime"
-                        />
-                    </>
-                )}
-            </div>
-        </div>
+        <FeatureFlagFiltersSection
+            filters={filters}
+            setFeatureFlagsFilters={setFeatureFlagsFilters}
+            searchPlaceholder={searchPlaceholder || ''}
+            filtersConfig={{
+                search: true,
+                type: true,
+                status: true,
+                createdBy: true,
+                runtime: true,
+            }}
+        />
     )
 
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             <ProductIntroduction
                 productName="Feature flags"
                 productKey={ProductKey.FEATURE_FLAGS}
@@ -524,7 +409,7 @@ export function OverViewTab({
                 action={() => router.actions.push(urls.featureFlag('new'))}
                 isEmpty={shouldShowEmptyState}
                 customHog={FeatureFlagHog}
-                className={cn(newSceneLayout && 'my-0')}
+                className={cn('my-0')}
             />
             <div>{filtersSection}</div>
             <LemonDivider className="my-0" />
@@ -568,7 +453,6 @@ export function OverViewTab({
 export function FeatureFlags(): JSX.Element {
     const { activeTab } = useValues(featureFlagsLogic)
     const { setActiveTab } = useActions(featureFlagsLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     return (
         <SceneContent className="feature_flags">
             <PageHeader
@@ -599,7 +483,7 @@ export function FeatureFlags(): JSX.Element {
             <LemonTabs
                 activeKey={activeTab}
                 onChange={(newKey) => setActiveTab(newKey)}
-                sceneInset={newSceneLayout}
+                sceneInset
                 tabs={[
                     {
                         key: FeatureFlagsTab.OVERVIEW,

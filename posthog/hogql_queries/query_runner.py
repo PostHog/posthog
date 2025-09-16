@@ -49,6 +49,7 @@ from posthog.schema import (
     StickinessQuery,
     SuggestedQuestionsQuery,
     TeamTaxonomyQuery,
+    TraceQuery,
     TracesQuery,
     TrendsQuery,
     VectorSearchQuery,
@@ -112,6 +113,12 @@ class ExecutionMode(StrEnum):
     CACHE_ONLY_NEVER_CALCULATE = "force_cache"
     """Do not initiate calculation."""
 
+
+BLOCKING_EXECUTION_MODES = {
+    ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+    ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+    ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+}
 
 _REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {
     **ExecutionMode._value2member_map_,  # type: ignore
@@ -647,6 +654,16 @@ def get_query_runner(
 
         return TracesQueryRunner(
             query=cast(TracesQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "TraceQuery":
+        from .ai.trace_query_runner import TraceQueryRunner
+
+        return TraceQueryRunner(
+            query=cast(TraceQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,

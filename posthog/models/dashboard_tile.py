@@ -54,6 +54,7 @@ class DashboardTile(models.Model):
     last_refresh = models.DateTimeField(blank=True, null=True)
     refreshing = models.BooleanField(null=True)
     refresh_attempt = models.IntegerField(null=True, blank=True)
+    filters_overrides = models.JSONField(default=dict, null=True, blank=True)
 
     deleted = models.BooleanField(null=True, blank=True)
 

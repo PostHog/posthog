@@ -90,7 +90,7 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                                 <IconSearch className="text-secondary size-4" />
                             </ButtonPrimitive>
                         </div>
-                        <div className="flex flex-row flex-1 min-w-0 gap-1">
+                        <div className="scene-tab-row flex flex-row flex-1 min-w-0 gap-1">
                             {tabs.map((tab) => (
                                 <SortableSceneTab key={tab.id} tab={tab} />
                             ))}
@@ -219,7 +219,12 @@ function SceneTabComponent({ tab, className, isDragging }: SceneTabProps): JSX.E
                 className
             )}
         >
-            <div className={cn('flex-grow text-left max-w-[200px] truncate', tab.customTitle && 'italic')}>
+            <div
+                className={cn(
+                    'scene-tab-title flex-grow text-left max-w-[200px] truncate',
+                    tab.customTitle && 'italic'
+                )}
+            >
                 {tab.customTitle || tab.title}
             </div>
             {canRemoveTab && (

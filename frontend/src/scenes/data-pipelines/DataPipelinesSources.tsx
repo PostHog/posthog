@@ -6,21 +6,18 @@ import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { PageHeader } from 'lib/components/PageHeader'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { DataWarehouseManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseManagedSourcesTable'
 import { DataWarehouseSelfManagedSourcesTable } from 'scenes/data-warehouse/settings/DataWarehouseSelfManagedSourcesTable'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
 import { urls } from 'scenes/urls'
 
-import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ProductKey } from '~/types'
 
 export function DataPipelinesSources({ newUrl }: { newUrl?: string }): JSX.Element {
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(dataWarehouseSettingsLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const newButton = (
         <LemonButton
@@ -34,7 +31,7 @@ export function DataPipelinesSources({ newUrl }: { newUrl?: string }): JSX.Eleme
     )
 
     return (
-        <SceneContent forceNewSpacing>
+        <div className="flex flex-col gap-4">
             <PageHeader buttons={newButton} />
 
             {!dataWarehouseSourcesLoading && dataWarehouseSources?.results.length === 0 ? (
@@ -61,22 +58,7 @@ export function DataPipelinesSources({ newUrl }: { newUrl?: string }): JSX.Eleme
                             </span>
                         }
                         description="PostHog can expose a webhook that you can configure however you need to receive data from a 3rd party with no in-between service necessary"
-                        hideTitleAndDescription={!newSceneLayout}
                     >
-                        {!newSceneLayout && (
-                            <div>
-                                <h2 className="flex items-center gap-2">
-                                    Event sources
-                                    <LemonTag type="primary" size="small">
-                                        Experimental
-                                    </LemonTag>
-                                </h2>
-                                <p className="m-0">
-                                    PostHog can expose a webhook that you can configure however you need to receive data
-                                    from a 3rd party with no in-between service necessary
-                                </p>
-                            </div>
-                        )}
                         <HogFunctionList logicKey="data-pipelines-hog-functions-source-webhook" type="source_webhook" />
                     </SceneSection>
                     <SceneDivider />
@@ -86,33 +68,20 @@ export function DataPipelinesSources({ newUrl }: { newUrl?: string }): JSX.Eleme
             <SceneSection
                 title="Managed data warehouse sources"
                 description="PostHog can connect to external sources and automatically import data from them into the PostHog data warehouse"
-                hideTitleAndDescription={!newSceneLayout}
             >
-                {!newSceneLayout && (
-                    <div>
-                        <h2>Managed data warehouse sources</h2>
-                        <p className="m-0">
-                            PostHog can connect to external sources and automatically import data from them into the
-                            PostHog data warehouse
-                        </p>
-                    </div>
-                )}
                 <DataWarehouseManagedSourcesTable />
             </SceneSection>
             <SceneDivider />
             <SceneSection
                 title="Self-managed data warehouse sources"
                 description="Connect to your own data sources, making them queryable in PostHog"
-                hideTitleAndDescription={!newSceneLayout}
             >
-                {!newSceneLayout && (
-                    <div>
-                        <h2>Self-managed data warehouse sources</h2>
-                        <p className="m-0">Connect to your own data sources, making them queryable in PostHog</p>
-                    </div>
-                )}
+                <div>
+                    <h2>Self-managed data warehouse sources</h2>
+                    <p className="m-0">Connect to your own data sources, making them queryable in PostHog</p>
+                </div>
                 <DataWarehouseSelfManagedSourcesTable />
             </SceneSection>
-        </SceneContent>
+        </div>
     )
 }

@@ -95,7 +95,7 @@ export function ScenePanelLabel({ children, title, ...props }: PropsWithChildren
 export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.Element {
     const { registerScenePanelElement, setScenePanelOpen, setForceScenePanelClosedWhenRelative, setSceneLayoutConfig } =
         useActions(sceneLayoutLogic)
-    const { useSceneTabs, forceScenePanelClosedWhenRelative } = useValues(sceneLayoutLogic)
+    const { forceScenePanelClosedWhenRelative } = useValues(sceneLayoutLogic)
 
     const { scenePanelIsPresent, scenePanelOpen, scenePanelIsRelative } = useValues(sceneLayoutLogic)
 
@@ -110,13 +110,13 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
         <>
             <div
                 className={cn(
-                    'col-span-2 h-[var(--scene-layout-header-height)] sticky top-0 z-10 flex justify-center items-start',
+                    'col-span-2 h-[var(--scene-layout-header-height)] sticky top-0 z-[var(--z-main-nav)] flex justify-center items-start',
                     {
                         'col-start-1 col-span-1': scenePanelIsRelative && !forceScenePanelClosedWhenRelative,
                     }
                 )}
             >
-                {useSceneTabs ? <SceneTabs /> : null}
+                <SceneTabs />
             </div>
 
             <div
@@ -171,6 +171,7 @@ export function SceneLayout({ children, sceneConfig }: SceneLayoutProps): JSX.El
                                               ? 'Force close Info & actions panel'
                                               : 'Close Info & actions panel'
                                     }
+                                    data-attr="info-actions-panel"
                                 >
                                     <IconX className="size-4" />
                                 </ButtonPrimitive>

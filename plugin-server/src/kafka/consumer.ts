@@ -33,6 +33,12 @@ import { retryIfRetriable } from '../utils/retries'
 import { promisifyCallback } from '../utils/utils'
 import { ensureTopicExists } from './admin'
 import { getKafkaConfigFromEnv } from './config'
+import {
+    parseBrokerStatistics,
+    parsePartitionStatistics,
+    trackBrokerMetrics,
+    trackPartitionMetrics,
+} from './kafka-client-metrics'
 
 const DEFAULT_BATCH_TIMEOUT_MS = 500
 const SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS = 10000
@@ -151,6 +157,7 @@ export class KafkaConsumer {
     private consumerLoop: Promise<void> | undefined
     private backgroundTask: Promise<void>[]
     private podName: string
+    private consumerId: string
     // New health monitoring state
     private consumerLoopStallThresholdMs: number
     private lastConsumerLoopTime = 0
@@ -168,6 +175,8 @@ export class KafkaConsumer {
     ) {
         this.backgroundTask = []
         this.podName = process.env.HOSTNAME || hostname()
+        // Generate unique consumer ID: pod + group + timestamp + random number (need timestamp/random number because multiple consumers per pod)
+        this.consumerId = `${this.podName}-${this.config.groupId}-${Date.now()}-${Math.random().toString(36).substring(2, 8)}`
 
         this.config.autoCommit ??= true
         this.config.autoOffsetStore ??= true
@@ -497,18 +506,48 @@ export class KafkaConsumer {
 
                 // Update internal health monitoring state
                 this.lastStatsEmitTime = Date.now()
-                this.consumerState = parsedStats.state
+                // cgrp field only appears when consumer is part of a group
+                this.consumerState = parsedStats.cgrp?.state || 'no-group'
 
-                // Log key metrics for observability
-                logger.debug('📊', 'Kafka consumer statistics', {
-                    state: parsedStats.state,
-                    rebalance_state: parsedStats.rebalance_state,
+                const brokerStats = parseBrokerStatistics(parsedStats)
+
+                trackBrokerMetrics(brokerStats, this.config.groupId, this.consumerId)
+
+                const partitionStats = parsePartitionStatistics(parsedStats)
+                for (const { topicName, partitionId, partitionData } of partitionStats) {
+                    trackPartitionMetrics(topicName, partitionId, partitionData, this.config.groupId, this.consumerId)
+                }
+
+                // Log key metrics for observability - only include cgrp fields if present
+                const logData: any = {
                     rx_msgs: parsedStats.rxmsgs, // Total messages received
-                    rx_bytes: parsedStats.rxbytes, // Total bytes received
+                    rx_bytes: parsedStats.rx_bytes || parsedStats.rxbytes, // Total bytes received
                     topics: Object.keys(parsedStats.topics || {}),
-                })
+                    broker_count: brokerStats.size,
+                    brokers: Array.from(brokerStats.entries()).map(([name, stats]) => ({
+                        name,
+                        state: stats.state,
+                        rtt_avg: stats.rtt?.avg,
+                        connects: stats.connects,
+                        disconnects: stats.disconnects,
+                    })),
+                }
+
+                // Only add consumer group fields if cgrp exists
+                if (parsedStats.cgrp) {
+                    logData.consumer_group_state = parsedStats.cgrp.state
+                    logData.rebalance_state = parsedStats.cgrp.join_state
+                    logData.rebalance_age = parsedStats.cgrp.rebalance_age
+                    logData.rebalance_cnt = parsedStats.cgrp.rebalance_cnt
+                    logData.assignment_size = parsedStats.cgrp.assignment_size
+                }
+
+                logger.debug('📊', 'Kafka consumer statistics', logData)
             } catch (error) {
-                logger.error('📊', 'Failed to parse consumer statistics', { error })
+                logger.error('📊', 'Failed to parse consumer statistics', {
+                    error: error instanceof Error ? error.message : String(error),
+                    errorStack: error instanceof Error ? error.stack : undefined,
+                })
             }
         })
 
