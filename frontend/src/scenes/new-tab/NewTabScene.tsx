@@ -9,6 +9,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { cn } from 'lib/utils/css-classes'
+import { maxLogic } from 'scenes/max/maxLogic'
 import { newTabSceneLogic } from 'scenes/new-tab/newTabSceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -34,6 +35,7 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
     const { filteredItemsGrid, search, selectedItem, categories, selectedCategory } = useValues(
         newTabSceneLogic({ tabId })
     )
+    const { setQuestion, focusInput } = useActions(maxLogic)
     const { setSearch, selectNext, selectPrevious, onSubmit, setSelectedCategory } = useActions(
         newTabSceneLogic({ tabId })
     )
@@ -94,7 +96,12 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                             <LemonButton
                                 type="primary"
                                 size="xxsmall"
-                                onClick={() => openSidePanel(SidePanelTab.Max)}
+                                onClick={() => {
+                                    openSidePanel(SidePanelTab.Max)
+                                    setSearch('')
+                                    setQuestion(search)
+                                    focusInput()
+                                }}
                                 sideIcon={<IconSidePanel />}
                             >
                                 Ask Max!
@@ -110,7 +117,11 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                     <TabsPrimitiveList className="border-b">
                         <div className="max-w-[1200px] mx-auto w-full px-1 @lg/main-content:px-8 flex">
                             {categories.map((category) => (
-                                <TabsPrimitiveTrigger value={category.key} className="px-2 py-1 cursor-pointer">
+                                <TabsPrimitiveTrigger
+                                    value={category.key}
+                                    className="px-2 py-1 cursor-pointer"
+                                    key={category.key}
+                                >
                                     {category.label}
                                 </TabsPrimitiveTrigger>
                             ))}
