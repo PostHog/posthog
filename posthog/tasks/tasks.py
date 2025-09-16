@@ -931,14 +931,15 @@ def refresh_activity_log_fields_cache() -> None:
     from django.db.models import Count
 
     from posthog.api.advanced_activity_logs.field_discovery import AdvancedActivityLogFieldDiscovery, DetailFieldsResult
-    from posthog.api.advanced_activity_logs.fields_cache import REALTIME_FIELD_DISCOVERY_THRESHOLD, cache_fields
+    from posthog.api.advanced_activity_logs.fields_cache import cache_fields
+    from posthog.api.advanced_activity_logs.queries import SMALL_ORG_THRESHOLD
     from posthog.exceptions_capture import capture_exception
     from posthog.models import Organization
 
     logger.info("[refresh_activity_log_fields_cache] running task")
 
     large_orgs = Organization.objects.annotate(activity_count=Count("activitylog")).filter(
-        activity_count__gt=REALTIME_FIELD_DISCOVERY_THRESHOLD
+        activity_count__gt=SMALL_ORG_THRESHOLD
     )
 
     org_count = len(large_orgs)
