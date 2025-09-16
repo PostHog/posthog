@@ -1,9 +1,12 @@
 import clsx from 'clsx'
 import { useRef } from 'react'
+
 import { percentage } from 'lib/utils'
+
 import { FunnelStepWithConversionMetrics } from '~/types'
-import { getSeriesColor } from './funnelDataUtils'
+
 import { useDataDrivenTooltip } from './DataDrivenFunnelBarVertical'
+import { getSeriesColor } from './funnelDataUtils'
 
 export interface StepBarProps {
     step: FunnelStepWithConversionMetrics
@@ -17,7 +20,7 @@ interface StepBarCSSProperties extends React.CSSProperties {
     '--conversion-rate': string
 }
 
-export function DataDrivenStepBar({ step: _step, stepIndex, series, showPersonsModal }: StepBarProps): JSX.Element {
+export function DataDrivenStepBar({ stepIndex, series, showPersonsModal }: StepBarProps): JSX.Element {
     const ref = useRef<HTMLDivElement | null>(null)
     const { showTooltip, hideTooltip } = useDataDrivenTooltip()
 
@@ -43,14 +46,8 @@ export function DataDrivenStepBar({ step: _step, stepIndex, series, showPersonsM
             }}
             onMouseLeave={() => hideTooltip()}
         >
-            <div
-                className="StepBar__backdrop"
-                onClick={showPersonsModal ? () => console.log('Open modal for dropped off') : undefined}
-            />
-            <div
-                className="StepBar__fill"
-                onClick={showPersonsModal ? () => console.log('Open modal for converted') : undefined}
-            />
+            <div className="StepBar__backdrop" onClick={showPersonsModal ? () => undefined : undefined} />
+            <div className="StepBar__fill" onClick={showPersonsModal ? () => undefined : undefined} />
         </div>
     )
 }
