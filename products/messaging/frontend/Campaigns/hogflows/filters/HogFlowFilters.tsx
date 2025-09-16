@@ -56,8 +56,8 @@ export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }
 }
 
 export function HogFlowPropertyFilters({ actionId, filters, setFilters }: HogFlowFiltersProps): JSX.Element {
-    const _setFilters = (filters: FilterType['properties']): void => {
-        setFilters({ ...filters, properties: filters ?? [] } as HogFlowAction['filters'])
+    const _setFilters = (properties: FilterType['properties']): void => {
+        setFilters({ ...filters, properties: properties ?? [] } as HogFlowAction['filters'])
     }
 
     return (
