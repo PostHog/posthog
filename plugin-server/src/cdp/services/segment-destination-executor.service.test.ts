@@ -26,6 +26,7 @@ describe('SegmentDestinationExecutorService', () => {
 
     const pipedrivePlugin = SEGMENT_DESTINATIONS_BY_ID['segment-actions-pipedrive']
     const pipedriveAction = pipedrivePlugin.destination.actions['createUpdatePerson']
+    const pipedriveActivitiesAction = pipedrivePlugin.destination.actions['createUpdateActivity']
 
     beforeEach(() => {
         mockFetch.mockReset()
@@ -46,6 +47,7 @@ describe('SegmentDestinationExecutorService', () => {
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
         jest.spyOn(amplitudeAction as any, 'perform')
         jest.spyOn(pipedriveAction as any, 'perform')
+        jest.spyOn(pipedriveActivitiesAction as any, 'perform')
     })
 
     afterAll(() => {
@@ -430,6 +432,62 @@ describe('SegmentDestinationExecutorService', () => {
             `)
 
             expect(result.finished).toBe(true)
+        })
+
+        it('omits empty id field for pipedrive activities action', async () => {
+            jest.spyOn(pipedriveActivitiesAction as any, 'perform')
+
+            const pipedriveInputs = {
+                domain: 'posthog-sandbox',
+                apiToken: 'api-key',
+                person_match_value: 'e252ca85-9ea2-4d17-9d99-5fda5535995d',
+                activity_id: '',
+                personField: 'id',
+                organization_match_value: '',
+                organizationField: 'id',
+                deal_match_value: null,
+                dealField: 'id',
+                subject: null,
+                type: null,
+                description: null,
+                note: null,
+                due_date: null,
+                due_time: null,
+                duration: null,
+                done: null,
+                internal_partner_action: 'createUpdateActivity',
+                debug_mode: true,
+            }
+
+            const fn = createHogFunction({
+                name: 'Plugin test',
+                template_id: 'segment-actions-pipedrive',
+            })
+
+            const invocation = createExampleSegmentInvocation(fn, pipedriveInputs)
+
+            mockFetch.mockResolvedValue({
+                status: 200,
+                json: () => Promise.resolve({ total_count: 1 }),
+                text: () => Promise.resolve(JSON.stringify(pipedriveResponse)),
+                headers: {},
+            })
+
+            await service.execute(invocation)
+
+            expect(mockFetch).toHaveBeenCalledTimes(2)
+            expect(forSnapshot(mockFetch.mock.calls[1])).toMatchInlineSnapshot(`
+                [
+                  "https://posthog-sandbox.pipedrive.com/api/v1/activities?api_token=api-key",
+                  {
+                    "body": "{"subject":null,"type":null,"public_description":null,"note":null,"due_date":null,"due_time":null,"duration":null,"done":0}",
+                    "headers": {
+                      "Content-Type": "application/json",
+                    },
+                    "method": "POST",
+                  },
+                ]
+            `)
         })
     })
 })
