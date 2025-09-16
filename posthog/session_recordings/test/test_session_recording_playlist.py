@@ -33,12 +33,12 @@ from posthog.settings import (
     OBJECT_STORAGE_SECRET_ACCESS_KEY,
 )
 
-TEST_BUCKET = "test_storage_bucket-ee.TestSessionRecordingPlaylist"
+TEST_PREFIX = "test-storage-bucket-ee-TestSessionRecordingPlaylist"
 
 
 @override_settings(
-    OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER=TEST_BUCKET,
-    OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER=f"{TEST_BUCKET}_lts",
+    OBJECT_STORAGE_SESSION_RECORDING_BLOB_INGESTION_FOLDER=TEST_PREFIX,
+    OBJECT_STORAGE_SESSION_RECORDING_LTS_FOLDER=f"{TEST_PREFIX}_lts",
 )
 class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
     def teardown_method(self, method) -> None:
@@ -50,8 +50,11 @@ class TestSessionRecordingPlaylist(APIBaseTest, QueryMatchingTest):
             config=Config(signature_version="s3v4"),
             region_name="us-east-1",
         )
-        bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
-        bucket.objects.filter(Prefix=TEST_BUCKET).delete()
+        try:
+            bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
+            bucket.objects.filter(Prefix=TEST_PREFIX).delete()
+        except s3.meta.client.exceptions.NoSuchBucket:
+            pass  # Bucket doesn't exist, nothing to clean up
 
     def _create_playlist(
         self,
