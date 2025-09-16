@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
-import { IconCopy, IconInfo, IconTrash } from '@posthog/icons'
+import { IconCopy, IconInfo, IconTrash, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonDivider, LemonFileInput, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -42,6 +42,7 @@ import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilte
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
+import { cohortCountWarningLogic } from './cohortCountWarningLogic'
 import { createCohortDataNodeLogicKey } from './cohortUtils'
 
 const RESOURCE_TYPE = 'cohort'
@@ -58,6 +59,8 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
+    const warningLogic = cohortCountWarningLogic({ cohort, query, dataNodeLogicKey })
+    const { shouldShowCountWarning } = useValues(warningLogic)
 
     if (cohortMissing) {
         return <NotFound object="cohort" />
@@ -540,6 +543,11 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                         <span className="text-secondary ml-2">
                                             {!cohort.is_calculating && cohort.count != undefined && `(${cohort.count})`}
                                         </span>
+                                        {shouldShowCountWarning && (
+                                            <Tooltip title="The displayed number of persons is less than the cohort count due to deleted persons. This is expected behavior for dynamic cohorts where persons may be deleted after being counted.">
+                                                <IconWarning className="text-warning ml-2" />
+                                            </Tooltip>
+                                        )}
                                     </>
                                 }
                                 description="Persons who match the following criteria will be part of the cohort."
@@ -560,6 +568,11 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                                         false
                                                     )})`}
                                             </span>
+                                            {shouldShowCountWarning && (
+                                                <Tooltip title="The displayed number of persons is less than the cohort count due to deleted persons. This is expected behavior for dynamic cohorts where persons may be deleted after being counted.">
+                                                    <IconWarning className="text-warning ml-2" />
+                                                </Tooltip>
+                                            )}
                                         </h3>
                                     )}
                                     {cohort.is_calculating ? (
