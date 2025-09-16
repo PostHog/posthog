@@ -705,8 +705,6 @@ export function ViewLinkFormWithPreview({ mode }: ViewLinkModalProps): JSX.Eleme
                         <LemonButton type="primary" htmlType="submit" loading={isViewLinkSubmitting}>
                             Save join
                         </LemonButton>
-                            Save join
-                        </LemonButton>
                     </>
                 ) : (
                     <>
