@@ -259,6 +259,17 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             try {
                 const edges: Edge[] = hogFlow.edges.map((edge) => {
                     const isOnlyEdgeForNode = hogFlow.edges.filter((e) => e.from === edge.from).length === 1
+                    const edgeSourceAction = hogFlow.actions.find((action) => action.id === edge.from)
+                    const branchResourceName = () => {
+                        switch (edgeSourceAction?.type) {
+                            case 'wait_until_condition':
+                                return 'condition'
+                            case 'random_cohort_branch':
+                                return `cohort #${(edge.index || 0) + 1}`
+                            default:
+                                return `condition #${(edge.index || 0) + 1}`
+                        }
+                    }
 
                     return {
                         // Only these values are set by the user
@@ -281,7 +292,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                 ? undefined
                                 : edge.type === 'continue'
                                   ? `No match`
-                                  : `If condition #${(edge.index || 0) + 1} matches`,
+                                  : `If ${branchResourceName()} matches`,
                         },
                         labelShowBg: false,
                         targetHandle: `target_${edge.to}`,
