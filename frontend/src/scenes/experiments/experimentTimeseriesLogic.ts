@@ -88,8 +88,10 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
         // Extract and process timeseries data for a specific variant
         processedVariantData: [
             (s) => [s.timeseries],
-            (timeseries): ((variantKey: string, endDate?: string) => ProcessedTimeseriesDataPoint[]) => {
-                return (variantKey: string, endDate?: string) => {
+            (
+                timeseries: ExperimentTimeseriesResult | null
+            ): ((variantKey: string) => ProcessedTimeseriesDataPoint[]) => {
+                return (variantKey: string) => {
                     if (!timeseries?.timeseries || timeseries.status !== 'completed') {
                         return []
                     }
@@ -102,11 +104,8 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                         return []
                     }
 
-                    // Apply optional date filter
-                    const filteredData = endDate ? timeseriesData.filter((d) => d.date <= endDate) : timeseriesData
-
                     // Extract data for the specific variant
-                    const rawProcessedData = filteredData.map((d) => {
+                    const rawProcessedData = timeseriesData.map((d: any) => {
                         // If it's already simple format (legacy), use as-is
                         if ('value' in d && d.value !== undefined) {
                             return {
@@ -120,7 +119,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
 
                         // Extract from complex experiment result structure
                         if ('variant_results' in d && 'baseline' in d && d.variant_results && d.baseline) {
-                            const variant = d.variant_results.find((v) => v.key === variantKey)
+                            const variant = d.variant_results.find((v: any) => v.key === variantKey)
                             const baseline = d.baseline
 
                             if (variant && baseline) {
@@ -150,7 +149,7 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                     })
 
                     // Forward-fill missing data with last known values
-                    return rawProcessedData.map((d, index) => {
+                    return rawProcessedData.map((d: ProcessedTimeseriesDataPoint, index: number) => {
                         if (d.hasRealData) {
                             return d
                         }
@@ -187,24 +186,32 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
         // Generate Chart.js-ready datasets
         chartData: [
             (s) => [s.processedVariantData],
-            (processedVariantData): ((variantKey: string, endDate?: string) => ProcessedChartData | null) => {
-                return (variantKey: string, endDate?: string) => {
-                    const processedData = processedVariantData(variantKey, endDate)
+            (
+                processedVariantData: (variantKey: string) => ProcessedTimeseriesDataPoint[]
+            ): ((variantKey: string) => ProcessedChartData | null) => {
+                return (variantKey: string) => {
+                    const processedData = processedVariantData(variantKey)
                     if (processedData.length === 0) {
                         return null
                     }
 
-                    const labels = processedData.map((d) => d.date)
-                    const realDataMask = processedData.map((d) => d.hasRealData)
-                    const interpolatedDataMask = processedData.map((d) => !d.hasRealData)
+                    const labels = processedData.map((d: ProcessedTimeseriesDataPoint) => d.date)
+                    const realDataMask = processedData.map((d: ProcessedTimeseriesDataPoint) => d.hasRealData)
+                    const interpolatedDataMask = processedData.map((d: ProcessedTimeseriesDataPoint) => !d.hasRealData)
 
                     // Values for real data (null where interpolated)
-                    const realValues = processedData.map((d, i) => (realDataMask[i] ? (d.value ?? 0) : null))
-                    const realUpperBounds = processedData.map((d, i) => (realDataMask[i] ? (d.upper_bound ?? 0) : null))
-                    const realLowerBounds = processedData.map((d, i) => (realDataMask[i] ? (d.lower_bound ?? 0) : null))
+                    const realValues = processedData.map((d: ProcessedTimeseriesDataPoint, i: number) =>
+                        realDataMask[i] ? (d.value ?? 0) : null
+                    )
+                    const realUpperBounds = processedData.map((d: ProcessedTimeseriesDataPoint, i: number) =>
+                        realDataMask[i] ? (d.upper_bound ?? 0) : null
+                    )
+                    const realLowerBounds = processedData.map((d: ProcessedTimeseriesDataPoint, i: number) =>
+                        realDataMask[i] ? (d.lower_bound ?? 0) : null
+                    )
 
                     // For connecting segments, include boundary points
-                    const connectedInterpValues = processedData.map((d, i) => {
+                    const connectedInterpValues = processedData.map((d: ProcessedTimeseriesDataPoint, i: number) => {
                         if (interpolatedDataMask[i]) {
                             return d.value ?? 0
                         }
@@ -213,24 +220,28 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                         }
                         return null
                     })
-                    const connectedInterpUpperBounds = processedData.map((d, i) => {
-                        if (interpolatedDataMask[i]) {
-                            return d.upper_bound ?? 0
+                    const connectedInterpUpperBounds = processedData.map(
+                        (d: ProcessedTimeseriesDataPoint, i: number) => {
+                            if (interpolatedDataMask[i]) {
+                                return d.upper_bound ?? 0
+                            }
+                            if (i < processedData.length - 1 && interpolatedDataMask[i + 1]) {
+                                return d.upper_bound ?? 0
+                            }
+                            return null
                         }
-                        if (i < processedData.length - 1 && interpolatedDataMask[i + 1]) {
-                            return d.upper_bound ?? 0
+                    )
+                    const connectedInterpLowerBounds = processedData.map(
+                        (d: ProcessedTimeseriesDataPoint, i: number) => {
+                            if (interpolatedDataMask[i]) {
+                                return d.lower_bound ?? 0
+                            }
+                            if (i < processedData.length - 1 && interpolatedDataMask[i + 1]) {
+                                return d.lower_bound ?? 0
+                            }
+                            return null
                         }
-                        return null
-                    })
-                    const connectedInterpLowerBounds = processedData.map((d, i) => {
-                        if (interpolatedDataMask[i]) {
-                            return d.lower_bound ?? 0
-                        }
-                        if (i < processedData.length - 1 && interpolatedDataMask[i + 1]) {
-                            return d.lower_bound ?? 0
-                        }
-                        return null
-                    })
+                    )
 
                     const datasets: ChartDataset[] = [
                         // Real upper bounds (solid)

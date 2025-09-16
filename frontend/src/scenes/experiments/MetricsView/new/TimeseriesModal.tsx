@@ -38,8 +38,7 @@ export function TimeseriesModal({
         }
     }, [isOpen, metric.uuid, clearTimeseries, loadTimeseries])
 
-    // TEMPORARY: Filter data to end on 2025-06-05 for screenshot
-    const processedChartData = chartData(variantResult.key, '2025-06-05')
+    const processedChartData = chartData(variantResult.key)
     const variantName =
         experiment.parameters?.feature_flag_variants?.find((v) => v.key === variantResult.key)?.name ||
         variantResult.key
