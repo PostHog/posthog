@@ -65,7 +65,7 @@ jobs:
               uses: actions/setup-python@v5
               if: needs.changes.outputs.python == 'true'
               with:
-                  python-version: 3.11.9
+                  python-version: 3.11.13
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Install uv

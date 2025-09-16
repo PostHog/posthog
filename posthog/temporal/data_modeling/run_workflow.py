@@ -1293,6 +1293,7 @@ async def finish_run_activity(inputs: FinishRunActivityInputs) -> None:
 class CreateTableActivityInputs:
     models: list[str]
     team_id: int
+    job_id: str
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -1317,7 +1318,7 @@ async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
             )
             continue  # Skip this model if it's not a valid UUID
 
-        await create_table_from_saved_query(model, inputs.team_id)
+        await create_table_from_saved_query(inputs.job_id, model, inputs.team_id)
 
         try:
             saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.select_related("table").get)(
@@ -1548,7 +1549,7 @@ class RunWorkflow(PostHogWorkflow):
 
         selected_labels = [selector.label for selector in inputs.select]
         create_table_activity_inputs = CreateTableActivityInputs(
-            models=[label for label in completed if label in selected_labels], team_id=inputs.team_id
+            models=[label for label in completed if label in selected_labels], team_id=inputs.team_id, job_id=job_id
         )
         await temporalio.workflow.execute_activity(
             create_table_activity,

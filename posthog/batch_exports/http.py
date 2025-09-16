@@ -12,7 +12,6 @@ from django.utils.timezone import now
 
 import structlog
 import posthoganalytics
-from loginas.utils import is_impersonated_session
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import CursorPagination
@@ -45,7 +44,6 @@ from posthog.batch_exports.service import (
     sync_cancel_running_batch_export_backfill,
     unpause_batch_export,
 )
-from posthog.cdp.validation import has_data_pipelines_addon
 from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun, Team, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
 from posthog.models.signals import model_activity_signal
@@ -357,20 +355,6 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "filters",
         ]
         read_only_fields = ["id", "team_id", "created_at", "last_updated_at", "latest_runs", "schema"]
-
-    def validate(self, attrs: dict) -> dict:
-        team = self.context["get_team"]()
-        attrs["team"] = team
-
-        has_addon = has_data_pipelines_addon(team, self.context["request"].user)
-
-        if not has_addon:
-            # Check if the user is impersonated - if so we allow changes as it could be an admin user fixing things
-
-            if not is_impersonated_session(self.context["request"]):
-                raise serializers.ValidationError("The Data Pipelines addon is required for batch exports.")
-
-        return attrs
 
     def validate_destination(self, destination_attrs: dict):
         destination_type = destination_attrs["type"]

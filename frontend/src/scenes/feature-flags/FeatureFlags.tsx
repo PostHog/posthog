@@ -11,7 +11,6 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { FeatureFlagHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -245,7 +244,6 @@ export function OverViewTab({
     const { featureFlagsLoading, featureFlags, count, pagination, filters, shouldShowEmptyState } = useValues(flagLogic)
     const { setFeatureFlagsFilters } = useActions(flagLogic)
     const { hasAvailableFeature } = useValues(userLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const page = filters.page || 1
     const startCount = (page - 1) * FLAGS_PER_PAGE + 1
@@ -401,7 +399,7 @@ export function OverViewTab({
     )
 
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             <ProductIntroduction
                 productName="Feature flags"
                 productKey={ProductKey.FEATURE_FLAGS}
@@ -411,7 +409,7 @@ export function OverViewTab({
                 action={() => router.actions.push(urls.featureFlag('new'))}
                 isEmpty={shouldShowEmptyState}
                 customHog={FeatureFlagHog}
-                className={cn(newSceneLayout && 'my-0')}
+                className={cn('my-0')}
             />
             <div>{filtersSection}</div>
             <LemonDivider className="my-0" />
@@ -455,7 +453,6 @@ export function OverViewTab({
 export function FeatureFlags(): JSX.Element {
     const { activeTab } = useValues(featureFlagsLogic)
     const { setActiveTab } = useActions(featureFlagsLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     return (
         <SceneContent className="feature_flags">
             <PageHeader
@@ -486,7 +483,7 @@ export function FeatureFlags(): JSX.Element {
             <LemonTabs
                 activeKey={activeTab}
                 onChange={(newKey) => setActiveTab(newKey)}
-                sceneInset={newSceneLayout}
+                sceneInset
                 tabs={[
                     {
                         key: FeatureFlagsTab.OVERVIEW,
