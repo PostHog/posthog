@@ -4,15 +4,7 @@ from typing import Annotated
 from pydantic import Field
 
 from ee.hogai.utils.types import AssistantMessageUnion, add_and_merge_messages
-from ee.hogai.utils.types.base import (
-    BaseTaskExecutionState,
-    InsightArtifact,
-    InsightCreationArtifact,
-    InsightSearchArtifact,
-    TaskExecutionResult,
-)
-
-DashboardSingleTaskResult = TaskExecutionResult[InsightArtifact]
+from ee.hogai.utils.types.base import BaseTaskExecutionState, InsightCreationArtifact, InsightSearchArtifact
 
 
 class _SharedDashboardInsightSearchExecutionState(BaseTaskExecutionState[InsightSearchArtifact]):
