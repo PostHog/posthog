@@ -58,6 +58,7 @@ function ExportButton({
     return (
         <div className="flex justify-between items-center mt-2 md:mt-0">
             <LemonButton
+                size="small"
                 type="secondary"
                 onClick={handleExport}
                 icon={<IconDownload />}
@@ -95,10 +96,12 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                         value={replayIframeData?.url}
                         onChange={(s) => setReplayIframeDataURL(s)}
                         className="truncate"
+                        size="small"
                     />
                 ) : (
                     <LemonInputSelect
                         mode="single"
+                        size="small"
                         allowCustomValues
                         placeholder={`e.g. ${placeholderUrl}`}
                         onInputChange={(e) => setBrowserSearch(e)}
@@ -117,7 +120,9 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
             </div>
             {hasValidReplayIframeData ? (
                 <LemonButton
+                    size="small"
                     icon={<IconRevert />}
+                    data-attr="heatmaps-reset"
                     onClick={() => {
                         setReplayIframeData(null)
                         setBrowserUrl(null)
@@ -144,6 +149,8 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
                 targetBlank
                 disabledReason={!browserUrl && !hasValidReplayIframeData ? 'Select a URL first' : undefined}
                 className="mt-2 md:mt-0"
+                size="small"
+                data-attr="heatmaps-open-in-toolbar"
             >
                 Open in toolbar
             </LemonButton>
