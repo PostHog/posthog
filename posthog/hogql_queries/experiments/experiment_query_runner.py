@@ -389,7 +389,7 @@ class ExperimentQueryRunner(QueryRunner):
             # Add sampled session IDs for each step
             sampled_session_exprs = []
             for i in range(num_steps):
-                # For each step, collect session_ids from users who reached that step
+                # For each step, collect session_ids from users who reached that step (not more!)
                 # and sample up to 10 of them
                 sampled_expr = f"""
                 arraySlice(
@@ -398,7 +398,7 @@ class ExperimentQueryRunner(QueryRunner):
                             arrayFilter(
                                 x -> notEmpty(x),
                                 groupArray(
-                                    if(metric_events.value >= {i}, metric_events.session_ids, [])
+                                    if(metric_events.value = {i}, metric_events.session_ids, [])
                                 )
                             )
                         )
