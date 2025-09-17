@@ -142,9 +142,9 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
         ],
     }),
 
-    listeners(({ asyncActions, actions, props, values }) => ({
-        split: async ({ exclusive }) => {
-            await asyncActions.splitIssue(props.id, values.selectedFingerprints, exclusive)
+    listeners(({ actions, props, values }) => ({
+        split: ({ exclusive }) => {
+            actions.splitIssue(props.id, values.selectedFingerprints, exclusive)
             lemonToast.success('Issue split successfully!')
             actions.setSelectedFingerprints([])
         },
