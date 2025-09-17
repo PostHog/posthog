@@ -88,8 +88,10 @@ class DatabricksDestinationTest(BaseDestinationTest):
             "client_id": os.getenv("DATABRICKS_CLIENT_ID"),
             "client_secret": os.getenv("DATABRICKS_CLIENT_SECRET"),
             "catalog": os.getenv("DATABRICKS_CATALOG", f"batch_export_tests"),
-            "schema": os.getenv("DATABRICKS_SCHEMA", f"test_workflow_schema_{team_id}"),
-            "table_name": f"test_workflow_table_{team_id}",
+            # use a hyphen in the schema name to test we handle it correctly
+            "schema": os.getenv("DATABRICKS_SCHEMA", f"test_workflow_schema-{team_id}"),
+            # use a hyphen in the table name to test we handle it correctly
+            "table_name": f"test_workflow_table-{team_id}",
         }
 
     def get_invalid_destination_config(self) -> tuple[dict, str]:
