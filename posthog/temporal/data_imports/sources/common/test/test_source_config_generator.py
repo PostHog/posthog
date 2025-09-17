@@ -33,7 +33,6 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
     def test_source_config_types(self):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
-            caption="",
             iconPath="",
             fields=cast(
                 list[FieldType],
@@ -136,7 +135,6 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
     def test_source_config_required(self):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
-            caption="",
             iconPath="",
             fields=cast(
                 list[FieldType],
@@ -159,7 +157,6 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
     def test_source_config_not_required(self):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
-            caption="",
             iconPath="",
             fields=cast(
                 list[FieldType],
@@ -181,7 +178,6 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
     def test_source_config_input_non_python_identifier(self):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
-            caption="",
             iconPath="",
             fields=cast(
                 list[FieldType],
@@ -203,7 +199,6 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
     def test_source_config_switch_group_non_python_identifier(self):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
-            caption="",
             iconPath="",
             fields=cast(
                 list[FieldType],
@@ -240,7 +235,6 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
     def test_source_config_file_upload_non_python_identifier(self):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
-            caption="",
             iconPath="",
             fields=cast(
                 list[FieldType],
@@ -264,7 +258,6 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
     def test_source_config_oauth_non_python_identifier(self):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
-            caption="",
             iconPath="",
             fields=cast(
                 list[FieldType],
@@ -288,7 +281,6 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
     def test_source_config_ssh_tunnel_non_python_identifier(self):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
-            caption="",
             iconPath="",
             fields=cast(
                 list[FieldType],
@@ -310,7 +302,6 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
     def test_source_config_complex_select_non_python_identifier(self):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
-            caption="",
             iconPath="",
             fields=cast(
                 list[FieldType],
@@ -369,7 +360,6 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
     def test_source_config_simple_select_non_python_identifier(self):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
-            caption="",
             iconPath="",
             fields=cast(
                 list[FieldType],
@@ -393,7 +383,6 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
     def test_source_config_ssh_tunnel_reference(self):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
-            caption="",
             iconPath="",
             fields=cast(
                 list[FieldType],
@@ -410,7 +399,6 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
     def test_source_config_type_conversion(self):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
-            caption="",
             iconPath="",
             fields=cast(
                 list[FieldType],
@@ -432,7 +420,6 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
     def test_source_config_nested_class(self):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
-            caption="",
             iconPath="",
             fields=cast(
                 list[FieldType],

@@ -15,6 +15,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
@@ -161,22 +162,24 @@ function LogCaptureSettings(): JSX.Element {
                 </Link>{' '}
                 , where they can be configured directly in code.
             </p>
-            <LemonSwitch
-                data-attr="opt-in-capture-console-log-switch"
-                onChange={(checked) => {
-                    updateCurrentTeam({ capture_console_log_opt_in: checked })
-                }}
-                label="Capture console logs"
-                bordered
-                checked={!!currentTeam?.capture_console_log_opt_in}
-                disabledReason={!currentTeam?.session_recording_opt_in ? 'Session replay must be enabled' : undefined}
-                accessControl={{
-                    resourceType: AccessControlResourceType.SessionRecording,
-                    minAccessLevel: AccessControlLevel.Editor,
-                    userAccessLevel:
-                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
-                }}
-            />
+            <AccessControlAction
+                resourceType={AccessControlResourceType.SessionRecording}
+                minAccessLevel={AccessControlLevel.Editor}
+                userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]}
+            >
+                <LemonSwitch
+                    data-attr="opt-in-capture-console-log-switch"
+                    onChange={(checked) => {
+                        updateCurrentTeam({ capture_console_log_opt_in: checked })
+                    }}
+                    label="Capture console logs"
+                    bordered
+                    checked={!!currentTeam?.capture_console_log_opt_in}
+                    disabledReason={
+                        !currentTeam?.session_recording_opt_in ? 'Session replay must be enabled' : undefined
+                    }
+                />
+            </AccessControlAction>
         </div>
     )
 }
@@ -210,34 +213,36 @@ function CanvasCaptureSettings(): JSX.Element | null {
                 </b>
             </p>
             <p>Canvas capture is only available for JavaScript Web.</p>
-            <LemonSwitch
-                data-attr="opt-in-capture-canvas-switch"
-                onChange={(checked) => {
-                    updateCurrentTeam({
-                        session_replay_config: {
-                            ...currentTeam?.session_replay_config,
-                            record_canvas: checked,
-                        },
-                    })
-                }}
-                label={
-                    <div className="deprecated-space-x-1">
-                        <LemonTag type="success">New</LemonTag>
-                        <LemonLabel>Capture canvas elements</LemonLabel>
-                    </div>
-                }
-                bordered
-                checked={
-                    currentTeam?.session_replay_config ? !!currentTeam?.session_replay_config?.record_canvas : false
-                }
-                disabledReason={!currentTeam?.session_recording_opt_in ? 'Session replay must be enabled' : undefined}
-                accessControl={{
-                    resourceType: AccessControlResourceType.SessionRecording,
-                    minAccessLevel: AccessControlLevel.Editor,
-                    userAccessLevel:
-                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
-                }}
-            />
+            <AccessControlAction
+                resourceType={AccessControlResourceType.SessionRecording}
+                minAccessLevel={AccessControlLevel.Editor}
+                userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]}
+            >
+                <LemonSwitch
+                    data-attr="opt-in-capture-canvas-switch"
+                    onChange={(checked) => {
+                        updateCurrentTeam({
+                            session_replay_config: {
+                                ...currentTeam?.session_replay_config,
+                                record_canvas: checked,
+                            },
+                        })
+                    }}
+                    label={
+                        <div className="deprecated-space-x-1">
+                            <LemonTag type="success">New</LemonTag>
+                            <LemonLabel>Capture canvas elements</LemonLabel>
+                        </div>
+                    }
+                    bordered
+                    checked={
+                        currentTeam?.session_replay_config ? !!currentTeam?.session_replay_config?.record_canvas : false
+                    }
+                    disabledReason={
+                        !currentTeam?.session_recording_opt_in ? 'Session replay must be enabled' : undefined
+                    }
+                />
+            </AccessControlAction>
         </div>
     )
 }
@@ -286,22 +291,25 @@ export function NetworkCaptureSettings(): JSX.Element {
                 </Link>{' '}
                 , where they can be configured directly in code.
             </p>
-            <LemonSwitch
-                data-attr="opt-in-capture-performance-switch"
-                onChange={(checked) => {
-                    updateCurrentTeam({ capture_performance_opt_in: checked })
-                }}
-                label="Capture network performance"
-                bordered
-                checked={!!currentTeam?.capture_performance_opt_in}
-                disabledReason={!currentTeam?.session_recording_opt_in ? 'Session replay must be enabled' : undefined}
-                accessControl={{
-                    resourceType: AccessControlResourceType.SessionRecording,
-                    minAccessLevel: AccessControlLevel.Editor,
-                    userAccessLevel:
-                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
-                }}
-            />
+
+            <AccessControlAction
+                resourceType={AccessControlResourceType.SessionRecording}
+                minAccessLevel={AccessControlLevel.Editor}
+                userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]}
+            >
+                <LemonSwitch
+                    data-attr="opt-in-capture-performance-switch"
+                    onChange={(checked) => {
+                        updateCurrentTeam({ capture_performance_opt_in: checked })
+                    }}
+                    label="Capture network performance"
+                    bordered
+                    checked={!!currentTeam?.capture_performance_opt_in}
+                    disabledReason={
+                        !currentTeam?.session_recording_opt_in ? 'Session replay must be enabled' : undefined
+                    }
+                />
+            </AccessControlAction>
 
             <div className="mt-4">
                 <p>
@@ -322,84 +330,88 @@ export function NetworkCaptureSettings(): JSX.Element {
                     reactNative={false}
                 />
                 <div className="flex flex-row deprecated-space-x-2">
-                    <LemonSwitch
-                        data-attr="opt-in-capture-network-headers-switch"
-                        onChange={(checked) => {
-                            updateCurrentTeam({
-                                session_recording_network_payload_capture_config: {
-                                    ...currentTeam?.session_recording_network_payload_capture_config,
-                                    recordHeaders: checked,
-                                },
-                            })
-                        }}
-                        label="Capture headers"
-                        bordered
-                        checked={
-                            currentTeam?.session_recording_opt_in
-                                ? !!currentTeam?.session_recording_network_payload_capture_config?.recordHeaders
-                                : false
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.SessionRecording}
+                        minAccessLevel={AccessControlLevel.Editor}
+                        userAccessLevel={
+                            getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
                         }
-                        disabledReason={
-                            !currentTeam?.session_recording_opt_in || !currentTeam?.capture_performance_opt_in
-                                ? 'session and network performance capture must be enabled'
-                                : undefined
-                        }
-                        accessControl={{
-                            resourceType: AccessControlResourceType.SessionRecording,
-                            minAccessLevel: AccessControlLevel.Editor,
-                            userAccessLevel:
-                                getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
-                        }}
-                    />
-                    <LemonSwitch
-                        data-attr="opt-in-capture-network-body-switch"
-                        onChange={(checked) => {
-                            if (checked) {
-                                LemonDialog.open({
-                                    maxWidth: '650px',
-                                    title: 'Network body capture',
-                                    description: <PayloadWarning />,
-                                    primaryButton: {
-                                        'data-attr': 'network-payload-capture-accept-warning-and-enable',
-                                        children: 'Enable body capture',
-                                        onClick: () => {
-                                            updateCurrentTeam({
-                                                session_recording_network_payload_capture_config: {
-                                                    ...currentTeam?.session_recording_network_payload_capture_config,
-                                                    recordBody: true,
-                                                },
-                                            })
-                                        },
-                                    },
-                                })
-                            } else {
+                    >
+                        <LemonSwitch
+                            data-attr="opt-in-capture-network-headers-switch"
+                            onChange={(checked) => {
                                 updateCurrentTeam({
                                     session_recording_network_payload_capture_config: {
                                         ...currentTeam?.session_recording_network_payload_capture_config,
-                                        recordBody: false,
+                                        recordHeaders: checked,
                                     },
                                 })
+                            }}
+                            label="Capture headers"
+                            bordered
+                            checked={
+                                currentTeam?.session_recording_opt_in
+                                    ? !!currentTeam?.session_recording_network_payload_capture_config?.recordHeaders
+                                    : false
                             }
-                        }}
-                        label="Capture body"
-                        bordered
-                        checked={
-                            currentTeam?.session_recording_opt_in
-                                ? !!currentTeam?.session_recording_network_payload_capture_config?.recordBody
-                                : false
+                            disabledReason={
+                                !currentTeam?.session_recording_opt_in || !currentTeam?.capture_performance_opt_in
+                                    ? 'session and network performance capture must be enabled'
+                                    : undefined
+                            }
+                        />
+                    </AccessControlAction>
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.SessionRecording}
+                        minAccessLevel={AccessControlLevel.Editor}
+                        userAccessLevel={
+                            getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
                         }
-                        disabledReason={
-                            !currentTeam?.session_recording_opt_in || !currentTeam?.capture_performance_opt_in
-                                ? 'session and network performance capture must be enabled'
-                                : undefined
-                        }
-                        accessControl={{
-                            resourceType: AccessControlResourceType.SessionRecording,
-                            minAccessLevel: AccessControlLevel.Editor,
-                            userAccessLevel:
-                                getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
-                        }}
-                    />
+                    >
+                        <LemonSwitch
+                            data-attr="opt-in-capture-network-body-switch"
+                            onChange={(checked) => {
+                                if (checked) {
+                                    LemonDialog.open({
+                                        maxWidth: '650px',
+                                        title: 'Network body capture',
+                                        description: <PayloadWarning />,
+                                        primaryButton: {
+                                            'data-attr': 'network-payload-capture-accept-warning-and-enable',
+                                            children: 'Enable body capture',
+                                            onClick: () => {
+                                                updateCurrentTeam({
+                                                    session_recording_network_payload_capture_config: {
+                                                        ...currentTeam?.session_recording_network_payload_capture_config,
+                                                        recordBody: true,
+                                                    },
+                                                })
+                                            },
+                                        },
+                                    })
+                                } else {
+                                    updateCurrentTeam({
+                                        session_recording_network_payload_capture_config: {
+                                            ...currentTeam?.session_recording_network_payload_capture_config,
+                                            recordBody: false,
+                                        },
+                                    })
+                                }
+                            }}
+                            label="Capture body"
+                            bordered
+                            checked={
+                                currentTeam?.session_recording_opt_in
+                                    ? !!currentTeam?.session_recording_network_payload_capture_config?.recordBody
+                                    : false
+                            }
+                            disabledReason={
+                                !currentTeam?.session_recording_opt_in || !currentTeam?.capture_performance_opt_in
+                                    ? 'session and network performance capture must be enabled'
+                                    : undefined
+                            }
+                        />
+                    </AccessControlAction>
                 </div>
             </div>
         </>
@@ -408,7 +420,7 @@ export function NetworkCaptureSettings(): JSX.Element {
 
 /**
  * @deprecated use ReplayTriggers instead, this is only presented to teams that have these settings set
- * @constructor
+ * @class
  */
 export function ReplayAuthorizedDomains(): JSX.Element {
     return (
@@ -621,21 +633,21 @@ export function ReplayMaskingSettings(): JSX.Element {
                 </Link>
             </p>
             <p>If you specify this in code, it will take precedence over the setting here.</p>
-            <LemonSelect
-                value={maskingLevel}
-                onChange={(val) => val && handleMaskingChange(val)}
-                options={[
-                    { value: 'total-privacy', label: 'Total privacy (mask all text/images)' },
-                    { value: 'normal', label: 'Normal (mask inputs but not text/images)' },
-                    { value: 'free-love', label: 'Free love (mask only passwords)' },
-                ]}
-                accessControl={{
-                    resourceType: AccessControlResourceType.SessionRecording,
-                    minAccessLevel: AccessControlLevel.Editor,
-                    userAccessLevel:
-                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
-                }}
-            />
+            <AccessControlAction
+                resourceType={AccessControlResourceType.SessionRecording}
+                minAccessLevel={AccessControlLevel.Editor}
+                userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]}
+            >
+                <LemonSelect
+                    value={maskingLevel}
+                    onChange={(val) => val && handleMaskingChange(val)}
+                    options={[
+                        { value: 'total-privacy', label: 'Total privacy (mask all text/images)' },
+                        { value: 'normal', label: 'Normal (mask inputs but not text/images)' },
+                        { value: 'free-love', label: 'Free love (mask only passwords)' },
+                    ]}
+                />
+            </AccessControlAction>
         </div>
     )
 }
@@ -677,21 +689,24 @@ export function ReplayGeneral(): JSX.Element {
                         Check out our docs
                     </Link>
                 </p>
-                <LemonSwitch
-                    data-attr="opt-in-session-recording-switch"
-                    onChange={(checked) => {
-                        handleOptInChange(checked)
-                    }}
-                    label="Record user sessions"
-                    bordered
-                    checked={!!currentTeam?.session_recording_opt_in}
-                    accessControl={{
-                        resourceType: AccessControlResourceType.SessionRecording,
-                        minAccessLevel: AccessControlLevel.Editor,
-                        userAccessLevel:
-                            getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
-                    }}
-                />
+                <AccessControlAction
+                    resourceType={AccessControlResourceType.SessionRecording}
+                    minAccessLevel={AccessControlLevel.Editor}
+                    userAccessLevel={
+                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
+                    }
+                >
+                    <LemonSwitch
+                        data-attr="opt-in-session-recording-switch"
+                        onChange={(checked) => {
+                            handleOptInChange(checked)
+                        }}
+                        label="Record user sessions"
+                        bordered
+                        checked={!!currentTeam?.session_recording_opt_in}
+                    />
+                </AccessControlAction>
+
                 {showSurvey && <InternalMultipleChoiceSurvey surveyId={SESSION_RECORDING_OPT_OUT_SURVEY_ID} />}
             </div>
             <LogCaptureSettings />

@@ -103,7 +103,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     )
 
     // insightDataLogic
-    const { query, queryChanged, showQueryEditor, showDebugPanel, hogQL, exportContext } = useValues(
+    const { query, queryChanged, showQueryEditor, showDebugPanel, hogQL, exportContext, hogQLVariables } = useValues(
         insightDataLogic(insightProps)
     )
     const { toggleQueryEditorPanel, toggleDebugPanel } = useActions(insightDataLogic(insightProps))
@@ -218,33 +218,36 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
                         {insightMode !== ItemMode.Edit ? (
                             canEditInsight && (
-                                <LemonButton
-                                    accessControl={{
-                                        resourceType: AccessControlResourceType.Insight,
-                                        minAccessLevel: AccessControlLevel.Editor,
-                                        userAccessLevel: insight.user_access_level,
-                                    }}
-                                    type="primary"
-                                    icon={dashboardOverridesExist ? <IconWarning /> : undefined}
-                                    tooltip={
-                                        dashboardOverridesExist
-                                            ? `This insight is being viewed with dashboard ${overrideType}. These will be discarded on edit.`
-                                            : undefined
-                                    }
-                                    tooltipPlacement="bottom"
-                                    onClick={() => {
-                                        if (isDataVisualizationNode(query) && insight.short_id) {
-                                            router.actions.push(urls.sqlEditor(undefined, undefined, insight.short_id))
-                                        } else if (insight.short_id) {
-                                            push(urls.insightEdit(insight.short_id))
-                                        } else {
-                                            setInsightMode(ItemMode.Edit, null)
-                                        }
-                                    }}
-                                    data-attr="insight-edit-button"
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Insight}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={insight.user_access_level}
                                 >
-                                    Edit
-                                </LemonButton>
+                                    <LemonButton
+                                        type="primary"
+                                        icon={dashboardOverridesExist ? <IconWarning /> : undefined}
+                                        tooltip={
+                                            dashboardOverridesExist
+                                                ? `This insight is being viewed with dashboard ${overrideType}. These will be discarded on edit.`
+                                                : undefined
+                                        }
+                                        tooltipPlacement="bottom"
+                                        onClick={() => {
+                                            if (isDataVisualizationNode(query) && insight.short_id) {
+                                                router.actions.push(
+                                                    urls.sqlEditor(undefined, undefined, insight.short_id)
+                                                )
+                                            } else if (insight.short_id) {
+                                                push(urls.insightEdit(insight.short_id))
+                                            } else {
+                                                setInsightMode(ItemMode.Edit, null)
+                                            }
+                                        }}
+                                        data-attr="insight-edit-button"
+                                    >
+                                        Edit
+                                    </LemonButton>
+                                </AccessControlAction>
                             )
                         ) : (
                             <InsightSaveButton
@@ -454,6 +457,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                             createStaticCohort(name, {
                                                 kind: NodeKind.HogQLQuery,
                                                 query: hogQL,
+                                                variables: hogQLVariables,
                                             })
                                         },
                                     })
