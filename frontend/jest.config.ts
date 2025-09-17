@@ -15,6 +15,7 @@ const esmModules = [
     '@medv',
     'monaco-editor',
     'mdast-util-find-and-replace',
+    'escape-string-regexp',
 ]
 const eeFolderExists = fs.existsSync('../ee/frontend/exports.ts')
 function rootDirectories(): string[] {
