@@ -2,6 +2,7 @@ import {
     ConversionGoalFilter,
     DataWarehouseNode,
     ExternalDataSourceType,
+    MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsHelperForColumnNames,
     MarketingAnalyticsOrderBy,
     MarketingAnalyticsTableQuery,
@@ -53,16 +54,20 @@ export const NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS: Record<NativeMarketin
     MetaAds: [META_ADS_CAMPAIGN_TABLE_NAME, META_ADS_CAMPAIGN_STATS_TABLE_NAME],
 }
 
-export function MarketingDashboardMapper(source: NativeSource): DataWarehouseNode | null {
+export function MarketingDashboardMapper(
+    source: NativeSource,
+    tileColumnSelection: validColumnsForTiles
+): DataWarehouseNode | null {
     switch (source.source.source_type) {
         case 'GoogleAds':
-            return googleAdsCostTile(source)
+            return googleAdsCostTile(source, tileColumnSelection)
         case 'LinkedinAds':
-            return linkedinAdsCostTile(source)
+            return linkedinAdsCostTile(source, tileColumnSelection)
         case 'RedditAds':
-            return redditAdsCostTile(source)
+            return redditAdsCostTile(source, tileColumnSelection)
+
         case 'MetaAds':
-            return metaAdsCostTile(source)
+            return metaAdsCostTile(source, tileColumnSelection)
         default:
             return null
     }
@@ -177,4 +182,94 @@ export function createMarketingAnalyticsOrderBy(
     direction: 'ASC' | 'DESC'
 ): MarketingAnalyticsOrderBy[] {
     return [[column, direction]]
+}
+export type validColumnsForTiles = Extract<MarketingAnalyticsColumnsSchemaNames, 'cost' | 'impressions' | 'clicks'>
+
+export const columnTileConfig: {
+    [key in (typeof VALID_NATIVE_MARKETING_SOURCES)[number]]: {
+        columns: {
+            [key in validColumnsForTiles]: {
+                name: string
+                type: string
+                needsDivision: boolean
+            }
+        }
+    }
+} = {
+    GoogleAds: {
+        columns: {
+            [MarketingAnalyticsColumnsSchemaNames.Cost]: {
+                name: 'metrics_cost_micros',
+                type: 'float',
+                needsDivision: true,
+            },
+            [MarketingAnalyticsColumnsSchemaNames.Impressions]: {
+                name: 'metrics_impressions',
+                type: 'integer',
+                needsDivision: false,
+            },
+            [MarketingAnalyticsColumnsSchemaNames.Clicks]: {
+                name: 'metrics_clicks',
+                type: 'integer',
+                needsDivision: false,
+            },
+        },
+    },
+    RedditAds: {
+        columns: {
+            [MarketingAnalyticsColumnsSchemaNames.Cost]: {
+                name: 'spend',
+                type: 'float',
+                needsDivision: true,
+            },
+            [MarketingAnalyticsColumnsSchemaNames.Impressions]: {
+                name: 'impressions',
+                type: 'integer',
+                needsDivision: false,
+            },
+            [MarketingAnalyticsColumnsSchemaNames.Clicks]: {
+                name: 'clicks',
+                type: 'integer',
+                needsDivision: false,
+            },
+        },
+    },
+    LinkedinAds: {
+        columns: {
+            [MarketingAnalyticsColumnsSchemaNames.Cost]: {
+                name: 'cost_in_usd',
+                type: 'float',
+                needsDivision: false,
+            },
+            [MarketingAnalyticsColumnsSchemaNames.Impressions]: {
+                name: 'impressions',
+                type: 'integer',
+                needsDivision: false,
+            },
+            [MarketingAnalyticsColumnsSchemaNames.Clicks]: {
+                name: 'clicks',
+                type: 'integer',
+                needsDivision: false,
+            },
+        },
+    },
+    MetaAds: {
+        columns: {
+            [MarketingAnalyticsColumnsSchemaNames.Cost]: {
+                name: 'spend',
+                type: 'float',
+                needsDivision: true,
+            },
+            [MarketingAnalyticsColumnsSchemaNames.Impressions]: {
+                name: 'impressions',
+                type: 'integer',
+                needsDivision: false,
+            },
+            [MarketingAnalyticsColumnsSchemaNames.Clicks]: {
+                name: 'clicks',
+                type: 'integer',
+                needsDivision: false,
+            },
+        },
+    },
 }

@@ -4074,6 +4074,7 @@ class MarketingAnalyticsSchemaField(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    isCurrency: bool
     required: bool
     type: list[MarketingAnalyticsSchemaFieldTypes]
 

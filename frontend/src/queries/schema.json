@@ -15535,6 +15535,9 @@
         "MarketingAnalyticsSchemaField": {
             "additionalProperties": false,
             "properties": {
+                "isCurrency": {
+                    "type": "boolean"
+                },
                 "required": {
                     "type": "boolean"
                 },
@@ -15545,7 +15548,7 @@
                     "type": "array"
                 }
             },
-            "required": ["type", "required"],
+            "required": ["type", "required", "isCurrency"],
             "type": "object"
         },
         "MarketingAnalyticsSchemaFieldTypes": {
