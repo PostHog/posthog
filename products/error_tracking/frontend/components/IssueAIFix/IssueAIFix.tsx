@@ -93,10 +93,7 @@ export function IssueAIFix(): JSX.Element {
                             <div className="flex items-center gap-2 text-sm">
                                 <IconGitRepository className="text-muted-alt" />
                                 {repository ? (
-                                    <span
-                                        className="text-default font-medium truncate max-w-[150px]"
-                                        title={repository}
-                                    >
+                                    <span className="text-default font-medium truncate" title={repository}>
                                         {repository.split('/').pop()}
                                     </span>
                                 ) : (
@@ -165,36 +162,40 @@ export function IssueAIFix(): JSX.Element {
                         <span className="text-xs text-muted-alt">({pullRequests.length})</span>
                     </div>
 
-                    <div className="space-y-1">
+                    <div className="space-y-1.5">
                         {pullRequests.map((pr) => (
-                            <Link key={pr.id} to={pr.url} target="_blank">
+                            <Link key={pr.id} to={pr.url} target="_blank" className="block">
                                 <ButtonPrimitive
                                     fullWidth
                                     variant="outline"
                                     size="xxs"
-                                    className="justify-start text-left py-1.5 h-auto"
+                                    className="justify-between items-center p-3 hover:bg-bg-3000 transition-colors"
                                 >
-                                    <div className="flex items-center gap-2 w-full">
-                                        <IconExternal className="text-muted-alt flex-shrink-0" />
-                                        <div className="flex-1 min-w-0">
-                                            <div className="truncate text-xs">{pr.title}</div>
-                                            <div className="flex items-center gap-2 mt-0.5">
-                                                <span
-                                                    className={`text-[10px] font-medium ${
-                                                        pr.status === 'open'
-                                                            ? 'text-success'
-                                                            : pr.status === 'merged'
-                                                              ? 'text-purple'
-                                                              : 'text-muted-alt'
-                                                    }`}
-                                                >
-                                                    {pr.status.toUpperCase()}
-                                                </span>
-                                                <span className="text-[10px] text-muted-alt">
-                                                    #{pr.url.split('/').pop()}
-                                                </span>
-                                            </div>
-                                        </div>
+                                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                                        <div
+                                            className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${
+                                                pr.status === 'open'
+                                                    ? 'bg-success'
+                                                    : pr.status === 'merged'
+                                                      ? 'bg-purple'
+                                                      : 'bg-muted-alt'
+                                            }`}
+                                        />
+                                        <span className="truncate text-xs font-medium text-default">{pr.title}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                                        <span
+                                            className={`text-[10px] font-semibold uppercase ${
+                                                pr.status === 'open'
+                                                    ? 'text-success'
+                                                    : pr.status === 'merged'
+                                                      ? 'text-purple'
+                                                      : 'text-muted-alt'
+                                            }`}
+                                        >
+                                            {pr.status}
+                                        </span>
+                                        <IconExternal className="text-muted-alt w-3 h-3" />
                                     </div>
                                 </ButtonPrimitive>
                             </Link>
