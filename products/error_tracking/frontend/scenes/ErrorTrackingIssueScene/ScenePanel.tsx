@@ -16,6 +16,7 @@ import {
     DropdownMenuOpenIndicator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { pluralize } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
@@ -182,11 +183,7 @@ const IssueFingerprints = (): JSX.Element => {
         <ScenePanelLabel title="Fingerprints">
             <Link to={issue ? urls.errorTrackingIssueFingerprints(issue.id) : undefined}>
                 <ButtonPrimitive fullWidth>
-                    {issueFingerprintsLoading ? (
-                        <Spinner />
-                    ) : (
-                        `${issueFingerprints.length} fingerprint${issueFingerprints.length === 1 ? '' : 's'}`
-                    )}
+                    {issueFingerprintsLoading ? <Spinner /> : `${pluralize(issueFingerprints.length, 'fingerprint')}`}
                 </ButtonPrimitive>
             </Link>
         </ScenePanelLabel>

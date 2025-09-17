@@ -8,7 +8,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { ErrorTrackingSetupPrompt } from '../../components/SetupPrompt/SetupPrompt'
 import { errorTrackingIssueFingerprintsSceneLogic } from './errorTrackingIssueFingerprintsSceneLogic'
 
-export type ErrorTrackingIssueFingerprint = {
+export type ErrorTrackingFingerprintSamples = {
     fingerprint: string
     count: number
     samples: { type: string; value: string }[]
@@ -52,7 +52,7 @@ export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
                         setSelectedFingerprints(newSelectedFingerprints)
                     }}
                     disabledReason={
-                        issueFingerprints.length === 1
+                        fingerprintSamples.length === 1
                             ? 'You cannot split an issue that only has one fingerprint'
                             : undefined
                     }
@@ -94,7 +94,7 @@ export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
                 ),
         },
         { title: 'Count', dataIndex: 'count' },
-    ] as LemonTableColumns<ErrorTrackingIssueFingerprint>
+    ] as LemonTableColumns<ErrorTrackingFingerprintSamples>
 
     const disabledReason =
         selectedFingerprints.length === fingerprintSamples.length
@@ -135,7 +135,7 @@ export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
                         disabledReason={disabledReason}
                     />
                 )}
-                <LemonTable<ErrorTrackingIssueFingerprint>
+                <LemonTable<ErrorTrackingFingerprintSamples>
                     className="w-full"
                     loading={isLoading}
                     dataSource={fingerprintSamples}

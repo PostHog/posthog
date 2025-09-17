@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, defaults, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -13,7 +13,10 @@ import { Breadcrumb } from '~/types'
 
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import { errorTrackingIssueFingerprintsQuery } from '../../queries'
-import { ErrorTrackingIssueFingerprintsSceneProps } from './ErrorTrackingIssueFingerprintsScene'
+import {
+    ErrorTrackingFingerprintSamples,
+    ErrorTrackingIssueFingerprintsSceneProps,
+} from './ErrorTrackingIssueFingerprintsScene'
 import type { errorTrackingIssueFingerprintsSceneLogicType } from './errorTrackingIssueFingerprintsSceneLogicType'
 
 export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFingerprintsSceneLogicType>([
@@ -33,14 +36,19 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
         split: (exclusive: boolean) => ({ exclusive }),
         setSelectedFingerprints: (fingerprints: string[]) => ({ fingerprints }),
         loadFingerprintSamples: (issue: ErrorTrackingRelationalIssue, fingerprints: ErrorTrackingFingerprint[]) => ({
-            issueId: issue.id,
-            firstSeen: issue.first_seen,
-            fingerprints: fingerprints ? fingerprints.map((fingerprint) => fingerprint.fingerprint) : null,
+            issue,
+            fingerprints,
         }),
     }),
 
     connect({
         actions: [issueActionsLogic, ['splitIssue']],
+    }),
+
+    defaults({
+        issue: null as ErrorTrackingRelationalIssue | null,
+        issueFingerprints: null as ErrorTrackingFingerprint[] | null,
+        fingerprintSamples: [] as ErrorTrackingFingerprintSamples[],
     }),
 
     reducers({
@@ -59,29 +67,30 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
         issueFingerprints: {
             loadIssueFingerprints: async () => (await api.errorTracking.fingerprints.list(props.id)).results,
             split: () =>
-                values.issueFingerprints.filter(
+                (values.issueFingerprints || []).filter(
                     (f: ErrorTrackingFingerprint) => !values.selectedFingerprints.includes(f.fingerprint)
                 ),
         },
-        fingerprintSamples: [
-            [],
-            {
-                loadFingerprintSamples: async ({ issueId, firstSeen, fingerprints }) => {
-                    if (issueId && firstSeen && fingerprints) {
-                        const query = errorTrackingIssueFingerprintsQuery(issueId, firstSeen, fingerprints)
-                        const response = await api.queryHogQL(query)
-                        return response.results.map(([fingerprint, count, samples]) => {
-                            return {
-                                fingerprint,
-                                count,
-                                samples,
-                            }
-                        })
-                    }
-                    return []
-                },
+        fingerprintSamples: {
+            loadFingerprintSamples: async ({ issue, fingerprints }) => {
+                if (issue && fingerprints) {
+                    const query = errorTrackingIssueFingerprintsQuery(
+                        issue.id,
+                        issue.first_seen,
+                        fingerprints.map((fingerprint) => fingerprint.fingerprint)
+                    )
+                    const response = await api.queryHogQL(query)
+                    return response.results.map(([fingerprint, count, samples]) => {
+                        return {
+                            fingerprint,
+                            count,
+                            samples,
+                        }
+                    })
+                }
+                return []
             },
-        ],
+        },
     })),
 
     selectors({
@@ -133,9 +142,9 @@ export const errorTrackingIssueFingerprintsSceneLogic = kea<errorTrackingIssueFi
         ],
     }),
 
-    listeners(({ actions, props, values }) => ({
+    listeners(({ asyncActions, actions, props, values }) => ({
         split: async ({ exclusive }) => {
-            await actions.splitIssue(props.id, values.selectedFingerprints, exclusive)
+            await asyncActions.splitIssue(props.id, values.selectedFingerprints, exclusive)
             lemonToast.success('Issue split successfully!')
             actions.setSelectedFingerprints([])
         },
