@@ -1,8 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCopy, IconMagicWand } from '@posthog/icons'
-import { LemonButton, LemonTag } from '@posthog/lemon-ui'
-
 import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
 import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
 import { SceneTextarea } from 'lib/components/Scenes/SceneTextarea'
@@ -26,6 +23,7 @@ import { AssigneeIconDisplay, AssigneeLabelDisplay } from '../../components/Assi
 import { AssigneeSelect } from '../../components/Assignee/AssigneeSelect'
 import { ExternalReferences } from '../../components/ExternalReferences'
 import { StatusIndicator } from '../../components/Indicators'
+import { IssueAIFix } from '../../components/IssueAIFix'
 import { IssueTasks } from '../../components/IssueTasks'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 
@@ -59,9 +57,8 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
             />
             <IssueExternalReference />
             {hasTasks && <IssueTasks />}
+            <IssueAIFixSection />
             <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
-
-            {/* <IssueAIFix /> */}
 
             {/* Add a div here to break out of the gap-2 */}
             <div>
@@ -171,23 +168,10 @@ const IssueExternalReference = (): JSX.Element => {
     )
 }
 
-const IssueAIFix = (): JSX.Element => {
+const IssueAIFixSection = (): JSX.Element => {
     return (
-        <ScenePanelLabel title="AI">
-            <AIFix />
+        <ScenePanelLabel title="AI Assistant">
+            <IssueAIFix />
         </ScenePanelLabel>
-    )
-}
-
-const AIFix = (): JSX.Element => {
-    return (
-        <div className="flex gap-2">
-            <LemonButton type="secondary" size="small" icon={<IconMagicWand />}>
-                Generate fix PR
-            </LemonButton>
-            <LemonButton type="secondary" size="small" icon={<IconCopy />}>
-                Copy fix prompt
-            </LemonButton>
-        </div>
     )
 }
