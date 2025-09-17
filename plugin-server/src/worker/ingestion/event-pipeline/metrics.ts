@@ -53,3 +53,9 @@ export const tokenOrTeamPresentCounter = new Counter({
     help: 'Count of events by presence of the team_id and token field.',
     labelNames: ['team_id_present', 'token_present'],
 })
+
+export const pipelineStepRedirectCounter = new Counter({
+    name: 'events_pipeline_step_redirect_total',
+    help: 'Number of events that have been redirected in the step',
+    labelNames: ['step_name', 'target_topic', 'preserve_key'],
+})

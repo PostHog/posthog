@@ -21,9 +21,10 @@ use crate::{
     error::{EventError, PipelineFailure, PipelineResult, UnhandledError},
     metric_consts::{
         BILLING_LIMITS_TIME, CLEAN_PROPS_TIME, EMIT_INGESTION_WARNINGS_TIME,
-        EXCEPTION_PROCESSING_TIME, GEOIP_TIME, PERSON_PROCESSING_TIME, PREPARE_EVENTS_TIME,
-        TEAM_LOOKUP_TIME,
+        EXCEPTION_PROCESSING_TIME, GEOIP_TIME, GROUP_TYPE_MAPPING_TIME, PERSON_PROCESSING_TIME,
+        PREPARE_EVENTS_TIME, TEAM_LOOKUP_TIME,
     },
+    pipeline::group::map_group_types,
     teams::do_team_lookups,
 };
 
@@ -32,6 +33,7 @@ pub mod clean;
 pub mod errors;
 pub mod exception;
 pub mod geoip;
+pub mod group;
 pub mod person;
 pub mod prep;
 
@@ -91,6 +93,11 @@ pub async fn handle_batch(
     let geoip_time = common_metrics::timing_guard(GEOIP_TIME, &[]);
     let buffer = add_geoip(buffer, &context);
     geoip_time.label("outcome", "success").fin();
+    assert_eq!(start_count, buffer.len());
+
+    let gtm_time = common_metrics::timing_guard(GROUP_TYPE_MAPPING_TIME, &[]);
+    let buffer = map_group_types(buffer, &context).await?;
+    gtm_time.label("outcome", "success").fin();
     assert_eq!(start_count, buffer.len());
 
     // We do exception processing before person processing so we can drop based on issue
