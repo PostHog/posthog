@@ -7,28 +7,14 @@ import { IconPlus } from '@posthog/icons'
 
 import { NODE_HEIGHT, NODE_WIDTH } from '../constants'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
-import type { HogFlowAction } from '../types'
-import { getHogFlowStep } from './HogFlowSteps'
 import { StepView } from './components/StepView'
 import { HogFlowStepNodeProps } from './types'
 
-export type ReactFlowNodeType = HogFlowAction['type'] | 'dropzone'
+export type ReactFlowNodeType = 'action' | 'dropzone'
 
 export const REACT_FLOW_NODE_TYPES: Record<ReactFlowNodeType, React.ComponentType<HogFlowStepNodeProps>> = {
     dropzone: DropzoneNode,
-    // Everything else is a HogFlowActionNode
-    trigger: HogFlowActionNode,
-    function: HogFlowActionNode,
-    function_email: HogFlowActionNode,
-    function_sms: HogFlowActionNode,
-    function_webhook: HogFlowActionNode,
-    function_slack: HogFlowActionNode,
-    conditional_branch: HogFlowActionNode,
-    delay: HogFlowActionNode,
-    wait_until_condition: HogFlowActionNode,
-    exit: HogFlowActionNode,
-    random_cohort_branch: HogFlowActionNode,
-    wait_until_time_window: HogFlowActionNode,
+    action: HogFlowActionNode,
 }
 
 function DropzoneNode({ id }: HogFlowStepNodeProps): JSX.Element {
@@ -69,8 +55,6 @@ function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
         updateNodeInternals(props.id)
     }, [props.id, updateNodeInternals])
 
-    const Step = getHogFlowStep(props.data.type)
-
     const node = nodesById[props.id]
 
     return (
@@ -79,7 +63,7 @@ function HogFlowActionNode(props: HogFlowStepNodeProps): JSX.Element | null {
                 // isConnectable={false} prevents edges from being manually added
                 <Handle key={handle.id} className="opacity-0" {...handle} isConnectable={false} />
             ))}
-            {Step?.renderNode(props) || <StepView action={props.data} />}
+            <StepView action={props.data} />
         </div>
     )
 }

@@ -20,7 +20,7 @@ import {
     HogQLVariable,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { ChartDisplayType, DashboardType, ItemMode } from '~/types'
+import { ChartDisplayType, DashboardType } from '~/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '../DataTable/queryFeatures'
@@ -65,7 +65,7 @@ export interface AxisSeries<T> {
 export interface DataVisualizationLogicProps {
     key: string
     query: DataVisualizationNode
-    insightMode: ItemMode
+    editMode?: boolean
     dataNodeCollectionId: string
     setQuery?: (node: DataVisualizationNode) => void
     context?: QueryContext<DataVisualizationNode>
@@ -584,19 +584,18 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         ],
         dashboardId: [() => [(_, props) => props.dashboardId], (dashboardId) => dashboardId ?? null],
         showEditingUI: [
-            (state, props) => [props.insightMode, state.dashboardId],
-            (insightMode, dashboardId) => {
+            (s) => [(_, props: DataVisualizationLogicProps) => props.editMode, s.dashboardId],
+            (editMode, dashboardId) => {
                 if (dashboardId) {
                     return false
                 }
-
-                return insightMode == ItemMode.Edit
+                return !!editMode
             },
         ],
         showResultControls: [
-            (state, props) => [props.insightMode, state.dashboardId],
-            (insightMode, dashboardId) => {
-                if (insightMode === ItemMode.Edit) {
+            (s) => [(_, props: DataVisualizationLogicProps) => props.editMode, s.dashboardId],
+            (editMode, dashboardId) => {
+                if (editMode) {
                     return true
                 }
 

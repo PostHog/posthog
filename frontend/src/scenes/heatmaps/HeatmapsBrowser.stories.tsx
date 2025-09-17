@@ -70,12 +70,12 @@ export function HeatmapsBrowserNoPageSelected(): JSX.Element {
 
 export const HeatmapsBrowserWithUnauthorizedPageSelected: Story = {
     parameters: {
-        pageUrl: urls.heatmaps('pageURL=https://example.com'),
+        pageUrl: urls.heatmaps('pageURL=https://random.example.com'),
     },
 }
 
 export const HeatmapsBrowserWithPageSelected: Story = {
     parameters: {
-        pageUrl: urls.heatmaps('pageURL=https://posthog.com&heatmapPalette=red&heatmapFilters={"type"%3A"mousemove"}'),
+        pageUrl: urls.heatmaps('pageURL=https://example.com&heatmapPalette=red&heatmapFilters={"type"%3A"mousemove"}'),
     },
 }

@@ -1,7 +1,8 @@
 from enum import Enum
 from typing import Any, Literal
 
-from django.db.models import Q, QuerySet
+from django.db.models import Case, F, Q, QuerySet, Value, When
+from django.db.models.functions import Now
 from django.dispatch import receiver
 
 from rest_framework import serializers, viewsets
@@ -491,7 +492,35 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
         # Ordering
         order = self.request.query_params.get("order")
         if order:
-            queryset = queryset.order_by(order)
+            # Handle computed field sorting
+            if order in ["duration", "-duration"]:
+                # Duration = end_date - start_date (or now() - start_date if running)
+                queryset = queryset.annotate(
+                    computed_duration=Case(
+                        When(start_date__isnull=True, then=Value(None)),
+                        When(end_date__isnull=False, then=F("end_date") - F("start_date")),
+                        default=Now() - F("start_date"),
+                    )
+                )
+                queryset = queryset.order_by(f"{'-' if order.startswith('-') else ''}computed_duration")
+            elif order in ["status", "-status"]:
+                # Status ordering: Draft (no start) -> Running (no end) -> Complete (has end)
+                # Annotate with numeric status values for clear ordering
+                queryset = queryset.annotate(
+                    computed_status=Case(
+                        When(start_date__isnull=True, then=Value(0)),  # Draft
+                        When(end_date__isnull=True, then=Value(1)),  # Running
+                        default=Value(2),  # Complete
+                    )
+                )
+                if order.startswith("-"):
+                    # Descending: Complete -> Running -> Draft
+                    queryset = queryset.order_by(F("computed_status").desc())
+                else:
+                    # Ascending: Draft -> Running -> Complete
+                    queryset = queryset.order_by(F("computed_status").asc())
+            else:
+                queryset = queryset.order_by(order)
 
         return queryset
 
@@ -548,6 +577,8 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
             "exposure_criteria": source_experiment.exposure_criteria,
             "saved_metrics_ids": saved_metrics_data,
             "feature_flag_key": feature_flag_key,  # Use provided key or fall back to existing
+            "primary_metrics_ordered_uuids": source_experiment.primary_metrics_ordered_uuids,
+            "secondary_metrics_ordered_uuids": source_experiment.secondary_metrics_ordered_uuids,
             # Reset fields for new experiment
             "start_date": None,
             "end_date": None,
@@ -655,13 +686,13 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
 
 
 @receiver(model_activity_signal, sender=Experiment)
-def handle_experiment_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
+def handle_experiment_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
     log_activity(
         organization_id=after_update.team.organization_id,
         team_id=after_update.team_id,
-        user=after_update.created_by
-        if activity == "created"
-        else getattr(after_update, "last_modified_by", after_update.created_by),
+        user=user,
         was_impersonated=was_impersonated,
         item_id=after_update.id,
         scope=scope,

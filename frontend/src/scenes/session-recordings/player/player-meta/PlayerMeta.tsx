@@ -12,8 +12,8 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { isObject } from 'lib/utils'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
-import { PlayerMetaBottomSettings } from 'scenes/session-recordings/player/player-meta/PlayerMetaBottomSettings'
 import { PlayerMetaLinks } from 'scenes/session-recordings/player/player-meta/PlayerMetaLinks'
+import { PlayerMetaTopSettings } from 'scenes/session-recordings/player/player-meta/PlayerMetaTopSettings'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import {
     SessionRecordingPlayerMode,
@@ -70,6 +70,7 @@ function URLOrScreen({ url }: { url: unknown }): JSX.Element | null {
                         explicitValue={urlToUse}
                         iconStyle={{ color: 'var(--color-text-secondary)' }}
                         selectable={true}
+                        data-attr="player-meta-copy-url"
                     />
                 </span>
                 {isValidUrl ? (
@@ -83,32 +84,6 @@ function URLOrScreen({ url }: { url: unknown }): JSX.Element | null {
                 )}
             </span>
         </span>
-    )
-}
-
-export function ResolutionView({ size }: { size?: PlayerMetaBreakpoints }): JSX.Element {
-    const { logicProps } = useValues(sessionRecordingPlayerLogic)
-
-    const { resolutionDisplay, scaleDisplay, loading } = useValues(playerMetaLogic(logicProps))
-
-    return loading ? (
-        <LemonSkeleton className="w-1/3 h-4" />
-    ) : (
-        <Tooltip
-            placement="bottom"
-            title={
-                <>
-                    The resolution of the page as it was captured was <b>{resolutionDisplay}</b>
-                    <br />
-                    You are viewing the replay at <b>{scaleDisplay}</b> of the original size
-                </>
-            }
-        >
-            <span className="text-secondary text-xs flex flex-row items-center gap-x-1">
-                {size === 'normal' && <span>{resolutionDisplay}</span>}
-                <span>({scaleDisplay})</span>
-            </span>
-        </Tooltip>
     )
 }
 
@@ -146,7 +121,6 @@ export function PlayerMeta(): JSX.Element {
                             </Link>
                         </Tooltip>
                     ) : null}
-                    <ResolutionView />
                 </div>
             </div>
         )
@@ -191,6 +165,7 @@ export function PlayerMeta(): JSX.Element {
                                 value={trackedWindow}
                                 disabledReason={windowIds.length <= 1 ? "There's only one window" : undefined}
                                 onSelect={(value) => setTrackedWindow(value)}
+                                data-attr="player-meta-window-select"
                             />
 
                             <URLOrScreen url={currentURL} />
@@ -206,10 +181,9 @@ export function PlayerMeta(): JSX.Element {
                     )}
                     <div className={clsx('flex-1', size === 'small' ? 'min-w-[1rem]' : 'min-w-[5rem]')} />
                     {!isCinemaMode && <PlayerMetaLinks size={size} />}
-                    {!isCinemaMode && <ResolutionView size={size} />}
                     <PlayerPersonMeta />
                 </div>
-                {!isCinemaMode && <PlayerMetaBottomSettings size={size} />}
+                {!isCinemaMode && <PlayerMetaTopSettings size={size} />}
             </div>
         </DraggableToNotebook>
     )

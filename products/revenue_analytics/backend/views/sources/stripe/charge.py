@@ -9,6 +9,7 @@ from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.table import DataWarehouseTable
 
 from products.revenue_analytics.backend.views.core import BuiltQuery, SourceHandle, view_prefix_for_source
+from products.revenue_analytics.backend.views.schemas.charge import SCHEMA
 from products.revenue_analytics.backend.views.sources.helpers import (
     currency_aware_amount,
     currency_aware_divider,
@@ -21,21 +22,27 @@ def build(handle: SourceHandle) -> Iterable[BuiltQuery]:
     if source is None:
         return
 
+    prefix = view_prefix_for_source(source)
+
     # Get all schemas for the source, avoid calling `filter` and do the filtering on Python-land
     # to avoid n+1 queries
     schemas = source.schemas.all()
     charge_schema = next((schema for schema in schemas if schema.name == STRIPE_CHARGE_RESOURCE_NAME), None)
     if charge_schema is None:
+        yield BuiltQuery(
+            key=f"{prefix}.no_source", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
+        )
         return
 
     charge_schema = cast(ExternalDataSchema, charge_schema)
     if charge_schema.table is None:
+        yield BuiltQuery(
+            key=f"{prefix}.no_table", prefix=prefix, query=ast.SelectQuery.empty(columns=list(SCHEMA.fields.keys()))
+        )
         return
 
     table = cast(DataWarehouseTable, charge_schema.table)
     team = table.team
-
-    prefix = view_prefix_for_source(source)
 
     query = ast.SelectQuery(
         select=[

@@ -12,7 +12,7 @@ import { PluginsServerConfig } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { CyclotronJobInvocation, CyclotronJobQueueKind } from '../../types'
 
-export const getDelayQueue = (queueScheduledAt: DateTime): CyclotronJobQueueKind => {
+export const getDelayQueue = (_queueScheduledAt: DateTime): CyclotronJobQueueKind => {
     // if (queueScheduledAt > DateTime.now().plus({ hours: 24 })) {
     //     return 'delay_24h'
     // }
@@ -94,6 +94,24 @@ export class CyclotronJobQueueDelay {
         return this.kafkaConsumer?.isHealthy() ?? false
     }
 
+    private async delayWithCancellation(delayMs: number): Promise<void> {
+        const checkInterval = 1000 // Check every second
+        const startTime = Date.now()
+
+        while (Date.now() - startTime < delayMs) {
+            if (this.kafkaConsumer?.isShuttingDown() || this.kafkaConsumer?.isRebalancing()) {
+                throw new Error('Delay cancelled due to consumer shutdown or rebalancing')
+            }
+
+            const remainingTime = delayMs - (Date.now() - startTime)
+            const currentDelay = Math.min(remainingTime, checkInterval)
+
+            if (currentDelay > 0) {
+                await new Promise((resolve) => setTimeout(resolve, currentDelay))
+            }
+        }
+    }
+
     private getKafkaProducer(): KafkaProducerWrapper {
         if (!this.kafkaProducer) {
             throw new Error('KafkaProducer not initialized')
@@ -124,7 +142,8 @@ export class CyclotronJobQueueDelay {
 
         const maxDelayMs = getDelayByQueue(this.queue)
 
-        for (const message of messages) {
+        for (let i = 0; i < messages.length; i++) {
+            const message = messages[i]
             try {
                 const returnTopic = this.getHeaderValue(message.headers, 'returnTopic') as CyclotronJobQueueKind
                 const queueScheduledAt = this.getHeaderValue(message.headers, 'queueScheduledAt')
@@ -151,12 +170,12 @@ export class CyclotronJobQueueDelay {
 
                 logger.info(
                     '🔁',
-                    `${this.name} - Waiting for ${waitTime}ms before processing ${messages.indexOf(message) + 1}/${messages.length} invocation ${message.key}`
+                    `${this.name} - Waiting for ${waitTime}ms before processing ${i + 1}/${messages.length} invocation ${message.key}`
                 )
 
                 delayMs -= waitTime
 
-                await new Promise((resolve) => setTimeout(resolve, waitTime))
+                await this.delayWithCancellation(waitTime)
 
                 const producer = this.getKafkaProducer()
 
@@ -182,15 +201,8 @@ export class CyclotronJobQueueDelay {
                     result,
                 })
             } catch (error) {
-                const result = this.kafkaConsumer?.offsetsStore([
-                    {
-                        ...message,
-                        offset: message.offset + 1,
-                    },
-                ])
                 logger.info('🔁', `${this.name} - Error processing message ${message.key}`, {
                     offset: message.offset,
-                    result,
                     error,
                 })
                 throw error

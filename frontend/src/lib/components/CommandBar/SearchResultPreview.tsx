@@ -29,6 +29,10 @@ export const SearchResultPreview = (): JSX.Element | null => {
 
     const result = combinedSearchResults[activeResultIndex]
 
+    if (!result) {
+        return null
+    }
+
     return (
         <div className="border bg-surface-primary rounded p-4 md:p-6">
             <div className="deprecated-space-y-4">

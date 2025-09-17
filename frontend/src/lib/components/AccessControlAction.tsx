@@ -22,6 +22,8 @@ const orderedAccessLevels = (resourceType: AccessControlResourceType): AccessCon
 export const resourceTypeToString = (resourceType: AccessControlResourceType): string => {
     if (resourceType === AccessControlResourceType.FeatureFlag) {
         return 'feature flag'
+    } else if (resourceType === AccessControlResourceType.SessionRecording) {
+        return 'session recording'
     }
 
     // The rest are single words
@@ -37,6 +39,23 @@ export const accessLevelSatisfied = (
     return levels.indexOf(currentLevel) >= levels.indexOf(requiredLevel)
 }
 
+export const getAccessControlDisabledReason = (
+    resourceType: AccessControlResourceType,
+    userAccessLevel: AccessControlLevel | undefined,
+    minAccessLevel: AccessControlLevel,
+    includeAccessDetails: boolean = true
+): string | null => {
+    const hasAccess = userAccessLevel ? accessLevelSatisfied(resourceType, userAccessLevel, minAccessLevel) : true
+    if (!hasAccess) {
+        let reason = `You don't have sufficient permissions for this ${resourceTypeToString(resourceType)}.`
+        if (includeAccessDetails) {
+            reason += ` Your access level (${userAccessLevel}) doesn't meet the required level (${minAccessLevel}).`
+        }
+        return reason
+    }
+    return null
+}
+
 // This is a wrapper around a component that checks if the user has access to the resource
 // and if not, it disables the component and shows a reason why
 export const AccessControlAction = ({
@@ -45,15 +64,10 @@ export const AccessControlAction = ({
     minAccessLevel,
     resourceType = AccessControlResourceType.Project,
 }: AccessControlActionProps): JSX.Element => {
-    const hasAccess = userAccessLevel ? accessLevelSatisfied(resourceType, userAccessLevel, minAccessLevel) : true
-    const disabledReason = !hasAccess
-        ? `You don't have sufficient permissions for this ${resourceTypeToString(
-              resourceType
-          )}. Your access level (${userAccessLevel}) doesn't meet the required level (${minAccessLevel}).`
-        : null
+    const disabledReason = getAccessControlDisabledReason(resourceType, userAccessLevel, minAccessLevel)
 
     return children({
-        disabled: !hasAccess,
+        disabled: !!disabledReason,
         disabledReason,
     })
 }

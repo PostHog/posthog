@@ -1,9 +1,8 @@
 import dataclasses
 from enum import Enum
-from math import ceil
+from math import floor
 from typing import Any
 
-import yaml
 import structlog
 from pydantic import BaseModel, Field, ValidationError, field_serializer, field_validator
 from temporalio.exceptions import ApplicationError
@@ -12,7 +11,8 @@ from ee.hogai.session_summaries import SummaryValidationError
 from ee.hogai.session_summaries.constants import FAILED_PATTERNS_ENRICHMENT_MIN_RATIO
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
-from ee.hogai.session_summaries.utils import logging_session_ids, strip_raw_llm_content
+from ee.hogai.session_summaries.utils import logging_session_ids
+from ee.hogai.utils.yaml import load_yaml_from_raw_llm_content
 
 logger = structlog.get_logger(__name__)
 
@@ -155,7 +155,10 @@ def load_patterns_from_llm_content(raw_content: str, sessions_identifier: str) -
             f"No LLM content found when extracting patterns for sessions {sessions_identifier}"
         )
     try:
-        json_content: dict = yaml.safe_load(strip_raw_llm_content(raw_content))
+        # Patterns aren't streamed, so the initial state is the final one
+        json_content = load_yaml_from_raw_llm_content(raw_content=raw_content, final_validation=True)
+        if not isinstance(json_content, dict):
+            raise Exception(f"LLM output is not a dictionary: {raw_content}")
     except Exception as err:
         raise SummaryValidationError(
             f"Error loading YAML content into JSON when extracting patterns for sessions {sessions_identifier}: {err}"
@@ -179,7 +182,10 @@ def load_pattern_assignments_from_llm_content(
             f"No LLM content found when extracting pattern assignments for sessions {sessions_identifier}"
         )
     try:
-        json_content: dict = yaml.safe_load(strip_raw_llm_content(raw_content))
+        # Patterns aren't streamed, so the initial state is the final one
+        json_content = load_yaml_from_raw_llm_content(raw_content=raw_content, final_validation=True)
+        if not isinstance(json_content, dict):
+            raise Exception(f"LLM output is not a dictionary: {raw_content}")
     except Exception as err:
         raise SummaryValidationError(
             f"Error loading YAML content into JSON when extracting pattern assignments for sessions {sessions_identifier}: {err}"
@@ -350,6 +356,7 @@ def combine_patterns_ids_with_events_context(
 ) -> dict[int, list[PatternAssignedEventSegmentContext]]:
     """Map pattern IDs to enriched event contexts using assignments context."""
     pattern_event_ids_mapping: dict[int, list[PatternAssignedEventSegmentContext]] = {}
+    patterns_with_removed_non_blocking_exceptions = set()
     # Iterate over patterns to which we assigned event ids
     for pattern_id, event_ids in combined_patterns_assignments.items():
         for event_id in event_ids:
@@ -369,9 +376,20 @@ def combine_patterns_ids_with_events_context(
             event_segment_context = _enrich_pattern_assigned_event_with_session_summary_data(
                 pattern_assigned_event, session_summaries
             )
+            # Skip non-blocking exceptions, allow blocking ones and abandonment (no exception)
+            if event_segment_context.target_event.exception == "non-blocking":
+                patterns_with_removed_non_blocking_exceptions.add(pattern_id)
+                continue
             if pattern_id not in pattern_event_ids_mapping:
                 pattern_event_ids_mapping[pattern_id] = []
             pattern_event_ids_mapping[pattern_id].append(event_segment_context)
+    # If we removed all non-blocking exceptions for some patterns - it's not a failure
+    for pattern_id in patterns_with_removed_non_blocking_exceptions:
+        if pattern_id in pattern_event_ids_mapping:
+            # Avoid touching patterns that have events left even after removing non-blocking exceptions
+            continue
+        # Let's back the patterns we emptied, so we can properly calculate failure ratio
+        pattern_event_ids_mapping[pattern_id] = []
     return pattern_event_ids_mapping
 
 
@@ -408,13 +426,15 @@ def combine_patterns_with_events_context(
 ) -> EnrichedSessionGroupSummaryPatternsList:
     """Attach event context and stats to each extracted pattern."""
     combined_patterns = []
+    non_failed_empty_patterns_count = 0
     for pattern in patterns.patterns:
         pattern_id = pattern.pattern_id
-        pattern_events = pattern_id_to_event_context_mapping.get(int(pattern_id), [])
+        pattern_events = pattern_id_to_event_context_mapping.get(int(pattern_id))
         if not pattern_events:
-            logger.exception(
-                f"No events found for pattern {pattern_id} when combining patterns with events context: {pattern_id_to_event_context_mapping}"
-            )
+            if pattern_events is not None:
+                # If the pattern has not events, but is in the mapping - it's not a failure,
+                # it means we made it empty by removing non-blocking exceptions
+                non_failed_empty_patterns_count += 1
             continue
         enriched_pattern = EnrichedSessionGroupSummaryPattern(
             **pattern.model_dump(),
@@ -423,10 +443,16 @@ def combine_patterns_with_events_context(
         )
         combined_patterns.append(enriched_pattern)
     # If not enough patterns were properly enriched - fail the activity
-    if ceil(len(patterns.patterns) * FAILED_PATTERNS_ENRICHMENT_MIN_RATIO) > len(combined_patterns):
+    # Using `floor` as for small numbers of patterns - >30% could be filtered as "non-blocking only"
+    minimum_expected_patterns_count = max(1, floor(len(patterns.patterns) * FAILED_PATTERNS_ENRICHMENT_MIN_RATIO))
+    successful_patterns_count = len(combined_patterns) + non_failed_empty_patterns_count
+    failed_patterns_count = len(patterns.patterns) - successful_patterns_count
+    if minimum_expected_patterns_count > successful_patterns_count:
         exception_message = (
             f"Too many patterns failed to enrich with session meta, when summarizing {len(session_ids)} "
-            f"sessions ({logging_session_ids(session_ids)}) for user {user_id}"
+            f"sessions ({logging_session_ids(session_ids)}) for user {user_id}. "
+            f"Input: {len(patterns.patterns)}; success: {successful_patterns_count} "
+            f"(enriched: {len(combined_patterns)}); failure: {failed_patterns_count}"
         )
         logger.exception(exception_message)
         raise ApplicationError(exception_message)

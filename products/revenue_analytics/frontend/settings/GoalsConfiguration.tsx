@@ -1,11 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 
 import { IconPlus, IconTrash } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
+import { LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -150,7 +149,8 @@ const nextQuarterYear = nextQuarterDate.year()
 const EMPTY_GOAL = {
     name: `Q${nextQuarter} ${nextQuarterYear}`,
     due_date: nextQuarterDate.endOf('quarter').format('YYYY-MM-DD'),
-    goal: 10_000_000, // Nice round $10M per quarter goal
+    goal: 1_000_000, // Nice round $1M MRR goal
+    mrr_or_gross: 'mrr' as const,
 }
 
 export function GoalsConfiguration(): JSX.Element {
@@ -163,7 +163,6 @@ export function GoalsConfiguration(): JSX.Element {
     const [isAdding, setIsAdding] = useState(() => inStorybook() || inStorybookTestRunner())
     const [editingIndex, setEditingIndex] = useState<number | null>(null)
     const [temporaryGoal, setTemporaryGoal] = useState<RevenueAnalyticsGoal>(EMPTY_GOAL)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     const handleAddGoal = (): void => {
         if (temporaryGoal.name && temporaryGoal.due_date && temporaryGoal.goal) {
             addGoal(temporaryGoal)
@@ -202,6 +201,17 @@ export function GoalsConfiguration(): JSX.Element {
 
     // Figure out what's the "current" goal by finding the first goal in the future
     const firstGoalInFutureIndex = goals.findIndex((goal) => dayjs(goal.due_date).isSameOrAfter(dayjs()))
+    const firstGoalInFutureDate = firstGoalInFutureIndex !== -1 ? goals[firstGoalInFutureIndex].due_date : null
+
+    const getIndexInformation = useCallback(
+        (index: number) => {
+            const isEditingRow = editingIndex === index
+            const isAddingRow = index === goals.length && isAdding
+            const mode: Mode = isEditingRow || isAddingRow ? 'edit' : 'display'
+            return { isEditingRow, isAddingRow, mode }
+        },
+        [editingIndex, goals.length, isAdding]
+    )
 
     const columns: LemonTableColumns<RevenueAnalyticsGoal> = [
         {
@@ -209,8 +219,7 @@ export function GoalsConfiguration(): JSX.Element {
             title: '',
             width: 0,
             render: (_, goal, index) => {
-                const isEditingRow = editingIndex === index
-                const isAddingRow = index === goals.length && isAdding
+                const { isEditingRow, isAddingRow } = getIndexInformation(index)
                 if (isEditingRow || isAddingRow) {
                     return null
                 }
@@ -219,8 +228,9 @@ export function GoalsConfiguration(): JSX.Element {
                     return <LemonTag type="danger">Past</LemonTag>
                 }
 
-                // Only one of them is current, so we can just check if it's the first goal in the future
-                if (index === firstGoalInFutureIndex) {
+                // There might be more than one current since they might be for same day
+                // but one for MRR and another one for gross, so compare against the date
+                if (goal.due_date === firstGoalInFutureDate) {
                     return <LemonTag type="success">Current</LemonTag>
                 }
 
@@ -231,9 +241,7 @@ export function GoalsConfiguration(): JSX.Element {
             key: 'name',
             title: 'Goal Name',
             render: (_, goal, index) => {
-                const isEditingRow = editingIndex === index
-                const isAddingRow = index === goals.length && isAdding
-                const mode = isEditingRow || isAddingRow ? 'edit' : 'display'
+                const { isEditingRow, isAddingRow, mode } = getIndexInformation(index)
                 const value = isEditingRow || isAddingRow ? temporaryGoal.name : goal.name
 
                 return (
@@ -250,9 +258,7 @@ export function GoalsConfiguration(): JSX.Element {
             title: 'Due Date',
             tooltip: 'Date when this goal should be achieved',
             render: (_, goal, index) => {
-                const isEditingRow = editingIndex === index
-                const isAddingRow = index === goals.length && isAdding
-                const mode = isEditingRow || isAddingRow ? 'edit' : 'display'
+                const { isEditingRow, isAddingRow, mode } = getIndexInformation(index)
                 const value = isEditingRow || isAddingRow ? temporaryGoal.due_date : goal.due_date
 
                 return (
@@ -269,9 +275,7 @@ export function GoalsConfiguration(): JSX.Element {
             title: `Target Amount (${baseCurrency})`,
             tooltip: 'The revenue target amount for this goal',
             render: (_, goal, index) => {
-                const isEditingRow = editingIndex === index
-                const isAddingRow = index === goals.length && isAdding
-                const mode = isEditingRow || isAddingRow ? 'edit' : 'display'
+                const { isEditingRow, isAddingRow, mode } = getIndexInformation(index)
                 const value = isEditingRow || isAddingRow ? temporaryGoal.goal : goal.goal
 
                 return (
@@ -281,6 +285,34 @@ export function GoalsConfiguration(): JSX.Element {
                         onChange={(value) => setTemporaryGoal({ ...temporaryGoal, goal: value })}
                         baseCurrency={baseCurrency}
                     />
+                )
+            },
+        },
+        {
+            key: 'mrr_or_gross',
+            title: `MRR or Gross Revenue`,
+            tooltip: 'Are you tracking MRR or gross revenue?',
+            render: (_, goal, index) => {
+                const { isEditingRow, isAddingRow } = getIndexInformation(index)
+                const goalValue = isEditingRow || isAddingRow ? temporaryGoal.mrr_or_gross : goal.mrr_or_gross
+                const checked = goalValue === 'gross' // 'gross' is to the right, therefore checked
+
+                return (
+                    <span className="flex gap-2">
+                        <span className="text-sm">MRR</span>
+                        <LemonSwitch
+                            checked={checked}
+                            onChange={(checked) =>
+                                setTemporaryGoal({ ...temporaryGoal, mrr_or_gross: checked ? 'gross' : 'mrr' })
+                            }
+                            disabledReason={
+                                !isAddingRow && !isEditingRow ? 'Only enabled when editing this goal' : undefined
+                            }
+                            sliderColorOverrideChecked="accent"
+                            sliderColorOverrideUnchecked="accent"
+                        />
+                        <span className="text-sm">Gross revenue</span>
+                    </span>
                 )
             },
         },
@@ -312,23 +344,10 @@ export function GoalsConfiguration(): JSX.Element {
 
     return (
         <SceneSection
-            hideTitleAndDescription={!newSceneLayout}
-            className={cn(!newSceneLayout && 'gap-y-0')}
             title="Goals"
-            description="Set monthly revenue targets for specific dates to track your progress. You can track goals based on your monthly/quarterly/yearly targets. These goals can be used to measure performance against targets in your Revenue analytics dashboard."
+            description="Set revenue targets for specific dates to track your progress. You can track goals based on your monthly/quarterly/yearly targets. These can be displayed either on your MRR/ARR or gross revenue charts on the revenue analytics dashboard!"
         >
-            {!newSceneLayout && (
-                <>
-                    <h3 className="mb-2">Goals</h3>
-                    <p className="mb-4">
-                        Set monthly revenue targets for specific dates to track your progress. You can track goals based
-                        on your monthly/quarterly/yearly targets. These goals can be used to measure performance against
-                        targets in your Revenue analytics dashboard.
-                    </p>
-                </>
-            )}
-
-            <div className={cn('flex flex-col items-end w-full', !newSceneLayout && 'mb-1')}>
+            <div className={cn('flex flex-col items-end w-full')}>
                 <LemonButton
                     type="primary"
                     icon={<IconPlus />}

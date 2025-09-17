@@ -6,11 +6,12 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickho
 
 from posthog.schema import (
     CurrencyCode,
+    HogQLQueryModifiers,
     RevenueExampleDataWarehouseTablesQuery,
     RevenueExampleDataWarehouseTablesQueryResponse,
 )
 
-from posthog.temporal.data_imports.sources.stripe.constants import CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME
+from posthog.temporal.data_imports.sources.stripe.constants import INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME
 from posthog.warehouse.models import ExternalDataSchema
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
 
@@ -19,25 +20,25 @@ from products.revenue_analytics.backend.hogql_queries.revenue_example_data_wareh
 )
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
     REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT,
-    STRIPE_CHARGE_COLUMNS,
+    STRIPE_INVOICE_COLUMNS,
 )
 
-TEST_BUCKET = "test_storage_bucket-posthog.revenue.stripe_charges"
+TEST_BUCKET = "test_storage_bucket-posthog.revenue.stripe_invoices"
 
 
 @snapshot_clickhouse_queries
 class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIBaseTest):
-    QUERY_TIMESTAMP = "2025-01-29"
+    QUERY_TIMESTAMP = "2025-04-21"
 
     def setUp(self):
         super().setUp()
 
-        self.csv_path = Path(__file__).parent / "data" / "stripe_charges.csv"
+        self.csv_path = Path(__file__).parent / "data" / "stripe_invoices.csv"
         self.table, self.source, self.credential, self.csv_df, self.cleanUpFilesystem = (
             create_data_warehouse_table_from_csv(
                 self.csv_path,
-                "stripe_charge",
-                STRIPE_CHARGE_COLUMNS,
+                "stripe_invoice",
+                STRIPE_INVOICE_COLUMNS,
                 TEST_BUCKET,
                 self.team,
             )
@@ -47,7 +48,7 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
         # because this is required by the `RevenueAnalyticsBaseView` to find the right tables
         self.schema = ExternalDataSchema.objects.create(
             team=self.team,
-            name=STRIPE_CHARGE_RESOURCE_NAME,
+            name=STRIPE_INVOICE_RESOURCE_NAME,
             source=self.source,
             table=self.table,
             should_sync=True,
@@ -65,7 +66,9 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
 
     def _run_revenue_example_external_tables_query(self):
         with freeze_time(self.QUERY_TIMESTAMP):
-            query = RevenueExampleDataWarehouseTablesQuery()
+            query = RevenueExampleDataWarehouseTablesQuery(
+                modifiers=HogQLQueryModifiers(formatCsvAllowDoubleQuotes=True),
+            )
             runner = RevenueExampleDataWarehouseTablesQueryRunner(team=self.team, query=query)
 
             response = runner.calculate()
@@ -83,35 +86,95 @@ class TestRevenueExampleDataWarehouseTablesQueryRunner(ClickhouseTestMixin, APIB
         response = self._run_revenue_example_external_tables_query()
         results = response.results
 
-        # Not all rows in the CSV have a status of "succeeded", let's filter them out here
-        assert len(results) == len(self.csv_df[self.csv_df["status"] == "succeeded"])
-
         # Sort results by the original amount just to guarantee order
         results.sort(key=lambda x: x[2])
 
-        # We only care about the last 4 columns (amount, currency, converted_amount, converted_currency)
-        results = [row[2:] for row in results]
+        # We only care about 4 of the columns (amount, currency, converted_amount, converted_currency)
+        results = [row[2:-1] for row in results]
 
         assert results == [
-            (Decimal("50"), "GBP", Decimal("50"), "GBP"),
-            (Decimal("100"), "USD", Decimal("79.7"), "GBP"),
-            (Decimal("100"), "USD", Decimal("79.7"), "GBP"),
-            (Decimal("120"), "USD", Decimal("95.64"), "GBP"),
-            (Decimal("120"), "USD", Decimal("95.64"), "GBP"),
-            (Decimal("125"), "GBP", Decimal("125"), "GBP"),
-            (Decimal("150"), "EUR", Decimal("124.2594324913"), "GBP"),
-            (Decimal("150"), "EUR", Decimal("124.2594324913"), "GBP"),
-            (Decimal("150"), "EUR", Decimal("124.2594324913"), "GBP"),
-            (Decimal("180"), "GBP", Decimal("180"), "GBP"),
-            (Decimal("180"), "GBP", Decimal("180"), "GBP"),
-            (Decimal("180"), "GBP", Decimal("180"), "GBP"),
-            (Decimal("200"), "USD", Decimal("159.4"), "GBP"),
-            (Decimal("220"), "EUR", Decimal("182.247167654"), "GBP"),
-            (Decimal("245"), "USD", Decimal("195.265"), "GBP"),
-            (Decimal("250"), "EUR", Decimal("207.0990541523"), "GBP"),
-            (Decimal("300"), "USD", Decimal("239.1"), "GBP"),
-            (Decimal("350"), "EUR", Decimal("289.9386758133"), "GBP"),
-            # Important here how we treated the 500 in the CSV as 500 Yen rather than 5 Yen
-            # like we do with other currencies (20000 -> 200 EUR)
-            (Decimal("500"), "JPY", Decimal("2.5438762801"), "GBP"),
+            (Decimal("0.12"), "USD", Decimal("0.09564"), "GBP"),
+            (Decimal("0.43"), "USD", Decimal("0.34271"), "GBP"),
+            (Decimal("0.43"), "USD", Decimal("0.171355"), "GBP"),
+            (Decimal("0.43"), "USD", Decimal("0.34271"), "GBP"),
+            (Decimal("0.43"), "USD", Decimal("0.171355"), "GBP"),
+            (Decimal("0.43"), "USD", Decimal("0.171355"), "GBP"),
+            (Decimal("0.43"), "USD", Decimal("0.171355"), "GBP"),
+            (Decimal("0.43"), "USD", Decimal("0.171355"), "GBP"),
+            (Decimal("0.43"), "USD", Decimal("0.171355"), "GBP"),
+            (Decimal("1.23"), "EUR", Decimal("1.0189273464"), "GBP"),
+            (Decimal("3.43"), "USD", Decimal("1.366855"), "GBP"),
+            (Decimal("3.43"), "USD", Decimal("1.366855"), "GBP"),
+            (Decimal("12.23"), "USD", Decimal("9.74731"), "GBP"),
+            (Decimal("14.45"), "USD", Decimal("5.758325"), "GBP"),
+            (Decimal("14.45"), "USD", Decimal("5.758325"), "GBP"),
+            (Decimal("24.5"), "GBP", Decimal("24.5"), "GBP"),
+            (Decimal("46.66"), "USD", Decimal("18.59401"), "GBP"),
+            (Decimal("46.66"), "USD", Decimal("18.59401"), "GBP"),
+            (Decimal("88.88"), "USD", Decimal("70.83736"), "GBP"),
+            (Decimal("90.7"), "USD", Decimal("72.2879"), "GBP"),
+            (Decimal("90.7"), "USD", Decimal("72.2879"), "GBP"),
+            (Decimal("99.99"), "USD", Decimal("79.69203"), "GBP"),
+            (Decimal("104.35"), "USD", Decimal("83.16695"), "GBP"),
+            (Decimal("145.5"), "BRL", Decimal("18.8234100573"), "GBP"),
+            (Decimal("146.12"), "USD", Decimal("9.7048033333"), "GBP"),
+            (Decimal("146.12"), "USD", Decimal("9.7048033333"), "GBP"),
+            (Decimal("146.12"), "USD", Decimal("9.7048033333"), "GBP"),
+            (Decimal("146.12"), "USD", Decimal("9.7048033333"), "GBP"),
+            (Decimal("146.12"), "USD", Decimal("9.7048033333"), "GBP"),
+            (Decimal("146.12"), "USD", Decimal("9.7048033333"), "GBP"),
+            (Decimal("146.12"), "USD", Decimal("9.7048033333"), "GBP"),
+            (Decimal("146.12"), "USD", Decimal("9.7048033333"), "GBP"),
+            (Decimal("146.12"), "USD", Decimal("9.7048033333"), "GBP"),
+            (Decimal("146.12"), "USD", Decimal("9.7048033333"), "GBP"),
+            (Decimal("146.12"), "USD", Decimal("9.7048033333"), "GBP"),
+            (Decimal("146.12"), "USD", Decimal("9.7048033333"), "GBP"),
+            (Decimal("214.5"), "USD", Decimal("85.47825"), "GBP"),
+            (Decimal("214.5"), "USD", Decimal("85.47825"), "GBP"),
+            (Decimal("245.5"), "USD", Decimal("16.3052916666"), "GBP"),
+            (Decimal("245.5"), "USD", Decimal("16.3052916666"), "GBP"),
+            (Decimal("245.5"), "USD", Decimal("16.3052916666"), "GBP"),
+            (Decimal("245.5"), "USD", Decimal("16.3052916666"), "GBP"),
+            (Decimal("245.5"), "USD", Decimal("16.3052916666"), "GBP"),
+            (Decimal("245.5"), "USD", Decimal("16.3052916666"), "GBP"),
+            (Decimal("245.5"), "USD", Decimal("16.3052916666"), "GBP"),
+            (Decimal("245.5"), "USD", Decimal("16.3052916666"), "GBP"),
+            (Decimal("245.5"), "USD", Decimal("16.3052916666"), "GBP"),
+            (Decimal("245.5"), "USD", Decimal("16.3052916666"), "GBP"),
+            (Decimal("245.5"), "USD", Decimal("16.3052916666"), "GBP"),
+            (Decimal("245.5"), "USD", Decimal("16.3052916666"), "GBP"),
+            (Decimal("270.2"), "USD", Decimal("215.3494"), "GBP"),
+            (Decimal("485.45"), "USD", Decimal("386.90365"), "GBP"),
+            (Decimal("485.45"), "USD", Decimal("193.451825"), "GBP"),
+            (Decimal("485.45"), "USD", Decimal("386.90365"), "GBP"),
+            (Decimal("485.45"), "USD", Decimal("193.451825"), "GBP"),
+            (Decimal("485.45"), "USD", Decimal("193.451825"), "GBP"),
+            (Decimal("485.45"), "USD", Decimal("193.451825"), "GBP"),
+            (Decimal("485.45"), "USD", Decimal("193.451825"), "GBP"),
+            (Decimal("485.45"), "USD", Decimal("193.451825"), "GBP"),
+            (Decimal("686.5"), "USD", Decimal("273.57025"), "GBP"),
+            (Decimal("686.5"), "USD", Decimal("273.57025"), "GBP"),
+            (Decimal("1044.23"), "USD", Decimal("832.25131"), "GBP"),
+            (Decimal("1045.46"), "USD", Decimal("416.61581"), "GBP"),
+            (Decimal("1045.46"), "USD", Decimal("416.61581"), "GBP"),
+            (Decimal("1145.44"), "USD", Decimal("456.45784"), "GBP"),
+            (Decimal("1145.44"), "USD", Decimal("456.45784"), "GBP"),
+            (Decimal("1245.64"), "USD", Decimal("496.38754"), "GBP"),
+            (Decimal("1245.64"), "USD", Decimal("496.38754"), "GBP"),
+            (Decimal("1344.64"), "USD", Decimal("1071.67808"), "GBP"),
+            (Decimal("1454.64"), "USD", Decimal("1159.34808"), "GBP"),
+            # This is an important case to test since JPY's lowest denomination is 1 yen
+            # and this verifies we're handling this as 12350 yen instead of 123.50 yen
+            (Decimal("12350"), "JPY", Decimal("5.2361453433"), "GBP"),
+            (Decimal("12350"), "JPY", Decimal("5.2361453433"), "GBP"),
+            (Decimal("12350"), "JPY", Decimal("5.2361453433"), "GBP"),
+            (Decimal("12350"), "JPY", Decimal("5.2361453433"), "GBP"),
+            (Decimal("12350"), "JPY", Decimal("5.2361453433"), "GBP"),
+            (Decimal("12350"), "JPY", Decimal("5.2361453433"), "GBP"),
+            (Decimal("12350"), "JPY", Decimal("5.2361453433"), "GBP"),
+            (Decimal("12350"), "JPY", Decimal("5.2361453433"), "GBP"),
+            (Decimal("12350"), "JPY", Decimal("5.2361453433"), "GBP"),
+            (Decimal("12350"), "JPY", Decimal("5.2361453433"), "GBP"),
+            (Decimal("12350"), "JPY", Decimal("5.2361453433"), "GBP"),
+            (Decimal("12350"), "JPY", Decimal("5.2361453433"), "GBP"),
         ]

@@ -1,6 +1,5 @@
 import { cva } from 'cva'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useEffect } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -109,7 +108,7 @@ const panelLayoutStyles = cva({
     ],
 })
 
-export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement> }): JSX.Element {
+export function PanelLayout(): JSX.Element {
     const {
         isLayoutPanelPinned,
         isLayoutPanelVisible,
@@ -120,16 +119,10 @@ export function PanelLayout({ mainRef }: { mainRef: React.RefObject<HTMLElement>
         panelWidth,
     } = useValues(panelLayoutLogic)
     const { mobileLayout: isMobileLayout } = useValues(navigation3000Logic)
-    const { showLayoutPanel, clearActivePanelIdentifier, setMainContentRef } = useActions(panelLayoutLogic)
+    const { showLayoutPanel, clearActivePanelIdentifier } = useActions(panelLayoutLogic)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     useMountedLogic(projectTreeLogic({ key: PROJECT_TREE_KEY }))
-
-    useEffect(() => {
-        if (mainRef.current) {
-            setMainContentRef(mainRef)
-        }
-    }, [mainRef, setMainContentRef])
 
     return (
         <>

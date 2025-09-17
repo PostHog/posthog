@@ -22,6 +22,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLogic'
+import { snapshotDataLogic } from './snapshotDataLogic'
 
 describe('sessionRecordingPlayerLogic', () => {
     let logic: ReturnType<typeof sessionRecordingPlayerLogic.build>
@@ -95,7 +96,7 @@ describe('sessionRecordingPlayerLogic', () => {
 
             await expectLogic(logic).toNotHaveDispatchedActions([
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources,
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSourcesSuccess,
+                snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSourcesSuccess,
             ])
         })
 
@@ -118,8 +119,8 @@ describe('sessionRecordingPlayerLogic', () => {
                 // once to gather sources
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSources,
                 // once to load source from that
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotsForSource,
-                sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotsForSourceSuccess,
+                snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotsForSource,
+                snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotsForSourceSuccess,
             ])
 
             expect(logic.values.sessionPlayerData).toMatchSnapshot()
@@ -162,7 +163,7 @@ describe('sessionRecordingPlayerLogic', () => {
             })
                 .toDispatchActions([
                     'seekToTimestamp',
-                    sessionRecordingDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSourcesFailure,
+                    snapshotDataLogic({ sessionRecordingId: '2' }).actionTypes.loadSnapshotSourcesFailure,
                 ])
                 .toFinishAllListeners()
                 .toDispatchActions(['setPlayerError'])

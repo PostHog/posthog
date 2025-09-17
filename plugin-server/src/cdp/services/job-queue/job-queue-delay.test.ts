@@ -1,110 +1,112 @@
-import { Message } from 'node-rdkafka'
+import { DateTime } from 'luxon'
 
 import { defaultConfig } from '~/config/config'
+import { PluginsServerConfig } from '~/types'
 
-import { CyclotronJobQueueDelay, getDelayByQueue } from './job-queue-delay'
+import { CyclotronJobQueueDelay } from './job-queue-delay'
 
-const createKafkaMessage = (message: Partial<Message> = {}): Message => ({
-    value: Buffer.from('test-value'),
-    key: Buffer.from('test-key'),
-    offset: 1,
-    partition: 0,
-    topic: 'cdp_cyclotron_delay_10m',
-    size: 10,
-    headers: [],
-    ...message,
-})
+const mockKafkaConsumer = {
+    isHealthy: jest.fn().mockReturnValue(true),
+    isShuttingDown: jest.fn().mockReturnValue(false),
+    isRebalancing: jest.fn().mockReturnValue(false),
+    offsetsStore: jest.fn(),
+    disconnect: jest.fn(),
+    connect: jest.fn().mockResolvedValue(undefined),
+}
 
-const createHeaders = (headers: Record<string, string>): any[] =>
-    Object.entries(headers).map(([k, v]) => ({ [k]: Buffer.from(v, 'utf8') }))
+jest.mock('../../../kafka/consumer', () => ({
+    KafkaConsumer: jest.fn().mockImplementation(() => mockKafkaConsumer),
+}))
+
+jest.mock('../../../kafka/producer', () => ({
+    KafkaProducerWrapper: {
+        create: jest.fn().mockResolvedValue({
+            produce: jest.fn(),
+            disconnect: jest.fn(),
+        }),
+    },
+}))
 
 describe('CyclotronJobQueueDelay', () => {
-    let queue: CyclotronJobQueueDelay
-    let mockProducer: { produce: jest.Mock }
-    let mockConsumer: { offsetsStore: jest.Mock }
-    let consumeBatch: jest.Mock
+    let config: PluginsServerConfig
+    let mockConsumeBatch: jest.Mock
+    let delayQueue: CyclotronJobQueueDelay
 
     beforeEach(() => {
-        jest.useFakeTimers()
-        consumeBatch = jest.fn().mockResolvedValue({ backgroundTask: Promise.resolve() })
-        queue = new CyclotronJobQueueDelay({ ...defaultConfig }, 'delay_10m', consumeBatch)
-        queue['kafkaProducer'] = (mockProducer = { produce: jest.fn().mockResolvedValue(undefined) }) as any
-        queue['kafkaConsumer'] = mockConsumer = { offsetsStore: jest.fn() } as any
+        config = { ...defaultConfig }
+        mockConsumeBatch = jest.fn().mockResolvedValue({ backgroundTask: Promise.resolve() })
+        delayQueue = new CyclotronJobQueueDelay(config, 'delay_10m', mockConsumeBatch)
+
+        jest.clearAllMocks()
+
+        mockKafkaConsumer.isShuttingDown.mockReturnValue(false)
+        mockKafkaConsumer.isRebalancing.mockReturnValue(false)
     })
 
-    afterEach(() => {
-        jest.useRealTimers()
-    })
+    describe('delayWithCancellation', () => {
+        it('should complete delay normally when no cancellation', async () => {
+            await delayQueue.startAsConsumer()
 
-    it('routes immediately to returnTopic when scheduled in the past', async () => {
-        const headers = createHeaders({
-            returnTopic: 'cdp_cyclotron_hog',
-            queueScheduledAt: new Date(Date.now() - 1000).toISOString(),
+            const startTime = Date.now()
+            await delayQueue['delayWithCancellation'](100)
+            const endTime = Date.now()
+
+            expect(endTime - startTime).toBeGreaterThanOrEqual(90)
+            expect(endTime - startTime).toBeLessThan(200)
         })
-        const msg = createKafkaMessage({ headers })
 
-        const p = (queue as any)['consumeKafkaBatch']([msg])
-        await Promise.resolve()
-        jest.advanceTimersByTime(0)
-        await p
+        it('should cancel delay when consumer is shutting down', async () => {
+            await delayQueue.startAsConsumer()
 
-        expect(mockProducer.produce).toHaveBeenCalledWith(
-            expect.objectContaining({
-                value: msg.value,
-                key: msg.key as any,
-                topic: 'cdp_cyclotron_hog',
-                headers: headers as any,
-            })
-        )
-        expect(mockConsumer.offsetsStore).toHaveBeenCalledWith([{ ...msg, offset: msg.offset + 1 }])
-        expect(consumeBatch).toHaveBeenCalledWith([])
+            const delayPromise = delayQueue['delayWithCancellation'](5000)
+
+            setTimeout(() => {
+                mockKafkaConsumer.isShuttingDown.mockReturnValue(true)
+            }, 100)
+
+            await expect(delayPromise).rejects.toThrow('Delay cancelled due to consumer shutdown or rebalancing')
+        })
+
+        it('should cancel delay when consumer is rebalancing', async () => {
+            await delayQueue.startAsConsumer()
+
+            const delayPromise = delayQueue['delayWithCancellation'](5000)
+
+            setTimeout(() => {
+                mockKafkaConsumer.isRebalancing.mockReturnValue(true)
+            }, 100)
+
+            await expect(delayPromise).rejects.toThrow('Delay cancelled due to consumer shutdown or rebalancing')
+        })
     })
 
-    it('waits up to scheduled time (short wait) then routes to returnTopic', async () => {
-        const waitMs = 5000
-        const headers = createHeaders({
-            returnTopic: 'cdp_cyclotron_hog',
-            queueScheduledAt: new Date(Date.now() + waitMs).toISOString(),
-        })
-        const msg = createKafkaMessage({ headers })
+    describe('consumeKafkaBatch with cancellation', () => {
+        it('should throw cancellation errors during delay processing', async () => {
+            await delayQueue.startAsConsumer()
+            await delayQueue.startAsProducer()
 
-        const promise = (queue as any)['consumeKafkaBatch']([msg])
-        jest.advanceTimersByTime(waitMs)
-        await Promise.resolve()
-        await promise
-
-        expect(mockProducer.produce).toHaveBeenCalledWith(expect.objectContaining({ topic: 'cdp_cyclotron_hog' }))
-        expect(mockConsumer.offsetsStore).toHaveBeenCalledWith([{ ...msg, offset: msg.offset + 1 }])
-    })
-
-    it('caps wait at 10m and re-queues to delay topic when still in the future', async () => {
-        const longMs = getDelayByQueue('delay_10m') * 3
-        const tenMinutes = getDelayByQueue('delay_10m')
-        const headers = createHeaders({
-            returnTopic: 'cdp_cyclotron_hog',
-            queueScheduledAt: new Date(Date.now() + longMs).toISOString(),
-        })
-        const msg = createKafkaMessage({ headers })
-
-        const promise = (queue as any)['consumeKafkaBatch']([msg])
-        jest.advanceTimersByTime(tenMinutes)
-        await Promise.resolve()
-        await promise
-
-        expect(mockProducer.produce).toHaveBeenCalledWith(
-            expect.objectContaining({
+            const mockMessage = {
+                key: Buffer.from('test-key'),
+                value: Buffer.from('test-value'),
+                offset: 123,
+                size: 100,
                 topic: 'cdp_cyclotron_delay_10m',
-            })
-        )
-        expect(mockConsumer.offsetsStore).toHaveBeenCalledWith([{ ...msg, offset: msg.offset + 1 }])
-    })
+                partition: 0,
+                headers: [
+                    {
+                        returnTopic: Buffer.from('delay_10m'),
+                        queueScheduledAt: Buffer.from(DateTime.now().plus({ minutes: 1 }).toISO()),
+                    },
+                ],
+            }
 
-    it('skips message and commits offset when required headers are missing', async () => {
-        const msgNoHeaders = createKafkaMessage({ headers: [] })
+            const processPromise = delayQueue['consumeKafkaBatch']([mockMessage])
 
-        await (queue as any)['consumeKafkaBatch']([msgNoHeaders])
+            setTimeout(() => {
+                mockKafkaConsumer.isShuttingDown.mockReturnValue(true)
+            }, 100)
 
-        expect(mockProducer.produce).not.toHaveBeenCalled()
-        expect(mockConsumer.offsetsStore).toHaveBeenCalledWith([{ ...msgNoHeaders, offset: msgNoHeaders.offset + 1 }])
+            await expect(processPromise).rejects.toThrow('Delay cancelled due to consumer shutdown or rebalancing')
+        })
     })
 })

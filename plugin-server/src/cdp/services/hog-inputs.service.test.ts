@@ -1,3 +1,5 @@
+import '~/tests/helpers/mocks/date.mock'
+
 import { DateTime } from 'luxon'
 
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
@@ -17,6 +19,7 @@ describe('Hog Inputs', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
+        hub.SITE_URL = 'http://localhost:8000'
         team = await getFirstTeam(hub)
 
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
@@ -28,6 +31,15 @@ describe('Hog Inputs', () => {
             config: { team: 'foobar' },
             sensitive_config: {
                 access_token: hub.encryptedFields.encrypt('token'),
+                not_encrypted: 'not-encrypted',
+            },
+        })
+
+        await insertIntegration(hub.postgres, team.id, {
+            id: 2,
+            kind: 'oauth',
+            config: { team: 'foobar', access_token: 'token' },
+            sensitive_config: {
                 not_encrypted: 'not-encrypted',
             },
         })
@@ -160,12 +172,69 @@ describe('Hog Inputs', () => {
             `)
         })
 
+        it('access token should be replaced with placeholder', async () => {
+            hogFunction = createHogFunction({
+                id: 'hog-function-1',
+                team_id: team.id,
+                name: 'Hog Function 1',
+                enabled: true,
+                type: 'destination',
+                inputs: {
+                    hog_templated: {
+                        value: 'event: "{event.event}"',
+                        templating: 'hog',
+                        bytecode: await compileHog('return f\'event: "{event.event}"\''),
+                    },
+                    liquid_templated: {
+                        value: 'event: "{{ event.event }}"',
+                        templating: 'liquid',
+                    },
+                    auth: { value: 2 },
+                },
+                inputs_schema: [
+                    { key: 'hog_templated', type: 'string', required: true },
+                    { key: 'auth', type: 'integration', required: true },
+                ],
+            })
+
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+
+            expect(inputs.auth).toMatchInlineSnapshot(`
+                {
+                  "access_token": "$$_access_token_placeholder_2",
+                  "access_token_raw": "token",
+                  "not_encrypted": "not-encrypted",
+                  "team": "foobar",
+                }
+            `)
+        })
+
         it('should not load integrations from a different team', async () => {
             hogFunction.team_id = 100
 
             const inputs = await hogInputsService.buildInputs(hogFunction, globals)
 
             expect(inputs.oauth).toMatchInlineSnapshot(`null`)
+        })
+
+        it('should add unsubscribe url if email input is present', async () => {
+            hogFunction.inputs = {
+                email: {
+                    templating: 'liquid',
+                    value: {
+                        to: { email: '{{person.properties.email}}' },
+                        html: '<div>Unsubscribe here <a href="{{unsubscribe_url}}">here</a></div>',
+                    },
+                },
+            }
+
+            hogFunction.inputs_schema = [{ key: 'email', type: 'native_email', required: true, templating: true }]
+
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+            expect(inputs.email.to.email).toEqual('test@posthog.com')
+            expect(inputs.email.html).toEqual(
+                `<div>Unsubscribe here <a href="http://localhost:8000/messaging-preferences/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0ZWFtX2lkIjoyLCJpZGVudGlmaWVyIjoidGVzdEBwb3N0aG9nLmNvbSIsImlhdCI6MTczNTY4OTYwMCwiZXhwIjoxNzM2Mjk0NDAwLCJhdWQiOiJwb3N0aG9nOm1lc3NhZ2luZzpzdWJzY3JpcHRpb25fcHJlZmVyZW5jZXMifQ.pBh-COzTEyApuxe8J5sViPanp1lV1IClepOTVFZNhIs/">here</a></div>`
+            )
         })
     })
 })

@@ -33,7 +33,7 @@ export function DashboardItems(): JSX.Element {
         refreshStatus,
         itemsLoading,
         effectiveEditBarFilters,
-        urlVariables,
+        effectiveDashboardVariableOverrides,
         temporaryBreakdownColors,
         dataColorThemeId,
     } = useValues(dashboardLogic)
@@ -45,6 +45,7 @@ export function DashboardItems(): JSX.Element {
         duplicateTile,
         refreshDashboardItem,
         moveToDashboard,
+        setTileOverride,
     } = useActions(dashboardLogic)
     const { duplicateInsight, renameInsight } = useActions(insightsModel)
     const { push } = useActions(router)
@@ -160,6 +161,7 @@ export function DashboardItems(): JSX.Element {
                                     refreshEnabled={!itemsLoading}
                                     rename={() => renameInsight(insight)}
                                     duplicate={() => duplicateInsight(insight)}
+                                    setOverride={() => setTileOverride(tile)}
                                     showDetailsControls={
                                         placement != DashboardPlacement.Export &&
                                         !getCurrentExporterData()?.hideExtraDetails
@@ -167,7 +169,7 @@ export function DashboardItems(): JSX.Element {
                                     placement={placement}
                                     loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
                                     filtersOverride={effectiveEditBarFilters}
-                                    variablesOverride={urlVariables}
+                                    variablesOverride={effectiveDashboardVariableOverrides}
                                     // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
                                     breakdownColorOverride={temporaryBreakdownColors}
                                     dataColorThemeId={dataColorThemeId}

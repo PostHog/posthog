@@ -39,6 +39,10 @@ else
     echo "👉 To start with tracing enabled: bin/start --enable-tracing"
 fi
 
+if [[ "$*" == *"--skip-typegen"* ]]; then
+    export SKIP_TYPEGEN="exit 0"
+fi
+
 if [ -f .env ]; then
     set -o allexport
     source .env

@@ -44,6 +44,7 @@ import {
     GroupsQuery,
     GroupsQueryResponse,
     HogQLQueryModifiers,
+    HogQLQueryResponse,
     HogQLVariable,
     InsightVizNode,
     MarketingAnalyticsTableQuery,
@@ -234,6 +235,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         setPollResponse: (status: QueryStatus | null) => ({ status }),
         setLoadingTime: (seconds: number) => ({ seconds }),
         resetLoadingTimer: true,
+        setQueryLogQueryId: (queryId: string) => ({ queryId }),
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
@@ -300,6 +302,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         signal: cache.abortController.signal,
                     }
                     try {
+                        // For shared contexts, create a minimal team object if needed
                         const response = await getConcurrencyController(query, values.currentTeam as TeamType).run({
                             debugTag: query.kind,
                             abortController,
@@ -388,8 +391,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         isEventsQuery(props.query) ||
                         isActorsQuery(props.query) ||
                         isGroupsQuery(props.query) ||
-                        isErrorTrackingQuery(props.query) ||
                         isTracesQuery(props.query) ||
+                        isErrorTrackingQuery(props.query) ||
                         isMarketingAnalyticsTableQuery(props.query)
                     ) {
                         const newResponse =
@@ -406,9 +409,16 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             | ErrorTrackingQueryResponse
                             | TracesQueryResponse
                             | MarketingAnalyticsTableQueryResponse
+
+                        let results = [...(queryResponse?.results ?? []), ...(newResponse?.results ?? [])]
+
+                        if (isErrorTrackingQuery(props.query)) {
+                            results = dedupeResults(results, 'id')
+                        }
+
                         return {
                             ...queryResponse,
-                            results: [...(queryResponse?.results ?? []), ...(newResponse?.results ?? [])],
+                            results: results,
                             hasMore: newResponse?.hasMore,
                         }
                     } else if (isPersonsNode(props.query)) {
@@ -435,6 +445,30 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         }
                     }
                     return values.response
+                },
+            },
+        ],
+        queryLog: [
+            null as HogQLQueryResponse | null,
+            {
+                loadQueryLog: async (queryId, breakpoint) => {
+                    if (!queryId) {
+                        throw new Error('No query ID provided')
+                    }
+                    if (!values.featureFlags[FEATURE_FLAGS.QUERY_EXECUTION_DETAILS]) {
+                        return null
+                    }
+
+                    try {
+                        const result = await api.queryLog.get(queryId)
+                        actions.setQueryLogQueryId(queryId)
+                        return result
+                    } catch (e: any) {
+                        console.warn('Failed to get query execution details', e)
+                        e.queryId = queryId
+                        breakpoint()
+                        throw e
+                    }
                 },
             },
         ],
@@ -585,6 +619,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadDataFailure: () => 0,
                 setLoadingTime: (_, { seconds }) => seconds,
                 cancelQuery: () => 0,
+            },
+        ],
+        queryLogQueryId: [
+            null as string | null,
+            {
+                setQueryLogQueryId: (_, { queryId }) => queryId,
+                loadData: () => null,
             },
         ],
     })),
@@ -950,3 +991,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         }
     }),
 ])
+
+const dedupeResults = (arr: any[], key: string): any[] => {
+    return Object.values(
+        arr.reduce((acc, item) => {
+            acc[item[key]] = item
+            return acc
+        }, {})
+    )
+}

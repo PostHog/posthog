@@ -3,19 +3,16 @@ import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
 import { IconPlusSmall } from '@posthog/icons'
-import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { LemonTree, LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
-import { PipelineStage } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
@@ -40,12 +37,11 @@ export const QueryDatabase = (): JSX.Element => {
         setExpandedSearchFolders,
         selectSourceTable,
         toggleEditJoinModal,
-        loadDatabase,
-        loadJoins,
         setEditingDraft,
         renameDraft,
     } = useActions(queryDatabaseLogic)
     const { deleteDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
+    const { deleteJoin } = useActions(dataWarehouseSettingsLogic)
 
     const { deleteDraft } = useActions(draftsLogic)
 
@@ -100,8 +96,8 @@ export const QueryDatabase = (): JSX.Element => {
                                 className="font-mono text-xs"
                             />
                         ) : (
-                            <div className="flex flex-row justify-between gap-1">
-                                <span className="truncate font-mono text-xs">{item.name}</span>
+                            <div className="flex flex-row gap-1 justify-between">
+                                <span className="font-mono text-xs truncate">{item.name}</span>
                                 {renderTableCount(item.record?.row_count)}
                             </div>
                         )}
@@ -271,19 +267,8 @@ export const QueryDatabase = (): JSX.Element => {
                                         if (item.record?.columnName) {
                                             const join =
                                                 joinsByFieldName[`${item.record.table}.${item.record.columnName}`]
-                                            void deleteWithUndo({
-                                                endpoint: api.dataWarehouseViewLinks.determineDeleteEndpoint(),
-                                                object: {
-                                                    id: join.id,
-                                                    name: `${join.field_name} on ${join.source_table_name}`,
-                                                },
-                                                callback: () => {
-                                                    loadDatabase()
-                                                    loadJoins()
-                                                },
-                                            }).catch((e) => {
-                                                lemonToast.error(`Failed to delete warehouse view link: ${e.detail}`)
-                                            })
+
+                                            deleteJoin(join)
                                         }
                                     }}
                                 >
@@ -310,7 +295,7 @@ export const QueryDatabase = (): JSX.Element => {
                             className="z-2"
                             onClick={(e) => {
                                 e.stopPropagation()
-                                router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))
+                                router.actions.push(urls.dataWarehouseSourceNew())
                             }}
                             data-attr="sql-editor-add-source"
                         >
