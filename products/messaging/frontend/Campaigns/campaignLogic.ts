@@ -214,10 +214,10 @@ export const campaignLogic = kea<campaignLogicType>([
                                 subject: !emailValue.subject
                                     ? 'Subject is required'
                                     : getTemplatingError(emailValue.subject),
-                                from: !emailValue.from.email
+                                from: !emailValue.from?.email
                                     ? 'From is required'
                                     : getTemplatingError(emailValue.from.email),
-                                to: !emailValue.to.email ? 'To is required' : getTemplatingError(emailValue.to.email),
+                                to: !emailValue.to?.email ? 'To is required' : getTemplatingError(emailValue.to.email),
                             }
 
                             const combinedErrors = Object.values(emailTemplateErrors)
