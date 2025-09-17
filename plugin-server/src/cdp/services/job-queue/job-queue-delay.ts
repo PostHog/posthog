@@ -142,7 +142,8 @@ export class CyclotronJobQueueDelay {
 
         const maxDelayMs = getDelayByQueue(this.queue)
 
-        for (const message of messages) {
+        for (let i = 0; i < messages.length; i++) {
+            const message = messages[i]
             try {
                 const returnTopic = this.getHeaderValue(message.headers, 'returnTopic') as CyclotronJobQueueKind
                 const queueScheduledAt = this.getHeaderValue(message.headers, 'queueScheduledAt')
@@ -169,7 +170,7 @@ export class CyclotronJobQueueDelay {
 
                 logger.info(
                     '🔁',
-                    `${this.name} - Waiting for ${waitTime}ms before processing ${messages.indexOf(message) + 1}/${messages.length} invocation ${message.key}`
+                    `${this.name} - Waiting for ${waitTime}ms before processing ${i + 1}/${messages.length} invocation ${message.key}`
                 )
 
                 delayMs -= waitTime
