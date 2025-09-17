@@ -216,7 +216,7 @@ class DashboardCreationNode(AssistantNode):
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         dashboard_name = (
-            state.dashboard_name[:50] or "Analytics Dashboard"
+            state.dashboard_name[:50] if state.dashboard_name else "Analytics Dashboard"
         )  # Default dashboard name here to avoid not fulfilling the request
 
         if not state.search_insights_queries:
