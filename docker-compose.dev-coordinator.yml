@@ -129,6 +129,15 @@ services:
             - '19000:19000'
             - '19001:19001'
 
+    seaweedfs-filer:
+        image: chrislusf/seaweedfs:3.97
+        restart: on-failure
+        command: 'filer -master=objectstorage:9333'
+        ports:
+            - '8888:8888'
+        depends_on:
+            - objectstorage
+
     maildev:
         extends:
             file: docker-compose.base.yml

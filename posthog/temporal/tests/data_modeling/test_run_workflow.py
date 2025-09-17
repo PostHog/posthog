@@ -20,6 +20,7 @@ import temporalio.common
 import temporalio.worker
 from asgiref.sync import sync_to_async
 from structlog.testing import capture_logs
+from tenacity import retry, retry_if_exception_type, stop_after_delay, wait_fixed
 
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.query import execute_hogql_query
@@ -121,7 +122,7 @@ async def test_run_dag_activity_activity_materialize_mocked(activity_environment
     assert results.completed == set(dag.keys())
 
 
-async def test_create_table_activity(minio_client, activity_environment, ateam, bucket_name):
+async def test_create_table_activity(object_storage_client, activity_environment, ateam, bucket_name):
     query = """\
     select
       event as event,
@@ -278,8 +279,8 @@ def bucket_name(request) -> str:
 
 
 @pytest_asyncio.fixture
-async def minio_client(bucket_name):
-    """Manage an S3 client to interact with a MinIO bucket.
+async def object_storage_client(bucket_name):
+    """Manage an S3 client to interact with a local object storage bucket.
 
     Yields the client after creating a bucket. Upon resuming, we delete
     the contents and the bucket itself.
@@ -288,13 +289,27 @@ async def minio_client(bucket_name):
         "s3",
         aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
         aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-    ) as minio_client:
+    ) as object_storage_client:
+        # Try to create the bucket, ignoring if it already exists
         try:
-            await minio_client.head_bucket(Bucket=bucket_name)
-        except:
-            await minio_client.create_bucket(Bucket=bucket_name)
+            await object_storage_client.create_bucket(Bucket=bucket_name)
+        except Exception as e:
+            # Ignore error if bucket already exists, otherwise re-raise
+            if "BucketAlreadyExists" not in str(e) and "BucketAlreadyOwnedByYou" not in str(e):
+                raise RuntimeError(f"Failed to create bucket '{bucket_name}': {e}") from e
 
-        yield minio_client
+        # Use tenacity to retry checking bucket availability
+        @retry(
+            stop=stop_after_delay(10),  # Stop after 10 seconds
+            wait=wait_fixed(0.5),  # Wait 0.5 seconds between attempts
+            retry=retry_if_exception_type(Exception),
+        )
+        async def verify_bucket_exists():
+            await object_storage_client.head_bucket(Bucket=bucket_name)
+
+        await verify_bucket_exists()
+
+        yield object_storage_client
 
 
 def mock_to_session_credentials(class_self):
@@ -336,7 +351,7 @@ async def pageview_events(clickhouse_client, ateam):
     return (events, events_from_other_team)
 
 
-async def test_materialize_model(ateam, bucket_name, minio_client, pageview_events):
+async def test_materialize_model(ateam, bucket_name, object_storage_client, pageview_events):
     query = """\
     select
       event as event,
@@ -373,7 +388,7 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
             unittest.mock.AsyncMock(),
         )
 
-    s3_objects = await minio_client.list_objects_v2(
+    s3_objects = await object_storage_client.list_objects_v2(
         Bucket=bucket_name, Prefix=f"team_{ateam.pk}_model_{saved_query.id.hex}/"
     )
     table = delta_table.to_pyarrow_table(columns=["event", "distinct_id", "timestamp"])
@@ -402,7 +417,7 @@ async def test_materialize_model(ateam, bucket_name, minio_client, pageview_even
     await sync_to_async(execute_hogql_query)(f"SELECT * FROM {saved_query.name}", ateam)
 
 
-async def test_materialize_model_timestamps(ateam, bucket_name, minio_client, pageview_events):
+async def test_materialize_model_timestamps(ateam, bucket_name, object_storage_client, pageview_events):
     query = """\
     select toDateTime64(toDateTime('2025-01-01T00:00:00.000'), 3, 'Asia/Istanbul') as now_converted, toDateTime('2025-01-01T00:00:00.000') as now
     """
@@ -447,7 +462,7 @@ async def test_materialize_model_timestamps(ateam, bucket_name, minio_client, pa
     assert now_converted == now
 
 
-async def test_materialize_model_with_pascal_cased_name(ateam, bucket_name, minio_client, pageview_events):
+async def test_materialize_model_with_pascal_cased_name(ateam, bucket_name, object_storage_client, pageview_events):
     query = """\
     select
       event as event,
@@ -484,7 +499,7 @@ async def test_materialize_model_with_pascal_cased_name(ateam, bucket_name, mini
             unittest.mock.AsyncMock(),
         )
 
-    s3_objects = await minio_client.list_objects_v2(
+    s3_objects = await object_storage_client.list_objects_v2(
         Bucket=bucket_name, Prefix=f"team_{ateam.pk}_model_{saved_query.id.hex}/"
     )
     table = delta_table.to_pyarrow_table(columns=["event", "distinct_id", "timestamp"])
@@ -760,7 +775,7 @@ async def test_build_dag_activity_select_all(activity_environment, ateam, saved_
 
 
 async def test_run_workflow_with_minio_bucket(
-    minio_client,
+    object_storage_client,
     ateam,
     bucket_name,
     pageview_events,
@@ -882,7 +897,7 @@ async def test_run_workflow_with_minio_bucket(
 
 
 async def test_run_workflow_with_minio_bucket_with_errors(
-    minio_client,
+    object_storage_client,
     ateam,
     bucket_name,
     pageview_events,
@@ -942,7 +957,7 @@ async def test_run_workflow_with_minio_bucket_with_errors(
 
 
 async def test_run_workflow_revert_materialization(
-    minio_client,
+    object_storage_client,
     ateam,
     bucket_name,
     pageview_events,
@@ -1002,7 +1017,7 @@ async def test_run_workflow_revert_materialization(
         assert query.is_materialized is False
 
 
-async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_events):
+async def test_dlt_direct_naming(ateam, bucket_name, object_storage_client, pageview_events):
     """Test that setting SCHEMA__NAMING=direct preserves original column casing when materializing models."""
     # Query with CamelCase and PascalCase column names, not snake_case
     query = """\
@@ -1063,7 +1078,7 @@ async def test_dlt_direct_naming(ateam, bucket_name, minio_client, pageview_even
     assert "CamelCaseColumn" in table_columns, "Column 'CamelCaseColumn' should maintain its original capitalization"
 
 
-async def test_materialize_model_with_decimal256_fix(ateam, bucket_name, minio_client):
+async def test_materialize_model_with_decimal256_fix(ateam, bucket_name, object_storage_client):
     """Test that materialize_model successfully transforms Decimal256 types to float since decimal128 is not precise enough."""
     query = "SELECT 1 as test_column FROM events LIMIT 1"
     saved_query = await DataWarehouseSavedQuery.objects.acreate(
@@ -1136,7 +1151,7 @@ async def test_materialize_model_with_decimal256_fix(ateam, bucket_name, minio_c
         assert saved_query.is_materialized is True
 
 
-async def test_materialize_model_with_decimal256_downscale_to_decimal128(ateam, bucket_name, minio_client):
+async def test_materialize_model_with_decimal256_downscale_to_decimal128(ateam, bucket_name, object_storage_client):
     """Test that materialize_model successfully downscales Decimal256 to Decimal128 when the value fits."""
     query = "SELECT 1 as test_column FROM events LIMIT 1"
     saved_query = await DataWarehouseSavedQuery.objects.acreate(
@@ -1274,7 +1289,7 @@ async def test_create_job_model_activity_cleans_up_running_jobs(activity_environ
     assert new_job.workflow_run_id == "new-run"
 
 
-async def test_materialize_model_progress_tracking(ateam, bucket_name, minio_client):
+async def test_materialize_model_progress_tracking(ateam, bucket_name, object_storage_client):
     """Test that materialize_model tracks progress during S3 writes."""
     query = "SELECT 1 as test_column FROM events LIMIT 1"
     saved_query = await DataWarehouseSavedQuery.objects.acreate(
@@ -1332,7 +1347,7 @@ async def test_materialize_model_progress_tracking(ateam, bucket_name, minio_cli
         assert job.rows_expected == 6
 
 
-async def test_create_table_activity_row_count_functionality(minio_client, activity_environment, ateam):
+async def test_create_table_activity_row_count_functionality(object_storage_client, activity_environment, ateam):
     """Test that create_table_activity properly sets row count using get_count() method."""
 
     saved_query = await DataWarehouseSavedQuery.objects.acreate(
@@ -1406,7 +1421,7 @@ async def test_create_table_activity_invalid_uuid_fails(activity_environment, at
     assert "Invalid model identifier 'invalid_model_name': expected UUID format" in cap_logs[0]["event"]
 
 
-async def test_materialize_model_with_non_utc_timestamp(ateam, bucket_name, minio_client):
+async def test_materialize_model_with_non_utc_timestamp(ateam, bucket_name, object_storage_client):
     await sync_to_async(bulk_create_events)(
         [{"event": "user signed up", "distinct_id": "1", "team": ateam, "timestamp": "2022-01-01T12:00:00"}]
     )
@@ -1455,7 +1470,7 @@ async def test_materialize_model_with_non_utc_timestamp(ateam, bucket_name, mini
         assert job.status == DataModelingJob.Status.COMPLETED
 
 
-async def test_materialize_model_with_utc_timestamp(ateam, bucket_name, minio_client):
+async def test_materialize_model_with_utc_timestamp(ateam, bucket_name, object_storage_client):
     await sync_to_async(bulk_create_events)(
         [{"event": "user signed up", "distinct_id": "1", "team": ateam, "timestamp": "2022-01-01T00:00:00"}]
     )
@@ -1504,7 +1519,7 @@ async def test_materialize_model_with_utc_timestamp(ateam, bucket_name, minio_cl
         assert job.status == DataModelingJob.Status.COMPLETED
 
 
-async def test_materialize_model_with_date(ateam, bucket_name, minio_client):
+async def test_materialize_model_with_date(ateam, bucket_name, object_storage_client):
     await sync_to_async(bulk_create_events)(
         [{"event": "user signed up", "distinct_id": "1", "team": ateam, "timestamp": "2022-01-01T12:00:00"}]
     )
@@ -1553,7 +1568,7 @@ async def test_materialize_model_with_date(ateam, bucket_name, minio_client):
         assert job.status == DataModelingJob.Status.COMPLETED
 
 
-async def test_materialize_model_with_plain_datetime(ateam, bucket_name, minio_client):
+async def test_materialize_model_with_plain_datetime(ateam, bucket_name, object_storage_client):
     await sync_to_async(bulk_create_events)(
         [{"event": "user signed up", "distinct_id": "1", "team": ateam, "timestamp": "2022-01-01T12:00:00"}]
     )

@@ -2,7 +2,10 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Optional
 
+from django.conf import settings
+
 import s3fs
+import boto3
 import pandas as pd
 
 from posthog.models.team import Team
@@ -46,6 +49,24 @@ def create_data_warehouse_table_from_csv(
             "aws_secret_access_key": OBJECT_STORAGE_SECRET_ACCESS_KEY,
         },
     )
+
+    # Ensure the main bucket exists (for test environments)
+    if settings.TEST or settings.DEBUG:
+        s3_client = boto3.client(
+            "s3",
+            endpoint_url=OBJECT_STORAGE_ENDPOINT,
+            aws_access_key_id=OBJECT_STORAGE_ACCESS_KEY_ID,
+            aws_secret_access_key=OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            region_name="us-east-1",
+        )
+        try:
+            s3_client.create_bucket(Bucket=OBJECT_STORAGE_BUCKET)
+        except s3_client.exceptions.BucketAlreadyExists:
+            pass  # Bucket already exists, that's fine
+        except s3_client.exceptions.BucketAlreadyOwnedByYou:
+            pass  # We already own this bucket, that's fine
+        except Exception as ex:
+            raise Exception(f"could not create bucket '{OBJECT_STORAGE_BUCKET}' for test", ex)
 
     # Read CSV
     df = pd.read_csv(csv_path)

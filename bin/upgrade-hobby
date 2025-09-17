@@ -57,6 +57,71 @@ fi
 
 [[ -f ".env" ]] && export $(cat .env | xargs) || ( echo "No .env file found. Please create it with POSTHOG_SECRET and DOMAIN set." && exit 1)
 
+# Check if MinIO is currently being used for object storage
+echo "Checking object storage configuration..."
+if docker ps --format '{{.Image}}' | grep -q "minio/minio"; then
+    echo ""
+    echo ""
+    echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
+    echo "🚨🚨🚨 WARNING: MinIO to SeaweedFS Migration Required 🚨🚨🚨"
+    echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
+    echo ""
+    echo ""
+    echo "We detected that you are currently using MinIO for object storage."
+    echo "PostHog has migrated from MinIO to SeaweedFS because of MinIO changing license."
+    echo ""
+    echo "⚠️  If you proceed with the upgrade WITHOUT migrating your data first,"
+    echo "   you will LOSE all stored objects including:"
+    echo "   • Session recordings"
+    echo "   • Uploaded media files"
+    echo "   • Other stored assets"
+    echo ""
+    echo "RECOMMENDED ACTION:"
+    echo ""
+    echo "1. 🛑 Stop this upgrade script (press N below)"
+    echo "2. ✅ Run the migration script:"
+    echo "     ./bin/migrate-minio-to-seaweedfs"
+    echo "3. ✅ After successful migration, run this upgrade script again"
+    echo ""
+    echo "The migration script will:"
+    echo "  • Back up all your MinIO data"
+    echo "  • Guide you through migrating to SeaweedFS"
+    echo "  • Preserve all your existing data"
+    echo ""
+    read -r -p "Do you want to proceed with upgrade WITHOUT migrating (YOU WILL LOSE DATA)? [y/N] " response
+    if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
+    then
+        echo ""
+        echo "⚠️  You have chosen to proceed without migration."
+        echo "   Your MinIO data will be lost when the upgrade completes."
+        read -r -p "Are you SURE you want to lose your object storage data? [y/N] " response2
+        if [[ "$response2" =~ ^([yY][eE][sS]|[yY])+$ ]]
+        then
+            echo "OK, proceeding without migration (data will be lost)..."
+        else
+            echo "Please run ./bin/migrate-minio-to-seaweedfs first."
+            exit 0
+        fi
+    else
+        echo "Please run ./bin/migrate-minio-to-seaweedfs first."
+        exit 0
+    fi
+elif docker-compose config 2>/dev/null | grep -q "image: minio/minio"; then
+    # MinIO is configured but not running
+    echo ""
+    echo "⚠️  MinIO is configured in docker-compose but not currently running."
+    echo "   If you have existing MinIO data, you should run the migration script:"
+    echo "     ./bin/migrate-minio-to-seaweedfs"
+    echo ""
+    read -r -p "Do you want to continue with the upgrade? [y/N] " response
+    if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
+    then
+        echo "OK, continuing..."
+    else
+        exit 0
+    fi
+fi
+
 # we introduced ENCRYPTION_SALT_KEYS and so if there isn't one, need to add it
 # check for it in the .env file
 if ! grep -q "ENCRYPTION_SALT_KEYS" .env; then
