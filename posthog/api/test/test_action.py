@@ -452,7 +452,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "name": "user signed up in folder",
                 "_create_in_folder": "Special Folder/Actions",
             },
-            HTTP_ORIGIN="http://testserver",
+            headers={"origin": "http://testserver"},
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 

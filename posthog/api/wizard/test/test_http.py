@@ -35,7 +35,7 @@ class SetupWizardTests(APIBaseTest):
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
     def test_data_endpoint_returns_data(self):
-        response = self.client.get(self.data_url, HTTP_X_POSTHOG_WIZARD_HASH=self.hash)
+        response = self.client.get(self.data_url, headers={"x-posthog-wizard-hash": self.hash})
         assert response.status_code == status.HTTP_200_OK
         assert response.data["project_api_key"] == "test-key"
         assert response.data["host"] == "http://localhost:8010"
@@ -70,7 +70,7 @@ class SetupWizardTests(APIBaseTest):
                     {"message": "test", "json_schema": {"type": "object", "properties": {"name": {"type": "string"}}}}
                 ),
                 content_type="application/json",
-                HTTP_X_POSTHOG_WIZARD_HASH=self.hash,
+                headers={"x-posthog-wizard-hash": self.hash},
             )
             assert response.status_code == status.HTTP_200_OK
 
@@ -80,7 +80,7 @@ class SetupWizardTests(APIBaseTest):
                 {"message": "test", "json_schema": {"type": "object", "properties": {"name": {"type": "string"}}}}
             ),
             content_type="application/json",
-            HTTP_X_POSTHOG_WIZARD_HASH=self.hash,
+            headers={"x-posthog-wizard-hash": self.hash},
         )
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
@@ -93,7 +93,7 @@ class SetupWizardTests(APIBaseTest):
                 {"message": "test", "json_schema": {"type": "object", "properties": {"name": {"type": "string"}}}}
             ),
             content_type="application/json",
-            HTTP_X_POSTHOG_WIZARD_HASH="invalidhash",
+            headers={"x-posthog-wizard-hash": "invalidhash"},
         )
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
@@ -111,7 +111,7 @@ class SetupWizardTests(APIBaseTest):
                 {"message": "test", "json_schema": {"type": "object", "properties": {"name": {"type": "number"}}}}
             ),
             content_type="application/json",
-            HTTP_X_POSTHOG_WIZARD_HASH=self.hash,
+            headers={"x-posthog-wizard-hash": self.hash},
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"data": {"foo": "bar"}}
@@ -133,7 +133,7 @@ class SetupWizardTests(APIBaseTest):
                 }
             ),
             content_type="application/json",
-            HTTP_X_POSTHOG_WIZARD_HASH=self.hash,
+            headers={"x-posthog-wizard-hash": self.hash},
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -159,7 +159,7 @@ class SetupWizardTests(APIBaseTest):
                 }
             ),
             content_type="application/json",
-            HTTP_X_POSTHOG_WIZARD_HASH=self.hash,
+            headers={"x-posthog-wizard-hash": self.hash},
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -185,7 +185,7 @@ class SetupWizardTests(APIBaseTest):
                 }
             ),
             content_type="application/json",
-            HTTP_X_POSTHOG_WIZARD_HASH=self.hash,
+            headers={"x-posthog-wizard-hash": self.hash},
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -203,7 +203,7 @@ class SetupWizardTests(APIBaseTest):
                 }
             ),
             content_type="application/json",
-            HTTP_X_POSTHOG_WIZARD_HASH=self.hash,
+            headers={"x-posthog-wizard-hash": self.hash},
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -232,8 +232,7 @@ class SetupWizardTests(APIBaseTest):
                 }
             ),
             content_type="application/json",
-            HTTP_X_POSTHOG_WIZARD_HASH=self.hash,
-            HTTP_X_POSTHOG_WIZARD_FIXTURE_GENERATION="true",
+            headers={"x-posthog-wizard-hash": self.hash, "x-posthog-wizard-fixture-generation": "true"},
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -270,8 +269,7 @@ class SetupWizardTests(APIBaseTest):
                 }
             ),
             content_type="application/json",
-            HTTP_X_POSTHOG_WIZARD_HASH=self.hash,
-            HTTP_X_POSTHOG_WIZARD_FIXTURE_GENERATION="true",
+            headers={"x-posthog-wizard-hash": self.hash, "x-posthog-wizard-fixture-generation": "true"},
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -300,8 +298,7 @@ class SetupWizardTests(APIBaseTest):
                 }
             ),
             content_type="application/json",
-            HTTP_X_POSTHOG_WIZARD_HASH=self.hash,
-            HTTP_X_POSTHOG_WIZARD_FIXTURE_GENERATION="true",
+            headers={"x-posthog-wizard-hash": self.hash, "x-posthog-wizard-fixture-generation": "true"},
         )
 
         # Should fail authentication because no cache data exists and mock is not used
@@ -324,7 +321,7 @@ class SetupWizardTests(APIBaseTest):
                 }
             ),
             content_type="application/json",
-            HTTP_X_POSTHOG_WIZARD_HASH=self.hash,
+            headers={"x-posthog-wizard-hash": self.hash},
         )
 
         # Should fail authentication because no cache data exists and mock is not used

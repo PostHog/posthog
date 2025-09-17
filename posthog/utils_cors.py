@@ -40,7 +40,7 @@ def cors_response(request: HttpRequest, response: HttpResponse) -> HttpResponse:
     Returns a HttpResponse with CORS headers set to allow all origins.
     Only use this for endpoints that get called by the PostHog JS SDK.
     """
-    if not request.META.get("HTTP_ORIGIN"):
+    if not request.headers.get("origin"):
         return response
     url = urlparse(request.headers["origin"])
     if url.netloc == "":
@@ -55,8 +55,8 @@ def cors_response(request: HttpRequest, response: HttpResponse) -> HttpResponse:
                 origin=url.netloc,
                 path=request.path,
                 method=request.method,
-                referer=request.META.get("HTTP_REFERER"),
-                user_agent=request.META.get("HTTP_USER_AGENT"),
+                referer=request.headers.get("referer"),
+                user_agent=request.headers.get("user-agent"),
             )
 
     response["Access-Control-Allow-Credentials"] = "true"

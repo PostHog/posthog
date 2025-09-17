@@ -419,8 +419,7 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
 
         # use key
         response = self.client.get(
-            f"/api/projects/{self.team.id}/dashboards/",
-            HTTP_AUTHORIZATION=f"Bearer {value}",
+            f"/api/projects/{self.team.id}/dashboards/", headers={"authorization": f"Bearer {value}"}
         )
         assert response.status_code == status.HTTP_200_OK
 
@@ -547,7 +546,7 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         response = self.client.patch(
             f"/api/projects/{self.team.id}/insights/{insight.id}/sharing",
             {"enabled": True},
-            HTTP_AUTHORIZATION=f"Bearer {self.value}",
+            headers={"authorization": f"Bearer {self.value}"},
         )
         assert response.status_code == status.HTTP_200_OK
         initial_token = response.json()["access_token"]
@@ -557,7 +556,7 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         self.key.save()
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/{insight.id}/sharing/refresh/",
-            HTTP_AUTHORIZATION=f"Bearer {self.value}",
+            headers={"authorization": f"Bearer {self.value}"},
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json()["detail"] == "API key missing required scope 'sharing_configuration:write'"
@@ -567,7 +566,7 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         self.key.save()
         response = self.client.post(
             f"/api/projects/{self.team.id}/insights/{insight.id}/sharing/refresh/",
-            HTTP_AUTHORIZATION=f"Bearer {self.value}",
+            headers={"authorization": f"Bearer {self.value}"},
         )
         assert response.status_code == status.HTTP_200_OK
         new_token = response.json()["access_token"]

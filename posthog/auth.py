@@ -209,8 +209,8 @@ class ProjectSecretAPIKeyAuthentication(authentication.BaseAuthentication):
         request: Union[HttpRequest, Request],
     ) -> Optional[str]:
         """Try to find project secret API key in request and return it"""
-        if "HTTP_AUTHORIZATION" in request.META:
-            authorization_match = re.match(rf"^{cls.keyword}\s+(phs_[a-zA-Z0-9]+)$", request.META["HTTP_AUTHORIZATION"])
+        if "authorization" in request.headers:
+            authorization_match = re.match(rf"^{cls.keyword}\s+(phs_[a-zA-Z0-9]+)$", request.headers["authorization"])
             if authorization_match:
                 return authorization_match.group(1).strip()
 
@@ -375,8 +375,8 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
 
         # Extract JWT token from Authorization header or cookie
         sharing_jwt_token = None
-        if "HTTP_AUTHORIZATION" in request.META:
-            authorization_match = re.match(rf"^{self.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
+        if "authorization" in request.headers:
+            authorization_match = re.match(rf"^{self.keyword}\s+(\S.+)$", request.headers["authorization"])
             if authorization_match:
                 sharing_jwt_token = authorization_match.group(1).strip()
         elif hasattr(request, "COOKIES") and request.COOKIES.get("posthog_sharing_token"):
@@ -460,8 +460,8 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
             raise AuthenticationFailed(detail="Invalid access token.")
 
     def _extract_token(self, request: Union[HttpRequest, Request]) -> Optional[str]:
-        if "HTTP_AUTHORIZATION" in request.META:
-            authorization_match = re.match(rf"^{self.keyword}\s+(\S.+)$", request.META["HTTP_AUTHORIZATION"])
+        if "authorization" in request.headers:
+            authorization_match = re.match(rf"^{self.keyword}\s+(\S.+)$", request.headers["authorization"])
             if authorization_match:
                 return authorization_match.group(1).strip()
         return None
