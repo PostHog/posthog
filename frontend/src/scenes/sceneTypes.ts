@@ -200,7 +200,7 @@ export interface SceneConfig {
     /** Set the scope of the activity (affects activity and discussion panel) */
     activityScope?: ActivityScope | string
     /** Default docs path - what the docs side panel will open by default when this scene is active  */
-    defaultDocsPath?: string | (() => string)
+    defaultDocsPath?: string | (() => string) | (() => Promise<string>)
     /** Component import, used only in manifests */
     import?: () => Promise<any>
 }

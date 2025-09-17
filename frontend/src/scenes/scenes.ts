@@ -16,7 +16,6 @@ import { ActivityScope, ActivityTab, InsightShortId, PropertyFilterType, ReplayT
 
 import { BillingSectionId } from './billing/types'
 import { DataPipelinesSceneTab } from './data-pipelines/DataPipelinesScene'
-import { sourceWizardLogic } from './data-warehouse/new/sourceWizardLogic'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -94,9 +93,12 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.DataWarehouseSourceNew]: {
         projectBased: true,
         name: 'New data warehouse source',
-        defaultDocsPath: () => {
+        defaultDocsPath: async () => {
             try {
+                // Importing here to avoid problems with importing logics from such a global file like this one
+                const { sourceWizardLogic } = await import('./data-warehouse/new/sourceWizardLogic')
                 const logic = sourceWizardLogic.findMounted()
+
                 if (logic) {
                     const { selectedConnector } = logic.values
 
