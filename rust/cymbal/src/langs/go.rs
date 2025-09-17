@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 
-use crate::{frames::Frame, langs::CommonFrameMetadata};
+use crate::{
+    frames::{Frame, FrameId},
+    langs::CommonFrameMetadata,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RawGoFrame {
@@ -25,7 +28,7 @@ impl RawGoFrame {
 impl From<&RawGoFrame> for Frame {
     fn from(frame: &RawGoFrame) -> Self {
         Frame {
-            raw_id: frame.frame_id(),
+            raw_id: FrameId::placeholder(),
             mangled_name: frame.function.clone(),
             line: Some(frame.lineno),
             column: None,
