@@ -16480,6 +16480,9 @@
                         "type": "object"
                     },
                     "type": "object"
+                },
+                "variables_values": {
+                    "type": "object"
                 }
             },
             "type": "object"

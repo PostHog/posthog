@@ -9025,6 +9025,7 @@ class NamedQueryRunRequest(BaseModel):
         ),
     )
     variables_override: Optional[dict[str, dict[str, Any]]] = None
+    variables_values: Optional[dict[str, Any]] = None
 
 
 class PathsQueryResponse(BaseModel):

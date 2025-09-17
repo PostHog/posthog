@@ -1544,6 +1544,7 @@ export interface NamedQueryRunRequest {
     refresh?: RefreshType
     filters_override?: DashboardFilter
     variables_override?: Record<string, Record<string, any>>
+    variables_values?: Record<string, any>
 }
 
 export interface QueryRequest {

@@ -194,6 +194,15 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
         """Execute a named query with optional parameters."""
         named_query = get_object_or_404(NamedQuery, team=self.team, name=name, is_active=True)
 
+        data = self.get_model(request.data, NamedQueryRunRequest)
+        data.variables_values = data.variables_values or {}
+
+        query_variables = named_query.query.get("variables", {})
+        for code_name, value in data.variables_values.items():
+            for variable in query_variables.values():
+                if variable.get("code_name", "") == code_name:
+                    variable["value"] = value
+
         # Build QueryRequest
         query_request_data = {
             **request.data,  # Allow overriding QueryRequest fields like refresh, client_query_id
