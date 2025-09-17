@@ -137,7 +137,7 @@ fn normalize_timezone_format(input: &str) -> Cow<'_, str> {
 
     if TIMEZONE_REGEX.is_match(input) {
         // Found ISO datetime with +XX or -XX timezone, convert to +XX:00 or -XX:00
-        Cow::Owned(format!("{}:00", input))
+        Cow::Owned(format!("{input}:00"))
     } else {
         // Not the format we're looking for, return unchanged
         Cow::Borrowed(input)
@@ -626,9 +626,9 @@ mod tests {
     fn test_dateparser_timezone_conversion() {
         // Test that dateparser correctly converts timezones to UTC
         let test_cases = vec![
-            ("2023-01-01T12:00:00Z", 12, 0, 0), // UTC
+            ("2023-01-01T12:00:00Z", 12, 0, 0),      // UTC
             ("2023-01-01T12:00:00+00:00", 12, 0, 0), // UTC explicit
-            ("2023-01-01T12:00:00+03:00", 9, 0, 0), // +3 hours should become 9 UTC
+            ("2023-01-01T12:00:00+03:00", 9, 0, 0),  // +3 hours should become 9 UTC
             ("2023-01-01T12:00:00-05:00", 17, 0, 0), // -5 hours should become 17 UTC
             ("2023-01-01T12:00:00+01:00", 11, 0, 0), // +1 hour should become 11 UTC
             // Test the problematic format from your example
@@ -637,14 +637,25 @@ mod tests {
 
         for (input, expected_hour, expected_min, expected_sec) in test_cases {
             let result = parse_date(input);
-            assert!(result.is_some(), "Failed to parse: {}", input);
+            assert!(result.is_some(), "Failed to parse: {input}");
 
             let dt = result.unwrap();
-            println!("Input: {} -> UTC: {}", input, dt.format("%Y-%m-%dT%H:%M:%S%.3fZ"));
+            println!(
+                "Input: {} -> UTC: {}",
+                input,
+                dt.format("%Y-%m-%dT%H:%M:%S%.3fZ")
+            );
 
-            assert_eq!(dt.hour(), expected_hour, "Wrong hour for {}: expected {}, got {}", input, expected_hour, dt.hour());
-            assert_eq!(dt.minute(), expected_min, "Wrong minute for {}", input);
-            assert_eq!(dt.second(), expected_sec, "Wrong second for {}", input);
+            assert_eq!(
+                dt.hour(),
+                expected_hour,
+                "Wrong hour for {}: expected {}, got {}",
+                input,
+                expected_hour,
+                dt.hour()
+            );
+            assert_eq!(dt.minute(), expected_min, "Wrong minute for {input}");
+            assert_eq!(dt.second(), expected_sec, "Wrong second for {input}");
         }
     }
 
@@ -653,26 +664,37 @@ mod tests {
         // Test the timezone normalization function
         let test_cases = vec![
             // Cases that should be normalized
-            ("2025-09-17T14:05:04.805+03", "2025-09-17T14:05:04.805+03:00"),
-            ("2025-09-17T14:05:04.805-05", "2025-09-17T14:05:04.805-05:00"),
-            ("2025-09-17T14:05:04.805+00", "2025-09-17T14:05:04.805+00:00"),
+            (
+                "2025-09-17T14:05:04.805+03",
+                "2025-09-17T14:05:04.805+03:00",
+            ),
+            (
+                "2025-09-17T14:05:04.805-05",
+                "2025-09-17T14:05:04.805-05:00",
+            ),
+            (
+                "2025-09-17T14:05:04.805+00",
+                "2025-09-17T14:05:04.805+00:00",
+            ),
             ("2025-09-17T14:05:04+03", "2025-09-17T14:05:04+03:00"), // Without fractional seconds
             ("2025-09-17T14:05:04-05", "2025-09-17T14:05:04-05:00"), // Without fractional seconds
-
             // Cases that should NOT be normalized
             ("2025-09-17T14:05:04.805Z", "2025-09-17T14:05:04.805Z"), // Already standard format
-            ("2025-09-17T14:05:04.805+03:00", "2025-09-17T14:05:04.805+03:00"), // Already standard format
+            (
+                "2025-09-17T14:05:04.805+03:00",
+                "2025-09-17T14:05:04.805+03:00",
+            ), // Already standard format
             ("2023-01-01", "2023-01-01"), // Date-only, should not be processed
             ("2021-10-29", "2021-10-29"), // Date-only, should not be processed
-            ("invalid", "invalid"), // No change for invalid input
+            ("invalid", "invalid"),       // No change for invalid input
             ("2025-09-17T14:05:04.805+123", "2025-09-17T14:05:04.805+123"), // Invalid timezone (3 digits)
             ("not-a-date-01", "not-a-date-01"), // Ends with -01 but not a datetime
-            ("T14:05:04+03", "T14:05:04+03"), // Missing date part
+            ("T14:05:04+03", "T14:05:04+03"),   // Missing date part
         ];
 
         for (input, expected) in test_cases {
             let result = normalize_timezone_format(input);
-            assert_eq!(result.as_ref(), expected, "Failed for input: {}", input);
+            assert_eq!(result.as_ref(), expected, "Failed for input: {input}");
         }
     }
 
