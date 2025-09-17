@@ -138,7 +138,7 @@ class ExperimentQueryRunner(QueryRunner):
         if isinstance(self.metric, ExperimentFunnelMetric):
             select_fields.append(
                 ast.Alias(
-                    expr=parse_expr("groupArray(metric_events.session_id)"),
+                    expr=parse_expr("groupUniqArray(metric_events.session_id)"),
                     alias="session_ids",
                 )
             )
@@ -374,15 +374,15 @@ class ExperimentQueryRunner(QueryRunner):
             num_steps = len(self.metric.series)
             select_fields.extend(
                 [
-                    parse_expr(f"countIf(metric_events.value = {num_steps - 1}) as total_sum"),
-                    parse_expr(f"countIf(metric_events.value = {num_steps - 1}) as total_sum_of_squares"),
+                    parse_expr(f"countIf(metric_events.value.1 = {num_steps - 1}) as total_sum"),
+                    parse_expr(f"countIf(metric_events.value.1 = {num_steps - 1}) as total_sum_of_squares"),
                 ]
             )
 
             # Add step counts - how many users reached each step
             step_count_exprs = []
             for i in range(num_steps):
-                step_count_exprs.append(f"countIf(metric_events.value >= {i})")
+                step_count_exprs.append(f"countIf(metric_events.value.1 >= {i})")
             step_counts_expr = f"tuple({', '.join(step_count_exprs)}) as step_counts"
             select_fields.append(parse_expr(step_counts_expr))
 
@@ -392,20 +392,16 @@ class ExperimentQueryRunner(QueryRunner):
                 # For each step, collect session_ids from users who reached that step (not more!)
                 # and sample up to 10 of them
                 sampled_expr = f"""
-                arraySlice(
                     arrayDistinct(
                         arrayFlatten(
                             arrayFilter(
                                 x -> notEmpty(x),
-                                groupArray(
-                                    if(metric_events.value = {i}, metric_events.session_ids, [])
+                                groupArraySample(10)(
+                                    if(metric_events.value.1 = {i}, metric_events.session_ids, [])
                                 )
                             )
                         )
-                    ),
-                    1,
-                    10
-                )
+                    )
                 """
                 sampled_session_exprs.append(sampled_expr)
             sampled_sessions_expr = f"tuple({', '.join(sampled_session_exprs)}) as sampled_session_ids"

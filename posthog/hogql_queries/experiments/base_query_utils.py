@@ -738,12 +738,23 @@ def funnel_evaluation_expr(team: Team, funnel_metric: ExperimentFunnelMetric, ev
     # Determine funnel order type - default to "ordered" for backward compatibility
     funnel_order_type = funnel_metric.funnel_order_type or "ordered"
 
-    # Return the highest step reached (0-indexed)
-    # aggregate_funnel_array returns an array of tuples where result.1 is the step_reached
+    # Return tuple of (highest step reached, uuid of that step's event)
+    # aggregate_funnel_array returns an array of tuples where:
+    # result.1 is the step_reached (0-indexed)
+    # result.4 is an array of arrays of UUIDs for each step
     expression = f"""
-    arrayMax(
+    arraySort(x -> -x.1,
         arrayMap(
-            result -> result.1,
+            result -> tuple(
+                result.1,
+                if(result.1 >= 0 AND length(result.4) > result.1,
+                    if(length(arrayElement(result.4, result.1 + 1)) > 0,
+                        toString(arrayElement(result.4, result.1 + 1)[1]),
+                        ''
+                    ),
+                    ''
+                )
+            ),
             aggregate_funnel_array(
                 {num_steps},
                 {conversion_window_seconds},
@@ -759,7 +770,7 @@ def funnel_evaluation_expr(team: Team, funnel_metric: ExperimentFunnelMetric, ev
                 )))
             )
         )
-    )
+    )[1]
     """
 
     return parse_expr(expression)

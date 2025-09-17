@@ -241,6 +241,7 @@ class Command(BaseCommand):
             )[0]
             variant_counts[variant] += 1
             distinct_id = str(uuid.uuid4())
+            session_id = str(uuid.uuid4())
             feature_flag_property = f"$feature/{experiment_id}"
             random_timestamp = datetime.fromtimestamp(
                 random.uniform(
@@ -257,6 +258,7 @@ class Command(BaseCommand):
                     feature_flag_property: variant,
                     "$feature_flag_response": variant,
                     "$feature_flag": experiment_id,
+                    "$session_id": session_id,
                 },
             )
 
@@ -268,6 +270,7 @@ class Command(BaseCommand):
                         # Prepare properties dictionary
                         properties: dict[str, Any] = {
                             f"$feature/{experiment_id}": variant,
+                            "$session_id": session_id,
                         }
 
                         # Add custom properties, sampling from distributions if needed
