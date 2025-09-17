@@ -1,8 +1,11 @@
+import { Message } from 'node-rdkafka'
+
 import { DB } from '~/utils/db/db'
 import { TeamManager } from '~/utils/team-manager'
 
-import { resolveTeam } from '../../../src/ingestion/event-preprocessing/resolve-team'
-import { Hub, IncomingEvent, Team } from '../../../src/types'
+import { createResolveTeamStep } from '../../../src/ingestion/event-preprocessing/resolve-team'
+import { EventHeaders, Hub, IncomingEvent, Team } from '../../../src/types'
+import { drop, success } from '../../../src/worker/ingestion/event-pipeline/pipeline-step-result'
 import { getMetricValues, resetMetrics } from '../../helpers/metrics'
 
 const pipelineEvent = {
@@ -32,6 +35,7 @@ const teamTwo: Team = {
 const teamTwoToken = 'token'
 
 let hub: Hub
+let step: ReturnType<typeof createResolveTeamStep>
 
 beforeEach(() => {
     resetMetrics()
@@ -61,16 +65,19 @@ beforeEach(() => {
         teamManager,
         db,
     } as Hub
+
+    step = createResolveTeamStep(hub)
 })
 
-describe('resolveTeam()', () => {
-    it('event with no token is not processed and the step returns null', async () => {
-        const incomingEvent: IncomingEvent = {
-            event: { ...pipelineEvent },
-            message: {} as any,
+describe('createResolveTeamStep()', () => {
+    it('event with no token is not processed and the step returns drop', async () => {
+        const input = {
+            message: {} as Message,
+            headers: {} as EventHeaders,
+            event: { event: { ...pipelineEvent }, message: {} as Message } as IncomingEvent,
         }
-        const response = await resolveTeam(hub, incomingEvent)
-        expect(response).toEqual(null)
+        const response = await step(input)
+        expect(response).toEqual(drop('Failed to resolve team'))
         expect(await getMetricValues('ingestion_event_dropped_total')).toEqual([
             {
                 labels: {
@@ -82,13 +89,14 @@ describe('resolveTeam()', () => {
         ])
     })
 
-    it('event with an invalid token is not processed and the step returns null', async () => {
-        const incomingEvent: IncomingEvent = {
-            event: { ...pipelineEvent, token: 'unknown' },
-            message: {} as any,
+    it('event with an invalid token is not processed and the step returns drop', async () => {
+        const input = {
+            message: {} as Message,
+            headers: {} as EventHeaders,
+            event: { event: { ...pipelineEvent, token: 'unknown' }, message: {} as Message } as IncomingEvent,
         }
-        const response = await resolveTeam(hub, incomingEvent)
-        expect(response).toEqual(null)
+        const response = await step(input)
+        expect(response).toEqual(drop('Failed to resolve team'))
         expect(await getMetricValues('ingestion_event_dropped_total')).toEqual([
             {
                 labels: {
@@ -101,24 +109,35 @@ describe('resolveTeam()', () => {
     })
 
     it('event with a valid token calls getTeamByToken with correct token', async () => {
-        const incomingEvent: IncomingEvent = {
-            event: { ...pipelineEvent, token: teamTwoToken },
-            message: {} as any,
+        const input = {
+            message: {} as Message,
+            headers: {} as EventHeaders,
+            event: { event: { ...pipelineEvent, token: teamTwoToken }, message: {} as Message } as IncomingEvent,
         }
-        const response = await resolveTeam(hub, incomingEvent)
-        expect(response?.event).toEqual({ ...pipelineEvent, token: teamTwoToken })
-        expect(response?.team).toEqual(teamTwo)
+        const response = await step(input)
+        expect(response).toEqual(
+            success({
+                ...input,
+                eventWithTeam: {
+                    event: { ...pipelineEvent, token: teamTwoToken },
+                    team: teamTwo,
+                    message: input.message,
+                    headers: input.headers,
+                },
+            })
+        )
         expect(hub.teamManager.getTeamByToken).toHaveBeenCalledWith(teamTwoToken)
         expect(hub.teamManager.getTeam).not.toHaveBeenCalled()
     })
 
     it('event with team_id but no token is dropped', async () => {
-        const incomingEvent: IncomingEvent = {
-            event: { ...pipelineEvent, team_id: 3 },
-            message: {} as any,
+        const input = {
+            message: {} as Message,
+            headers: {} as EventHeaders,
+            event: { event: { ...pipelineEvent, team_id: 3 }, message: {} as Message } as IncomingEvent,
         }
-        const response = await resolveTeam(hub, incomingEvent)
-        expect(response).toEqual(null)
+        const response = await step(input)
+        expect(response).toEqual(drop('Failed to resolve team'))
         expect(await getMetricValues('ingestion_event_dropped_total')).toEqual([
             {
                 labels: {
@@ -133,25 +152,39 @@ describe('resolveTeam()', () => {
     })
 
     it('event with both team_id and token uses token for team resolution', async () => {
-        const incomingEvent: IncomingEvent = {
-            event: { ...pipelineEvent, team_id: 3, token: teamTwoToken },
-            message: {} as any,
+        const input = {
+            message: {} as Message,
+            headers: {} as EventHeaders,
+            event: {
+                event: { ...pipelineEvent, team_id: 3, token: teamTwoToken },
+                message: {} as Message,
+            } as IncomingEvent,
         }
-        const response = await resolveTeam(hub, incomingEvent)
-        expect(response?.event).toEqual({ ...pipelineEvent, team_id: 3, token: teamTwoToken })
-        expect(response?.team).toEqual(teamTwo)
+        const response = await step(input)
+        expect(response).toEqual(
+            success({
+                ...input,
+                eventWithTeam: {
+                    event: { ...pipelineEvent, team_id: 3, token: teamTwoToken },
+                    team: teamTwo,
+                    message: input.message,
+                    headers: input.headers,
+                },
+            })
+        )
         expect(hub.teamManager.getTeamByToken).toHaveBeenCalledWith(teamTwoToken)
         expect(hub.teamManager.getTeam).not.toHaveBeenCalled()
     })
 
     it('PG errors are propagated up to trigger retries', async () => {
         jest.mocked(hub.teamManager.getTeamByToken).mockRejectedValueOnce(new Error('retry me'))
-        const incomingEvent: IncomingEvent = {
-            event: { ...pipelineEvent, token: teamTwoToken },
-            message: {} as any,
+        const input = {
+            message: {} as Message,
+            headers: {} as EventHeaders,
+            event: { event: { ...pipelineEvent, token: teamTwoToken }, message: {} as Message } as IncomingEvent,
         }
         await expect(async () => {
-            await resolveTeam(hub, incomingEvent)
+            await step(input)
         }).rejects.toThrow('retry me')
     })
 })

@@ -11,7 +11,13 @@ export enum PipelineStepResultType {
 export type PipelineStepResultOk<T> = { type: PipelineStepResultType.OK; value: T }
 export type PipelineStepResultDlq = { type: PipelineStepResultType.DLQ; reason: string; error: unknown }
 export type PipelineStepResultDrop = { type: PipelineStepResultType.DROP; reason: string }
-export type PipelineStepResultRedirect = { type: PipelineStepResultType.REDIRECT; reason: string; topic: string }
+export type PipelineStepResultRedirect = {
+    type: PipelineStepResultType.REDIRECT
+    reason: string
+    topic: string
+    preserveKey?: boolean
+    awaitAck?: boolean
+}
 export type PipelineStepResult<T> =
     | PipelineStepResultOk<T>
     | PipelineStepResultDlq
@@ -33,8 +39,19 @@ export function drop<T>(reason: string): PipelineStepResult<T> {
     return { type: PipelineStepResultType.DROP, reason }
 }
 
-export function redirect<T>(reason: string, topic: string): PipelineStepResult<T> {
-    return { type: PipelineStepResultType.REDIRECT, reason, topic }
+export function redirect<T>(
+    reason: string,
+    topic: string,
+    preserveKey: boolean = true,
+    awaitAck: boolean = true
+): PipelineStepResult<T> {
+    return {
+        type: PipelineStepResultType.REDIRECT,
+        reason,
+        topic,
+        preserveKey,
+        awaitAck,
+    }
 }
 
 /**
