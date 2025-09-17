@@ -7,7 +7,7 @@ import temporalio.activity
 import temporalio.workflow
 from structlog.contextvars import bind_contextvars
 
-from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.temporal.common.base import PostHogWorkflow
@@ -119,7 +119,7 @@ async def get_unique_conditions_activity(inputs: BehavioralCohortsWorkflowInputs
             product=Product.PRODUCT_ANALYTICS,
             query_type="get_unique_conditions",
         ):
-            results = sync_execute(query, params, ch_user=ClickHouseUser.COHORTS)
+            results = sync_execute(query, params, ch_user=ClickHouseUser.COHORTS, workload=Workload.OFFLINE)
 
         conditions = [
             {
@@ -201,6 +201,7 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
                             "min_matches": inputs.min_matches,
                         },
                         ch_user=ClickHouseUser.COHORTS,
+                        workload=Workload.OFFLINE,
                     )
 
                 for row in results:

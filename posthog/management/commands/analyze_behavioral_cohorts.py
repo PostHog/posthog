@@ -8,7 +8,7 @@ from django.core.management.base import BaseCommand
 import structlog
 from temporalio.common import WorkflowIDReusePolicy
 
-from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.constants import MESSAGING_TASK_QUEUE
@@ -92,6 +92,7 @@ class Command(BaseCommand):
 
         if use_temporal:
             # Use Temporal workflow for parallel processing
+            start_time = time.time()
             result = self.run_temporal_workflow(
                 team_id=team_id,
                 cohort_id=cohort_id,
@@ -103,10 +104,24 @@ class Command(BaseCommand):
             )
 
             if result:
+                total_time_seconds = round(time.time() - start_time, 2)
+
+                logger.info(
+                    "Completed (Temporal parallel processing)",
+                    total_memberships=result["total_memberships"],
+                    conditions_processed=result["conditions_processed"],
+                    batches_processed=result["batches_processed"],
+                    parallelism=parallelism,
+                    total_time_seconds=total_time_seconds,
+                )
+
                 self.stdout.write(
                     f"Workflow completed: {result['total_memberships']} memberships from {result['conditions_processed']} conditions"
                 )
-                self.stdout.write(f"Processed in {result['batches_processed']} parallel batches")
+                self.stdout.write(
+                    f"Processed in {result['batches_processed']} parallel batches (parallelism={parallelism})"
+                )
+                self.stdout.write(f"Total time: {total_time_seconds} seconds")
 
                 # Display sample results
                 if result.get("memberships"):
@@ -266,7 +281,7 @@ class Command(BaseCommand):
                 product=Product.PRODUCT_ANALYTICS,
                 query_type="get_unique_conditions",
             ):
-                results = sync_execute(query, params, ch_user=ClickHouseUser.COHORTS)
+                results = sync_execute(query, params, ch_user=ClickHouseUser.COHORTS, workload=Workload.OFFLINE)
             return [
                 {
                     "team_id": row[0],
@@ -336,6 +351,7 @@ class Command(BaseCommand):
                             "min_matches": min_matches,
                         },
                         ch_user=ClickHouseUser.COHORTS,
+                        workload=Workload.OFFLINE,
                     )
 
                 for row in results:
