@@ -10,6 +10,7 @@ import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { DetectiveHog, FilmCameraHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -49,7 +50,7 @@ function ExportButton({
                 heatmap_fixed_position_mode: heatmapFixedPositionMode,
                 common_filters: commonFilters,
                 heatmap_filters: heatmapFilters,
-                filename: `heatmap-${browserUrl}-${Date.now().toString()}`,
+                filename: `heatmap-${new URL(browserUrl).hostname}/${new URL(browserUrl).pathname.slice(1, 11)}-${dayjs().format('YYYY-MM-DD-HH-mm')}`,
             })
         }
     }
@@ -285,7 +286,7 @@ export function HeatmapsBrowser(): JSX.Element {
                 <div className="overflow-hidden w-full h-screen">
                     <UrlSearchHeader iframeRef={iframeRef} />
                     <FilterPanel />
-                    <div className="relative flex flex-1 overflow-hidden border h-screen">
+                    <div className="relative flex flex-1 overflow-hidden border min-h-screen">
                         {hasValidReplayIframeData ? (
                             <FixedReplayHeatmapBrowser iframeRef={iframeRef} />
                         ) : browserUrl ? (
