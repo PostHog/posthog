@@ -7,11 +7,9 @@ import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
 import { CommandBar } from 'lib/components/CommandBar/CommandBar'
 import { cn } from 'lib/utils/css-classes'
 import { SceneConfig } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
 
-import { MaxFloatingInput } from '../../scenes/max/MaxFloatingInput'
 import { ProjectNotice } from '../navigation/ProjectNotice'
 import { navigationLogic } from '../navigation/navigationLogic'
 import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
@@ -32,7 +30,6 @@ export function Navigation({
     const { mobileLayout } = useValues(navigationLogic)
     const { mode } = useValues(navigation3000Logic)
     const mainRef = useRef<HTMLElement>(null)
-    const { currentTeam } = useValues(teamLogic)
     const { mainContentRect } = useValues(panelLayoutLogic)
     const { setMainContentRef, setMainContentRect } = useActions(panelLayoutLogic)
 
@@ -57,7 +54,6 @@ export function Navigation({
             <div className="Navigation3000 flex-col" style={theme?.mainStyle}>
                 {mode === 'minimal' ? <MinimalNavigation /> : null}
                 <main>{children}</main>
-                {currentTeam ? <MaxFloatingInput /> : null}
             </div>
         )
     }
@@ -112,7 +108,6 @@ export function Navigation({
             </main>
             <SidePanel />
             <CommandBar />
-            {currentTeam ? <MaxFloatingInput /> : null}
         </div>
     )
 }
