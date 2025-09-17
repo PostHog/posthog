@@ -14,14 +14,12 @@ import {
 import { linkToLogic } from 'lib/components/FileSystem/LinkTo/linkToLogic'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { ResizableElement } from 'lib/components/ResizeElement/ResizeElement'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { LemonTree, LemonTreeRef, LemonTreeSize, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     ContextMenuGroup,
@@ -120,7 +118,6 @@ export function ProjectTree({
         onItemChecked,
         moveCheckedItems,
         linkCheckedItems,
-        setCheckedItems,
         assureVisibility,
         clearScrollTarget,
         setEditingItemId,
@@ -137,9 +134,7 @@ export function ProjectTree({
     const treeRef = useRef<LemonTreeRef>(null)
     const { projectTreeMode } = useValues(projectTreeLogic({ key: PROJECT_TREE_KEY }))
     const { setProjectTreeMode } = useActions(projectTreeLogic({ key: PROJECT_TREE_KEY }))
-    const { featureFlags } = useValues(featureFlagLogic)
 
-    const canOpenInPostHogTab = !!featureFlags[FEATURE_FLAGS.SCENE_TABS]
     const showFilterDropdown = root === 'project://'
     const showSortDropdown = root === 'project://'
 
@@ -290,7 +285,6 @@ export function ProjectTree({
                         <BrowserLikeMenuItems
                             href={item.record?.href}
                             MenuItem={MenuItem}
-                            canOpenInPostHogTab={canOpenInPostHogTab}
                             resetPanelLayout={resetPanelLayout}
                         />
                         <MenuSeparator />
@@ -909,54 +903,6 @@ export function ProjectTree({
                         }),
                 },
             ]}
-            panelActions={
-                root === 'project://' ? (
-                    <>
-                        {sortMethod !== 'recent' ? (
-                            <ButtonPrimitive
-                                onClick={() => createFolder('')}
-                                tooltip="New root folder"
-                                iconOnly
-                                data-attr="tree-panel-new-root-folder-button"
-                                size="sm"
-                            >
-                                <IconFolderPlus className="text-tertiary size-3" />
-                            </ButtonPrimitive>
-                        ) : null}
-
-                        <ButtonPrimitive
-                            onClick={() => setSelectMode(selectMode === 'default' ? 'multi' : 'default')}
-                            tooltip={selectMode === 'default' ? 'Enable multi-select' : 'Disable multi-select'}
-                            iconOnly
-                            data-attr="tree-panel-enable-multi-select-button"
-                            size="sm"
-                            active={selectMode === 'multi'}
-                            aria-pressed={selectMode === 'multi'}
-                        >
-                            <IconCheckbox
-                                className={cn('size-3', {
-                                    'text-tertiary': selectMode === 'default',
-                                    'text-primary': selectMode === 'multi',
-                                })}
-                            />
-                        </ButtonPrimitive>
-
-                        {checkedItemCountNumeric > 0 && checkedItemsCount !== '0+' && (
-                            <ButtonPrimitive
-                                onClick={() => {
-                                    setCheckedItems({})
-                                    setSelectMode('default')
-                                }}
-                                tooltip="Clear selected and disable multi-select"
-                                data-attr="tree-panel-clear-selected-and-disable-multi-select-button"
-                                size="sm"
-                            >
-                                <LemonTag type="highlight">{checkedItemsCount} selected</LemonTag>
-                            </ButtonPrimitive>
-                        )}
-                    </>
-                ) : null
-            }
         >
             {root === 'project://' && (
                 <ButtonPrimitive

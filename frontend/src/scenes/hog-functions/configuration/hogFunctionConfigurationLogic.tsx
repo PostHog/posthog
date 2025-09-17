@@ -11,13 +11,11 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { asDisplay } from 'scenes/persons/person-utils'
-import { pipelineNodeLogic } from 'scenes/pipeline/pipelineNodeLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -49,8 +47,6 @@ import {
     HogFunctionTypeType,
     HogWatcherState,
     PersonType,
-    PipelineNodeTab,
-    PipelineStage,
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -62,6 +58,7 @@ import type { hogFunctionConfigurationLogicType } from './hogFunctionConfigurati
 export interface HogFunctionConfigurationLogicProps {
     logicKey?: string
     templateId?: string | null
+    subTemplateId?: string | null
     id?: string | null
 }
 
@@ -283,11 +280,14 @@ export function mightDropEvents(code: string): boolean {
 export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicType>([
     path((id) => ['scenes', 'pipeline', 'hogFunctionConfigurationLogic', id]),
     props({} as HogFunctionConfigurationLogicProps),
-    key(({ id, templateId, logicKey }: HogFunctionConfigurationLogicProps) => {
-        const baseKey = id ?? templateId ?? 'new'
+    key(({ id, templateId, subTemplateId, logicKey }: HogFunctionConfigurationLogicProps) => {
+        let baseKey = id ?? templateId ?? 'new'
+        if (subTemplateId) {
+            baseKey = `${subTemplateId}_${baseKey}`
+        }
         return logicKey ? `${logicKey}_${baseKey}` : baseKey
     }),
-    connect(({ id }: HogFunctionConfigurationLogicProps) => ({
+    connect(() => ({
         values: [
             projectLogic,
             ['currentProjectId', 'currentProject'],
@@ -298,7 +298,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             featureFlagLogic,
             ['featureFlags'],
         ],
-        actions: [pipelineNodeLogic({ id: `hog-${id}`, stage: PipelineStage.Destination }), ['setBreadcrumbTitle']],
     })),
     actions({
         setShowSource: (showSource: boolean) => ({ showSource }),
@@ -661,11 +660,6 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 // Only sent on create
                 payload.template_id = props.templateId || values.hogFunction?.template?.id
 
-                if (!values.hasAddon && values.type !== 'transformation') {
-                    // Remove the source field if the user doesn't have the addon (except for transformations)
-                    delete payload.hog
-                }
-
                 if (!props.id || props.id === 'new') {
                     const type = values.type
                     const typeFolder =
@@ -688,27 +682,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             (s) => [s.configuration, s.hogFunction],
             (configuration, hogFunction) => configuration?.type ?? hogFunction?.type ?? 'loading',
         ],
-        hasAddon: [
-            (s) => [s.hasAvailableFeature, s.featureFlags],
-            (hasAvailableFeature, featureFlags) => {
-                // Simple hack - we always turn the addon on if the new pricing is enabled
-                // Once we have fully rolled it out we can just completely remove all addon related code
-                return (
-                    hasAvailableFeature(AvailableFeature.DATA_PIPELINES) ||
-                    !!featureFlags[FEATURE_FLAGS.CDP_NEW_PRICING]
-                )
-            },
-        ],
         hasGroupsAddon: [
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => {
                 return hasAvailableFeature(AvailableFeature.GROUP_ANALYTICS)
-            },
-        ],
-        showPaygate: [
-            (s) => [s.template, s.hasAddon],
-            (template, hasAddon) => {
-                return template && !template.free && !hasAddon
             },
         ],
         useMapping: [
@@ -1179,6 +1156,13 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return ['destination', 'internal_destination', 'transformation'].includes(type)
             },
         ],
+
+        isLegacyPlugin: [
+            (s) => [s.template, s.hogFunction],
+            (template, hogFunction) => {
+                return (template?.id || hogFunction?.template?.id)?.startsWith('plugin-')
+            },
+        ],
     })),
 
     listeners(({ actions, values, cache }) => ({
@@ -1221,11 +1205,9 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         loadTemplateSuccess: () => actions.resetForm(),
         loadHogFunctionSuccess: () => {
             actions.resetForm()
-            actions.setBreadcrumbTitle(values.hogFunction?.name ?? 'Unnamed')
         },
         upsertHogFunctionSuccess: () => {
             actions.resetForm()
-            actions.setBreadcrumbTitle(values.hogFunction?.name ?? 'Unnamed')
         },
 
         upsertHogFunctionFailure: ({ errorObject }) => {
@@ -1431,15 +1413,16 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 }
             }
 
-            const possibleMenuIds: string[] = [PipelineNodeTab.Configuration, PipelineNodeTab.Testing]
-            if (
-                !(
-                    possibleMenuIds.includes(newRoute[newRoute.length - 1]) &&
-                    possibleMenuIds.includes(oldRoute[newRoute.length - 1])
-                )
-            ) {
-                return true
-            }
+            // TODO: Fix this!!
+            // const possibleMenuIds: string[] = [PipelineNodeTab.Configuration, PipelineNodeTab.Testing]
+            // if (
+            //     !(
+            //         possibleMenuIds.includes(newRoute[newRoute.length - 1]) &&
+            //         possibleMenuIds.includes(oldRoute[newRoute.length - 1])
+            //     )
+            // ) {
+            //     return true
+            // }
 
             return false
         },

@@ -2,7 +2,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { HogTransformerService } from '../../../cdp/hog-transformations/hog-transformer.service'
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
-import { Hub, KafkaConsumerBreadcrumb, PipelineEvent, Team } from '../../../types'
+import { EventHeaders, Hub, KafkaConsumerBreadcrumb, PipelineEvent, Team } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { normalizeProcessPerson } from '../../../utils/event'
@@ -63,6 +63,7 @@ export class EventPipelineRunner {
     personsStoreForBatch: PersonsStoreForBatch
     groupStoreForBatch: GroupStoreForBatch
     mergeMode: MergeMode
+    headers?: EventHeaders
 
     constructor(
         hub: Hub,
@@ -70,7 +71,8 @@ export class EventPipelineRunner {
         hogTransformer: HogTransformerService | null = null,
         breadcrumbs: KafkaConsumerBreadcrumb[] = [],
         personsStoreForBatch: PersonsStoreForBatch,
-        groupStoreForBatch: GroupStoreForBatch
+        groupStoreForBatch: GroupStoreForBatch,
+        headers?: EventHeaders
     ) {
         this.hub = hub
         this.originalEvent = event
@@ -80,6 +82,7 @@ export class EventPipelineRunner {
         this.personsStoreForBatch = personsStoreForBatch
         this.groupStoreForBatch = groupStoreForBatch
         this.mergeMode = determineMergeMode(hub)
+        this.headers = headers
     }
 
     isEventDisallowed(event: PipelineEvent): boolean {
@@ -303,7 +306,7 @@ export class EventPipelineRunner {
 
         const [normalizedEvent, timestamp] = await this.runStep(
             normalizeEventStep,
-            [transformedEvent, processPerson],
+            [transformedEvent, processPerson, this.headers, this.hub.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE],
             event.team_id
         )
 

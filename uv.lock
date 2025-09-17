@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = "==3.11.*"
 
 [[package]]
@@ -4369,7 +4369,7 @@ requires-dist = [
     { name = "phonenumberslite", specifier = "==8.13.6" },
     { name = "pillow", specifier = "==10.2.0" },
     { name = "playwright", specifier = ">=1.54.0" },
-    { name = "posthoganalytics", specifier = ">=6.3.1" },
+    { name = "posthoganalytics", specifier = ">=6.7.4" },
     { name = "psutil", specifier = "==6.0.0" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
     { name = "psycopg2-binary", specifier = "==2.9.7" },
@@ -4475,7 +4475,7 @@ dev = [
     { name = "ruff", specifier = "~=0.8.1" },
     { name = "sqlalchemy", specifier = "==2.0.38" },
     { name = "stpyv8", marker = "(platform_machine != 'aarch64' and platform_machine != 'arm64') or sys_platform != 'linux'", specifier = "==13.1.201.22" },
-    { name = "syrupy", specifier = "~=4.6.0" },
+    { name = "syrupy", specifier = "~=4.9.1" },
     { name = "tach", specifier = "~=0.20.0" },
     { name = "types-aioboto3", extras = ["s3"], specifier = ">=14.3.0" },
     { name = "types-boto3", extras = ["essential"], specifier = "==1.37.6" },
@@ -4495,7 +4495,7 @@ dev = [
 
 [[package]]
 name = "posthoganalytics"
-version = "6.3.1"
+version = "6.7.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -4505,9 +4505,9 @@ dependencies = [
     { name = "six" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/90/c7/445cbfb04857b70dd622851edf6dd3cb16840600670932c4f17db6359150/posthoganalytics-6.3.1.tar.gz", hash = "sha256:30ca703d6089bc6ac6e65d7d752a0c028fa2cddad3bbc053f22a527b65de5bd8", size = 98353, upload-time = "2025-07-23T09:52:24.802Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ad/3e/8a6896a2e998a0e82f0eae74e1dfaf958a80117cb4ddf5653af5e4abb74d/posthoganalytics-6.7.4.tar.gz", hash = "sha256:fe63d288c76b983ff9a5c849d1ea2dafbb1bdd9e1140929008589315747cfd03", size = 118715, upload-time = "2025-09-05T15:29:24.959Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f9/7a/8299c8be23cbe1951ea901c4ed8bc2b36f1c02403d69eab6418672399f3e/posthoganalytics-6.3.1-py3-none-any.whl", hash = "sha256:5505f076abe2f8836df6584d5245182cd0cdf13a5ac2ed45c1d3f5614cbb38a6", size = 116503, upload-time = "2025-07-23T09:52:23.776Z" },
+    { url = "https://files.pythonhosted.org/packages/40/af/1088ecedc1191ea0435d7e430c911338f9524255e5ae7a58d8cae9c88dcb/posthoganalytics-6.7.4-py3-none-any.whl", hash = "sha256:ecba38780c263282df2cd1f3b5f14d822cbab7779b66a0d1cf58ce6525614c98", size = 137701, upload-time = "2025-09-05T15:29:23.75Z" },
 ]
 
 [[package]]
@@ -6010,14 +6010,14 @@ wheels = [
 
 [[package]]
 name = "syrupy"
-version = "4.6.4"
+version = "4.9.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pytest" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c8/e8/4ca6e2ace3a42d9547a4c08c51304fffe28e3dc4b823291e7446e7a97123/syrupy-4.6.4.tar.gz", hash = "sha256:a6facc6a45f1cff598adacb030d9573ed62863521755abd5c5d6d665f848d6cc", size = 47490, upload-time = "2024-08-21T01:54:22.082Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8c/f8/022d8704a3314f3e96dbd6bbd16ebe119ce30e35f41aabfa92345652fceb/syrupy-4.9.1.tar.gz", hash = "sha256:b7d0fcadad80a7d2f6c4c71917918e8ebe2483e8c703dfc8d49cdbb01081f9a4", size = 52492, upload-time = "2025-03-24T01:36:37.225Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5d/01/623a57cb18e97b5b6570bc09d5750d8c04713f4d2ec11f0341e2786c6cc3/syrupy-4.6.4-py3-none-any.whl", hash = "sha256:5a0e47b187d32b58555b0de6d25bc7bb875e7d60c7a41bd2721f5d44975dcf85", size = 47436, upload-time = "2024-08-21T01:54:20.548Z" },
+    { url = "https://files.pythonhosted.org/packages/ec/9d/aef9ec5fd5a4ee2f6a96032c4eda5888c5c7cec65cef6b28c4fc37671d88/syrupy-4.9.1-py3-none-any.whl", hash = "sha256:b94cc12ed0e5e75b448255430af642516842a2374a46936dd2650cfb6dd20eda", size = 52214, upload-time = "2025-03-24T01:36:35.278Z" },
 ]
 
 [[package]]

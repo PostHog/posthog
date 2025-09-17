@@ -39,6 +39,10 @@ else
     echo "👉 To start with tracing enabled: bin/start --enable-tracing"
 fi
 
+if [[ "$*" == *"--skip-typegen"* ]]; then
+    export SKIP_TYPEGEN="exit 0"
+fi
+
 if [ -f .env ]; then
     set -o allexport
     source .env
@@ -86,9 +90,6 @@ if [[ "$*" == *"--custom"* ]]; then
 # Use minimal config
 elif [[ "$*" == *"--minimal"* ]]; then
     exec mprocs --config bin/mprocs-minimal.yaml
-# Use vite config
-elif [[ "$*" == *"--vite"* ]]; then
-    exec mprocs --config bin/mprocs-vite.yaml
 else
     exec mprocs --config bin/mprocs.yaml
 fi

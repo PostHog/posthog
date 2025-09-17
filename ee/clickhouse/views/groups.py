@@ -20,7 +20,6 @@ from posthog.api.capture import capture_internal
 from posthog.api.documentation import extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
@@ -417,71 +416,6 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                     ],
                 ),
             )
-            return response.Response(self.get_serializer(group).data)
-        except Group.DoesNotExist:
-            raise NotFound()
-
-    @action(
-        methods=["POST"],
-        detail=False,
-        required_scopes=["group:write"],
-        authentication_classes=[PersonalAPIKeyAuthentication],
-    )
-    def upsert_properties(self, request: request.Request, **_kw) -> response.Response:
-        try:
-            group = self.get_object()
-
-            original_values = {}
-            new_properties = {}
-            for prop_key, prop_value in request.data.items():
-                original_values[prop_key] = group.group_properties.get(prop_key, None)
-                new_properties[prop_key] = prop_value
-
-            group.group_properties.update(new_properties)
-            group.save()
-
-            # Need to update ClickHouse too
-            timestamp = timezone.now()
-            raw_create_group_ch(
-                team_id=self.team.pk,
-                group_type_index=group.group_type_index,
-                group_key=group.group_key,
-                properties=group.group_properties,
-                created_at=group.created_at,
-                timestamp=timestamp,
-            )
-
-            # another internal event submission where we best-effort and don't handle failures...
-            try:
-                self.trigger_group_identify(
-                    group=group,
-                    operation="group properties upsert",
-                    group_properties=new_properties,
-                )
-            except TriggerGroupIdentifyException as exc:
-                return response.Response(data=exc.exception_data, status=exc.status_code)
-
-            for property in new_properties:
-                log_activity(
-                    organization_id=self.organization.id,
-                    team_id=self.team.id,
-                    user=cast(User, request.user),
-                    was_impersonated=is_impersonated_session(request),
-                    item_id=group.pk,
-                    scope="Group",
-                    activity="upsert_properties",
-                    detail=Detail(
-                        name=str(property),
-                        changes=[
-                            Change(
-                                type="Group",
-                                action="created" if original_values[property] is None else "changed",
-                                before=original_values[property],
-                                after=new_properties[property],
-                            )
-                        ],
-                    ),
-                )
             return response.Response(self.get_serializer(group).data)
         except Group.DoesNotExist:
             raise NotFound()

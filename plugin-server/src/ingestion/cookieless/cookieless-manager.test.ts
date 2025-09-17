@@ -277,10 +277,28 @@ describe('CookielessManager', () => {
             })
         })
 
-        async function processEvent(event: PipelineEvent): Promise<PipelineEvent | undefined> {
-            const response = await hub.cookielessManager.doBatch([{ event, team, message }])
+        async function processEvent(
+            event: PipelineEvent,
+            headers: { token?: string; distinct_id?: string; timestamp?: string } = {}
+        ): Promise<PipelineEvent | undefined> {
+            const response = await hub.cookielessManager.doBatch([{ event, team, message, headers }])
             expect(response.length).toBeLessThanOrEqual(1)
             return response[0]?.event
+        }
+
+        async function processEventWithHeaders(
+            event: PipelineEvent,
+            headers: { token?: string; distinct_id?: string; timestamp?: string }
+        ): Promise<{
+            event: PipelineEvent | undefined
+            headers: { token?: string; distinct_id?: string; timestamp?: string }
+        }> {
+            const response = await hub.cookielessManager.doBatch([{ event, team, message, headers }])
+            expect(response.length).toBeLessThanOrEqual(1)
+            return {
+                event: response[0]?.event,
+                headers: response[0]?.headers || {},
+            }
         }
 
         // tests that are shared between both modes
@@ -373,6 +391,47 @@ describe('CookielessManager', () => {
                 }
                 expect(actual1.distinct_id).not.toEqual(actual2.distinct_id)
                 expect(actual1.properties.$session_id).not.toEqual(actual2.properties.$session_id)
+            })
+
+            it('should preserve headers through cookieless processing', async () => {
+                const testHeaders = {
+                    token: 'test-token',
+                    distinct_id: 'test-distinct-id',
+                    timestamp: '1234567890',
+                }
+
+                const result = await processEventWithHeaders(event, testHeaders)
+
+                expect(result.headers).toEqual(testHeaders)
+                expect(result.event).toBeDefined()
+            })
+
+            it('should preserve headers for non-cookieless events', async () => {
+                const testHeaders = {
+                    token: 'test-token',
+                    distinct_id: 'test-distinct-id',
+                    timestamp: '1234567890',
+                }
+
+                const result = await processEventWithHeaders(nonCookielessEvent, testHeaders)
+
+                expect(result.headers).toEqual(testHeaders)
+                expect(result.event).toBe(nonCookielessEvent)
+            })
+
+            it('should not return dropped events but should not throw', async () => {
+                const testHeaders = {
+                    token: 'test-token',
+                    distinct_id: 'test-distinct-id',
+                    timestamp: '1234567890',
+                }
+
+                // Test with alias event which should be dropped
+                const result = await processEventWithHeaders(aliasEvent, testHeaders)
+
+                // Dropped events are not returned in the response array
+                expect(result.event).toBeUndefined()
+                expect(result.headers).toEqual({})
             })
         })
 
@@ -502,6 +561,31 @@ describe('CookielessManager', () => {
             it('should pass through non-cookieless events', async () => {
                 const actual1 = await processEvent(nonCookielessEvent)
                 expect(actual1).toBe(nonCookielessEvent)
+            })
+            it('should not return dropped cookieless events but should not throw', async () => {
+                const testHeaders = {
+                    token: 'test-token',
+                    distinct_id: 'test-distinct-id',
+                    timestamp: '1234567890',
+                }
+
+                const result = await processEventWithHeaders(event, testHeaders)
+
+                // Dropped events are not returned in the response array
+                expect(result.event).toBeUndefined()
+                expect(result.headers).toEqual({})
+            })
+            it('should preserve headers when passing through non-cookieless events', async () => {
+                const testHeaders = {
+                    token: 'test-token',
+                    distinct_id: 'test-distinct-id',
+                    timestamp: '1234567890',
+                }
+
+                const result = await processEventWithHeaders(nonCookielessEvent, testHeaders)
+
+                expect(result.headers).toEqual(testHeaders)
+                expect(result.event).toBe(nonCookielessEvent)
             })
         })
     })

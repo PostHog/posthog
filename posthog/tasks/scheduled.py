@@ -34,7 +34,6 @@ from posthog.tasks.tasks import (
     clickhouse_send_license_usage,
     count_items_in_playlists,
     delete_expired_exported_assets,
-    ee_persist_finished_recordings,
     ee_persist_finished_recordings_v2,
     find_flags_with_enriched_analytics,
     ingestion_lag,
@@ -44,6 +43,7 @@ from posthog.tasks.tasks import (
     process_scheduled_changes,
     redis_celery_queue_depth,
     redis_heartbeat,
+    refresh_activity_log_fields_cache,
     replay_count_metrics,
     schedule_all_subscriptions,
     send_org_usage_reports,
@@ -55,6 +55,7 @@ from posthog.tasks.tasks import (
     update_survey_iteration,
     verify_persons_data_in_sync,
 )
+from posthog.tasks.team_access_cache_tasks import warm_all_team_access_caches_task
 from posthog.utils import get_crontab
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
@@ -94,6 +95,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="0"),
         schedule_warming_for_teams_task.s(),
         name="schedule warming for largest teams",
+    )
+
+    # Team access cache warming - every 10 minutes
+    add_periodic_task_with_expiry(
+        sender,
+        600,  # Every 10 minutes (no TTL, just fill missing entries)
+        warm_all_team_access_caches_task.s(),
+        name="warm team access caches",
     )
 
     # Update events table partitions twice a week
@@ -238,6 +247,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
+        crontab(hour="*/12", minute="0"),
+        refresh_activity_log_fields_cache.s(),
+        name="refresh activity log fields cache for large orgs",
+    )
+
+    sender.add_periodic_task(
         crontab(hour="*/12"),
         update_survey_iteration.s(),
         name="update survey iteration based on date",
@@ -294,11 +309,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
 
         sender.add_periodic_task(crontab(hour="*", minute="55"), schedule_all_subscriptions.s())
 
-        sender.add_periodic_task(
-            crontab(minute="*/2") if settings.DEBUG else crontab(hour="2", minute=str(randrange(0, 40))),
-            ee_persist_finished_recordings.s(),
-            name="persist finished recordings",
-        )
         sender.add_periodic_task(
             crontab(minute="*/2") if settings.DEBUG else crontab(hour="2", minute=str(randrange(0, 40))),
             ee_persist_finished_recordings_v2.s(),

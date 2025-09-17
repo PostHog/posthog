@@ -15,8 +15,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { Annotations } from 'scenes/annotations'
 import { NewAnnotationButton } from 'scenes/annotations/AnnotationModal'
+import { AdvancedActivityLogsList } from 'scenes/audit-logs/AdvancedActivityLogsList'
 import { Comments } from 'scenes/data-management/comments/Comments'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { MarketingAnalyticsSettings } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/MarketingAnalyticsSettings'
 
@@ -38,6 +39,7 @@ export enum DataManagementTab {
     Annotations = 'annotations',
     Comments = 'comments',
     History = 'history',
+    ActivityLogs = 'activity-logs',
     IngestionWarnings = 'warnings',
     Revenue = 'revenue',
     MarketingAnalytics = 'marketing-analytics',
@@ -125,6 +127,12 @@ const tabs: Record<DataManagementTab, TabConfig> = {
         ),
         tooltipDocLink: 'https://posthog.com/docs/data#history',
     },
+    [DataManagementTab.ActivityLogs]: {
+        url: urls.advancedActivityLogs(),
+        label: 'Activity logs',
+        content: <AdvancedActivityLogsList />,
+        flag: FEATURE_FLAGS.ADVANCED_ACTIVITY_LOGS,
+    },
     [DataManagementTab.Revenue]: {
         url: urls.revenueSettings(),
         label: (
@@ -181,11 +189,6 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
             (tab): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.DataManagement,
-                        name: `Data management`,
-                        path: tabs.events.url,
-                    },
-                    {
                         key: tab,
                         name: capitalizeFirstLetter(tab),
                         path: tabs[tab].url,
@@ -197,6 +200,7 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
             (s) => [s.featureFlags],
             (featureFlags): DataManagementTab[] => {
                 const allTabs = Object.entries(tabs)
+
                 return allTabs
                     .filter(([_, tab]) => {
                         return !tab.flag || !!featureFlags[tab.flag]

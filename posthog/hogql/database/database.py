@@ -47,6 +47,7 @@ from posthog.hogql.database.models import (
     UnknownDatabaseField,
     VirtualTable,
 )
+from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
@@ -175,6 +176,22 @@ class Database(BaseModel):
 
     # system tables
     numbers: NumbersTable = NumbersTable()
+
+    # Postgres tables
+    dashboards: PostgresTable = PostgresTable(
+        name="dashboards",
+        postgres_table_name="posthog_dashboard",
+        fields={
+            "id": IntegerDatabaseField(name="id"),
+            "team_id": IntegerDatabaseField(name="team_id"),
+            "name": StringDatabaseField(name="name"),
+            "description": StringDatabaseField(name="description"),
+            "created_at": DateTimeDatabaseField(name="created_at"),
+            "deleted": BooleanDatabaseField(name="deleted"),
+            "filters": StringJSONDatabaseField(name="filters"),
+            "variables": StringJSONDatabaseField(name="variables"),
+        },
+    )
 
     # These are the tables exposed via SQL editor autocomplete and data management
     _table_names: ClassVar[list[str]] = [
@@ -452,7 +469,7 @@ def create_hogql_database(
     modifiers: Optional[HogQLQueryModifiers] = None,
     timings: Optional[HogQLTimings] = None,
 ) -> Database:
-    from posthog.hogql.database.s3_table import S3Table
+    from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
     from posthog.hogql.query import create_default_modifiers_for_team
 
     from posthog.models import Team
@@ -585,7 +602,7 @@ def create_hogql_database(
 
     class WarehousePropertiesVirtualTable(VirtualTable):
         fields: dict[str, FieldOrTable]
-        parent_table: S3Table
+        parent_table: HogQLDataWarehouseTable
 
         def to_printed_hogql(self):
             return self.parent_table.to_printed_hogql()

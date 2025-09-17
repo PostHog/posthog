@@ -5,18 +5,10 @@ import {
     ErrorTrackingQuery,
     ErrorTrackingRelationalIssue,
     EventsQuery,
-    InsightVizNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { HogQLQueryString, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
-import {
-    AnyPropertyFilter,
-    BaseMathType,
-    ChartDisplayType,
-    ProductKey,
-    PropertyGroupFilter,
-    UniversalFiltersGroup,
-} from '~/types'
+import { AnyPropertyFilter, ProductKey, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
 
 import {
     ERROR_TRACKING_DETAILS_RESOLUTION,
@@ -157,43 +149,6 @@ export const errorTrackingIssueEventsQuery = ({
     }
 
     return eventsQuery
-}
-
-export const errorTrackingIssueBreakdownQuery = ({
-    breakdownProperty,
-    dateRange,
-    filterTestAccounts,
-    filterGroup,
-}: {
-    breakdownProperty: string
-    dateRange: DateRange
-    filterTestAccounts: boolean
-    filterGroup: UniversalFiltersGroup
-}): InsightVizNode => {
-    return {
-        kind: NodeKind.InsightVizNode,
-        source: {
-            kind: NodeKind.TrendsQuery,
-            trendsFilter: {
-                display: ChartDisplayType.ActionsBarValue,
-            },
-            breakdownFilter: {
-                breakdown_type: 'event',
-                breakdown: breakdownProperty,
-                breakdown_limit: 10,
-            },
-            series: [
-                {
-                    kind: NodeKind.EventsNode,
-                    event: '$exception',
-                    math: BaseMathType.TotalCount,
-                },
-            ],
-            dateRange: dateRange,
-            properties: filterGroup.values as AnyPropertyFilter[],
-            filterTestAccounts,
-        },
-    }
 }
 
 export const errorTrackingIssueCorrelationQuery = ({

@@ -24,11 +24,17 @@ import { SESSION_RECORDING_OPT_OUT_SURVEY_ID } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { IconSelectEvents } from 'lib/lemon-ui/icons'
 import { isObject, objectsEqual } from 'lib/utils'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { InternalMultipleChoiceSurvey } from 'scenes/session-recordings/components/InternalSurvey/InternalMultipleChoiceSurvey'
 import { getMaskingConfigFromLevel, getMaskingLevelFromConfig } from 'scenes/session-recordings/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { SessionRecordingAIConfig, type SessionRecordingMaskingLevel } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    SessionRecordingAIConfig,
+    type SessionRecordingMaskingLevel,
+} from '~/types'
 
 interface SupportedPlatformProps {
     note?: ReactNode
@@ -164,6 +170,12 @@ function LogCaptureSettings(): JSX.Element {
                 bordered
                 checked={!!currentTeam?.capture_console_log_opt_in}
                 disabledReason={!currentTeam?.session_recording_opt_in ? 'Session replay must be enabled' : undefined}
+                accessControl={{
+                    resourceType: AccessControlResourceType.SessionRecording,
+                    minAccessLevel: AccessControlLevel.Editor,
+                    userAccessLevel:
+                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
+                }}
             />
         </div>
     )
@@ -219,6 +231,12 @@ function CanvasCaptureSettings(): JSX.Element | null {
                     currentTeam?.session_replay_config ? !!currentTeam?.session_replay_config?.record_canvas : false
                 }
                 disabledReason={!currentTeam?.session_recording_opt_in ? 'Session replay must be enabled' : undefined}
+                accessControl={{
+                    resourceType: AccessControlResourceType.SessionRecording,
+                    minAccessLevel: AccessControlLevel.Editor,
+                    userAccessLevel:
+                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
+                }}
             />
         </div>
     )
@@ -277,7 +295,14 @@ export function NetworkCaptureSettings(): JSX.Element {
                 bordered
                 checked={!!currentTeam?.capture_performance_opt_in}
                 disabledReason={!currentTeam?.session_recording_opt_in ? 'Session replay must be enabled' : undefined}
+                accessControl={{
+                    resourceType: AccessControlResourceType.SessionRecording,
+                    minAccessLevel: AccessControlLevel.Editor,
+                    userAccessLevel:
+                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
+                }}
             />
+
             <div className="mt-4">
                 <p>
                     When network capture is enabled, we always capture network timings. Use these switches to choose
@@ -319,6 +344,12 @@ export function NetworkCaptureSettings(): JSX.Element {
                                 ? 'session and network performance capture must be enabled'
                                 : undefined
                         }
+                        accessControl={{
+                            resourceType: AccessControlResourceType.SessionRecording,
+                            minAccessLevel: AccessControlLevel.Editor,
+                            userAccessLevel:
+                                getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
+                        }}
                     />
                     <LemonSwitch
                         data-attr="opt-in-capture-network-body-switch"
@@ -362,6 +393,12 @@ export function NetworkCaptureSettings(): JSX.Element {
                                 ? 'session and network performance capture must be enabled'
                                 : undefined
                         }
+                        accessControl={{
+                            resourceType: AccessControlResourceType.SessionRecording,
+                            minAccessLevel: AccessControlLevel.Editor,
+                            userAccessLevel:
+                                getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
+                        }}
                     />
                 </div>
             </div>
@@ -592,6 +629,12 @@ export function ReplayMaskingSettings(): JSX.Element {
                     { value: 'normal', label: 'Normal (mask inputs but not text/images)' },
                     { value: 'free-love', label: 'Free love (mask only passwords)' },
                 ]}
+                accessControl={{
+                    resourceType: AccessControlResourceType.SessionRecording,
+                    minAccessLevel: AccessControlLevel.Editor,
+                    userAccessLevel:
+                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
+                }}
             />
         </div>
     )
@@ -642,6 +685,12 @@ export function ReplayGeneral(): JSX.Element {
                     label="Record user sessions"
                     bordered
                     checked={!!currentTeam?.session_recording_opt_in}
+                    accessControl={{
+                        resourceType: AccessControlResourceType.SessionRecording,
+                        minAccessLevel: AccessControlLevel.Editor,
+                        userAccessLevel:
+                            getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
+                    }}
                 />
                 {showSurvey && <InternalMultipleChoiceSurvey surveyId={SESSION_RECORDING_OPT_OUT_SURVEY_ID} />}
             </div>
