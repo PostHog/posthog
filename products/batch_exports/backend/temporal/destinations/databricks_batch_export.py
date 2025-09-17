@@ -467,13 +467,13 @@ class DatabricksClient:
             # TODO - check results
             return [row.name for row in results]
 
-    async def amerge_mutable_tables(
+    async def amerge_tables(
         self,
         target_table: str,
         source_table: str,
         merge_key: collections.abc.Iterable[str],
         update_key: collections.abc.Iterable[str],
-        fields: collections.abc.Iterable[DatabricksField],
+        source_table_fields: collections.abc.Iterable[DatabricksField],
         with_schema_evolution: bool = True,
     ):
         """Merge data from source_table into target_table in Databricks.
@@ -487,53 +487,87 @@ class DatabricksClient:
         the individual columns in the `MERGE` query to update the target table.
         """
 
-        # TODO - add tests to test this SQL
-
         assert merge_key, "Merge key must be defined"
         assert update_key, "Update key must be defined"
 
-        merge_condition = " AND ".join([f"target.`{field}` = source.`{field}`" for field in merge_key])
-
-        update_condition = " OR ".join([f"target.`{field}` < source.`{field}`" for field in update_key])
-
         if with_schema_evolution is True:
-            merge_query = f"""
-            MERGE WITH SCHEMA EVOLUTION INTO `{target_table}` AS target
-            USING `{source_table}` AS source
-            ON {merge_condition}
-            WHEN MATCHED AND ({update_condition}) THEN
-                UPDATE SET *
-            WHEN NOT MATCHED THEN
-                INSERT *
-            """
+            merge_query = self._get_merge_query_with_schema_evolution(
+                target_table=target_table,
+                source_table=source_table,
+                merge_key=merge_key,
+                update_key=update_key,
+            )
         else:
-            assert fields, "Fields must be defined"
+            assert source_table_fields, "source_table_fields must be defined"
             # first we need to get the column names from the target table
             target_table_field_names = await self.aget_table_columns(target_table)
-
-            update_clause = ", ".join(
-                [
-                    f"target.`{field[0]}` = source.`{field[0]}`"
-                    for field in fields
-                    if field[0] in target_table_field_names
-                ]
+            merge_query = self._get_merge_query_without_schema_evolution(
+                target_table=target_table,
+                source_table=source_table,
+                merge_key=merge_key,
+                update_key=update_key,
+                source_table_fields=source_table_fields,
+                target_table_field_names=target_table_field_names,
             )
-            field_names = ", ".join([f"`{field[0]}`" for field in fields if field[0] in target_table_field_names])
-            values = ", ".join([f"source.`{field[0]}`" for field in fields if field[0] in target_table_field_names])
-
-            merge_query = f"""
-            MERGE INTO `{target_table}` AS target
-            USING `{source_table}` AS source
-            ON {merge_condition}
-            WHEN MATCHED AND ({update_condition}) THEN
-                UPDATE SET
-                    {update_clause}
-            WHEN NOT MATCHED THEN
-                INSERT ({field_names})
-                VALUES ({values})
-            """
 
         await self.execute_async_query(merge_query, fetch_results=False)
+
+    def _get_merge_query_with_schema_evolution(
+        self,
+        target_table: str,
+        source_table: str,
+        merge_key: collections.abc.Iterable[str],
+        update_key: collections.abc.Iterable[str],
+    ) -> str:
+        merge_condition = " AND ".join([f"target.`{field}` = source.`{field}`" for field in merge_key])
+        update_condition = " OR ".join([f"target.`{field}` < source.`{field}`" for field in update_key])
+
+        return f"""
+        MERGE WITH SCHEMA EVOLUTION INTO `{target_table}` AS target
+        USING `{source_table}` AS source
+        ON {merge_condition}
+        WHEN MATCHED AND ({update_condition}) THEN
+            UPDATE SET *
+        WHEN NOT MATCHED THEN
+            INSERT *
+        """
+
+    def _get_merge_query_without_schema_evolution(
+        self,
+        target_table: str,
+        source_table: str,
+        merge_key: collections.abc.Iterable[str],
+        update_key: collections.abc.Iterable[str],
+        source_table_fields: collections.abc.Iterable[DatabricksField],
+        target_table_field_names: list[str],
+    ) -> str:
+        merge_condition = " AND ".join([f"target.`{field}` = source.`{field}`" for field in merge_key])
+        update_condition = " OR ".join([f"target.`{field}` < source.`{field}`" for field in update_key])
+        update_clause = ", ".join(
+            [
+                f"target.`{field[0]}` = source.`{field[0]}`"
+                for field in source_table_fields
+                if field[0] in target_table_field_names
+            ]
+        )
+        field_names = ", ".join(
+            [f"`{field[0]}`" for field in source_table_fields if field[0] in target_table_field_names]
+        )
+        values = ", ".join(
+            [f"source.`{field[0]}`" for field in source_table_fields if field[0] in target_table_field_names]
+        )
+
+        return f"""
+        MERGE INTO `{target_table}` AS target
+        USING `{source_table}` AS source
+        ON {merge_condition}
+        WHEN MATCHED AND ({update_condition}) THEN
+            UPDATE SET
+                {update_clause}
+        WHEN NOT MATCHED THEN
+            INSERT ({field_names})
+            VALUES ({values})
+        """
 
 
 def databricks_default_fields() -> list[BatchExportField]:
@@ -886,10 +920,10 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
                 )
 
                 if requires_merge and stage_table_name is not None:
-                    await databricks_client.amerge_mutable_tables(
+                    await databricks_client.amerge_tables(
                         target_table=inputs.table_name,
                         source_table=stage_table_name,
-                        fields=table_fields,
+                        source_table_fields=table_fields,
                         merge_key=merge_key,
                         update_key=update_key,
                         with_schema_evolution=inputs.use_automatic_schema_evolution,
