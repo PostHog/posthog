@@ -1,12 +1,14 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 
 import { IconSearch, IconSidePanel } from '@posthog/icons'
 import { LemonInput } from '@posthog/lemon-ui'
 
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
 import { TabsPrimitive, TabsPrimitiveList, TabsPrimitiveTrigger } from 'lib/ui/TabsPrimitive/TabsPrimitive'
 import { cn } from 'lib/utils/css-classes'
 import { maxLogic } from 'scenes/max/maxLogic'
@@ -32,13 +34,12 @@ const getCategoryDisplayName = (category: string): string => {
 }
 
 export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
+    const listboxRef = useRef<ListBoxHandle>(null)
     const { filteredItemsGrid, search, selectedItem, categories, selectedCategory } = useValues(
         newTabSceneLogic({ tabId })
     )
     const { setQuestion, focusInput } = useActions(maxLogic)
-    const { setSearch, selectNext, selectPrevious, onSubmit, setSelectedCategory } = useActions(
-        newTabSceneLogic({ tabId })
-    )
+    const { setSearch, setSelectedCategory } = useActions(newTabSceneLogic({ tabId }))
     const { openSidePanel } = useActions(sidePanelStateLogic)
     // scroll it to view
     useEffect(() => {
@@ -48,71 +49,70 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
         }
     }, [selectedItem])
 
-    function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
-        if (e.key === 'Enter') {
-            e.preventDefault()
-            e.stopPropagation()
-            onSubmit()
-        }
-        if (e.key === 'ArrowDown') {
-            e.preventDefault()
-            e.stopPropagation()
-            selectNext()
-        }
-        if (e.key === 'ArrowUp') {
-            e.preventDefault()
-            e.stopPropagation()
-            selectPrevious()
-        }
-    }
-
     return (
-        <div className="w-full h-full flex flex-col">
-            {/* Search bar */}
-            <div className="max-w-[1200px] mx-auto w-full px-1 @lg/main-content:px-8 pt-2 @lg/main-content:pt-8 sticky top-[var(--scene-layout-header-height)] z-10 bg-primary">
-                <LemonInput
-                    value={search}
-                    onChange={(value) => setSearch(value)}
-                    onKeyDown={handleKeyDown}
-                    prefix={<IconSearch />}
-                    className="w-full"
-                    placeholder="Search..."
-                    autoFocus
-                    allowClear
-                />
-                <div className="mx-1.5">
-                    <div className="flex justify-between items-center relative text-xs font-medium overflow-hidden py-1 px-1.5 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]">
-                        <span>
-                            <span className="text-tertiary">Try:</span>
-                            <ButtonPrimitive size="xxs" className="text-xs" onClick={() => setSearch('New SQL query')}>
-                                New SQL query
-                            </ButtonPrimitive>
-                            <span className="text-tertiary">or</span>
-                            <ButtonPrimitive size="xxs" className="text-xs" onClick={() => setSearch('Experiment')}>
-                                Experiment
-                            </ButtonPrimitive>
-                        </span>
-                        <span className="text-primary flex gap-1 items-center">
-                            <LemonButton
-                                type="primary"
-                                size="xxsmall"
-                                onClick={() => {
-                                    openSidePanel(SidePanelTab.Max)
-                                    setSearch('')
-                                    setQuestion(search)
-                                    focusInput()
-                                }}
-                                sideIcon={<IconSidePanel />}
-                            >
-                                Ask Max!
-                            </LemonButton>
-                        </span>
+        <ListBox
+            ref={listboxRef}
+            className="w-full grid grid-rows-[auto_1fr] flex-col h-[calc(100vh-var(--scene-layout-header-height))]"
+            virtualFocus
+        >
+            <div className="flex flex-col gap-4">
+                <div className="px-1 @lg/main-content:px-8 pt-2 @lg/main-content:pt-8 mx-auto w-full max-w-[1200px] ">
+                    <ListBox.Item asChild virtualFocusIgnore>
+                        <LemonInput
+                            value={search}
+                            onChange={(value) => setSearch(value)}
+                            // onKeyDown={handleKeyDown}
+                            prefix={<IconSearch />}
+                            className="w-full"
+                            placeholder="Search..."
+                            autoFocus
+                            allowClear
+                        />
+                    </ListBox.Item>
+                    <div className="mx-1.5">
+                        <div className="flex justify-between items-center relative text-xs font-medium overflow-hidden py-1 px-1.5 border-x border-b rounded-b backdrop-blur-sm bg-[var(--glass-bg-3000)]">
+                            <span>
+                                <span className="text-tertiary">Try:</span>
+                                <ListBox.Item asChild>
+                                    <ButtonPrimitive
+                                        size="xxs"
+                                        className="text-xs"
+                                        onClick={() => setSearch('New SQL query')}
+                                    >
+                                        New SQL query
+                                    </ButtonPrimitive>
+                                </ListBox.Item>
+                                <span className="text-tertiary">or</span>
+                                <ListBox.Item asChild>
+                                    <ButtonPrimitive
+                                        size="xxs"
+                                        className="text-xs"
+                                        onClick={() => setSearch('Experiment')}
+                                    >
+                                        Experiment
+                                    </ButtonPrimitive>
+                                </ListBox.Item>
+                            </span>
+                            <span className="text-primary flex gap-1 items-center">
+                                <ListBox.Item asChild>
+                                    <ButtonPrimitive
+                                        size="xxs"
+                                        onClick={() => {
+                                            openSidePanel(SidePanelTab.Max)
+                                            setSearch('')
+                                            setQuestion(search)
+                                            focusInput()
+                                        }}
+                                        className="text-xs"
+                                    >
+                                        Ask Max!
+                                        <IconSidePanel />
+                                    </ButtonPrimitive>
+                                </ListBox.Item>
+                            </span>
+                        </div>
                     </div>
                 </div>
-            </div>
-
-            <div className="flex flex-col gap-4 pt-8">
-                {/* Two column layout */}
                 <TabsPrimitive value={selectedCategory} onValueChange={setSelectedCategory}>
                     <TabsPrimitiveList className="border-b">
                         <div className="max-w-[1200px] mx-auto w-full px-1 @lg/main-content:px-8 flex">
@@ -128,23 +128,33 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                         </div>
                     </TabsPrimitiveList>
                 </TabsPrimitive>
+            </div>
 
+            <ScrollableShadows
+                direction="vertical"
+                className="flex flex-col gap-4 overflow-auto h-full"
+                innerClassName="pt-6"
+            >
                 <div className="flex flex-col flex-1 max-w-[1200px] mx-auto w-full gap-4 px-3 @lg/main-content:px-8">
                     {filteredItemsGrid.length === 0 ? (
                         <div className="flex flex-col gap-4">
                             <div className="flex gap-1 items-center">
                                 No results found,{' '}
-                                <LemonButton type="primary" size="xsmall" onClick={() => setSearch('')}>
-                                    Clear search
-                                </LemonButton>{' '}
+                                <ListBox.Item asChild>
+                                    <LemonButton type="primary" size="xsmall" onClick={() => setSearch('')}>
+                                        Clear search
+                                    </LemonButton>{' '}
+                                </ListBox.Item>
                                 or{' '}
-                                <LemonButton
-                                    type="primary"
-                                    size="xsmall"
-                                    onClick={() => openSidePanel(SidePanelTab.Max)}
-                                >
-                                    Ask Max!
-                                </LemonButton>
+                                <ListBox.Item asChild>
+                                    <LemonButton
+                                        type="primary"
+                                        size="xsmall"
+                                        onClick={() => openSidePanel(SidePanelTab.Max)}
+                                    >
+                                        Ask Max!
+                                    </LemonButton>
+                                </ListBox.Item>
                             </div>
                         </div>
                     ) : (
@@ -164,30 +174,29 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                                         </h3>
                                     </div>
                                     <div className="flex flex-col gap-2">
-                                        {types.map((qt) => (
-                                            <Link
-                                                key={qt.name}
-                                                to={qt.href}
-                                                className={cn(
-                                                    selectedItem?.type === qt
-                                                        ? 'ring-2 ring-primary selected-new-tab-item'
-                                                        : '',
-                                                    'w-full @sm/main-content:w-auto'
-                                                )}
-                                                buttonProps={{
-                                                    size: 'base',
-                                                    active: selectedItem?.type === qt,
-                                                }}
-                                            >
-                                                <span className="text-sm">{qt.icon ?? qt.name[0]}</span>
-                                                <span className="text-sm truncate text-primary">
-                                                    {search ? (
-                                                        <SearchHighlightMultiple string={qt.name} substring={search} />
-                                                    ) : (
-                                                        qt.name
-                                                    )}
-                                                </span>
-                                            </Link>
+                                        {types.map((qt, index) => (
+                                            <ListBox.Item asChild focusFirst={index === 0}>
+                                                <Link
+                                                    key={qt.name}
+                                                    to={qt.href}
+                                                    className={cn('w-full @sm/main-content:w-auto')}
+                                                    buttonProps={{
+                                                        size: 'base',
+                                                    }}
+                                                >
+                                                    <span className="text-sm">{qt.icon ?? qt.name[0]}</span>
+                                                    <span className="text-sm truncate text-primary">
+                                                        {search ? (
+                                                            <SearchHighlightMultiple
+                                                                string={qt.name}
+                                                                substring={search}
+                                                            />
+                                                        ) : (
+                                                            qt.name
+                                                        )}
+                                                    </span>
+                                                </Link>
+                                            </ListBox.Item>
                                         ))}
                                     </div>
                                 </div>
@@ -195,7 +204,7 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                         </div>
                     )}
                 </div>
-            </div>
-        </div>
+            </ScrollableShadows>
+        </ListBox>
     )
 }
