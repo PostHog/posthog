@@ -39,7 +39,7 @@ pub async fn map_group_types(
             .await
             .map_err(|e| (i, e.into()))?;
 
-        if group_type_mappings.len() == 0 {
+        if group_type_mappings.is_empty() {
             continue;
         }
 
@@ -63,13 +63,9 @@ pub async fn map_group_types(
             continue;
         };
 
-        let Ok(props) = serde_json::from_str(props) else {
+        let Ok(groups_props) = serde_json::from_str::<GroupsProps>(props) else {
             // This either means we couldn't parse the groups object (if, say, it's an invalid shape with e.g. an object as a key)
             // Either way, we simply skip group identification here.
-            continue;
-        };
-
-        let Ok(groups_props) = serde_json::from_str::<GroupsProps>(props) else {
             continue;
         };
 
@@ -97,5 +93,5 @@ pub async fn map_group_types(
         );
     }
 
-    return Ok(events);
+    Ok(events)
 }
