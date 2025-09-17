@@ -193,6 +193,33 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_event_timestamp_with_millisecond_precision() {
+        let now_str = "2023-01-01T12:00:00.100Z";
+        let now = DateTime::parse_from_rfc3339(now_str)
+            .unwrap()
+            .with_timezone(&Utc);
+        let sent_at_str = "2023-01-01T12:00:00.200Z"; // Client sent at 200ms
+        let timestamp_str = "2023-01-01T12:00:00.750Z"; // Event timestamp with 750ms
+        let sent_at = DateTime::parse_from_rfc3339(sent_at_str)
+            .unwrap()
+            .with_timezone(&Utc);
+
+        let result = parse_event_timestamp(Some(timestamp_str), None, Some(sent_at), false, now);
+
+        // Expected: now + (timestamp - sent_at)
+        // = 12:00:00.100 + (12:00:00.750 - 12:00:00.200)
+        // = 12:00:00.100 + 00:00:00.550
+        // = 12:00:00.650
+        let expected = Utc.with_ymd_and_hms(2023, 1, 1, 12, 0, 0).unwrap()
+            + chrono::Duration::milliseconds(650);
+
+        assert_eq!(result, expected);
+
+        // Verify millisecond precision is preserved
+        assert_eq!(result.timestamp_subsec_millis(), 650);
+    }
+
+    #[test]
     fn test_parse_event_timestamp_out_of_bounds() {
         let now_str = "2023-01-01T12:00:00Z";
         let now = DateTime::parse_from_rfc3339(now_str)
