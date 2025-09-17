@@ -1097,7 +1097,6 @@ mod tests {
         let team_id = 1;
         let redis_key = get_redis_identifies_key(&hash, team_id);
 
-        // Set up the mock to return NotFound
         // Set up the mock to return an error
         mock_redis = mock_redis.get_ret(
             &redis_key,
