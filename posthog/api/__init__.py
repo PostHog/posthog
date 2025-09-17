@@ -834,14 +834,14 @@ projects_router.register(
     ["project_id"],
 )
 
-environments_router.register(
+register_grandfathered_environment_nested_viewset(
     r"datasets",
     DatasetViewSet,
     "environment_datasets",
     ["team_id"],
 )
 
-environments_router.register(
+register_grandfathered_environment_nested_viewset(
     r"dataset_items",
     DatasetItemViewSet,
     "environment_dataset_items",

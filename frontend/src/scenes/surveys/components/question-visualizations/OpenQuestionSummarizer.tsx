@@ -17,11 +17,16 @@ export function ResponseSummariesButton({
 }: {
     questionIndex: number | undefined
     questionId: string | undefined
-}): JSX.Element {
+}): JSX.Element | null {
     const { summarize } = useActions(surveyLogic)
-    const { responseSummary, responseSummaryLoading } = useValues(surveyLogic)
+    const { responseSummary, responseSummaryLoading, isSurveyAnalysisMaxToolEnabled } = useValues(surveyLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
     const [showConsentPopover, setShowConsentPopover] = useState(false)
+
+    // Not showing if the MaxTool is enabled, as it's a better version of this
+    if (isSurveyAnalysisMaxToolEnabled) {
+        return null
+    }
 
     const summarizeQuestion = (): void => {
         summarize({ questionIndex, questionId })

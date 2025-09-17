@@ -19,7 +19,7 @@ import { useEffect, useState } from 'react'
 
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
-import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { TeamMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -391,10 +391,10 @@ export const sceneLogic = kea<sceneLogicType>([
         sceneId: [(s) => [s.activeTab], (activeTab) => activeTab?.sceneId],
         sceneKey: [(s) => [s.activeTab], (activeTab) => activeTab?.sceneKey],
         sceneConfig: [
-            (s) => [s.sceneId, s.featureFlags],
-            (sceneId: Scene, featureFlags): SceneConfig | null => {
+            (s) => [s.sceneId],
+            (sceneId: Scene): SceneConfig | null => {
                 const config = sceneConfigurations[sceneId] || null
-                if (sceneId === Scene.SQLEditor && featureFlags[FEATURE_FLAGS.SCENE_TABS]) {
+                if (sceneId === Scene.SQLEditor) {
                     return { ...config, layout: 'app-raw' }
                 }
                 return config
@@ -1009,11 +1009,7 @@ export const sceneLogic = kea<sceneLogicType>([
     })),
     afterMount(({ actions, cache, values }) => {
         cache.onKeyDown = (event: KeyboardEvent) => {
-            if (
-                values.featureFlags[FEATURE_FLAGS.SCENE_TABS] &&
-                (event.ctrlKey || event.metaKey) &&
-                event.key === 'b'
-            ) {
+            if ((event.ctrlKey || event.metaKey) && event.key === 'b') {
                 event.preventDefault()
                 event.stopPropagation()
                 if (event.shiftKey) {

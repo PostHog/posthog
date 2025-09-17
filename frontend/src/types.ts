@@ -10,6 +10,7 @@ import { eventWithTime } from '@posthog/rrweb-types'
 
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { AlertType } from 'lib/components/Alerts/types'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
@@ -67,6 +68,7 @@ import type {
     RecordingsQuery,
     RevenueAnalyticsConfig,
     SharingConfigurationSettings,
+    TileFilters,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
@@ -643,6 +645,7 @@ export interface TeamType extends TeamBasicType {
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
     web_analytics_pre_aggregated_tables_enabled?: boolean
+    web_analytics_pre_aggregated_tables_version?: 'v1' | 'v2'
     autocapture_exceptions_errors_to_ignore: string[]
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
@@ -1290,6 +1293,7 @@ export type EntityFilter = {
     custom_name?: string | null
     index?: number
     order?: number
+    optionalInFunnel?: boolean
 }
 
 export interface ActionFilter extends EntityFilter {
@@ -2042,6 +2046,7 @@ export interface DashboardTile<T = InsightModel> extends Tileable {
         type: string
         message: string
     }
+    filters_overrides?: TileFilters
 }
 
 export interface DashboardTileBasicType {
@@ -4468,6 +4473,7 @@ export type APIScopeObject =
     | 'cohort'
     | 'dashboard'
     | 'dashboard_template'
+    | 'dataset'
     | 'early_access_feature'
     | 'error_tracking'
     | 'event_definition'
@@ -4641,7 +4647,8 @@ export enum ActivityScope {
 
 export type CommentType = {
     id: string
-    content: string
+    content: string | null
+    rich_content: JSONContent | null
     version: number
     created_at: string
     created_by: UserBasicType | null

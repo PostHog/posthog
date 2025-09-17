@@ -52,7 +52,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                 setCommonFilters(exportedData.heatmap_context.common_filters)
             }
         }
-    }, [type])
+    }, [type]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         // NOTE: For embedded views we emit an event to indicate the content width / height to allow the parent to correctly resize

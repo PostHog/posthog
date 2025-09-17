@@ -1905,7 +1905,7 @@ const api = {
 
     comments: {
         async create(
-            data: Partial<CommentType>,
+            data: Partial<CommentType> & { mentions?: number[] },
             params: Record<string, any> = {},
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): Promise<CommentType> {
@@ -1914,7 +1914,7 @@ const api = {
 
         async update(
             id: CommentType['id'],
-            data: Partial<CommentType>,
+            data: Partial<CommentType> & { new_mentions?: number[] },
             params: Record<string, any> = {},
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): Promise<CommentType> {
@@ -1971,9 +1971,10 @@ const api = {
         },
 
         async list(
-            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId(),
+            params: Record<string, any> = {}
         ): Promise<PaginatedResponse<ExportedAssetType>> {
-            return new ApiRequest().exports(teamId).get()
+            return new ApiRequest().exports(teamId).withQueryString(toParams(params)).get()
         },
 
         async get(id: number, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<ExportedAssetType> {
