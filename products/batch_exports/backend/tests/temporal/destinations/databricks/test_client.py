@@ -132,3 +132,38 @@ async def test_get_merge_query_without_schema_evolution_and_target_table_has_les
             VALUES (source.`team_id`, source.`distinct_id`, source.`person_version`, source.`person_distinct_id_version`, source.`properties`)
         """
     )
+
+
+async def test_get_copy_into_table_from_volume_query():
+    client = DatabricksClient(
+        server_hostname="test",
+        http_path="test",
+        client_id="test",
+        client_secret="test",
+        catalog="test",
+        schema="test",
+    )
+    fields = [
+        ("uuid", "STRING"),
+        ("event", "STRING"),
+        ("properties", "VARIANT"),
+        ("distinct_id", "STRING"),
+        ("team_id", "BIGINT"),
+        ("timestamp", "TIMESTAMP"),
+        ("databricks_ingested_timestamp", "TIMESTAMP"),
+    ]
+    query = client._get_copy_into_table_from_volume_query(
+        table_name="test_table",
+        volume_path="/Volumes/my_volume/path/file.parquet",
+        fields=fields,
+    )
+    assert (
+        query
+        == """
+        COPY INTO `test_table`
+        FROM (
+            SELECT `uuid`, `event`, PARSE_JSON(`properties`) as `properties`, `distinct_id`, CAST(`team_id` as BIGINT) as `team_id`, `timestamp`, `databricks_ingested_timestamp` FROM '/Volumes/my_volume/path/file.parquet'
+        )
+        FILEFORMAT = PARQUET
+        """
+    )

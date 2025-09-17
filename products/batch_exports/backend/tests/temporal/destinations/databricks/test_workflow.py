@@ -2,6 +2,7 @@
 
 import os
 import json
+import uuid
 import typing as t
 import datetime as dt
 import contextlib
@@ -15,8 +16,12 @@ from databricks import sql
 from databricks.sdk.core import Config, oauth_service_principal
 from databricks.sql.exc import ServerOperationError
 
-from posthog.batch_exports.service import BatchExportField, DatabricksBatchExportInputs
+from posthog.batch_exports.service import BatchExportField, BatchExportModel, DatabricksBatchExportInputs
 from posthog.models.team import Team
+from posthog.temporal.tests.utils.persons import (
+    generate_test_person_distinct_id2_in_clickhouse,
+    generate_test_persons_in_clickhouse,
+)
 
 from products.batch_exports.backend.temporal.destinations.databricks_batch_export import (
     DatabricksBatchExportWorkflow,
@@ -27,6 +32,8 @@ from products.batch_exports.backend.tests.temporal.destinations.base_destination
     BaseDestinationTest,
     CommonWorkflowTests,
     RetryableTestException,
+    assert_clickhouse_records_in_destination,
+    run_workflow,
 )
 
 REQUIRED_ENV_VARS = (
@@ -189,9 +196,21 @@ class DatabricksDestinationTest(BaseDestinationTest):
             with connection.cursor() as cursor:
                 yield cursor
 
+    def drop_column(self, team_id: int, column_name: str):
+        config = self.get_destination_config(team_id)
+        with self.cursor(team_id) as cursor:
+            cursor.execute(f'USE CATALOG `{config["catalog"]}`')
+            cursor.execute(f'USE SCHEMA `{config["schema"]}`')
+            # Delta tables need column mapping mode set to 'name' to support DROP COLUMN operations. The error suggests running:
+            # ALTER TABLE table_name SET TBLPROPERTIES ('delta.columnMapping.mode' = 'name')
+            cursor.execute(
+                f'ALTER TABLE `{config["table_name"]}` SET TBLPROPERTIES (\'delta.columnMapping.mode\' = \'name\')'
+            )
+            cursor.execute(f'ALTER TABLE `{config["table_name"]}` DROP COLUMN `{column_name}`')
+
 
 class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
-    """Databricks batch export tests using the common test framework.
+    """Databricks batch export tests using the common test workflow framework.
 
     This class inherits all the common test patterns and runs them specifically
     for the Databricks destination by providing the DatabricksDestinationTest
@@ -232,3 +251,189 @@ class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
             side_effect=RetryableTestException("A useful error message"),
         ):
             yield
+
+    # Additional tests specific to Databricks
+
+    async def test_workflow_handles_merge_persons_data_in_follow_up_runs(
+        self,
+        destination_test: DatabricksDestinationTest,
+        interval: str,
+        generate_test_data,
+        data_interval_start: dt.datetime,
+        data_interval_end: dt.datetime,
+        ateam,
+        batch_export_for_destination,
+        clickhouse_client,
+    ):
+        """Test that the Databricks batch export workflow handles merging new versions of person rows.
+
+        This unit tests looks at the mutability handling capabilities of the aforementioned workflow.
+        We will generate a new entry in the persons table for half of the persons exported in a first
+        run of the workflow. We expect the new entries to have replaced the old ones in Databricks after
+        the second run.
+        """
+        batch_export_model = BatchExportModel(name="persons", schema=None)
+
+        inputs = destination_test.create_batch_export_inputs(
+            team_id=ateam.pk,
+            batch_export_id=str(batch_export_for_destination.id),
+            data_interval_end=data_interval_end,
+            interval=interval,
+            batch_export_model=batch_export_model,
+            batch_export_schema=None,
+            **batch_export_for_destination.destination.config,
+        )
+
+        run = await run_workflow(
+            destination_test=destination_test,
+            batch_export_id=batch_export_for_destination.id,
+            inputs=inputs,
+        )
+        assert run.status == "Completed"
+        _, persons_to_export_created = generate_test_data
+        assert run.records_completed == len(persons_to_export_created)
+        await assert_clickhouse_records_in_destination(
+            destination_test=destination_test,
+            team_id=ateam.pk,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            batch_export_model=batch_export_model,
+            exclude_events=None,
+            inputs=inputs,
+        )
+
+        # generate new versions of persons
+        num_new_persons = len(persons_to_export_created) // 2
+        for old_person in persons_to_export_created[:num_new_persons]:
+            new_person_id = uuid.uuid4()
+            new_person, _ = await generate_test_persons_in_clickhouse(
+                client=clickhouse_client,
+                team_id=ateam.pk,
+                start_time=data_interval_start,
+                end_time=data_interval_end,
+                person_id=new_person_id,
+                count=1,
+                properties={"utm_medium": "referral", "$initial_os": "Linux", "new_property": "Something"},
+            )
+
+            await generate_test_person_distinct_id2_in_clickhouse(
+                clickhouse_client,
+                ateam.pk,
+                person_id=uuid.UUID(new_person[0]["id"]),
+                distinct_id=old_person["distinct_id"],
+                version=old_person["version"] + 1,
+                timestamp=old_person["_timestamp"],
+            )
+
+        # run the workflow again
+        run = await run_workflow(
+            destination_test=destination_test,
+            batch_export_id=batch_export_for_destination.id,
+            inputs=inputs,
+        )
+        assert run.status == "Completed"
+        assert run.records_completed == len(persons_to_export_created)
+        await assert_clickhouse_records_in_destination(
+            destination_test=destination_test,
+            team_id=ateam.pk,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            batch_export_model=batch_export_model,
+            exclude_events=None,
+            inputs=inputs,
+        )
+
+    @pytest.mark.parametrize("use_automatic_schema_evolution", [True, False])
+    async def test_workflow_handles_model_schema_changes(
+        self,
+        use_automatic_schema_evolution: bool,
+        destination_test: DatabricksDestinationTest,
+        interval: str,
+        generate_test_data,
+        data_interval_start: dt.datetime,
+        data_interval_end: dt.datetime,
+        ateam,
+        batch_export_for_destination,
+    ):
+        """Test that the Databricks batch export workflow handles changes to the model schema.
+
+        If we update the schema of the model we export, we should still be able to export the data without breaking
+        existing exports.
+        To replicate this situation we first export the data with the original schema, then delete a column in the
+        destination and then rerun the export.
+
+        Databricks supports automatic schema evolution, which means the target table will automatically be updated with
+        the schema of the source table (no columns will ever be dropped from the target table however).
+
+        If `use_automatic_schema_evolution` is True, we will use `WITH SCHEMA EVOLUTION` to enable automatic schema
+        evolution. In this case, the target table will automatically be updated with the new column.
+
+        If `use_automatic_schema_evolution` is False, we will not use `WITH SCHEMA EVOLUTION` and the target table will
+        not be updated with the new column.
+
+        """
+
+        # create the table manually, specifically without the created_at column
+        destination_config = batch_export_for_destination.destination.config
+        catalog = destination_config["catalog"]
+        schema = destination_config["schema"]
+        table_name = destination_config["table_name"]
+        query = f"""
+        CREATE TABLE IF NOT EXISTS `{catalog}`.`{schema}`.`{table_name}` (
+            `team_id` BIGINT,
+            `distinct_id` STRING,
+            `person_id` STRING,
+            `properties` VARIANT,
+            `person_distinct_id_version` BIGINT,
+            `person_version` BIGINT,
+            `is_deleted` BOOLEAN
+        )
+        USING DELTA
+        COMMENT 'PostHog generated table'
+        """
+        with destination_test.cursor(ateam.pk) as cursor:
+            cursor.execute(query)
+
+        batch_export_model = BatchExportModel(name="persons", schema=None)
+
+        inputs = destination_test.create_batch_export_inputs(
+            team_id=ateam.pk,
+            batch_export_id=str(batch_export_for_destination.id),
+            data_interval_end=data_interval_end,
+            interval=interval,
+            batch_export_model=batch_export_model,
+            batch_export_schema=None,
+            **batch_export_for_destination.destination.config,
+            use_automatic_schema_evolution=use_automatic_schema_evolution,
+        )
+
+        run = await run_workflow(
+            destination_test=destination_test,
+            batch_export_id=batch_export_for_destination.id,
+            inputs=inputs,
+        )
+
+        assert run.status == "Completed"
+        _, persons_to_export_created = generate_test_data
+        assert run.records_completed == len(persons_to_export_created)
+        await assert_clickhouse_records_in_destination(
+            destination_test=destination_test,
+            team_id=ateam.pk,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            batch_export_model=batch_export_model,
+            exclude_events=None,
+            inputs=inputs,
+            # if `use_automatic_schema_evolution` is False, we expect the created_at column to be dropped
+            fields_to_exclude=["created_at"] if use_automatic_schema_evolution is False else [],
+        )
+
+        # check that the created_at column is present or not in the destination
+        records_from_destination = await destination_test.get_inserted_records(
+            team_id=ateam.pk,
+            json_columns=destination_test.get_json_columns(inputs),
+        )
+        if use_automatic_schema_evolution is True:
+            assert "created_at" in records_from_destination[0]
+        else:
+            assert "created_at" not in records_from_destination[0]

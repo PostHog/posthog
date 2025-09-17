@@ -247,7 +247,6 @@ class DatabricksClient:
         We run the query in a separate thread to avoid blocking the event loop in the main thread.
         """
         query_kwargs = query_kwargs or {}
-        # TODO - ensure errors are raised correctly
         query_start_time = time.time()
         self.logger.debug("Executing query: %s", query)
 
@@ -262,8 +261,6 @@ class DatabricksClient:
                 return
 
             results = await asyncio.to_thread(cursor.fetchall)
-            # description = cursor.description
-            # return results, description
             return results
 
     async def execute_async_query(
@@ -290,14 +287,10 @@ class DatabricksClient:
             timeout: The timeout (in seconds) to wait for the query to complete.
                 This is more of a safeguard than anything else, just to prevent us waiting forever.
 
-        # TODO - decide what to return (if we need description or not)
         Returns:
-            If `fetch_results` is `True`, a tuple containing:
-            - The query results as a list of tuples or dicts
-            # - The cursor description (containing list of fields in result)
+            If `fetch_results` is `True`, the query results as a list of Row objects.
             Else when `fetch_results` is `False` we return `None`.
         """
-        # TODO - ensure errors are raised correctly
         poll_interval = poll_interval or self.DEFAULT_POLL_INTERVAL
 
         query_start_time = time.time()
@@ -324,13 +317,9 @@ class DatabricksClient:
                 return
 
             self.logger.debug("Fetching query results")
-
             results = await asyncio.to_thread(cursor.fetchall)
-            # description = cursor.description
-
             self.logger.debug("Finished fetching query results")
 
-            # return results, description
             return results
 
     async def use_catalog(self, catalog: str):
@@ -367,17 +356,15 @@ class DatabricksClient:
         field_ddl = ", ".join(f"`{field[0]}` {field[1]}" for field in fields)
         partitioned_by_ddl = f"PARTITIONED BY (`{partition_by}`)" if partition_by else ""
         try:
-            await self.execute_query(
-                f"""
+            query = f"""
                 CREATE TABLE IF NOT EXISTS `{table_name}` (
                     {field_ddl}
                 )
                 USING DELTA
                 {partitioned_by_ddl}
                 COMMENT 'PostHog generated table'
-                """,
-                fetch_results=False,
-            )
+                """
+            await self.execute_query(query, fetch_results=False)
         except ServerOperationError as err:
             if err.message and "INSUFFICIENT_PERMISSIONS" in err.message:
                 self.external_logger.error("Failed to create table: %s", err.message)  # noqa: TRY400
@@ -395,7 +382,6 @@ class DatabricksClient:
             query_kwargs={"input_stream": file},
         )
 
-    # TODO - add tests for this
     async def acopy_into_table_from_volume(self, table_name: str, volume_path: str, fields: list[DatabricksField]):
         """Asynchronously copy data from a Databricks volume into a Databricks table.
 
@@ -404,26 +390,10 @@ class DatabricksClient:
         - If the field type is VARIANT, we need to parse the string as JSON
         - If the field type is BIGINT or INTEGER, we cast the data in the file to that type just in case it is an unsigned integer
         """
+        query = self._get_copy_into_table_from_volume_query(
+            table_name=table_name, volume_path=volume_path, fields=fields
+        )
         try:
-            select_fields = []
-            for field in fields:
-                if field[1] == "VARIANT":
-                    select_fields.append(f"PARSE_JSON(`{field[0]}`) as `{field[0]}`")
-                elif field[1] == "BIGINT":
-                    select_fields.append(f"CAST(`{field[0]}` as BIGINT) as `{field[0]}`")
-                elif field[1] == "INTEGER":
-                    select_fields.append(f"CAST(`{field[0]}` as INTEGER) as `{field[0]}`")
-                else:
-                    select_fields.append(f"`{field[0]}`")
-            select_fields = ", ".join(select_fields)
-
-            query = f"""
-                COPY INTO `{table_name}`
-                FROM (
-                    SELECT {select_fields} FROM '{volume_path}'
-                )
-                FILEFORMAT = PARQUET
-                """
             await self.execute_async_query(query, fetch_results=False)
         except ServerOperationError as err:
             if err.message and "INSUFFICIENT_PERMISSIONS" in err.message:
@@ -432,6 +402,29 @@ class DatabricksClient:
                     f"Failed to copy data from volume into table: {err.message}"
                 )
             raise
+
+    def _get_copy_into_table_from_volume_query(
+        self, table_name: str, volume_path: str, fields: list[DatabricksField]
+    ) -> str:
+        select_fields = []
+        for field in fields:
+            if field[1] == "VARIANT":
+                select_fields.append(f"PARSE_JSON(`{field[0]}`) as `{field[0]}`")
+            elif field[1] == "BIGINT":
+                select_fields.append(f"CAST(`{field[0]}` as BIGINT) as `{field[0]}`")
+            elif field[1] == "INTEGER":
+                select_fields.append(f"CAST(`{field[0]}` as INTEGER) as `{field[0]}`")
+            else:
+                select_fields.append(f"`{field[0]}`")
+        select_fields = ", ".join(select_fields)
+
+        return f"""
+        COPY INTO `{table_name}`
+        FROM (
+            SELECT {select_fields} FROM '{volume_path}'
+        )
+        FILEFORMAT = PARQUET
+        """
 
     @contextlib.asynccontextmanager
     async def managed_volume(self, volume: str):
@@ -464,8 +457,12 @@ class DatabricksClient:
         with self.connection.cursor() as cursor:
             await asyncio.to_thread(cursor.columns, table_name=table_name)
             results = await asyncio.to_thread(cursor.fetchall)
-            # TODO - check results
-            return [row.name for row in results]
+            try:
+                column_names = [row.name for row in results]
+            except AttributeError:
+                # depending on the table column mapping mode, this could also be returned via a different attribute
+                column_names = [row.COLUMN_NAME for row in results]
+            return column_names
 
     async def amerge_tables(
         self,
@@ -997,6 +994,9 @@ class DatabricksBatchExportWorkflow(PostHogWorkflow):
             batch_export_schema=inputs.batch_export_schema,
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=databricks_default_fields(),
+            use_variant_type=inputs.use_variant_type,
+            use_automatic_schema_evolution=inputs.use_automatic_schema_evolution,
+            table_partition_field=inputs.table_partition_field,
         )
 
         await execute_batch_export_using_internal_stage(
