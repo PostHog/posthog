@@ -4527,7 +4527,7 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
     def test_limit_is_context_aware(self, mock_sync_execute: MagicMock):
-        self.run_query(query={}, limit_context=LimitContext.QUERY_ASYNC)
+        self.run_query(query={}, limit_context=LimitContext.RETENTION)
 
         mock_sync_execute.assert_called_once()
         self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])

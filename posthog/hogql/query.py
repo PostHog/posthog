@@ -184,6 +184,7 @@ class HogQLQueryExecutor:
             LimitContext.COHORT_CALCULATION,
             LimitContext.QUERY_ASYNC,
             LimitContext.SAVED_QUERY,
+            LimitContext.RETENTION,
         ):
             settings.max_execution_time = max(settings.max_execution_time or 0, HOGQL_INCREASED_MAX_EXECUTION_TIME)
 

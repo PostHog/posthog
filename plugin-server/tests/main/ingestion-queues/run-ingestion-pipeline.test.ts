@@ -71,7 +71,7 @@ describe('workerTasks.runEventPipeline()', () => {
             hub.clickhouseGroupRepository
         )
         await expect(
-            new EventPipelineRunner(hub, event, null, [], personsStoreForBatch, groupStoreForBatch).runEventPipeline(
+            new EventPipelineRunner(hub, event, null, personsStoreForBatch, groupStoreForBatch).runEventPipeline(
                 event,
                 team
             )

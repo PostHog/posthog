@@ -1,13 +1,17 @@
+import { Message } from 'node-rdkafka'
+
 import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
-import { Hub, IncomingEvent, IncomingEventWithTeam } from '../../types'
+import { EventHeaders, Hub, IncomingEvent, IncomingEventWithTeam } from '../../types'
 import { tokenOrTeamPresentCounter } from '../../worker/ingestion/event-pipeline/metrics'
+import { drop, success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
+import { AsyncPreprocessingStep } from '../processing-pipeline'
 
-export async function resolveTeam(
+async function resolveTeam(
     hub: Pick<Hub, 'teamManager'>,
-    incomingEvent: IncomingEvent
+    message: Message,
+    headers: EventHeaders,
+    event: IncomingEvent['event']
 ): Promise<IncomingEventWithTeam | null> {
-    const event = incomingEvent.event
-
     tokenOrTeamPresentCounter
         .labels({
             team_id_present: event.team_id ? 'true' : 'false',
@@ -40,7 +44,23 @@ export async function resolveTeam(
     return {
         event,
         team,
-        message: incomingEvent.message,
-        headers: incomingEvent.headers || {},
+        message,
+        headers,
+    }
+}
+
+export function createResolveTeamStep<T extends { message: Message; headers: EventHeaders; event: IncomingEvent }>(
+    hub: Hub
+): AsyncPreprocessingStep<T, T & { eventWithTeam: IncomingEventWithTeam }> {
+    return async (input) => {
+        const { message, headers, event } = input
+
+        const eventWithTeam = await resolveTeam(hub, message, headers, event.event)
+
+        if (!eventWithTeam) {
+            return drop('Failed to resolve team')
+        }
+
+        return success({ ...input, eventWithTeam })
     }
 }
