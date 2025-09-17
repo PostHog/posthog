@@ -53,7 +53,6 @@ from ee.hogai.utils.aio import async_to_sync
 
 logger = structlog.get_logger(__name__)
 
-# Shared fields between DashboardSerializer and DashboardMetadataSerializer to prevent drift
 DASHBOARD_SHARED_FIELDS = [
     "id",
     "name",
@@ -220,8 +219,6 @@ class DashboardBasicSerializer(
 
 
 class DashboardMetadataSerializer(DashboardBasicSerializer):
-    """Serializer for dashboard metadata only - no tiles included for streaming mode."""
-
     filters = serializers.SerializerMethodField()
     variables = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
