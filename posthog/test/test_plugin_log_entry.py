@@ -1,3 +1,5 @@
+import datetime
+
 from posthog.test.base import BaseTest
 
 from django.utils import timezone
@@ -56,7 +58,7 @@ class TestPluginLogEntry(BaseTest):
         results = fetch_plugin_log_entries(
             plugin_config_id=some_plugin_config.pk,
             after=datetime.datetime.min,
-            before=timezone.now() + timezone.timedelta(seconds=5),
+            before=timezone.now() + datetime.timedelta(seconds=5),
         )
 
         self.assertEqual(len(results), 1)

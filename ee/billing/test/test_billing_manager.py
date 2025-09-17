@@ -4,7 +4,6 @@ from typing import Any, cast
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
@@ -169,7 +168,7 @@ class TestBillingManager(BaseTest):
         license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key123::key123",
             plan="enterprise",
-            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
         )
 
         billing_status = {

@@ -1,5 +1,6 @@
 import datetime
 import json
+import datetime
 from datetime import timedelta
 from typing import Optional, cast
 
@@ -7,7 +8,6 @@ from freezegun import freeze_time
 from posthog.test.base import FuzzyInt, snapshot_postgres_queries
 
 from django.test import override_settings
-from django.utils import timezone
 
 from rest_framework import status
 
