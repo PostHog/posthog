@@ -4,7 +4,7 @@ import { useActions } from 'kea'
 import { LemonLabel } from '@posthog/lemon-ui'
 
 import { campaignLogic } from '../../campaignLogic'
-import { HogFlowFilters } from '../filters/HogFlowFilters'
+import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { HogFlowAction } from '../types'
 import { HogFlowDuration } from './components/HogFlowDuration'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
@@ -35,7 +35,8 @@ export function StepWaitUntilConditionConfiguration({
 
             <div>
                 <LemonLabel>Conditions to wait for</LemonLabel>
-                <HogFlowFilters
+                <HogFlowPropertyFilters
+                    actionId={action.id}
                     filters={condition.filters ?? {}}
                     setFilters={(filters) => partialSetCampaignActionConfig(action.id, { condition: { filters } })}
                     typeKey="campaign-wait-until-condition"

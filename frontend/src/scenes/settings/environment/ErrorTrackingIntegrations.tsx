@@ -13,7 +13,6 @@ import { IntegrationKind } from '~/types'
 export function ErrorTrackingIntegrations(): JSX.Element {
     return (
         <div className="flex flex-col gap-y-6">
-            <Integration kind="github" />
             <Integration kind="linear" />
         </div>
     )

@@ -48,7 +48,11 @@ export function RevenueExampleDataWarehouseTablesData(): JSX.Element | null {
             title="Data warehouse tables revenue data"
             description="The following rows of data were imported from your data warehouse tables. This is helpful when you're trying to debug what your revenue data looks like."
         >
-            <Query query={exampleDataWarehouseTablesQuery} context={queryContext} />
+            <Query
+                attachTo={revenueAnalyticsSettingsLogic}
+                query={exampleDataWarehouseTablesQuery}
+                context={queryContext}
+            />
         </SceneSection>
     )
 }
