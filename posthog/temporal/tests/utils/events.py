@@ -154,7 +154,7 @@ async def insert_event_values_in_clickhouse(
                 ],
             )
             break  # Success, exit the loop
-        except aiohttp.client_exceptions.ClientOSError:
+        except (aiohttp.client_exceptions.ClientOSError, aiohttp.client_exceptions.ServerDisconnectedError):
             if attempt >= max_attempts:
                 raise
 

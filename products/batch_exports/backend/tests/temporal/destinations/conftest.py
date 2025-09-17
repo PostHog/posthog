@@ -10,7 +10,9 @@ from posthog.temporal.common.clickhouse import ClickHouseClient
 
 
 @retry(
-    retry=retry_if_exception_type(aiohttp.client_exceptions.ClientOSError),
+    retry=retry_if_exception_type(
+        (aiohttp.client_exceptions.ClientOSError, aiohttp.client_exceptions.ServerDisconnectedError)
+    ),
     # on attempts expired, raise the exception encountered in our code, not tenacity's retry error
     reraise=True,
     wait=wait_random_exponential(multiplier=0.2, max=3),
