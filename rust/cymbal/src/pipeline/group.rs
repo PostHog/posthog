@@ -37,7 +37,7 @@ pub async fn map_group_types(
             .team_manager
             .get_group_types(&context.pool, event.team_id)
             .await
-            .map_err(|e| (i, e.into()))?;
+            .map_err(|e| (i, e))?;
 
         if group_type_mappings.is_empty() {
             continue;
