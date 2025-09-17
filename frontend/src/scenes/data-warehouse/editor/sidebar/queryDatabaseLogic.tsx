@@ -1,11 +1,13 @@
 import Fuse from 'fuse.js'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import { IconDatabase, IconDocument, IconPlug, IconPlus } from '@posthog/icons'
 import { LemonMenuItem } from '@posthog/lemon-ui'
 import { Spinner } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -13,6 +15,7 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { DataWarehouseSourceIcon, mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { FuseSearchMatch } from '~/layout/navigation-3000/sidebars/utils'
 import {
@@ -21,7 +24,7 @@ import {
     DatabaseSchemaManagedViewTable,
     DatabaseSchemaTable,
 } from '~/queries/schema/schema-general'
-import { DataWarehouseSavedQuery, DataWarehouseSavedQueryDraft, DataWarehouseViewLink } from '~/types'
+import { DataWarehouseSavedQuery, DataWarehouseSavedQueryDraft, DataWarehouseViewLink, QueryTabState } from '~/types'
 
 import { dataWarehouseJoinsLogic } from '../../external/dataWarehouseJoinsLogic'
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
@@ -343,6 +346,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             ['drafts', 'draftsResponseLoading', 'hasMoreDrafts'],
             featureFlagLogic,
             ['featureFlags'],
+            userLogic,
+            ['user'],
         ],
         actions: [
             viewLinkLogic,
@@ -408,6 +413,24 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             },
         ],
     }),
+    loaders(({ values }) => ({
+        queryTabState: [
+            null as QueryTabState | null,
+            {
+                loadQueryTabState: async () => {
+                    if (!values.user) {
+                        return null
+                    }
+                    try {
+                        return await api.queryTabState.user(values.user?.uuid)
+                    } catch (e) {
+                        console.error(e)
+                        return null
+                    }
+                },
+            },
+        ],
+    })),
     selectors(({ actions }) => ({
         hasNonPosthogSources: [
             (s) => [s.dataWarehouseTables],
@@ -603,6 +626,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.draftsResponseLoading,
                 s.hasMoreDrafts,
                 s.featureFlags,
+                s.queryTabState,
             ],
             (
                 posthogTables: DatabaseSchemaTable[],
@@ -614,7 +638,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 drafts: DataWarehouseSavedQueryDraft[],
                 draftsResponseLoading: boolean,
                 hasMoreDrafts: boolean,
-                featureFlags: FeatureFlagsSet
+                featureFlags: FeatureFlagsSet,
+                queryTabState: QueryTabState | null
             ): TreeDataItem[] => {
                 const sourcesChildren: TreeDataItem[] = []
 
@@ -694,6 +719,24 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 viewsChildren.sort((a, b) => a.name.localeCompare(b.name))
                 managedViewsChildren.sort((a, b) => a.name.localeCompare(b.name))
 
+                const states = queryTabState?.state?.editorModelsStateKey
+                const unsavedChildren: TreeDataItem[] = []
+                if (states) {
+                    try {
+                        for (const state of JSON.parse(states)) {
+                            unsavedChildren.push({
+                                id: `unsaved-${state.tabId}`,
+                                name: state.name || 'Unsaved query',
+                                type: 'node',
+                                icon: <IconDocument />,
+                                record: { type: 'unsaved-query', ...state },
+                            })
+                        }
+                    } catch {
+                        // do nothing
+                    }
+                }
+
                 const draftsChildren: TreeDataItem[] = []
 
                 if (featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS]) {
@@ -738,6 +781,20 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     createTopLevelFolderNode('sources', sourcesChildren, false, <IconPlug />),
                     ...(featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS]
                         ? [createTopLevelFolderNode('drafts', draftsChildren, false)]
+                        : []),
+                    ...(unsavedChildren.length > 0
+                        ? [
+                              {
+                                  id: 'unsaved-folder',
+                                  name: 'Unsaved queries',
+                                  type: 'node',
+                                  icon: <IconDocument />,
+                                  record: {
+                                      type: 'unsaved-folder',
+                                  },
+                                  children: unsavedChildren,
+                              } as TreeDataItem,
+                          ]
                         : []),
                     createTopLevelFolderNode('views', viewsChildren),
                     createTopLevelFolderNode('managed-views', managedViewsChildren),
@@ -873,6 +930,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             if (values.featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS]) {
                 actions.loadDrafts()
             }
+            actions.loadQueryTabState()
         },
     })),
 ])

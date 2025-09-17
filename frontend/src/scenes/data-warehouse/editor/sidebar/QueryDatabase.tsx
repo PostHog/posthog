@@ -96,8 +96,9 @@ export const QueryDatabase = (): JSX.Element => {
                             <div className="flex flex-row gap-1 justify-between">
                                 <span
                                     className={cn(
-                                        ['managed-views', 'views', 'sources', 'drafts'].includes(item.record?.type) &&
-                                            'font-bold',
+                                        ['managed-views', 'views', 'sources', 'drafts', 'unsaved-folder'].includes(
+                                            item.record?.type
+                                        ) && 'font-bold',
                                         item.record?.type === 'column' && 'font-mono text-xs',
                                         'truncate'
                                     )}
@@ -283,6 +284,29 @@ export const QueryDatabase = (): JSX.Element => {
                             </DropdownMenuGroup>
                         )
                     }
+                }
+
+                if (item.record?.type === 'unsaved-query') {
+                    return (
+                        <DropdownMenuGroup>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>Open</ButtonPrimitive>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                asChild
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                }}
+                            >
+                                <ButtonPrimitive menuItem>Delete</ButtonPrimitive>
+                            </DropdownMenuItem>
+                        </DropdownMenuGroup>
+                    )
                 }
 
                 if (item.record?.type === 'sources') {
