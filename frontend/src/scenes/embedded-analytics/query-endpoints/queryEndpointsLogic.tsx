@@ -36,6 +36,16 @@ export const queryEndpointsLogic = kea<queryEndpointsLogicType>([
 
                     let haystack: QueryEndpointType[] = response.results || []
 
+                    if (haystack.length > 0) {
+                        const names = haystack.map(endpoint => endpoint.name)
+                        const lastExecutionTimes = await api.queryEndpoint.getLastExecutionTimes(names)
+                        
+                        haystack = haystack.map(endpoint => ({
+                            ...endpoint,
+                            last_executed_at: lastExecutionTimes[endpoint.name]
+                        }))
+                    }
+
                     if (values.filters.search) {
                         const fuse = new Fuse<QueryEndpointType>(haystack, {
                             keys: ['name', 'description', 'query.query'],

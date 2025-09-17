@@ -40,7 +40,7 @@ import {
     RefreshType,
     SourceConfig,
 } from '~/queries/schema/schema-general'
-import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
+import { HogQLQueryString, hogql, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActionType,
     ActivityScope,
@@ -1287,6 +1287,10 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('named_query')
     }
 
+    public queryEndpointDetail(name: string): ApiRequest {
+        return this.queryEndpoint().addPathComponent(name)
+    }
+
     // Conversations
     public conversations(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('conversations')
@@ -1619,6 +1623,35 @@ const api = {
         },
         async create(data: CreateQueryEndpointRequest): Promise<QueryEndpointType> {
             return await new ApiRequest().queryEndpoint().create({ data })
+        },
+        async delete(name: string): Promise<void> {
+            return await new ApiRequest().queryEndpointDetail(name).delete()
+        },
+        async getLastExecutionTimes(names: string[]): Promise<Record<string, string>> {
+            if (names.length === 0) return {}
+            
+            const query = hogql`
+                SELECT
+                    name,
+                    max(query_start_time) as last_executed_at
+                FROM query_log
+                WHERE name in (${hogql.raw(names.map(name => `'${name}'`).join(','))})
+                GROUP BY name
+            `
+            
+            const response = await api.queryHogQL(query, {
+                refresh: 'force_blocking',
+            })
+            
+            const result: Record<string, string> = {}
+            for (const row of response.results) {
+                const [name, lastExecutedAt] = row
+                if (name && lastExecutedAt) {
+                    result[name] = lastExecutedAt
+                }
+            }
+            
+            return result
         },
     },
 

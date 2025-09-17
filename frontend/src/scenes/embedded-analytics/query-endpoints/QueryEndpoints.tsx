@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconCode, IconPageChart, IconPencil } from '@posthog/icons'
+import { IconCode, IconPageChart, IconPencil, IconTrash } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -12,10 +12,12 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { urls } from 'scenes/urls'
+import { dayjs } from 'lib/dayjs'
 
 import { QueryEndpointType } from '~/types'
 
 import { queryEndpointsLogic } from './queryEndpointsLogic'
+import { queryEndpointLogic } from 'scenes/data-warehouse/editor/sidebar/queryEndpointLogic'
 
 const SQLButton = ({ sql }: { sql: string }): JSX.Element => {
     const [popoverVisible, setPopoverVisible] = useState(false)
@@ -52,6 +54,7 @@ export const QueryEndpointsTable = (): JSX.Element => {
     const { setFilters } = useActions(queryEndpointsLogic)
     const { filters } = useValues(queryEndpointsLogic)
     const { queryEndpoints, queryEndpointsLoading } = useValues(queryEndpointsLogic)
+    const { deleteQueryEndpoint } = useActions(queryEndpointLogic)
 
     const columns: LemonTableColumns<QueryEndpointType> = [
         {
@@ -112,6 +115,15 @@ export const QueryEndpointsTable = (): JSX.Element => {
             ),
         },
         {
+            title: 'Last executed at',
+            key: 'last_executed_at',
+            dataIndex: 'last_executed_at',
+            render: (_, record) => 
+                record.last_executed_at 
+                    ? dayjs(record.last_executed_at).format('MMM D, YYYY [at] h:mm A')
+                    : <span className="text-muted">Never</span>,
+        },
+        {
             title: 'Actions',
             key: 'actions',
             width: 0,
@@ -142,6 +154,16 @@ export const QueryEndpointsTable = (): JSX.Element => {
                                     fullWidth
                                 >
                                     Edit Query
+                                </LemonButton>
+
+                                <LemonButton
+                                    icon={<IconTrash />}
+                                    onClick={() => {
+                                        deleteQueryEndpoint(record.name)
+                                    }}
+                                    fullWidth
+                                >
+                                    Delete
                                 </LemonButton>
                             </>
                         }

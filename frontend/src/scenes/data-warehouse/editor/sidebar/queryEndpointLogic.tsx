@@ -26,6 +26,9 @@ export const queryEndpointLogic = kea<queryEndpointLogicType>([
         createQueryEndpoint: (request: CreateQueryEndpointRequest) => ({ request }),
         createQueryEndpointSuccess: (response: any) => ({ response }),
         createQueryEndpointFailure: (error: any) => ({ error }),
+        deleteQueryEndpoint: (name: string) => ({ name }),
+        deleteQueryEndpointSuccess: (response: any) => ({ response }),
+        deleteQueryEndpointFailure: (error: any) => ({ error }),
     }),
     reducers({
         queryEndpointName: [
@@ -65,6 +68,23 @@ export const queryEndpointLogic = kea<queryEndpointLogicType>([
         createQueryEndpointFailure: ({ error }) => {
             console.error('Failed to create query endpoint:', error)
             lemonToast.error('Failed to create query endpoint')
+        },
+        deleteQueryEndpoint: async ({ name }) => {
+            try {
+                // TODO: Add confirmation dialog
+                await api.queryEndpoint.delete(name)
+                actions.deleteQueryEndpointSuccess(name)
+            } catch (error) {
+                console.error('Failed to delete query endpoint:', error)
+                actions.deleteQueryEndpointFailure(error)
+            }
+        },
+        deleteQueryEndpointSuccess: () => {
+            lemonToast.success('Query endpoint deleted successfully')
+        },
+        deleteQueryEndpointFailure: ({ error }) => {
+            console.error('Failed to delete query endpoint:', error)
+            lemonToast.error('Failed to delete query endpoint')
         },
     })),
 ])

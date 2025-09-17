@@ -2121,6 +2121,8 @@ export interface QueryEndpointType extends WithAccessControl {
     created_by: UserBasicType | null
     /** Purely local value to determine whether the query endpoint should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
+    /** Last execution time from ClickHouse query_log table */
+    last_executed_at?: string
 }
 
 export interface CreateQueryEndpointRequest {
