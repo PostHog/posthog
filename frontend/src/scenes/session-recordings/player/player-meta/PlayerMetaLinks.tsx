@@ -64,17 +64,14 @@ function PinToPlaylistButton(): JSX.Element {
             minAccessLevel={AccessControlLevel.Editor}
             userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]}
         >
-            {({ disabledReason }) => (
-                <PlaylistPopoverButton
-                    tooltip={tooltip}
-                    setPinnedInCurrentPlaylist={logicProps.setPinned}
-                    icon={logicProps.pinned ? <IconMinusSmall /> : <IconPlusSmall />}
-                    size="xsmall"
-                    disabledReason={disabledReason}
-                >
-                    {description}
-                </PlaylistPopoverButton>
-            )}
+            <PlaylistPopoverButton
+                tooltip={tooltip}
+                setPinnedInCurrentPlaylist={logicProps.setPinned}
+                icon={logicProps.pinned ? <IconMinusSmall /> : <IconPlusSmall />}
+                size="xsmall"
+            >
+                {description}
+            </PlaylistPopoverButton>
         </AccessControlAction>
     )
 }

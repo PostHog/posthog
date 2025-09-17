@@ -5,6 +5,7 @@ import { router } from 'kea-router'
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { PageHeader } from 'lib/components/PageHeader'
 import { base64Encode } from 'lib/utils'
 import { getTextFromFile, selectFiles } from 'lib/utils/file-utils'
@@ -68,19 +69,17 @@ export function NotebooksScene(): JSX.Element {
                                 New canvas
                             </LemonButton>
                         </Tooltip>
-                        <LemonButton
-                            data-attr="new-notebook"
-                            to={urls.notebook('new')}
-                            type="primary"
-                            accessControl={{
-                                resourceType: AccessControlResourceType.Notebook,
-                                minAccessLevel: AccessControlLevel.Editor,
-                                userAccessLevel:
-                                    getAppContext()?.resource_access_control?.[AccessControlResourceType.Notebook],
-                            }}
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Notebook}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={
+                                getAppContext()?.resource_access_control?.[AccessControlResourceType.Notebook]
+                            }
                         >
-                            New notebook
-                        </LemonButton>
+                            <LemonButton data-attr="new-notebook" to={urls.notebook('new')} type="primary">
+                                New notebook
+                            </LemonButton>
+                        </AccessControlAction>
                     </>
                 }
             />
