@@ -135,7 +135,7 @@ export function ErrorTrackingIssueFingerprintsScene(): JSX.Element {
                         disabledReason={disabledReason}
                     />
                 )}
-                <LemonTable
+                <LemonTable<ErrorTrackingIssueFingerprint>
                     className="w-full"
                     loading={isLoading}
                     dataSource={fingerprintSamples}

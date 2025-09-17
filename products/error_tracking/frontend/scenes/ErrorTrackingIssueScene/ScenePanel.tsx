@@ -180,7 +180,7 @@ const IssueFingerprints = (): JSX.Element => {
 
     return (
         <ScenePanelLabel title="Fingerprints">
-            <Link to={urls.errorTrackingIssueFingerprints(issue.id)}>
+            <Link to={issue ? urls.errorTrackingIssueFingerprints(issue.id) : undefined}>
                 <ButtonPrimitive fullWidth>
                     {issueFingerprintsLoading ? (
                         <Spinner />
