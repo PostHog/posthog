@@ -328,25 +328,25 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: SingleSessionSummaryInputs) -> None:
+        # Get summary data from the DB
         await temporalio.workflow.execute_activity(
             fetch_session_data_activity,
             inputs,
             start_to_close_timeout=timedelta(minutes=3),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
+        # Generate a summary to check for issues
         await temporalio.workflow.execute_activity(
             get_llm_single_session_summary_activity,
             inputs,
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
-        # Generate video
+        # Generate videos for blocking issues to check if they are valid
         await temporalio.workflow.execute_activity(
             validate_llm_single_session_summary_with_videos_activity,
-            # TODO: Remove after testing
-            # Temporalily limit to two sessions
             inputs,
-            start_to_close_timeout=timedelta(minutes=5),
+            start_to_close_timeout=timedelta(minutes=10),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 

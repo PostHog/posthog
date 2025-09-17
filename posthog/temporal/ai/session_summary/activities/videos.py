@@ -1,9 +1,10 @@
+import uuid
 import asyncio
 from math import ceil
-from typing import cast, Optional
-import uuid
+from typing import Optional, cast
 
 import temporalio
+from google import genai
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import ApplicationError
 
@@ -11,17 +12,18 @@ from posthog.constants import VIDEO_EXPORT_TASK_QUEUE
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.user import User
 from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
+from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExportWorkflow
-from posthog.storage import object_storage
 
 from ee.hogai.session_summaries.constants import SECONDS_BEFORE_EVENT_FOR_VALIDATION_VIDEO, VALIDATION_VIDEO_DURATION
 from ee.hogai.session_summaries.session.output_data import EnrichedKeyActionSerializer, SessionSummarySerializer
 from ee.models.session_summaries import SingleSessionSummary
 
 
+# TODO: Move to a separate module
 async def _generate_video_for_event(
     event: EnrichedKeyActionSerializer, inputs: SingleSessionSummaryInputs, user: User
 ) -> int:
@@ -67,6 +69,7 @@ async def _generate_video_for_event(
     return exported_asset.id
 
 
+# TODO: Move to a separate module
 async def _generate_videos_for_events(
     events: list[EnrichedKeyActionSerializer], inputs: SingleSessionSummaryInputs, user: User
 ) -> dict[str, int]:
@@ -82,7 +85,8 @@ async def _generate_videos_for_events(
     return asset_ids
 
 
-async def get_video_bytes(asset_id: int) -> Optional[bytes]:
+# TODO: Move to a separate module
+async def _get_video_bytes(asset_id: int) -> Optional[bytes]:
     """Retrieve video content as bytes for an ExportedAsset ID"""
     try:
         # Fetch the asset from the database
@@ -101,15 +105,12 @@ async def get_video_bytes(asset_id: int) -> Optional[bytes]:
         return None
 
 
-async def send_videos_to_llm(asset_ids: dict[str, int], inputs: SingleSessionSummaryInputs) -> dict[str, str]:
+# TODO: Move to a separate module
+async def _send_videos_to_llm(asset_ids: dict[str, int], question: str) -> dict[str, str]:
     """Send videos to LLM for validation and get analysis results"""
-    from google import genai
-
-    # Example implementation - adjust based on your LLM client
     results = {}
-
     for event_uuid, asset_id in asset_ids.items():
-        video_bytes = await get_video_bytes(asset_id)
+        video_bytes = await _get_video_bytes(asset_id)
         if video_bytes and len(video_bytes) < 20 * 1024 * 1024:  # 20MB limit
             # TODO: Remove after testing, storing for debugging
             with open(f"video_{event_uuid}.mp4", "wb") as f:
@@ -121,7 +122,7 @@ async def send_videos_to_llm(asset_ids: dict[str, int], inputs: SingleSessionSum
                 contents=genai.types.Content(
                     parts=[
                         genai.types.Part(inline_data=genai.types.Blob(data=video_bytes, mime_type="video/mp4")),
-                        genai.types.Part(text="Please summarize the video in 3 sentences."),
+                        genai.types.Part(text=question),
                     ]
                 ),
             )
@@ -174,7 +175,5 @@ async def validate_llm_single_session_summary_with_videos_activity(
     events_to_validate = events_to_validate[:1]
     asset_ids = await _generate_videos_for_events(events_to_validate, inputs, user)
     # Send videos to LLM for validation
-    validation_results = await send_videos_to_llm(asset_ids, inputs)
-    # TODO: Process validation results and update summary if needed
-    for event_uuid, result in validation_results.items():
-        print(f"Event {event_uuid}: {result}")
+    # validation_results = ...
+    await _send_videos_to_llm(asset_ids=asset_ids, question="Please summarize the video in 3 sentences.")
