@@ -1,6 +1,6 @@
 # PostHog Pod Rebalancer
 
-A stateless Go service that monitors CPU load distribution across Kafka consumer pods and performs intelligent pod deletion to trigger rebalancing when uneven CPU usage distribution is detected.
+A stateless Go service that monitors CPU load distribution across Kafka consumer pods and performs pod deletion to trigger rebalancing when uneven CPU usage distribution is detected.
 
 ## Overview
 
@@ -11,16 +11,16 @@ The Pod Rebalancer is designed to run as a Kubernetes CronJob that continuously 
 - **🎯 CPU-Focused**: Analyzes CPU usage patterns using VictoriaMetrics/Prometheus queries
 - **⚡ Stateless Design**: Runs once, analyzes, acts, and exits - perfect for CronJobs
 - **🛡️ Safety First**: Respects minimum pod counts, includes dry-run mode, and HPA-aware thresholds
-- **📊 HPA Integration**: Uses HPA target metrics and tolerance multipliers for intelligent decisions
+- **📊 HPA Integration**: Uses HPA target metrics and tolerance multipliers for threshold-based decisions
 - **🔍 Comprehensive Testing**: 67+ unit and integration tests with mock servers
 - **🏗️ Production Ready**: Multi-stage Docker builds, structured logging, and observability
 
 ## How It Works
 
 1. **Metrics Collection**: Queries VictoriaMetrics for real-time CPU usage across pods
-2. **HPA Analysis**: Fetches HPA targets and calculates tolerance thresholds  
+2. **HPA Analysis**: Fetches HPA targets and calculates tolerance thresholds
 3. **Outlier Detection**: Identifies pods with highest/lowest CPU usage using PromQL topk/bottomk
-4. **Smart Decision Making**: Only acts when CPU variance exceeds HPA-based thresholds
+4. **Decision Making**: Only acts when CPU variance exceeds HPA-based thresholds
 5. **Safe Execution**: Deletes selected pods while respecting minimum pod requirements
 6. **Observability**: Structured logging and metrics for monitoring and debugging
 
@@ -28,7 +28,7 @@ The Pod Rebalancer is designed to run as a Kubernetes CronJob that continuously 
 
 ### Prerequisites
 
-- Go 1.25+ 
+- Go 1.25+
 - Kubernetes cluster access
 - VictoriaMetrics/Prometheus endpoint
 - HPA configured for target deployment
@@ -108,7 +108,7 @@ metadata:
   name: pod-rebalancer
   namespace: posthog
 spec:
-  schedule: "*/10 * * * *"  # Every 10 minutes
+  schedule: "*/5 * * * *"   # Every 5 minutes
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
   jobTemplate:
@@ -186,41 +186,6 @@ docker run --rm \
   pod-rebalancer
 ```
 
-## Architecture
-
-The application follows clean architecture principles:
-
-```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   main.go       │    │  Configuration   │    │    Logging      │
-│   CLI & Setup   │───▶│  (Viper + Env)   │───▶│  (Zap Logger)   │
-└─────────────────┘    └──────────────────┘    └─────────────────┘
-         │
-         ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     Core Application Loop                      │
-├─────────────────┬─────────────────┬─────────────────────────────┤
-│ Prometheus      │ CPU Metrics     │ Decision Engine             │
-│ Client          │ Fetcher         │ (HPA-aware analysis)        │
-│ (HTTP + PromQL) │ (topk/bottomk)  │ (variance + thresholds)     │
-└─────────────────┴─────────────────┴─────────────────────────────┘
-         │
-         ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                   Kubernetes Manager                           │
-│          (Pod validation + deletion + safety checks)           │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Core Components
-
-- **Prometheus Client** (`pkg/prometheus`): HTTP client with PromQL query execution
-- **CPU Metrics** (`pkg/metrics`): Specialized CPU usage fetching with HPA integration  
-- **Decision Engine** (`pkg/decision`): Statistical analysis and rebalancing logic
-- **Kubernetes Manager** (`pkg/kubernetes`): Safe pod operations with validation
-- **Configuration** (`pkg/config`): Environment-based config with Viper
-- **Logging** (`pkg/logging`): Structured logging with zap and metrics
-
 ## Development
 
 ### Development Setup
@@ -238,7 +203,7 @@ go test ./...                    # All tests
 go test -v ./pkg/metrics/...     # Specific package
 go test -run TestCPUMetrics      # Specific test
 
-# Run integration tests  
+# Run integration tests
 go test -v ./test/...            # Full integration test suite
 
 # Build and test locally
@@ -259,72 +224,11 @@ export DRY_RUN=true
 │   ├── kubernetes/          # K8s pod management and safety
 │   └── logging/             # Structured logging and metrics
 ├── test/                    # Integration tests (Ginkgo + Gomega)
-├── examples/                # Usage examples and sample configs  
+├── examples/                # Usage examples and sample configs
 ├── deploy/docker/           # Multi-stage Dockerfile
 ├── docs/                    # Additional documentation
 └── specs/                   # Technical specifications and plans
 ```
-
-### Testing Strategy
-
-The project includes comprehensive testing:
-
-- **Unit Tests**: 57+ tests across all packages using Go's testing framework and Ginkgo/Gomega
-- **Integration Tests**: 10 test scenarios with mock Prometheus server and fake Kubernetes client
-- **Example Tests**: Validation that examples work correctly
-- **Performance Tests**: Ensuring operations complete within reasonable timeframes
-
-```bash
-# Run all tests
-go test ./...
-
-# Run with coverage
-go test -coverprofile=coverage.out ./...
-go tool cover -html=coverage.out
-
-# Run integration tests specifically
-go test -v ./test/
-```
-
-## Monitoring & Observability
-
-### Structured Logging
-
-All operations are logged with structured JSON using zap:
-
-```json
-{
-  "level": "info",
-  "ts": 1640995200.123,
-  "caller": "decision/engine.go:45",
-  "msg": "CPU analysis completed",
-  "namespace": "posthog",
-  "deployment": "ingestion-consumer",
-  "pod_count": 5,
-  "avg_cpu": 0.45,
-  "cpu_variance": 0.12,
-  "rebalance_needed": true
-}
-```
-
-### Key Log Events
-
-- **Configuration loading**: Environment variable validation and defaults
-- **Prometheus connectivity**: Connection health and query execution
-- **CPU analysis**: Detailed metrics collection and statistical analysis
-- **Decision making**: Threshold comparisons and rebalancing decisions
-- **Pod operations**: Validation, deletion attempts, and safety checks
-- **Error handling**: Network failures, invalid configurations, and API errors
-
-### Production Monitoring
-
-Monitor these key indicators:
-
-- **Successful executions**: Regular CronJob completion without errors
-- **CPU variance trends**: Whether rebalancing is reducing CPU distribution variance
-- **Pod deletion frequency**: How often pods are being rebalanced
-- **Error rates**: Failed Prometheus queries or Kubernetes operations
-- **Execution duration**: Time taken for full analysis cycle
 
 ## Safety Features
 
@@ -375,7 +279,7 @@ export DRY_RUN=true
 
 # This will show:
 # - All PromQL queries being executed
-# - Raw Prometheus response data  
+# - Raw Prometheus response data
 # - Statistical calculations and thresholds
 # - Decision-making logic step-by-step
 # - Pod selection reasoning

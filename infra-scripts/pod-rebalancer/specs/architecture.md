@@ -135,7 +135,7 @@ import "github.com/prometheus/client_golang/prometheus"
 
 type Metrics struct {
     podsAnalyzed   prometheus.CounterVec
-    podsDeleted    prometheus.CounterVec  
+    podsDeleted    prometheus.CounterVec
     executionTime  prometheus.Histogram
     loadVariance   prometheus.Gauge
 }
@@ -202,7 +202,7 @@ pod-rebalancer/
 ```
 [main.go] - Load config from env vars with Viper
     ↓
-[prometheus.Client] - Create Prometheus HTTP client  
+[prometheus.Client] - Create Prometheus HTTP client
     ↓
 [metrics.CPUMetrics] - Execute specialized PromQL queries
     ├─ FetchTopKPodsAboveTolerance() - Get filtered top pods via PromQL
@@ -232,7 +232,7 @@ KUBE_LABEL_SELECTOR=app=consumer
 DEPLOYMENT_NAME=ingestion-consumer          # Required - container name for literal matching
 METRICS_TIME_WINDOW=5m                      # Time window for rate calculations
 
-# HPA-Aware Decision Making  
+# HPA-Aware Decision Making
 REBALANCE_TOP_K_PODS=2                      # Number of top/bottom candidate pods
 TOLERANCE_MULTIPLIER=1.5                    # Only act on pods above 150% of HPA target
 MINIMUM_IMPROVEMENT_PERCENT=10              # Minimum improvement required (% of top pod average)
@@ -248,40 +248,40 @@ LOG_LEVEL=info
 ```go
 func main() {
     ctx := context.Background()
-    
+
     // 1. Load configuration from environment using Viper
     config, err := config.LoadFromEnv()
     if err != nil {
         log.Fatalf("Failed to load configuration: %v", err)
     }
-    
+
     // 2. Create zap logger
     logger := logging.New(config.LogLevel)
-    
+
     // 3. Create Prometheus HTTP client
     promClient, err := prometheus.NewClient(config.PrometheusEndpoint, config.PrometheusTimeout)
     if err != nil {
         logger.Fatal("Failed to create Prometheus client", zap.Error(err))
     }
-    
+
     // 4. Create CPU metrics fetcher with specialized queries
     cpuMetrics := metrics.NewCPUMetrics(
-        promClient, logger, 
+        promClient, logger,
         config.KubeNamespace, config.DeploymentName, config.MetricsTimeWindow,
     )
-    
+
     // 5. Create HPA-aware decision engine (no aggregator needed)
     engine := decision.NewEngine(
         cpuMetrics, config.RebalanceTopKPods, config.ToleranceMultiplier,
         config.MinimumImprovementPercent, config.HPAPrefix, logger,
     )
-    
+
     // 6. Execute sophisticated rebalancing analysis
     analysis, err := engine.Analyze(ctx)
     if err != nil {
         logger.Fatal("Failed to analyze pods for rebalancing", zap.Error(err))
     }
-    
+
     // 7. Execute deletions if improvement exceeds minimum threshold
     if analysis.ShouldRebalance {
         k8sManager := kubernetes.NewManager(config.KubeNamespace, config.DryRun)
@@ -289,11 +289,11 @@ func main() {
         if err != nil {
             logger.Fatal("Failed to delete pods", zap.Error(err))
         }
-        logger.Info("Rebalancing completed", 
+        logger.Info("Rebalancing completed",
             zap.Strings("deleted_pods", analysis.TargetPods),
             zap.Float64("improvement_percent", analysis.Metrics.ImprovementPercent))
     } else {
-        logger.Info("No rebalancing needed", 
+        logger.Info("No rebalancing needed",
             zap.String("reason", analysis.Reason),
             zap.Float64("improvement_percent", analysis.Metrics.ImprovementPercent))
     }
@@ -345,3 +345,64 @@ This simplified architecture ensures:
 - **HPA-Aware**: Uses same target utilization as Kubernetes HPA
 - **Sophisticated**: Tolerance-based filtering with improvement calculations
 - **Future-Ready**: Designed for easy Kafka lag integration (iteration 2)
+
+## Testing Strategy
+
+The project includes comprehensive testing:
+
+- **Unit Tests**: 57+ tests across all packages using Go's testing framework and Ginkgo/Gomega
+- **Integration Tests**: 10 test scenarios with mock Prometheus server and fake Kubernetes client
+- **Example Tests**: Validation that examples work correctly
+- **Performance Tests**: Ensuring operations complete within reasonable timeframes
+
+```bash
+# Run all tests
+go test ./...
+
+# Run with coverage
+go test -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out
+
+# Run integration tests specifically
+go test -v ./test/
+```
+
+## Monitoring & Observability
+
+### Structured Logging
+
+All operations are logged with structured JSON using zap:
+
+```json
+{
+  "level": "info",
+  "ts": 1640995200.123,
+  "caller": "decision/engine.go:45",
+  "msg": "CPU analysis completed",
+  "namespace": "posthog",
+  "deployment": "ingestion-consumer",
+  "pod_count": 5,
+  "avg_cpu": 0.45,
+  "cpu_variance": 0.12,
+  "rebalance_needed": true
+}
+```
+
+### Key Log Events
+
+- **Configuration loading**: Environment variable validation and defaults
+- **Prometheus connectivity**: Connection health and query execution
+- **CPU analysis**: Detailed metrics collection and statistical analysis
+- **Decision making**: Threshold comparisons and rebalancing decisions
+- **Pod operations**: Validation, deletion attempts, and safety checks
+- **Error handling**: Network failures, invalid configurations, and API errors
+
+### Production Monitoring
+
+Monitor these key indicators:
+
+- **Successful executions**: Regular CronJob completion without errors
+- **CPU variance trends**: Whether rebalancing is reducing CPU distribution variance
+- **Pod deletion frequency**: How often pods are being rebalanced
+- **Error rates**: Failed Prometheus queries or Kubernetes operations
+- **Execution duration**: Time taken for full analysis cycle

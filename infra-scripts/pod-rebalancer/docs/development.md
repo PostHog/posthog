@@ -4,7 +4,7 @@ This guide helps you set up a development environment for the pod rebalancer.
 
 ## Prerequisites
 
-- Go 1.21 or later
+- Go 1.25 or later
 - [Task](https://taskfile.dev/installation/) - Task runner
 - [direnv](https://direnv.net/docs/installation.html) - Environment variable management (optional but recommended)
 
@@ -83,7 +83,6 @@ pod-rebalancer/
 ├── internal/                # Private packages
 ├── specs/                   # Project specifications
 ├── docs/                    # Documentation
-├── examples/                # Usage examples
 └── scripts/                 # Development scripts
 ```
 
