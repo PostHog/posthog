@@ -110,6 +110,8 @@ export enum SessionRecordingPlayerMode {
     Preview = 'preview',
     Screenshot = 'screenshot',
     Video = 'video',
+    // so we can have a concrete value when this isn't set
+    Unknown = 'unknown',
 }
 
 const ModesThatCanBeMarkedViewed = [SessionRecordingPlayerMode.Standard, SessionRecordingPlayerMode.Notebook]
@@ -338,7 +340,9 @@ function registerErrorListeners({
 
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
-    props({} as SessionRecordingPlayerLogicProps),
+    props({
+        mode: SessionRecordingPlayerMode.Unknown,
+    } as SessionRecordingPlayerLogicProps),
     key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [
@@ -982,6 +986,23 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     // stops PlayerMeta from re-rendering on every player position
                     return objectsEqual(prev, next)
                 },
+            },
+        ],
+        hoverFlagIsEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => {
+                return featureFlags[FEATURE_FLAGS.REPLAY_HOVER_UI] === 'test'
+            },
+        ],
+        hoverModeIsEnabled: [
+            (s, p) => [p.mode, s.isCommenting, s.hoverFlagIsEnabled, s.showingClipParams],
+            (mode, isCommenting, hoverFlagIsEnabled, showingClipParams): boolean => {
+                return (
+                    hoverFlagIsEnabled &&
+                    mode === SessionRecordingPlayerMode.Standard &&
+                    !isCommenting &&
+                    !showingClipParams
+                )
             },
         ],
     }),
