@@ -196,8 +196,9 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
 
         # Build QueryRequest
         query_request_data = {
-            "query": named_query.query,
             **request.data,  # Allow overriding QueryRequest fields like refresh, client_query_id
+            "query": named_query.query,
+            "name": named_query.name,
         }
 
         try:
