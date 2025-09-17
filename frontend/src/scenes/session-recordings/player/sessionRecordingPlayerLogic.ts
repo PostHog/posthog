@@ -110,8 +110,6 @@ export enum SessionRecordingPlayerMode {
     Preview = 'preview',
     Screenshot = 'screenshot',
     Video = 'video',
-    // so we can have a concrete value when this isn't set
-    Unknown = 'unknown',
 }
 
 const ModesThatCanBeMarkedViewed = [SessionRecordingPlayerMode.Standard, SessionRecordingPlayerMode.Notebook]
@@ -123,7 +121,6 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataLo
     playlistLogic?: BuiltLogic<sessionRecordingsPlaylistLogicType>
     autoPlay?: boolean
     noInspector?: boolean
-    mode?: SessionRecordingPlayerMode
     playerRef?: RefObject<HTMLDivElement>
     pinned?: boolean
     setPinned?: (pinned: boolean) => void
@@ -995,11 +992,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         hoverModeIsEnabled: [
-            (s, p) => [p.mode, s.isCommenting, s.hoverFlagIsEnabled, s.showingClipParams],
-            (mode, isCommenting, hoverFlagIsEnabled, showingClipParams): boolean => {
+            (s) => [s.logicProps, s.isCommenting, s.hoverFlagIsEnabled, s.showingClipParams],
+            (logicProps, isCommenting, hoverFlagIsEnabled, showingClipParams): boolean => {
                 return (
                     hoverFlagIsEnabled &&
-                    mode === SessionRecordingPlayerMode.Standard &&
+                    logicProps.mode === SessionRecordingPlayerMode.Standard &&
                     !isCommenting &&
                     !showingClipParams
                 )
