@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconChevronLeft } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { QUESTION_SUGGESTIONS_DATA, SuggestionGroup, maxLogic } from '../maxLogic'
@@ -51,51 +50,36 @@ function useSuggestionHandling(): {
 }
 
 interface FloatingSuggestionsDisplayProps {
-    compact?: boolean
-    showSuggestions: boolean
     dataProcessingAccepted: boolean
     type?: 'primary' | 'secondary' | 'tertiary'
     additionalSuggestions?: React.ReactNode[]
 }
 
 export function FloatingSuggestionsDisplay({
-    compact = false,
     type = 'secondary',
-    showSuggestions,
     dataProcessingAccepted,
     additionalSuggestions,
 }: FloatingSuggestionsDisplayProps): JSX.Element | null {
     const { activeSuggestionGroup } = useValues(maxLogic)
-    const { setActiveGroup } = useActions(maxLogic)
-    const { handleSuggestionGroupClick, handleSuggestionClick } = useSuggestionHandling()
-
-    if (!showSuggestions) {
-        return null
-    }
+    const { handleSuggestionGroupClick } = useSuggestionHandling()
 
     return (
         <div className="mt-1 mx-1">
             {/* Main suggestion groups */}
-            {(!activeSuggestionGroup || !compact) && (
+            {!activeSuggestionGroup && (
                 <>
                     <Tooltip title={!dataProcessingAccepted ? 'Please accept OpenAI processing data' : undefined}>
-                        <ul
-                            className={
-                                compact
-                                    ? 'flex flex-wrap gap-1'
-                                    : 'flex items-center justify-center flex-wrap gap-x-2 gap-y-1.5'
-                            }
-                        >
+                        <ul className="flex items-center justify-center flex-wrap gap-x-2 gap-y-1.5">
                             {QUESTION_SUGGESTIONS_DATA.map((group) => (
                                 <li key={group.label}>
                                     <LemonButton
                                         key={group.label}
                                         onClick={() => handleSuggestionGroupClick(group)}
-                                        size={compact ? 'xxsmall' : 'xsmall'}
+                                        size="xsmall"
                                         type={type}
                                         icon={group.icon}
-                                        center={compact}
-                                        fullWidth={!compact}
+                                        center={false}
+                                        fullWidth={true}
                                         tooltip={!dataProcessingAccepted ? undefined : group.tooltip}
                                         disabled={!dataProcessingAccepted}
                                     >
@@ -111,7 +95,7 @@ export function FloatingSuggestionsDisplay({
                 </>
             )}
 
-            {/* Detailed suggestions when a group is active */}
+            {/* Detailed suggestions when a group is active
             {activeSuggestionGroup && compact && (
                 <>
                     <div className="flex items-center gap-1 mb-1">
@@ -144,7 +128,7 @@ export function FloatingSuggestionsDisplay({
                         </div>
                     </Tooltip>
                 </>
-            )}
+            )} */}
         </div>
     )
 }
