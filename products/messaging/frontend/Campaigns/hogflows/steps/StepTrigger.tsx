@@ -10,7 +10,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 
 import { campaignLogic } from '../../campaignLogic'
-import { HogFlowFilters } from '../filters/HogFlowFilters'
+import { HogFlowEventFilters } from '../filters/HogFlowFilters'
 import { HogFlowAction } from '../types'
 import { HogFlowFunctionConfiguration } from './components/HogFlowFunctionConfiguration'
 
@@ -103,7 +103,7 @@ function StepTriggerConfigurationEvents({
             </div>
 
             <LemonField.Pure error={validationResult?.errors?.filters}>
-                <HogFlowFilters
+                <HogFlowEventFilters
                     filters={config.filters ?? {}}
                     setFilters={(filters) =>
                         setCampaignActionConfig(action.id, { type: 'event', filters: filters ?? {} })
