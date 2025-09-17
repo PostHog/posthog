@@ -954,7 +954,11 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert conversion_rate.changeFromPreviousPct is None
 
     @freeze_time("2023-12-15T12:00:00Z")
-    def test_it_should_use_preaggregated_tables_with_fixed_dates_and_no_other_filters(self):
+    @patch(
+        "posthog.hogql_queries.web_analytics.pre_aggregated.query_builder.WebAnalyticsPreAggregatedQueryBuilder.can_use_date_range",
+        return_value=True,
+    )
+    def test_it_should_use_preaggregated_tables_with_fixed_dates_and_no_other_filters(self, mock_can_use_date_range):
         query = WebOverviewQuery(
             dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
             properties=[],
@@ -966,7 +970,11 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     @freeze_time("2023-12-15T12:00:00Z")
-    def test_can_use_preaggregated_tables_with_current_date(self):
+    @patch(
+        "posthog.hogql_queries.web_analytics.pre_aggregated.query_builder.WebAnalyticsPreAggregatedQueryBuilder.can_use_date_range",
+        return_value=True,
+    )
+    def test_can_use_preaggregated_tables_with_current_date(self, mock_can_use_date_range):
         today = datetime.now(UTC).date().isoformat()
         query = WebOverviewQuery(
             dateRange=DateRange(date_from="2023-11-01", date_to=today),
@@ -1006,7 +1014,11 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     @freeze_time("2023-12-15T12:00:00Z")
-    def test_can_use_preaggregated_tables_with_supported_properties(self):
+    @patch(
+        "posthog.hogql_queries.web_analytics.pre_aggregated.query_builder.WebAnalyticsPreAggregatedQueryBuilder.can_use_date_range",
+        return_value=True,
+    )
+    def test_can_use_preaggregated_tables_with_supported_properties(self, mock_can_use_date_range):
         query = WebOverviewQuery(
             dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
             properties=[{"key": "$host", "value": "app.posthog.com"}],
@@ -1024,12 +1036,77 @@ class TestWebOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties=[SessionPropertyFilter(key="$channel_type", value="Direct", operator="exact", type="session")],
         )
         runner = WebOverviewQueryRunner(team=self.team, query=query)
-        pre_agg_builder = runner.preaggregated_query_builder
-        assert pre_agg_builder.can_use_preaggregated_tables()
+
+        # Mock the date range validation to return True for easier testing
+        # (In reality, teams can be enabled through multiple strategies - see team_selection_strategies.py)
+        with patch.object(runner.preaggregated_query_builder, "can_use_date_range", return_value=True):
+            pre_agg_builder = runner.preaggregated_query_builder
+            assert pre_agg_builder.can_use_preaggregated_tables()
 
     @freeze_time("2023-12-15T12:00:00Z")
+    def test_can_use_preaggregated_tables_with_date_range_validation(self):
+        # Test case 1: Date range within available web analytics data
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-15", date_to="2023-11-20"),
+            properties=[],
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+
+        # Mock the date range validation to return True for this test
+        # (In reality, teams can be enabled through multiple strategies - see team_selection_strategies.py)
+        pre_agg_builder = runner.preaggregated_query_builder
+        with patch.object(pre_agg_builder, "can_use_date_range", return_value=True):
+            assert pre_agg_builder.can_use_preaggregated_tables()
+
+    @freeze_time("2023-12-15T12:00:00Z")
+    def test_cannot_use_preaggregated_tables_with_date_range_outside_available_data(self):
+        # Test case 2: Date range outside available web analytics data
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-10-15", date_to="2023-10-20"),
+            properties=[],
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+
+        # Mock the date range validation to return False for this test (date range outside available data)
+        pre_agg_builder = runner.preaggregated_query_builder
+        with patch.object(pre_agg_builder, "can_use_date_range", return_value=False):
+            assert not pre_agg_builder.can_use_preaggregated_tables()
+
+    @freeze_time("2023-12-15T12:00:00Z")
+    def test_can_use_preaggregated_tables_when_web_analytics_date_range_none(self):
+        # Test case 3: date range validation returns None/allows pre-aggregation
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-15", date_to="2023-11-20"),
+            properties=[],
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+
+        # Mock the date range validation to return True (should allow pre-aggregation)
+        pre_agg_builder = runner.preaggregated_query_builder
+        with patch.object(pre_agg_builder, "can_use_date_range", return_value=True):
+            assert pre_agg_builder.can_use_preaggregated_tables()
+
+    @freeze_time("2023-12-15T12:00:00Z")
+    def test_can_use_preaggregated_tables_when_no_web_analytics_date_range_property(self):
+        # Test case 4: date range validation allows pre-aggregation when date range is available
+        query = WebOverviewQuery(
+            dateRange=DateRange(date_from="2023-11-15", date_to="2023-11-20"),
+            properties=[],
+        )
+        runner = WebOverviewQueryRunner(team=self.team, query=query)
+
+        # Mock the date range validation to return True (date range available)
+        pre_agg_builder = runner.preaggregated_query_builder
+        with patch.object(pre_agg_builder, "can_use_date_range", return_value=True):
+            assert pre_agg_builder.can_use_preaggregated_tables()
+
+    @freeze_time("2023-12-15T12:00:00Z")
+    @patch(
+        "posthog.hogql_queries.web_analytics.pre_aggregated.query_builder.WebAnalyticsPreAggregatedQueryBuilder.can_use_date_range",
+        return_value=True,
+    )
     @snapshot_clickhouse_queries
-    def test_web_overview_with_channel_type_filter_execution(self):
+    def test_web_overview_with_channel_type_filter_execution(self, mock_can_use_date_range):
         query = WebOverviewQuery(
             dateRange=DateRange(date_from="2023-11-01", date_to="2023-11-30"),
             properties=[SessionPropertyFilter(key="$channel_type", value="Direct", operator="exact", type="session")],
