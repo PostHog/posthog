@@ -14,7 +14,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter, inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
@@ -114,7 +114,7 @@ export function Bookmarklet(): JSX.Element {
 function DebugInfoPanel(): JSX.Element | null {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
-    const { preflight, preflightLoading, isCloudOrDev } = useValues(preflightLogic)
+    const { preflight, preflightLoading } = useValues(preflightLogic)
 
     const region = preflight?.region
     const anyLoading = preflightLoading || currentOrganizationLoading || currentTeamLoading
@@ -123,9 +123,10 @@ function DebugInfoPanel(): JSX.Element | null {
     if (!hasRequiredInfo && !anyLoading) {
         return null
     }
-    if (!isCloudOrDev) {
+
+    if (inStorybookTestRunner() || inStorybook()) {
         // this data changes e.g. when session id changes, so it flaps in visual regression tests
-        // we only need it in cloud, (and dev for local testing if we want to change it) so...
+        // so...
         return null
     }
 
