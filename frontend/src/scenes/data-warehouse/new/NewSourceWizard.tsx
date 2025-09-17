@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import { useCallback, useEffect } from 'react'
 
 import { IconBell, IconCheck } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTable, LemonTag, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSkeleton, LemonTable, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -363,6 +363,16 @@ function SecondStep(): JSX.Element {
             {selectedConnector.caption && (
                 <LemonMarkdown className="text-sm">{selectedConnector.caption}</LemonMarkdown>
             )}
+
+            {selectedConnector.docsUrl && (
+                <div className="inline-block">
+                    <LemonButton to={selectedConnector.docsUrl} type="primary" size="small">
+                        View docs
+                    </LemonButton>
+                </div>
+            )}
+
+            <LemonDivider />
 
             <SourceForm sourceConfig={selectedConnector} />
         </div>
