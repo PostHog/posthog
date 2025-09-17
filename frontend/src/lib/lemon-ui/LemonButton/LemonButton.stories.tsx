@@ -4,6 +4,7 @@ import clsx from 'clsx'
 import { IconGear, IconInfo, IconPlus } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -61,10 +62,10 @@ const TypesAndStatusesTemplate: StoryFn<typeof LemonButton> = (props) => {
     return (
         <div className="deprecated-space-y-2">
             {types.map((type) => (
-                <>
+                <div key={type}>
                     <h5>type={capitalizeFirstLetter(type || '')}</h5>
                     <StatusesTemplate {...props} type={type} />
-                </>
+                </div>
             ))}
         </div>
     )
@@ -104,10 +105,10 @@ export const Sizes = (): JSX.Element => {
     return (
         <div className="deprecated-space-y-2">
             {sizes.map((size) => (
-                <>
+                <div key={size}>
                     <h5>size={size}</h5>
                     <StatusesTemplate size={size} type="secondary" />
-                </>
+                </div>
             ))}
         </div>
     )
@@ -119,10 +120,10 @@ export const SizesIconOnly = (): JSX.Element => {
     return (
         <div className="deprecated-space-y-2">
             {sizes.map((size) => (
-                <>
+                <div key={size}>
                     <h5>size={size}</h5>
                     <StatusesTemplate size={size} type="secondary" noText />
-                </>
+                </div>
             ))}
         </div>
     )
@@ -252,7 +253,7 @@ export const WithSideAction = (): JSX.Element => {
     return (
         <div className="deprecated-space-y-2">
             {types.map((type) => (
-                <>
+                <div key={type}>
                     <h5>type={capitalizeFirstLetter(type || '')}</h5>
                     <div className="flex items-center gap-2">
                         {statuses.map((status, i) => (
@@ -270,7 +271,7 @@ export const WithSideAction = (): JSX.Element => {
                             </LemonButton>
                         ))}
                     </div>
-                </>
+                </div>
             ))}
         </div>
     )
@@ -446,26 +447,20 @@ export const WithOverflowingContent = (): JSX.Element => {
 export const WithAccessControl = (): JSX.Element => {
     return (
         <div className="flex gap-2">
-            <LemonButton
-                type="primary"
-                accessControl={{
-                    resourceType: AccessControlResourceType.Project,
-                    minAccessLevel: AccessControlLevel.Admin,
-                    userAccessLevel: AccessControlLevel.Admin,
-                }}
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Project}
+                minAccessLevel={AccessControlLevel.Admin}
+                userAccessLevel={AccessControlLevel.Admin}
             >
-                Enabled (admin ≥ admin)
-            </LemonButton>
-            <LemonButton
-                type="primary"
-                accessControl={{
-                    resourceType: AccessControlResourceType.Project,
-                    minAccessLevel: AccessControlLevel.Admin,
-                    userAccessLevel: AccessControlLevel.Viewer,
-                }}
+                <LemonButton type="primary">Enabled (admin ≥ admin)</LemonButton>
+            </AccessControlAction>
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Project}
+                minAccessLevel={AccessControlLevel.Admin}
+                userAccessLevel={AccessControlLevel.Viewer}
             >
-                Disabled (viewer {'<'} admin)
-            </LemonButton>
+                <LemonButton type="primary">Disabled (viewer {'<'} admin)</LemonButton>
+            </AccessControlAction>
         </div>
     )
 }

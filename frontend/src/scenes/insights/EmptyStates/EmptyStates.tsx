@@ -17,6 +17,7 @@ import {
 } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -177,6 +178,7 @@ export const LOADING_MESSAGES = [
     'Polishing graphs with tiny hedgehog paws…',
     'Rolling through data like a spiky ball of insights…',
     'Gathering nuts and numbers from the data forest…',
+    // eslint-disable-next-line react/jsx-key
     <>
         Reticulating <s>splines</s> spines…
     </>,
@@ -751,20 +753,22 @@ export function SavedInsightsEmptyState({
             {filters.tab !== SavedInsightsTabs.Favorites && (
                 <div className="flex justify-center">
                     <Link to={urls.insightNew()}>
-                        <LemonButton
-                            type="primary"
-                            data-attr="add-insight-button-empty-state"
-                            icon={<IconPlusSmall />}
-                            className="add-insight-button"
-                            accessControl={{
-                                resourceType: AccessControlResourceType.Insight,
-                                minAccessLevel: AccessControlLevel.Editor,
-                                userAccessLevel:
-                                    getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight],
-                            }}
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.Insight}
+                            minAccessLevel={AccessControlLevel.Editor}
+                            userAccessLevel={
+                                getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight]
+                            }
                         >
-                            New insight
-                        </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                data-attr="add-insight-button-empty-state"
+                                icon={<IconPlusSmall />}
+                                className="add-insight-button"
+                            >
+                                New insight
+                            </LemonButton>
+                        </AccessControlAction>
                     </Link>
                 </div>
             )}
