@@ -98,5 +98,6 @@ async def validate_llm_single_session_summary_with_videos_activity(
             # No sense to retry, as the events picked to validate don't have enough metadata to generate a moment
             non_retryable=True,
         )
-    # TODO: validation_results = ...
-    await moments_analyzer.analyze(moments_input)
+    validation_results = await moments_analyzer.analyze(moments_input)
+    print(validation_results)
+    print("")

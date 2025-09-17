@@ -1,0 +1,5 @@
+- event_id: 'abcd1234' # Must be copied EXACTLY from event data, never invented
+  abandonment: false # true or false
+  confusion: false # true or false
+  exception: null # null if no exception, `blocking` or `non-blocking` if exception
+  description: 'What this event actually means, based on the video validation'
