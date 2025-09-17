@@ -1,5 +1,8 @@
+use std::borrow::Cow;
+
 use chrono::{DateTime, Datelike, Duration, Utc};
 use jiff::civil::DateTime as JiffDateTime;
+use regex::Regex;
 
 const FUTURE_EVENT_HOURS_CUTOFF_MILLIS: i64 = 23 * 3600 * 1000; // 23 hours
 
@@ -71,30 +74,74 @@ fn handle_timestamp(
     parsed_ts
 }
 
-/// Parse a date string using a streamlined two-step approach
+/// Parse a date string using a streamlined approach
 ///
 /// This function tries parsing in order of preference:
-/// 1. dateparser (handles 95%+ of formats): ISO 8601, slash-separated, RFC2822, numeric timestamps
-/// 2. jiff (minimal fallback): civil datetime with T but no timezone (e.g., "2023-01-01T12:00:00")
+/// 1. chrono RFC3339 parser (handles standard ISO 8601 with proper timezone conversion)
+/// 2. dateparser (handles 95%+ of formats): ISO 8601, slash-separated, RFC2822, numeric timestamps
+/// 3. jiff (minimal fallback): civil datetime with T but no timezone (e.g., "2023-01-01T12:00:00")
 fn parse_date(supposed_iso_string: &str) -> Option<DateTime<Utc>> {
-    // Try dateparser first - it handles most formats including:
-    // - ISO 8601/RFC3339: 2023-01-01T12:00:00Z, 2023-01-01T12:00:00+02:00
+    // First normalize any non-standard timezone formats (e.g., +03 -> +03:00)
+    let normalized_input = normalize_timezone_format(supposed_iso_string);
+
+    // Try chrono's RFC3339 parser first for proper timezone handling
+    if let Ok(dt) = DateTime::parse_from_rfc3339(&normalized_input) {
+        return Some(dt.with_timezone(&Utc));
+    }
+
+    // Try dateparser for other formats - but note it may not handle timezones correctly
     // - Date-only: 2023-01-01
     // - Civil datetime with space: 2023-01-01 12:00:00
     // - Slash-separated: 01/01/2023, 2023/01/01
     // - RFC2822: Tue, 1 Jul 2003 10:52:37 +0200
     // - Numeric timestamps: 1672574400000, 1672574400
-    if let Ok(dt) = dateparser::parse(supposed_iso_string) {
+    if let Ok(dt) = dateparser::parse(&normalized_input) {
         return Some(dt);
     }
 
     // Minimal jiff fallback for the one format dateparser can't handle:
     // Civil datetime with T but no timezone (e.g., "2023-01-01T12:00:00")
-    if let Ok(jiff_civil) = supposed_iso_string.parse::<JiffDateTime>() {
+    if let Ok(jiff_civil) = normalized_input.parse::<JiffDateTime>() {
         return convert_jiff_to_chrono(jiff_civil.to_zoned(jiff::tz::TimeZone::UTC).ok()?);
     }
 
     None
+}
+
+/// Normalize non-standard timezone formats to standard RFC3339 format
+/// Returns a Cow that borrows the input if no normalization is needed, or owns a new string if modified
+/// Uses regex to precisely match ISO datetime strings with non-standard timezone format
+/// Examples:
+/// - "2025-09-17T14:05:04.805+03" -> "2025-09-17T14:05:04.805+03:00" (owned)
+/// - "2025-09-17T14:05:04.805-05" -> "2025-09-17T14:05:04.805-05:00" (owned)
+/// - "2025-09-17T14:05:04.805Z" -> "2025-09-17T14:05:04.805Z" (borrowed)
+/// - "2023-01-01" -> "2023-01-01" (borrowed, no match)
+fn normalize_timezone_format(input: &str) -> Cow<'_, str> {
+    // Quick optimization: check last 3 chars first
+    if input.len() < 3 {
+        return Cow::Borrowed(input);
+    }
+
+    let last_3_chars = &input[input.len() - 3..];
+    if !(last_3_chars.starts_with('+') || last_3_chars.starts_with('-'))
+        || !last_3_chars[1..].chars().all(|c| c.is_ascii_digit())
+    {
+        return Cow::Borrowed(input);
+    }
+
+    // Use regex to confirm this is an ISO datetime with non-standard timezone format
+    // Pattern: YYYY-MM-DDTHH:MM:SS[.fff][+/-]HH
+    static TIMEZONE_REGEX: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+        Regex::new(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?[+-]\d{2}$").unwrap()
+    });
+
+    if TIMEZONE_REGEX.is_match(input) {
+        // Found ISO datetime with +XX or -XX timezone, convert to +XX:00 or -XX:00
+        Cow::Owned(format!("{input}:00"))
+    } else {
+        // Not the format we're looking for, return unchanged
+        Cow::Borrowed(input)
+    }
 }
 
 /// Helper function to convert jiff timestamp to chrono DateTime<Utc>
@@ -109,7 +156,7 @@ fn convert_jiff_to_chrono(jiff_timestamp: jiff::Zoned) -> Option<DateTime<Utc>> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::{TimeZone, Utc};
+    use chrono::{TimeZone, Timelike, Utc};
 
     #[test]
     fn test_parse_event_timestamp_basic() {
@@ -190,6 +237,33 @@ mod tests {
             .unwrap()
             .with_timezone(&Utc);
         assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_parse_event_timestamp_with_millisecond_precision() {
+        let now_str = "2023-01-01T12:00:00.100Z";
+        let now = DateTime::parse_from_rfc3339(now_str)
+            .unwrap()
+            .with_timezone(&Utc);
+        let sent_at_str = "2023-01-01T12:00:00.200Z"; // Client sent at 200ms
+        let timestamp_str = "2023-01-01T12:00:00.750Z"; // Event timestamp with 750ms
+        let sent_at = DateTime::parse_from_rfc3339(sent_at_str)
+            .unwrap()
+            .with_timezone(&Utc);
+
+        let result = parse_event_timestamp(Some(timestamp_str), None, Some(sent_at), false, now);
+
+        // Expected: now + (timestamp - sent_at)
+        // = 12:00:00.100 + (12:00:00.750 - 12:00:00.200)
+        // = 12:00:00.100 + 00:00:00.550
+        // = 12:00:00.650
+        let expected = Utc.with_ymd_and_hms(2023, 1, 1, 12, 0, 0).unwrap()
+            + chrono::Duration::milliseconds(650);
+
+        assert_eq!(result, expected);
+
+        // Verify millisecond precision is preserved
+        assert_eq!(result.timestamp_subsec_millis(), 650);
     }
 
     #[test]
@@ -545,6 +619,82 @@ mod tests {
                 timestamp_str,
                 dt.day()
             );
+        }
+    }
+
+    #[test]
+    fn test_dateparser_timezone_conversion() {
+        // Test that dateparser correctly converts timezones to UTC
+        let test_cases = vec![
+            ("2023-01-01T12:00:00Z", 12, 0, 0),      // UTC
+            ("2023-01-01T12:00:00+00:00", 12, 0, 0), // UTC explicit
+            ("2023-01-01T12:00:00+03:00", 9, 0, 0),  // +3 hours should become 9 UTC
+            ("2023-01-01T12:00:00-05:00", 17, 0, 0), // -5 hours should become 17 UTC
+            ("2023-01-01T12:00:00+01:00", 11, 0, 0), // +1 hour should become 11 UTC
+            // Test the problematic format from your example
+            ("2025-09-17T14:05:04.805+03", 11, 5, 4), // +3 hours, should become 11:05:04 UTC
+        ];
+
+        for (input, expected_hour, expected_min, expected_sec) in test_cases {
+            let result = parse_date(input);
+            assert!(result.is_some(), "Failed to parse: {input}");
+
+            let dt = result.unwrap();
+            println!(
+                "Input: {} -> UTC: {}",
+                input,
+                dt.format("%Y-%m-%dT%H:%M:%S%.3fZ")
+            );
+
+            assert_eq!(
+                dt.hour(),
+                expected_hour,
+                "Wrong hour for {}: expected {}, got {}",
+                input,
+                expected_hour,
+                dt.hour()
+            );
+            assert_eq!(dt.minute(), expected_min, "Wrong minute for {input}");
+            assert_eq!(dt.second(), expected_sec, "Wrong second for {input}");
+        }
+    }
+
+    #[test]
+    fn test_normalize_timezone_format() {
+        // Test the timezone normalization function
+        let test_cases = vec![
+            // Cases that should be normalized
+            (
+                "2025-09-17T14:05:04.805+03",
+                "2025-09-17T14:05:04.805+03:00",
+            ),
+            (
+                "2025-09-17T14:05:04.805-05",
+                "2025-09-17T14:05:04.805-05:00",
+            ),
+            (
+                "2025-09-17T14:05:04.805+00",
+                "2025-09-17T14:05:04.805+00:00",
+            ),
+            ("2025-09-17T14:05:04+03", "2025-09-17T14:05:04+03:00"), // Without fractional seconds
+            ("2025-09-17T14:05:04-05", "2025-09-17T14:05:04-05:00"), // Without fractional seconds
+            // Cases that should NOT be normalized
+            ("2025-09-17T14:05:04.805Z", "2025-09-17T14:05:04.805Z"), // Already standard format
+            (
+                "2025-09-17T14:05:04.805+03:00",
+                "2025-09-17T14:05:04.805+03:00",
+            ), // Already standard format
+            ("2023-01-01", "2023-01-01"), // Date-only, should not be processed
+            ("2021-10-29", "2021-10-29"), // Date-only, should not be processed
+            ("invalid", "invalid"),       // No change for invalid input
+            ("2025-09-17T14:05:04.805+123", "2025-09-17T14:05:04.805+123"), // Invalid timezone (3 digits)
+            ("not-a-date-01", "not-a-date-01"), // Ends with -01 but not a datetime
+            ("T14:05:04+03", "T14:05:04+03"),   // Missing date part
+        ];
+
+        for (input, expected) in test_cases {
+            let result = normalize_timezone_format(input);
+            assert_eq!(result.as_ref(), expected, "Failed for input: {input}");
         }
     }
 
