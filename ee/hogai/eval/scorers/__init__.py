@@ -403,6 +403,7 @@ class InsightEvaluationAccuracy(ScorerWithPartial):
             },
         )
 
+
 class DashboardCreationAccuracy(LLMClassifier):
     """Evaluate how well the generated dashboard creation output matches the expected input requirements."""
 
@@ -470,6 +471,8 @@ Be strict about matching the specific insight requirements and dashboard creatio
             max_tokens=1024,
             **kwargs,
         )
+
+
 class SemanticSimilarity(ScorerWithPartial):
     """Simple semantic similarity scorer for string comparison using embeddings."""
 
@@ -493,6 +496,7 @@ class SemanticSimilarity(ScorerWithPartial):
                 "actual_query": output,
             },
         )
+
 
 class ExactMatch(ScorerWithPartial):
     """Evaluate if the output exactly matches the expected value."""
