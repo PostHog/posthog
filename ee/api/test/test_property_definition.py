@@ -1,3 +1,4 @@
+import datetime
 from typing import Optional, cast
 
 import pytest
@@ -386,7 +387,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_hidden_property_behavior(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
         )
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="hidden test property")
         response = self.client.get(f"/api/projects/@current/property_definitions/{property.id}")
@@ -428,7 +429,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_marking_hidden_removes_verified_status(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
         )
         property = EnterprisePropertyDefinition.objects.create(
             team=self.team, name="verified test property", verified=True
@@ -581,7 +582,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_exclude_hidden_properties(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
         )
         # Create some properties with hidden flag
         EnterprisePropertyDefinition.objects.create(team=self.team, name="visible_property", property_type="String")

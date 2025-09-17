@@ -1,8 +1,6 @@
 import datetime
 from typing import cast
 
-from django.utils import timezone
-
 from rest_framework import status
 
 from posthog.models import OrganizationMembership

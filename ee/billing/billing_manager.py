@@ -4,7 +4,6 @@ from typing import Any, Optional, cast
 
 from django.conf import settings
 from django.db.models import F
-from django.utils import timezone
 
 import jwt
 import requests

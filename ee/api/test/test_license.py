@@ -94,13 +94,13 @@ class TestLicenseAPI(APILicensedTest):
             License.objects.create(
                 key="old",
                 plan="scale",
-                valid_until=datetime.datetime.now() + timezone.timedelta(days=30),
+                valid_until=datetime.datetime.now() + datetime.timedelta(days=30),
             )
         with freeze_time("2022-06-03T12:00:00.000Z"):
             License.objects.create(
                 key="new",
                 plan="enterprise",
-                valid_until=datetime.datetime.now() + timezone.timedelta(days=30),
+                valid_until=datetime.datetime.now() + datetime.timedelta(days=30),
             )
 
         with freeze_time("2022-06-03T13:00:00.000Z"):
@@ -115,13 +115,13 @@ class TestLicenseAPI(APILicensedTest):
             License.objects.create(
                 key="new",
                 plan="enterprise",
-                valid_until=datetime.datetime.now() + timezone.timedelta(days=30),
+                valid_until=datetime.datetime.now() + datetime.timedelta(days=30),
             )
         with freeze_time("2022-06-27T12:00:00.000Z"):
             License.objects.create(
                 key="old",
                 plan="scale",
-                valid_until=datetime.datetime.now() + timezone.timedelta(days=30),
+                valid_until=datetime.datetime.now() + datetime.timedelta(days=30),
             )
 
         with freeze_time("2022-06-27T13:00:00.000Z"):
