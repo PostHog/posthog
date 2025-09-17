@@ -195,7 +195,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     </div>
                 </div>
                 <ToolsDisplay
-                    isThreadVisible={isThreadVisible}
+                    isFloating={isThreadVisible}
                     tools={tools}
                     bottomActions={bottomActions}
                     deepResearchMode={deepResearchMode}

@@ -94,41 +94,6 @@ export function FloatingSuggestionsDisplay({
                     </Tooltip>
                 </>
             )}
-
-            {/* Detailed suggestions when a group is active
-            {activeSuggestionGroup && compact && (
-                <>
-                    <div className="flex items-center gap-1 mb-1">
-                        <LemonButton
-                            size="xxsmall"
-                            type="tertiary"
-                            icon={<IconChevronLeft />}
-                            onClick={() => setActiveGroup(null)}
-                            tooltip="Back to categories"
-                        />
-                        <div className="flex items-center gap-1">
-                            {activeSuggestionGroup.icon}
-                            <span className="text-xxs font-medium">{activeSuggestionGroup.label}</span>
-                        </div>
-                    </div>
-                    <Tooltip title={!dataProcessingAccepted ? 'Please accept OpenAI processing data' : undefined}>
-                        <div className="flex flex-col gap-1">
-                            {activeSuggestionGroup.suggestions.map((suggestion, index) => (
-                                <LemonButton
-                                    key={index}
-                                    onClick={() => handleSuggestionClick(suggestion)}
-                                    size="xxsmall"
-                                    type="tertiary"
-                                    fullWidth
-                                    disabled={!dataProcessingAccepted}
-                                >
-                                    {suggestion.content.replace(/\{[^}]*\}/g, '...')}
-                                </LemonButton>
-                            ))}
-                        </div>
-                    </Tooltip>
-                </>
-            )} */}
         </div>
     )
 }
