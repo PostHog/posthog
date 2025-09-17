@@ -209,6 +209,7 @@ RUN apt-get update && \
     "gettext-base" \
     "ffmpeg=7:5.1.7-0+deb12u1" \
     "librdkafka1=2.10.1-1.cflt~deb12" \
+    "librdkafka++1=2.10.1-1.cflt~deb12" \
     "libssl-dev=3.0.17-1~deb12u2" \
     "libssl3=3.0.17-1~deb12u2" \
     && \
