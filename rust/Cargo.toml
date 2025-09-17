@@ -18,7 +18,7 @@ members = [
     "common/serve_metrics",
     "common/symbol_data",
     "common/types",
-    "common-compression",
+    "common/compression",
     "common/hypercache",
     "feature-flags",
     "hook-api",
