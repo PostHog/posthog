@@ -392,15 +392,9 @@ class ExperimentQueryRunner(QueryRunner):
                 # For each step, collect session_ids from users who reached that step (not more!)
                 # and sample up to 10 of them
                 sampled_expr = f"""
-                    arrayDistinct(
-                        arrayFlatten(
-                            arrayFilter(
-                                x -> notEmpty(x),
-                                groupArraySample(10)(
-                                    if(metric_events.value.1 = {i}, metric_events.session_ids, [])
-                                )
-                            )
-                        )
+                    groupArraySampleIf(100)(
+                        metric_events.value.2,
+                        metric_events.value.1 = {i}
                     )
                 """
                 sampled_session_exprs.append(sampled_expr)
