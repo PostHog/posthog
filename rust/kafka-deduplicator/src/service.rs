@@ -82,6 +82,7 @@ impl KafkaDeduplicatorService {
             full_upload_interval: config.full_upload_interval,
             aws_region: config.aws_region.clone(),
             max_local_checkpoints: config.max_local_checkpoints,
+            max_checkpoint_retention_hours: config.max_checkpoint_retention_hours,
             max_concurrent_checkpoints: config.max_concurrent_checkpoints,
             s3_timeout: config.s3_timeout(),
         };

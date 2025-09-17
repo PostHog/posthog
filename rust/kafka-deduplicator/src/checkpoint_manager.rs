@@ -701,10 +701,7 @@ impl CheckpointManager {
                         if name.starts_with(CHECKPOINT_TOPIC_PREFIX)
                             && name.starts_with(CHECKPOINT_PARTITION_PREFIX)
                         {
-                            match Box::pin(Self::find_checkpoint_dirs(&path)).await {
-                                Ok(dirs) => checkpoint_dirs.extend(dirs),
-                                Err(e) => warn!("Checkpoint cleaner: failed scanning for local checkpoint directories: {:?}", e),
-                            }
+                           stack.push(path);
                         }
                         // name matches a 0-padded UNIX epoch timestamp in microseconds
                         if name.chars().filter(|c| c.is_ascii_digit()).count() == name.len() {
@@ -725,12 +722,21 @@ impl CheckpointManager {
             return Ok(());
         }
 
-        // find all eligible checkpoint directories
+        // find all eligible checkpoint directories of form /base_dir/topic/partition/timestamp
         let dirs_found = Self::find_checkpoint_dirs(&checkpoint_base_dir).await?;
+
+        // first eliminate all dirs that are older than max retention period
+        let threshold_time = SystemTime::now() - Duration::from_hours(config.max_checkpoint_retention_hours as u64);
+        let mut remaining_dirs = Vec::new();
+        for candidate_dir in dirs_found.into_iter() {
+            if candidate_dir.metadata().await?.modified().unwrap() < threshold_time {
+                dirs_found.remove(candidate_dir);
+            }
+        }
 
         // group /topic/partition/timestamp dirs by parent /topic/partition
         let mut paths_by_parent: HashMap<String, Vec<PathBuf>> =
-            dirs_found
+            remaining_dirs
                 .into_iter()
                 .fold(HashMap::new(), |mut acc, path| {
                     let parent = path.parent().unwrap().to_string_lossy().to_string();

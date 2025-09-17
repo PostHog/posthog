@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use kafka_deduplicator::checkpoint::{CheckpointConfig, CheckpointExporter, CheckpointUploader};
 use kafka_deduplicator::checkpoint_manager::{
-    CheckpointManager, CheckpointMode, CheckpointPath, CheckpointWorker, CHECKPOINT_NAME_PREFIX,
+    CheckpointManager, CheckpointMode, CheckpointPath, CheckpointWorker, CHECKPOINT_PARTITION_PREFIX, CHECKPOINT_TOPIC_PREFIX
 };
 use kafka_deduplicator::kafka::types::Partition;
 use kafka_deduplicator::store::{DeduplicationStore, DeduplicationStoreConfig};
@@ -214,6 +214,37 @@ fn create_test_raw_event(distinct_id: &str, token: &str, event_name: &str) -> Ra
         ),
         ..Default::default()
     }
+}
+
+fn find_local_checkpoint_files(base_dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut checkpoint_files = Vec::new();
+    let mut stack = vec![base_dir.to_path_buf()];
+
+    while let Some(current_path) = stack.pop() {
+        let entries = std::fs::read_dir(&current_path)?;
+
+        for entry in entries {
+            let entry = entry?;
+            let path = entry.path();
+
+            if path.is_file() {
+                checkpoint_files.push(path);
+            }
+
+            if path.is_dir() {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if name.starts_with(CHECKPOINT_TOPIC_PREFIX)
+                        || name.starts_with(CHECKPOINT_PARTITION_PREFIX)
+                        || name.chars().filter(|c| c.is_ascii_digit()).count() == name.len()
+                    {
+                        stack.push(path);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(checkpoint_files)
 }
 
 #[tokio::test]
