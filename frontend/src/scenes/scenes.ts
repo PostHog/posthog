@@ -346,7 +346,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.QueryEndpoints]: {
         projectBased: true,
-        name: 'Query Endpoints',
+        name: 'Query endpoints',
         layout: 'app-container',
     },
     [Scene.Wizard]: { projectBased: true, name: 'Wizard', layout: 'plain' },
@@ -472,8 +472,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
     [urls.webAnalyticsMarketing()]: [Scene.WebAnalytics, 'webAnalyticsMarketing'],
     [urls.webAnalyticsPageReports()]: [Scene.WebAnalytics, 'webAnalyticsPageReports'],
-    [urls.embeddedAnalytics()]: [Scene.EmbeddedAnalytics, 'embeddedAnalytics'],
-    [urls.queryEndpoints()]: [Scene.QueryEndpoints, 'queryEndpoints'],
+    [urls.embeddedAnalytics()]: [Scene.QueryEndpoints, 'queryEndpoints'],
     [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
     [urls.revenueSettings()]: [Scene.DataManagement, 'revenue'],
     [urls.marketingAnalytics()]: [Scene.DataManagement, 'marketingAnalytics'],

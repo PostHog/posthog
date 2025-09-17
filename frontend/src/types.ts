@@ -2109,10 +2109,7 @@ export interface QueryEndpointType extends WithAccessControl {
     id: string
     name: string
     description: string
-    query: {
-        kind: string
-        query: string
-    }
+    query: HogQLQuery
     parameters: Record<string, any>
     is_active: boolean
     endpoint_path: string
@@ -2123,18 +2120,6 @@ export interface QueryEndpointType extends WithAccessControl {
     _highlight?: boolean
     /** Last execution time from ClickHouse query_log table */
     last_executed_at?: string
-}
-
-export interface CreateQueryEndpointRequest {
-    name: string
-    description: string
-    query: {
-        kind: string
-        query: string
-        [key: string]: any
-    }
-    parameters?: Record<string, any>
-    is_active?: boolean
 }
 
 export interface DashboardBasicType extends WithAccessControl {

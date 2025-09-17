@@ -1,46 +1,23 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useState } from 'react'
 
-import { IconCode, IconPageChart, IconPencil, IconTrash } from '@posthog/icons'
+import { IconPageChart, IconPencil, IconStopFilled, IconTrash } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { Popover } from 'lib/lemon-ui/Popover'
+import { queryEndpointLogic } from 'scenes/data-warehouse/editor/output-pane-tabs/queryEndpointLogic'
 import { urls } from 'scenes/urls'
-import { dayjs } from 'lib/dayjs'
 
 import { QueryEndpointType } from '~/types'
 
 import { queryEndpointsLogic } from './queryEndpointsLogic'
-import { queryEndpointLogic } from 'scenes/data-warehouse/editor/sidebar/queryEndpointLogic'
-
-const SQLButton = ({ sql }: { sql: string }): JSX.Element => {
-    const [popoverVisible, setPopoverVisible] = useState(false)
-
-    return (
-        <Popover
-            visible={popoverVisible}
-            onMouseEnterInside={() => setPopoverVisible(true)}
-            onMouseLeaveInside={() => setPopoverVisible(false)}
-            overlay={
-                <div className="p-2 max-w-md">
-                    <div className="text-sm font-medium mb-2">SQL Query</div>
-                    <pre className="text-xs bg-gray-100 p-2 rounded overflow-x-auto whitespace-pre-wrap">{sql}</pre>
-                </div>
-            }
-            placement="top"
-        >
-            <div onMouseEnter={() => setPopoverVisible(true)} onMouseLeave={() => setPopoverVisible(false)}>
-                <LemonButton type="secondary" size="small" icon={<IconCode />} />
-            </div>
-        </Popover>
-    )
-}
 
 export function QueryEndpoints(): JSX.Element {
     return (
@@ -54,50 +31,40 @@ export const QueryEndpointsTable = (): JSX.Element => {
     const { setFilters } = useActions(queryEndpointsLogic)
     const { filters } = useValues(queryEndpointsLogic)
     const { queryEndpoints, queryEndpointsLoading } = useValues(queryEndpointsLogic)
-    const { deleteQueryEndpoint } = useActions(queryEndpointLogic)
+    const { deleteQueryEndpoint, deactivateQueryEndpoint } = useActions(queryEndpointLogic)
 
     const columns: LemonTableColumns<QueryEndpointType> = [
         {
             title: 'Name',
             key: 'name',
             dataIndex: 'name',
+            width: '25%',
+            render: function Render(_, record) {
+                return (
+                    <LemonTableLink
+                        // TODO: Add link to endpoint modal
+                        to={urls.embeddedAnalytics()}
+                        title={record.name}
+                        description={record.description}
+                    />
+                )
+            },
+            sorter: (a: QueryEndpointType, b: QueryEndpointType) => a.name.localeCompare(b.name),
         },
+        createdAtColumn<QueryEndpointType>() as LemonTableColumn<
+            QueryEndpointType,
+            keyof QueryEndpointType | undefined
+        >,
+        createdByColumn<QueryEndpointType>() as LemonTableColumn<
+            QueryEndpointType,
+            keyof QueryEndpointType | undefined
+        >,
+        atColumn<QueryEndpointType>('last_executed_at', 'Last executed at') as LemonTableColumn<
+            QueryEndpointType,
+            keyof QueryEndpointType | undefined
+        >,
         {
-            title: 'Description',
-            key: 'description',
-            dataIndex: 'description',
-        },
-        {
-            title: 'Status',
-            key: 'is_active',
-            dataIndex: 'is_active',
-            render: (_, record) => (
-                <span>
-                    {record.is_active ? (
-                        <LemonTag type="success">Active</LemonTag>
-                    ) : (
-                        <LemonTag type="danger">Inactive</LemonTag>
-                    )}
-                </span>
-            ),
-        },
-        {
-            title: 'Created At',
-            key: 'created_at',
-            dataIndex: 'created_at',
-            render: (_, record) => new Date(record.created_at).toLocaleDateString(),
-        },
-        {
-            title: 'Created By',
-            key: 'created_by',
-            dataIndex: 'created_by',
-            render: (_, record) =>
-                record.created_by
-                    ? `${record.created_by.first_name} ${record.created_by.last_name}`.trim() || record.created_by.email
-                    : 'Unknown',
-        },
-        {
-            title: 'Endpoint Path',
+            title: 'Endpoint path',
             key: 'endpoint_path',
             dataIndex: 'endpoint_path',
             render: (_, record) => (
@@ -115,60 +82,75 @@ export const QueryEndpointsTable = (): JSX.Element => {
             ),
         },
         {
-            title: 'Last executed at',
-            key: 'last_executed_at',
-            dataIndex: 'last_executed_at',
-            render: (_, record) => 
-                record.last_executed_at 
-                    ? dayjs(record.last_executed_at).format('MMM D, YYYY [at] h:mm A')
-                    : <span className="text-muted">Never</span>,
+            title: 'Status',
+            key: 'is_active',
+            dataIndex: 'is_active',
+            align: 'center',
+            render: (_, record) => (
+                <span>
+                    {record.is_active ? (
+                        <LemonTag type="success">Active</LemonTag>
+                    ) : (
+                        <LemonTag type="danger">Inactive</LemonTag>
+                    )}
+                </span>
+            ),
+            sorter: (a: QueryEndpointType, b: QueryEndpointType) => Number(b.is_active) - Number(a.is_active),
         },
         {
-            title: 'Actions',
             key: 'actions',
             width: 0,
             render: (_, record) => (
-                <div className="flex items-center gap-2">
-                    <SQLButton sql={record.query.query} />
-                    <More
-                        overlay={
-                            <>
-                                <LemonButton
-                                    icon={<IconPageChart />}
-                                    onClick={() => {
-                                        router.actions.push(
-                                            `/embedded-analytics?request_name=${encodeURIComponent(record.name)}`
-                                        )
-                                    }}
-                                    fullWidth
-                                >
-                                    View Usage
-                                </LemonButton>
+                <More
+                    overlay={
+                        <>
+                            <LemonButton
+                                icon={<IconPageChart />}
+                                onClick={() => {
+                                    router.actions.push(
+                                        // TODO: Add request name to URL
+                                        urls.embeddedAnalytics()
+                                    )
+                                }}
+                                fullWidth
+                            >
+                                View usage
+                            </LemonButton>
 
-                                <LemonButton
-                                    icon={<IconPencil />}
-                                    onClick={() => {
-                                        // TODO: Once editor is refactored, allow sending #output-pane-tab=query-endpoint
-                                        router.actions.push(urls.sqlEditor(record.query.query))
-                                    }}
-                                    fullWidth
-                                >
-                                    Edit Query
-                                </LemonButton>
-
-                                <LemonButton
-                                    icon={<IconTrash />}
-                                    onClick={() => {
-                                        deleteQueryEndpoint(record.name)
-                                    }}
-                                    fullWidth
-                                >
-                                    Delete
-                                </LemonButton>
-                            </>
-                        }
-                    />
-                </div>
+                            <LemonButton
+                                icon={<IconPencil />}
+                                onClick={() => {
+                                    // TODO: Once editor is refactored, allow sending #output-pane-tab=query-endpoint
+                                    router.actions.push(urls.sqlEditor(record.query.query))
+                                }}
+                                fullWidth
+                            >
+                                Edit query endpoint
+                            </LemonButton>
+                            <LemonDivider />
+                            <LemonButton
+                                icon={<IconStopFilled />}
+                                onClick={() => {
+                                    deactivateQueryEndpoint(record.name)
+                                }}
+                                fullWidth
+                                status="alt"
+                            >
+                                Deactivate query endpoint
+                            </LemonButton>
+                            <LemonButton
+                                icon={<IconTrash />}
+                                onClick={() => {
+                                    deleteQueryEndpoint(record.name)
+                                }}
+                                fullWidth
+                                status="danger"
+                            >
+                                Delete query endpoint
+                            </LemonButton>
+                        </>
+                    }
+                />
             ),
         },
     ]
@@ -185,14 +167,16 @@ export const QueryEndpointsTable = (): JSX.Element => {
                 />
             </div>
             <LemonTable
+                data-attr="query-endpoints-table"
+                pagination={{ pageSize: 20 }}
                 dataSource={queryEndpoints as QueryEndpointType[]}
-                loading={queryEndpointsLoading}
                 rowKey="id"
-                stealth={true}
                 rowClassName={(record) => (record._highlight ? 'highlighted' : null)}
+                columns={columns}
+                loading={queryEndpointsLoading}
+                // TODO: defaultSorting & onSort
                 emptyState="No query endpoints matching your filters!"
                 nouns={['query endpoint', 'query endpoints']}
-                columns={columns}
             />
         </>
     )

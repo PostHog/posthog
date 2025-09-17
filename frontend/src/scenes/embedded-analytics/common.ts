@@ -10,7 +10,7 @@ export const INITIAL_INTERVAL = getDefaultInterval(INITIAL_DATE_FROM, INITIAL_DA
 export const INITIAL_REQUEST_NAME_BREAKDOWN_ENABLED = false
 
 export enum EmbeddedTab {
-    USAGE_ANALYTICS = 'usage-analytics',
+    USAGE = 'usage',
     QUERY_ENDPOINTS = 'query-endpoints',
 }
 

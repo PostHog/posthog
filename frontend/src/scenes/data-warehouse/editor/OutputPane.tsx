@@ -26,7 +26,6 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -45,7 +44,6 @@ import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/L
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
 import { Table } from '~/queries/nodes/DataVisualization/Components/Table'
 import { TableDisplay } from '~/queries/nodes/DataVisualization/Components/TableDisplay'
-import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
 import { seriesBreakdownLogic } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
 import { DataTableVisualizationProps } from '~/queries/nodes/DataVisualization/DataVisualization'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
@@ -57,11 +55,10 @@ import { ChartDisplayType, ExporterFormat } from '~/types'
 import TabScroller from './TabScroller'
 import { FixErrorButton } from './components/FixErrorButton'
 import { multitabEditorLogic } from './multitabEditorLogic'
+import { QueryEndpoint } from './output-pane-tabs/QueryEndpoint'
+import { QueryInfo } from './output-pane-tabs/QueryInfo'
+import { QueryVariables } from './output-pane-tabs/QueryVariables'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
-import { QueryEndpoint } from './sidebar/QueryEndpoint'
-import { QueryInfo } from './sidebar/QueryInfo'
-import { QueryVariables } from './sidebar/QueryVariables'
-import { queryEndpointLogic } from './sidebar/queryEndpointLogic'
 
 interface RowDetailsModalProps {
     isOpen: boolean
@@ -282,9 +279,6 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
     } = useValues(dataNodeLogic)
     const { queryCancelled } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
-    const { createQueryEndpoint } = useActions(queryEndpointLogic)
-    const { queryEndpointName, queryEndpointDescription } = useValues(queryEndpointLogic)
-    const { variablesForInsight } = useValues(variablesLogic)
 
     const response = dataNodeResponse as HogQLQueryResponse | undefined
 
@@ -464,12 +458,13 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                         },
                         {
                             key: OutputTab.QueryEndpoint,
-                            label: 'Query Endpoint',
-                            icon: <IconBrackets />,
+                            label: 'Query endpoint',
+                            icon: <IconCode2 />,
                             flag: FEATURE_FLAGS.EMBEDDED_ANALYTICS,
                         },
-                    ].map((tab) =>
-                        !tab.flag || featureFlags[tab.flag] ? (
+                    ]
+                        .filter((tab) => !tab.flag || featureFlags[tab.flag])
+                        .map((tab) => (
                             <div
                                 key={tab.key}
                                 className={clsx(
@@ -485,8 +480,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                 <span className="mr-1">{tab.icon}</span>
                                 {tab.label}
                             </div>
-                        ) : null
-                    )}
+                        ))}
                 </div>
                 <div className="flex gap-2 py-2 px-4 flex-shrink-0">
                     {showLegacyFilters && (
@@ -602,50 +596,6 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                 onClick={() => shareTab()}
                             />
                         </Tooltip>
-                    )}
-                    {activeTab === OutputTab.QueryEndpoint && (
-                        <LemonButton
-                            type="primary"
-                            onClick={() => {
-                                const sqlQuery = queryInput || ''
-                                if (!sqlQuery.trim()) {
-                                    lemonToast.error('You are missing a HogQL query.')
-                                    return
-                                }
-
-                                if (!queryEndpointName?.trim()) {
-                                    lemonToast.error('You need to name your query endpoint.')
-                                    return
-                                }
-
-                                const parameters = variablesForInsight.reduce(
-                                    (acc, variable) => {
-                                        acc[variable.code_name] = {
-                                            type: variable.type,
-                                            default_value: variable.default_value,
-                                            ...(variable.type === 'List' && 'values' in variable && variable.values
-                                                ? { values: variable.values }
-                                                : {}),
-                                        }
-                                        return acc
-                                    },
-                                    {} as Record<string, any>
-                                )
-
-                                createQueryEndpoint({
-                                    name: queryEndpointName,
-                                    description: queryEndpointDescription || ``,
-                                    query: {
-                                        kind: 'HogQLQuery',
-                                        query: sqlQuery,
-                                    },
-                                    parameters,
-                                })
-                            }}
-                            icon={<IconCode2 />}
-                        >
-                            Create query endpoint
-                        </LemonButton>
                     )}
                 </div>
             </div>

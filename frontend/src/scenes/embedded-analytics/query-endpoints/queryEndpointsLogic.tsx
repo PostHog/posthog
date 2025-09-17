@@ -37,12 +37,12 @@ export const queryEndpointsLogic = kea<queryEndpointsLogicType>([
                     let haystack: QueryEndpointType[] = response.results || []
 
                     if (haystack.length > 0) {
-                        const names = haystack.map(endpoint => endpoint.name)
+                        const names = haystack.map((endpoint) => endpoint.name)
                         const lastExecutionTimes = await api.queryEndpoint.getLastExecutionTimes(names)
-                        
-                        haystack = haystack.map(endpoint => ({
+
+                        haystack = haystack.map((endpoint) => ({
                             ...endpoint,
-                            last_executed_at: lastExecutionTimes[endpoint.name]
+                            last_executed_at: lastExecutionTimes[endpoint.name],
                         }))
                     }
 

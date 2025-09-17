@@ -30,6 +30,7 @@ import {
     HogQLVariable,
     LogMessage,
     LogsQuery,
+    NamedQueryRequest,
     Node,
     NodeKind,
     PersistedFolder,
@@ -58,7 +59,6 @@ import {
     ConversationDetail,
     CoreMemory,
     CreateGroupParams,
-    CreateQueryEndpointRequest,
     CyclotronJobFiltersType,
     CyclotronJobTestInvocationResult,
     DashboardCollaboratorType,
@@ -1621,28 +1621,33 @@ const api = {
         async list(): Promise<CountedPaginatedResponse<QueryEndpointType>> {
             return await new ApiRequest().queryEndpoint().get()
         },
-        async create(data: CreateQueryEndpointRequest): Promise<QueryEndpointType> {
+        async create(data: NamedQueryRequest): Promise<QueryEndpointType> {
             return await new ApiRequest().queryEndpoint().create({ data })
         },
         async delete(name: string): Promise<void> {
             return await new ApiRequest().queryEndpointDetail(name).delete()
         },
+        async update(name: string, data: NamedQueryRequest): Promise<QueryEndpointType> {
+            return await new ApiRequest().queryEndpointDetail(name).update({ data })
+        },
         async getLastExecutionTimes(names: string[]): Promise<Record<string, string>> {
-            if (names.length === 0) return {}
-            
+            if (names.length === 0) {
+                return {}
+            }
+
             const query = hogql`
                 SELECT
                     name,
                     max(query_start_time) as last_executed_at
                 FROM query_log
-                WHERE name in (${hogql.raw(names.map(name => `'${name}'`).join(','))})
+                WHERE name in (${hogql.raw(names.map((name) => `'${name}'`).join(','))})
                 GROUP BY name
             `
-            
+
             const response = await api.queryHogQL(query, {
                 refresh: 'force_blocking',
             })
-            
+
             const result: Record<string, string> = {}
             for (const row of response.results) {
                 const [name, lastExecutedAt] = row
@@ -1650,7 +1655,7 @@ const api = {
                     result[name] = lastExecutedAt
                 }
             }
-            
+
             return result
         },
     },

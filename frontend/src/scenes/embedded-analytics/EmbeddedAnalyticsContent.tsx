@@ -14,10 +14,10 @@ import { EmbeddedTab } from './common'
 import { embeddedAnalyticsLogic } from './embeddedAnalyticsLogic'
 import { QueryEndpoints } from './query-endpoints/QueryEndpoints'
 
-export function EmbeddedAnalyticsDashboard(): JSX.Element {
+export function EmbeddedAnalyticsContent(): JSX.Element {
     return (
         <BindLogic logic={embeddedAnalyticsLogic} props={{}}>
-            <SceneContent className="EmbeddedAnalyticsDashboard w-full flex flex-col">
+            <SceneContent className="EmbeddedAnalyticsContent w-full flex flex-col">
                 <EmbeddedAnalyticsTabs />
 
                 <PageHeader
@@ -50,8 +50,8 @@ const EmbeddedAnalyticsTabs = (): JSX.Element => {
             activeKey={activeTab}
             onChange={setActiveTab}
             tabs={[
-                { key: EmbeddedTab.QUERY_ENDPOINTS, label: 'Query Endpoints' },
-                { key: EmbeddedTab.USAGE_ANALYTICS, label: 'API Usage' },
+                { key: EmbeddedTab.QUERY_ENDPOINTS, label: 'Query endpoints' },
+                { key: EmbeddedTab.USAGE, label: 'API usage' },
             ]}
         />
     )
@@ -64,7 +64,7 @@ const MainContent = (): JSX.Element => {
     switch (activeTab) {
         case EmbeddedTab.QUERY_ENDPOINTS:
             return <QueryEndpoints />
-        case EmbeddedTab.USAGE_ANALYTICS:
+        case EmbeddedTab.USAGE:
             return (
                 <>
                     <EmbeddedAnalyticsFilters />

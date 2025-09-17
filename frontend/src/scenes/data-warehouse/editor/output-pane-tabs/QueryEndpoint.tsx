@@ -1,13 +1,24 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonInput, LemonTable, LemonTableColumns, LemonTabs, LemonTag } from '@posthog/lemon-ui'
+import { IconCode2 } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonInput,
+    LemonTable,
+    LemonTableColumns,
+    LemonTabs,
+    LemonTag,
+    lemonToast,
+} from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
+import { NodeKind } from '~/queries/schema/schema-general'
 
+import { multitabEditorLogic } from '../multitabEditorLogic'
 import { CodeExampleTab, queryEndpointLogic } from './queryEndpointLogic'
 
 const variablesColumns: LemonTableColumns<Variable> = [
@@ -221,17 +232,40 @@ function CodeExamples({ queryEndpointName, variables, projectId }: CodeExamplesP
 }
 
 export function QueryEndpoint(): JSX.Element {
-    const { setQueryEndpointName, setQueryEndpointDescription } = useActions(queryEndpointLogic)
+    const { setQueryEndpointName, setQueryEndpointDescription, createQueryEndpoint } = useActions(queryEndpointLogic)
     const { queryEndpointName, queryEndpointDescription } = useValues(queryEndpointLogic)
+
     const { variablesForInsight } = useValues(variablesLogic)
+    const { queryInput } = useValues(multitabEditorLogic)
+
+    const handleCreateQueryEndpoint = (): void => {
+        const sqlQuery = queryInput || ''
+        if (!sqlQuery.trim()) {
+            lemonToast.error('You are missing a HogQL query.')
+            return
+        }
+
+        if (!queryEndpointName?.trim()) {
+            lemonToast.error('You need to name your query endpoint.')
+            return
+        }
+
+        createQueryEndpoint({
+            name: queryEndpointName,
+            description: queryEndpointDescription || '',
+            query: {
+                kind: NodeKind.HogQLQuery,
+                query: sqlQuery,
+            },
+        })
+    }
 
     const { currentProject } = useValues(projectLogic)
-    const projectId = currentProject?.id
 
     return (
         <div className="space-y-4">
             <div className="flex flex-row items-center gap-2">
-                <h3 className="mb-0">Query Endpoint</h3>
+                <h3 className="mb-0">Query endpoint</h3>
                 <LemonTag type="completion">ALPHA</LemonTag>
             </div>
             <div className="space-y-2">
@@ -256,6 +290,9 @@ export function QueryEndpoint(): JSX.Element {
                     value={queryEndpointDescription || ''}
                     className="w-1/3"
                 />
+                <LemonButton type="primary" onClick={handleCreateQueryEndpoint} icon={<IconCode2 />}>
+                    Create query endpoint
+                </LemonButton>
             </div>
 
             <div>
@@ -267,7 +304,11 @@ export function QueryEndpoint(): JSX.Element {
                 />
             </div>
 
-            <CodeExamples queryEndpointName={queryEndpointName} variables={variablesForInsight} projectId={projectId} />
+            <CodeExamples
+                queryEndpointName={queryEndpointName}
+                variables={variablesForInsight}
+                projectId={currentProject?.id}
+            />
         </div>
     )
 }

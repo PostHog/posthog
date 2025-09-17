@@ -1,13 +1,16 @@
 import { actions, kea, key, path, props, reducers, selectors } from 'kea'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 
 import { dayjs } from 'lib/dayjs'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import {
     dateStringToDayJs,
     getDefaultInterval,
     isValidRelativeOrAbsoluteDate,
     updateDatesWithInterval,
 } from 'lib/utils'
+import { urls } from 'scenes/urls'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartDisplayType, InsightLogicProps, IntervalType } from '~/types'
@@ -32,6 +35,7 @@ import {
     createLast20QueriesColumns,
     createLast20QueriesQuery,
 } from './queries'
+import { ActionToUrlPayload } from 'kea-router/lib/types'
 
 export const EMBEDDED_ANALYTICS_DATA_COLLECTION_NODE_ID = 'embedded-analytics'
 
@@ -111,7 +115,7 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
             },
         ],
         activeTab: [
-            EmbeddedTab.USAGE_ANALYTICS as EmbeddedTab,
+            EmbeddedTab.QUERY_ENDPOINTS as EmbeddedTab,
             {
                 setActiveTab: (_, { tab }) => tab,
             },
@@ -340,75 +344,62 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
         ],
     }),
 
-    actionToUrl(({ values }) => {
-        const stateToUrl = (): string => {
-            const searchParams = { ...router.values.searchParams }
-            const urlParams = new URLSearchParams(searchParams)
-
-            const {
-                dateFilter: { dateFrom, dateTo, interval },
-                requestNameBreakdownEnabled,
-                activeTab,
-            } = values
-
-            if (dateFrom !== INITIAL_DATE_FROM || dateTo !== INITIAL_DATE_TO || interval !== INITIAL_INTERVAL) {
-                urlParams.set('date_from', dateFrom ?? '')
-                urlParams.set('date_to', dateTo ?? '')
-                urlParams.set('interval', interval ?? '')
+    tabAwareActionToUrl(({ values }): ActionToUrlPayload<embeddedAnalyticsLogicType> => {
+        const actionToUrl = ({
+            dateFilter = values.dateFilter,
+            requestNameBreakdownEnabled = values.requestNameBreakdownEnabled,
+        }) => {
+            if (router.values.searchParams['tab'] === EmbeddedTab.QUERY_ENDPOINTS) {
+                return
             }
-            if (requestNameBreakdownEnabled !== INITIAL_REQUEST_NAME_BREAKDOWN_ENABLED) {
-                urlParams.set('request_name_breakdown_enabled', requestNameBreakdownEnabled.toString())
-            } else {
-                urlParams.delete('request_name_breakdown_enabled')
+            const tab = values.activeTab === EmbeddedTab.QUERY_ENDPOINTS ? undefined : values.activeTab
+
+            const { dateFrom, dateTo, interval } = dateFilter
+
+            let filters: {
+                dateFrom?: string | null
+                dateTo?: string | null
+                interval?: IntervalType
+                requestNameBreakdownEnabled?: boolean
+            } = {}
+            if (tab === EmbeddedTab.USAGE) {
+                if (dateFrom !== INITIAL_DATE_FROM) {
+                    filters.dateFrom = dateFrom
+                }
+                if (dateTo !== INITIAL_DATE_TO) {
+                    filters.dateTo = dateTo
+                }
+                if (interval !== INITIAL_INTERVAL) {
+                    filters.interval = interval
+                }
+                if (requestNameBreakdownEnabled !== INITIAL_REQUEST_NAME_BREAKDOWN_ENABLED) {
+                    filters.requestNameBreakdownEnabled = requestNameBreakdownEnabled
+                }
             }
 
-            let basePath = '/embedded-analytics'
-            if (activeTab === EmbeddedTab.QUERY_ENDPOINTS) {
-                basePath = '/embedded-analytics/query-endpoints'
-                urlParams.delete('date_from')
-                urlParams.delete('date_to')
-                urlParams.delete('interval')
-                urlParams.delete('request_name_breakdown_enabled')
-            }
-            return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
+            return [
+                router.values.location.pathname,
+                { ...router.values.searchParams, tab, ...filters },
+                router.values.location.hash,
+            ]
         }
 
         return {
-            setActiveTab: stateToUrl,
-            setRequestNameBreakdownEnabled: stateToUrl,
-            setDatesAndInterval: stateToUrl,
-            setDates: stateToUrl,
-            setInterval: stateToUrl,
+            setActiveTab: actionToUrl,
+            setDates: actionToUrl,
+            setDatesAndInterval: actionToUrl,
+            setRequestNameBreakdownEnabled: actionToUrl,
         }
     }),
 
-    urlToAction(({ actions, values }) => {
-        const toAction = (
-            { activeTab = EmbeddedTab.USAGE_ANALYTICS }: { activeTab?: EmbeddedTab },
-            { date_from, date_to, interval, request_name_breakdown_enabled }: Record<string, any>
-        ): void => {
-            if (![EmbeddedTab.QUERY_ENDPOINTS, EmbeddedTab.USAGE_ANALYTICS].includes(activeTab)) {
-                return
-            }
+    tabAwareUrlToAction(({ actions }) => ({
+        [urls.embeddedAnalytics()]: (_, searchParams) => {
+            const tab = searchParams['tab'] || EmbeddedTab.QUERY_ENDPOINTS
+            const { dateFrom, dateTo, interval, requestNameBreakdownEnabled } = searchParams
 
-            if (
-                (date_from && date_from !== values.dateFilter.dateFrom) ||
-                (date_to && date_to !== values.dateFilter.dateTo) ||
-                (interval && interval !== values.dateFilter.interval)
-            ) {
-                actions.setDatesAndInterval(date_from, date_to, interval)
-            }
-            if (
-                request_name_breakdown_enabled &&
-                request_name_breakdown_enabled !== values.requestNameBreakdownEnabled
-            ) {
-                actions.setRequestNameBreakdownEnabled(request_name_breakdown_enabled)
-            }
-
-            if (activeTab && activeTab !== values.activeTab) {
-                actions.setActiveTab(activeTab)
-            }
-        }
-        return { '/embedded-analytics': toAction, '/embedded-analytics/:activeTab': toAction }
-    }),
+            actions.setActiveTab(tab)
+            actions.setDatesAndInterval(dateFrom, dateTo, interval)
+            actions.setRequestNameBreakdownEnabled(requestNameBreakdownEnabled)
+        },
+    })),
 ])

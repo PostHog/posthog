@@ -7,7 +7,6 @@ export const manifest: ProductManifest = {
     name: 'Embedded analytics',
     urls: {
         embeddedAnalytics: (): string => `/embedded-analytics`,
-        queryEndpoints: (): string => `/embedded-analytics/query-endpoints`,
     },
     fileSystemTypes: {
         embedded_analytics: {

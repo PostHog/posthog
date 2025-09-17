@@ -76,7 +76,7 @@ export const EmbeddedAnalyticsFilters = ({ tabs }: { tabs?: JSX.Element }): JSX.
     const { dateFilter, activeTab } = useValues(embeddedAnalyticsLogic)
     const { setDates } = useActions(embeddedAnalyticsLogic)
 
-    return activeTab === EmbeddedTab.USAGE_ANALYTICS ? (
+    return activeTab === EmbeddedTab.USAGE ? (
         <FilterBar
             top={tabs}
             left={

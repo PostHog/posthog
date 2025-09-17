@@ -7,7 +7,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { EmbeddedAnalyticsDashboard } from './EmbeddedAnalyticsDashboard'
+import { EmbeddedAnalyticsContent } from './EmbeddedAnalyticsContent'
 import { embeddedAnalyticsLogic } from './embeddedAnalyticsLogic'
 
 export function EmbeddedAnalyticsScene(): JSX.Element {
@@ -28,7 +28,7 @@ export function EmbeddedAnalyticsScene(): JSX.Element {
                     }}
                 />
                 <SceneDivider />
-                <EmbeddedAnalyticsDashboard />
+                <EmbeddedAnalyticsContent />
             </SceneContent>
         </>
     )

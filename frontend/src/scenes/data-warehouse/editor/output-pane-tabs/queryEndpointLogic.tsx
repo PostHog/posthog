@@ -3,8 +3,10 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { queryEndpointsLogic } from 'scenes/embedded-analytics/query-endpoints/queryEndpointsLogic'
+import { urls } from 'scenes/urls'
 
-import { CreateQueryEndpointRequest } from '~/types'
+import { NamedQueryRequest, NodeKind } from '~/queries/schema/schema-general'
 
 import type { queryEndpointLogicType } from './queryEndpointLogicType'
 
@@ -18,17 +20,21 @@ export const queryEndpointLogic = kea<queryEndpointLogicType>([
 
     connect(() => ({
         values: [],
+        actions: [queryEndpointsLogic, ['loadQueryEndpoints']],
     })),
     actions({
         setQueryEndpointName: (queryEndpointName: string) => ({ queryEndpointName }),
         setQueryEndpointDescription: (queryEndpointDescription: string) => ({ queryEndpointDescription }),
         setActiveCodeExampleTab: (tab: CodeExampleTab) => ({ tab }),
-        createQueryEndpoint: (request: CreateQueryEndpointRequest) => ({ request }),
+        createQueryEndpoint: (request: NamedQueryRequest) => ({ request }),
         createQueryEndpointSuccess: (response: any) => ({ response }),
         createQueryEndpointFailure: (error: any) => ({ error }),
         deleteQueryEndpoint: (name: string) => ({ name }),
         deleteQueryEndpointSuccess: (response: any) => ({ response }),
         deleteQueryEndpointFailure: (error: any) => ({ error }),
+        deactivateQueryEndpoint: (name: string) => ({ name }),
+        deactivateQueryEndpointSuccess: (response: any) => ({ response }),
+        deactivateQueryEndpointFailure: (error: any) => ({ error }),
     }),
     reducers({
         queryEndpointName: [
@@ -60,7 +66,7 @@ export const queryEndpointLogic = kea<queryEndpointLogicType>([
                 </>,
                 {
                     onClose: () => {
-                        router.actions.push('/embedded-analytics/query-endpoints')
+                        router.actions.push(urls.embeddedAnalytics())
                     },
                 }
             )
@@ -81,10 +87,31 @@ export const queryEndpointLogic = kea<queryEndpointLogicType>([
         },
         deleteQueryEndpointSuccess: () => {
             lemonToast.success('Query endpoint deleted successfully')
+            actions.loadQueryEndpoints()
         },
         deleteQueryEndpointFailure: ({ error }) => {
             console.error('Failed to delete query endpoint:', error)
             lemonToast.error('Failed to delete query endpoint')
+        },
+        deactivateQueryEndpoint: async ({ name }) => {
+            try {
+                await api.queryEndpoint.update(name, {
+                    query: { kind: NodeKind.HogQLQuery, query: '' },
+                    is_active: false,
+                })
+                actions.deactivateQueryEndpointSuccess({})
+            } catch (error) {
+                console.error('Failed to deactivate query endpoint:', error)
+                actions.deactivateQueryEndpointFailure(error)
+            }
+        },
+        deactivateQueryEndpointSuccess: () => {
+            lemonToast.success('Query endpoint deactivated successfully')
+            actions.loadQueryEndpoints()
+        },
+        deactivateQueryEndpointFailure: ({ error }) => {
+            console.error('Failed to deactivate query endpoint:', error)
+            lemonToast.error('Failed to deactivate query endpoint')
         },
     })),
 ])
