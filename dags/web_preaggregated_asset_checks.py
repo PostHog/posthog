@@ -613,25 +613,7 @@ def web_analytics_team_selection_v2_has_data(context: AssetCheckExecutionContext
 
 
 @asset_check(
-    asset="web_pre_aggregated_bounces",
-    name="web_pre_aggregated_bounces_has_data",
-    description="Check if web_pre_aggregated_bounces table has data",
-)
-def web_pre_aggregated_bounces_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
-    return table_has_data("web_pre_aggregated_bounces", dagster_tags(context), context)
-
-
-@asset_check(
-    asset="web_pre_aggregated_stats",
-    name="web_pre_aggregated_stats_has_data",
-    description="Check if web_pre_aggregated_stats table has data",
-)
-def web_pre_aggregated_stats_has_data(context: AssetCheckExecutionContext) -> AssetCheckResult:
-    return table_has_data("web_pre_aggregated_stats", dagster_tags(context), context)
-
-
-@asset_check(
-    asset="web_pre_aggregated_bounces",
+    asset="web_pre_aggregated_tables",
     name="web_analytics_v2_accuracy_check",
     description="Validates that v2 pre-aggregated web analytics data matches regular queries within tolerance",
     blocking=False,
@@ -660,8 +642,7 @@ web_analytics_v2_data_quality_job = dagster.define_asset_job(
     selection=dagster.AssetSelection.checks_for_assets(
         [
             "web_analytics_team_selection_v2",
-            "web_pre_aggregated_bounces",
-            "web_pre_aggregated_stats",
+            "web_pre_aggregated_tables",
         ]
     ),
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},

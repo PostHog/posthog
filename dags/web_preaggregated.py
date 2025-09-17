@@ -85,51 +85,39 @@ def pre_aggregate_web_analytics_data(
 
 
 @dagster.asset(
-    name="web_pre_aggregated_bounces",
+    name="web_pre_aggregated_tables",
     group_name="web_analytics_v2",
     config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
     deps=["web_analytics_team_selection_v2"],
     partitions_def=partition_def,
     backfill_policy=backfill_policy_def,
-    metadata={"table": "web_pre_aggregated_bounces"},
     tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
     retry_policy=web_analytics_retry_policy_def,
 )
-def web_pre_aggregated_bounces(
+def web_pre_aggregated_tables(
     context: dagster.AssetExecutionContext,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> None:
     query_tagging.get_query_tags().with_dagster(dagster_tags(context))
-    return pre_aggregate_web_analytics_data(
-        context=context,
-        table_name="web_pre_aggregated_bounces",
-        sql_generator=WEB_BOUNCES_INSERT_SQL,
-        cluster=cluster,
-    )
 
+    tables_to_process = [
+        ("web_pre_aggregated_bounces", WEB_BOUNCES_INSERT_SQL),
+        ("web_pre_aggregated_stats", WEB_STATS_INSERT_SQL),
+    ]
 
-@dagster.asset(
-    name="web_pre_aggregated_stats",
-    group_name="web_analytics_v2",
-    config_schema=WEB_ANALYTICS_CONFIG_SCHEMA,
-    deps=["web_analytics_team_selection_v2"],
-    partitions_def=partition_def,
-    backfill_policy=backfill_policy_def,
-    metadata={"table": "web_pre_aggregated_stats"},
-    tags={"owner": JobOwners.TEAM_WEB_ANALYTICS.value},
-    retry_policy=web_analytics_retry_policy_def,
-)
-def web_pre_aggregated_stats(
-    context: dagster.AssetExecutionContext,
-    cluster: dagster.ResourceParam[ClickhouseCluster],
-) -> None:
-    query_tagging.get_query_tags().with_dagster(dagster_tags(context))
-    return pre_aggregate_web_analytics_data(
-        context=context,
-        table_name="web_pre_aggregated_stats",
-        sql_generator=WEB_STATS_INSERT_SQL,
-        cluster=cluster,
-    )
+    for table_name, sql_generator in tables_to_process:
+        context.log.info(f"Starting pre-aggregation for {table_name}")
+        try:
+            pre_aggregate_web_analytics_data(
+                context=context,
+                table_name=table_name,
+                sql_generator=sql_generator,
+                cluster=cluster,
+            )
+            context.log.info(f"Successfully completed pre-aggregation for {table_name}")
+        except Exception as e:
+            context.log.error(f"Failed to pre-aggregate {table_name}: {str(e)}")
+            raise dagster.Failure(f"Failed to pre-aggregate {table_name}: {str(e)}") from e
 
 
 @dagster.asset(
@@ -159,12 +147,11 @@ def clear_web_staging_partitions(
 
 web_pre_aggregate_job = dagster.define_asset_job(
     name="web_pre_aggregate_job",
-    selection=["web_pre_aggregated_bounces", "web_pre_aggregated_stats"],
+    selection=["web_pre_aggregated_tables"],
     tags={
         "owner": JobOwners.TEAM_WEB_ANALYTICS.value,
         "dagster/max_runtime": str(DAGSTER_WEB_JOB_TIMEOUT),
     },
-    executor_def=dagster.multiprocess_executor.configured({"max_concurrent": 1}),
 )
 
 
