@@ -115,8 +115,7 @@
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.11
   '''
   SELECT "posthog_team"."id",
-         "posthog_team"."organization_id",
-         "posthog_team"."access_control"
+         "posthog_team"."organization_id"
   FROM "posthog_team"
   WHERE "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
   '''
@@ -246,8 +245,7 @@
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.15
   '''
   SELECT "posthog_team"."id",
-         "posthog_team"."organization_id",
-         "posthog_team"."access_control"
+         "posthog_team"."organization_id"
   FROM "posthog_team"
   WHERE "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
   '''
@@ -527,8 +525,7 @@
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.2
   '''
   SELECT "posthog_team"."id",
-         "posthog_team"."organization_id",
-         "posthog_team"."access_control"
+         "posthog_team"."organization_id"
   FROM "posthog_team"
   WHERE "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
   '''
@@ -996,8 +993,7 @@
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.6
   '''
   SELECT "posthog_team"."id",
-         "posthog_team"."organization_id",
-         "posthog_team"."access_control"
+         "posthog_team"."organization_id"
   FROM "posthog_team"
   WHERE "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
   '''
@@ -2654,8 +2650,7 @@
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.11
   '''
   SELECT "posthog_team"."id",
-         "posthog_team"."organization_id",
-         "posthog_team"."access_control"
+         "posthog_team"."organization_id"
   FROM "posthog_team"
   WHERE "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
   '''
@@ -2785,8 +2780,7 @@
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.15
   '''
   SELECT "posthog_team"."id",
-         "posthog_team"."organization_id",
-         "posthog_team"."access_control"
+         "posthog_team"."organization_id"
   FROM "posthog_team"
   WHERE "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
   '''
@@ -3066,8 +3060,7 @@
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.2
   '''
   SELECT "posthog_team"."id",
-         "posthog_team"."organization_id",
-         "posthog_team"."access_control"
+         "posthog_team"."organization_id"
   FROM "posthog_team"
   WHERE "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
   '''
@@ -4822,8 +4815,7 @@
 # name: TestDecideRemoteConfig.test_decide_doesnt_error_out_when_database_is_down.6
   '''
   SELECT "posthog_team"."id",
-         "posthog_team"."organization_id",
-         "posthog_team"."access_control"
+         "posthog_team"."organization_id"
   FROM "posthog_team"
   WHERE "posthog_team"."organization_id" IN ('00000000-0000-0000-0000-000000000000'::uuid)
   '''
