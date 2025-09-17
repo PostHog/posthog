@@ -180,6 +180,7 @@ export function CampaignsTable(): JSX.Element {
                                                 <p>
                                                     Are you sure you want to delete the campaign "
                                                     <strong>{campaign.name}</strong>"? This action cannot be undone.
+                                                    In-progress workflows will end immediately.
                                                 </p>
                                             ),
                                             primaryButton: {
