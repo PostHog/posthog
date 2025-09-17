@@ -1,134 +1,41 @@
-import uuid
-import asyncio
 from math import ceil
-from typing import Optional, cast
+from typing import cast
 
 import temporalio
-from google import genai
-from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import ApplicationError
 
-from posthog.constants import VIDEO_EXPORT_TASK_QUEUE
-from posthog.models.exported_asset import ExportedAsset
 from posthog.models.user import User
-from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
-from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
-from posthog.temporal.common.client import async_connect
-from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExportWorkflow
 
-from ee.hogai.session_summaries.constants import SECONDS_BEFORE_EVENT_FOR_VALIDATION_VIDEO, VALIDATION_VIDEO_DURATION
+from ee.hogai.session_summaries.constants import (
+    FAILED_MOMENTS_MIN_RATIO,
+    SECONDS_BEFORE_EVENT_FOR_VALIDATION_VIDEO,
+    VALIDATION_VIDEO_DURATION,
+)
 from ee.hogai.session_summaries.session.output_data import EnrichedKeyActionSerializer, SessionSummarySerializer
+from ee.hogai.videos.session_moments import SessionMomentInput, SessionMomentsLLMAnalyzer
 from ee.models.session_summaries import SingleSessionSummary
 
 
-# TODO: Move to a separate module
-async def _generate_video_for_event(
-    event: EnrichedKeyActionSerializer, inputs: SingleSessionSummaryInputs, user: User
-) -> int:
-    """Generate a video for an event and return the asset ID"""
-    # Create ExportedAsset record for this moment (TODO: move comment)
+def _prepare_moment_input_from_summary_event(
+    event: EnrichedKeyActionSerializer, session_id: str
+) -> SessionMomentInput | None:
+    event_uuid = event.data["event_uuid"]
     ms_from_start = event.data.get("milliseconds_since_start")
     if ms_from_start is None:
-        raise ApplicationError(
-            f"Milliseconds since start not found in the event for session {inputs.session_id} when generating video for validating session summary",
-            non_retryable=True,
+        temporalio.workflow.logger.error(
+            f"Milliseconds since start not found in the event {event_uuid} for session {session_id} when generating video for validating session summary",
         )
-    # Start a video a couple of seconds before the event
-    timestamp = max(0, ceil(ms_from_start / 1000) - SECONDS_BEFORE_EVENT_FOR_VALIDATION_VIDEO)
-    moment_id = f"session-summary-moment_{inputs.session_id}_{event.data['event_uuid']}"
-    exported_asset = await database_sync_to_async(ExportedAsset.objects.create)(
-        team_id=inputs.team_id,
-        export_format="video/mp4",
-        export_context={
-            "session_recording_id": inputs.session_id,
-            "timestamp": timestamp,
-            "filename": moment_id,
-            "duration": VALIDATION_VIDEO_DURATION,
-            # Keeping default values
-            "mode": "screenshot",
-            "css_selector": ".replayer-wrapper",
-            "width": 1987,
-            "height": 1312,
-        },
-        created_by=user,
-    )
-    # Generate a video
-    client = await async_connect()
-    await client.execute_workflow(
-        VideoExportWorkflow.run,
-        VideoExportInputs(exported_asset_id=exported_asset.id),
-        # TODO: Check why multiple workflow could be started with the same id
-        id=f"export-video-summary_{inputs.session_id}_{event.data['event_uuid']}_{uuid.uuid4()}",
-        task_queue=VIDEO_EXPORT_TASK_QUEUE,
-        retry_policy=RetryPolicy(maximum_attempts=int(TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
-        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-    )
-    # Return the asset ID for later retrieval
-    return exported_asset.id
-
-
-# TODO: Move to a separate module
-async def _generate_videos_for_events(
-    events: list[EnrichedKeyActionSerializer], inputs: SingleSessionSummaryInputs, user: User
-) -> dict[str, int]:
-    """Generate videos for events and return mapping of event_uuid to asset_id"""
-    tasks = {}
-    async with asyncio.TaskGroup() as tg:
-        for event in events:
-            tasks[event.data["event_uuid"]] = tg.create_task(_generate_video_for_event(event, inputs, user))
-    # Collect results - asset IDs
-    asset_ids = {}
-    for event_uuid, task in tasks.items():
-        asset_ids[event_uuid] = await task
-    return asset_ids
-
-
-# TODO: Move to a separate module
-async def _get_video_bytes(asset_id: int) -> Optional[bytes]:
-    """Retrieve video content as bytes for an ExportedAsset ID"""
-    try:
-        # Fetch the asset from the database
-        asset = await database_sync_to_async(ExportedAsset.objects.get)(id=asset_id)
-
-        # Get content from either database or object storage
-        if asset.content:
-            # Content stored directly in database
-            return bytes(asset.content)
-        elif asset.content_location:
-            # Content stored in object storage
-            return await database_sync_to_async(object_storage.read_bytes)(asset.content_location)
-        else:
-            return None
-    except ExportedAsset.DoesNotExist:
         return None
-
-
-# TODO: Move to a separate module
-async def _send_videos_to_llm(asset_ids: dict[str, int], question: str) -> dict[str, str]:
-    """Send videos to LLM for validation and get analysis results"""
-    results = {}
-    for event_uuid, asset_id in asset_ids.items():
-        video_bytes = await _get_video_bytes(asset_id)
-        if video_bytes and len(video_bytes) < 20 * 1024 * 1024:  # 20MB limit
-            # TODO: Remove after testing, storing for debugging
-            with open(f"video_{event_uuid}.mp4", "wb") as f:
-                f.write(video_bytes)
-            # Send to your LLM here
-            client = genai.Client()
-            response = client.models.generate_content(
-                model="models/gemini-2.5-flash",
-                contents=genai.types.Content(
-                    parts=[
-                        genai.types.Part(inline_data=genai.types.Blob(data=video_bytes, mime_type="video/mp4")),
-                        genai.types.Part(text=question),
-                    ]
-                ),
-            )
-            results[event_uuid] = response.text
-
-    return results
+    event_timestamp = ceil(ms_from_start / 1000)
+    # Start a video a couple of seconds before the event
+    moment_timestamp = max(0, event_timestamp - SECONDS_BEFORE_EVENT_FOR_VALIDATION_VIDEO)
+    return SessionMomentInput(
+        moment_id=event_uuid,
+        timestamp_s=moment_timestamp,
+        duration_s=VALIDATION_VIDEO_DURATION,
+    )
 
 
 @temporalio.activity.defn
@@ -170,10 +77,26 @@ async def validate_llm_single_session_summary_with_videos_activity(
         # No blocking issues detected in the summary, no need to validate
         return None
     # Generate videos for events and get asset IDs
-    # TODO: Remove after testing
-    # Temporalily limiting to one event
+    # TODO: Remove after testing # Temporalily limiting to one event
     events_to_validate = events_to_validate[:1]
-    asset_ids = await _generate_videos_for_events(events_to_validate, inputs, user)
     # Send videos to LLM for validation
-    # validation_results = ...
-    await _send_videos_to_llm(asset_ids=asset_ids, question="Please summarize the video in 3 sentences.")
+    moments_analyzer = SessionMomentsLLMAnalyzer(
+        session_id=inputs.session_id,
+        team_id=inputs.team_id,
+        user=user,
+        prompt="Please summarize the video in 3 sentences.",
+        failed_moments_min_ratio=FAILED_MOMENTS_MIN_RATIO,
+    )
+    moments_input = [
+        moment
+        for event in events_to_validate
+        if (moment := _prepare_moment_input_from_summary_event(event, inputs.session_id))
+    ]
+    if not moments_input:
+        raise ApplicationError(
+            f"No moments input found for session {inputs.session_id} when validating session summary with videos: {events_to_validate}",
+            # No sense to retry, as the events picked to validate don't have enough metadata to generate a moment
+            non_retryable=True,
+        )
+    # TODO: validation_results = ...
+    await moments_analyzer.analyze(moments_input)
