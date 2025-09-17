@@ -29,12 +29,12 @@ from ee.hogai.graph.deep_research.report.nodes import DeepResearchReportNode, Fo
 from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,
     DeepResearchNodeName,
-    DeepResearchSingleTaskResult,
     DeepResearchState,
     PartialDeepResearchState,
 )
 from ee.hogai.notebook.notebook_serializer import NotebookContext
 from ee.hogai.utils.types import InsightArtifact
+from ee.hogai.utils.types.base import TaskArtifact, TaskResult
 
 
 class TestDeepResearchReportNode:
@@ -87,7 +87,7 @@ class TestDeepResearchReportNode:
             ]
 
         task_results = [
-            DeepResearchSingleTaskResult(
+            TaskResult(
                 id="task_1",
                 description="Analyze user behavior",
                 result="Users show high engagement",
@@ -109,7 +109,7 @@ class TestDeepResearchReportNode:
 
         state = DeepResearchState(
             task_results=[
-                DeepResearchSingleTaskResult(
+                TaskResult(
                     id="task_1",
                     description="Task 1",
                     result="Result 1",
@@ -135,7 +135,7 @@ class TestDeepResearchReportNode:
 
         state = DeepResearchState(
             task_results=[
-                DeepResearchSingleTaskResult(
+                TaskResult(
                     id="task_1",
                     description="Task 1",
                     result="Result 1",
@@ -191,7 +191,7 @@ class TestDeepResearchReportNode:
         mock_executor.run_and_format_query.return_value = ("Formatted results", False)
         mock_executor_class.return_value = mock_executor
 
-        artifacts = [self.create_sample_artifact("artifact_1", "trends")]
+        artifacts: list[TaskArtifact] = [self.create_sample_artifact("artifact_1", "trends")]
 
         formatted_insights = self.node._format_insights(artifacts)
 
@@ -210,7 +210,7 @@ class TestDeepResearchReportNode:
         mock_executor.run_and_format_query.side_effect = Exception("Query execution failed")
         mock_executor_class.return_value = mock_executor
 
-        artifacts = [self.create_sample_artifact("artifact_1", "trends")]
+        artifacts: list[TaskArtifact] = [self.create_sample_artifact("artifact_1", "trends")]
 
         formatted_insights = self.node._format_insights(artifacts)
 
@@ -291,7 +291,7 @@ class TestDeepResearchReportNode:
 
     def test_create_context(self):
         """Test that notebook context is created correctly."""
-        artifacts = [
+        artifacts: list[TaskArtifact] = [
             self.create_sample_artifact("artifact_1", "trends"),
             self.create_sample_artifact("artifact_2", "funnels"),
         ]
@@ -397,11 +397,11 @@ class TestDeepResearchReportNode:
         mock_get_model.return_value = mock_model
 
         # Create state with artifacts but no intermediate results
-        artifacts = [self.create_sample_artifact("artifact_1", "trends")]
+        artifacts: list[TaskArtifact] = [self.create_sample_artifact("artifact_1", "trends")]
         state = DeepResearchState(
             messages=[AssistantToolCallMessage(content="Complete", tool_call_id="tool_1")],
             task_results=[
-                DeepResearchSingleTaskResult(
+                TaskResult(
                     id="task_1",
                     description="Task 1",
                     result="Result",
@@ -479,14 +479,14 @@ class TestDeepResearchReportNode:
 
         state = DeepResearchState(
             task_results=[
-                DeepResearchSingleTaskResult(
+                TaskResult(
                     id="task_1",
                     description="Task 1",
                     result="Result 1",
                     artifacts=[artifact1, artifact2],
                     status=TaskExecutionStatus.COMPLETED,
                 ),
-                DeepResearchSingleTaskResult(
+                TaskResult(
                     id="task_2",
                     description="Task 2",
                     result="Result 2",
@@ -556,7 +556,7 @@ class TestDeepResearchReportNode:
         state = DeepResearchState(
             messages=[tool_call_message],
             task_results=[
-                DeepResearchSingleTaskResult(
+                TaskResult(
                     id="task_1",
                     description="Test task",
                     result="Test result",
@@ -585,7 +585,7 @@ class TestDeepResearchReportNode:
             mock_executor.run_and_format_query.return_value = ("Results", False)
             mock_executor_class.return_value = mock_executor
 
-            artifacts = [
+            artifacts: list[TaskArtifact] = [
                 self.create_sample_artifact("artifact_1", "trends"),
                 self.create_sample_artifact("artifact_2", "funnels"),
                 self.create_sample_artifact("artifact_3", "retention"),

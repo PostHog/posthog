@@ -27,6 +27,7 @@ from posthog.schema import (
     ReasoningMessage,
     RetentionQuery,
     TaskExecutionMessage,
+    TaskExecutionStatus,
     TrendsQuery,
     VisualizationMessage,
 )
@@ -311,11 +312,30 @@ class WithCommentary(BaseModel):
     )
 
 
-class InsightArtifact(BaseModel):
+class TaskArtifact(BaseModel):
     """
-    An artifacts created by a task.
+    Base artifact created by a task.
     """
 
     id: str
-    query: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
     description: str
+
+
+class InsightArtifact(TaskArtifact):
+    """
+    An insight artifact created by a task.
+    """
+
+    query: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
+
+
+class TaskResult(BaseModel):
+    """
+    The result of an individual task.
+    """
+
+    id: str
+    description: str
+    result: str
+    artifacts: Sequence[TaskArtifact] = Field(default=[])
+    status: TaskExecutionStatus

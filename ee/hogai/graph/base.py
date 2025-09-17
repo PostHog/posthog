@@ -4,6 +4,8 @@ from typing import Any, Generic, Literal, Union
 from uuid import UUID
 
 from langchain_core.runnables import RunnableConfig
+from langgraph.config import get_stream_writer
+from langgraph.types import StreamWriter
 
 from posthog.schema import AssistantMessage, AssistantToolCall, MaxBillingContext, MaxUIContext
 
@@ -28,6 +30,8 @@ from ee.models import Conversation
 
 
 class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMixin, ReasoningNodeMixin, ABC):
+    writer: StreamWriter | None = None
+
     def __init__(self, team: Team, user: User):
         self._team = team
         self._user = user
@@ -52,6 +56,12 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
 
     async def arun(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
         raise NotImplementedError
+
+    async def _get_writer(self) -> StreamWriter:
+        if self.writer:
+            return self.writer
+        self.writer = get_stream_writer()
+        return self.writer
 
     async def _is_conversation_cancelled(self, conversation_id: UUID) -> bool:
         conversation = await self._aget_conversation(conversation_id)
@@ -101,6 +111,13 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
         Converts an assistant message to a custom message langgraph update.
         """
         return ((), "messages", (message, {"langgraph_node": node_name}))
+
+    async def _write_message(self, message: AssistantMessageUnion, node_name: MaxNodeName):
+        """
+        Writes a message to the stream writer.
+        """
+        writer = await self._get_writer()
+        writer(self._message_to_langgraph_update(message, node_name))
 
 
 AssistantNode = BaseAssistantNode[AssistantState, PartialAssistantState]

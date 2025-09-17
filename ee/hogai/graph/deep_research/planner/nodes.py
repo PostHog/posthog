@@ -42,15 +42,14 @@ from ee.hogai.graph.deep_research.planner.prompts import (
 from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,
     DeepResearchState,
+    DeepResearchTask,
     DeepResearchTodo,
-    InsightArtifact,
     PartialDeepResearchState,
-    TaskExecutionItem,
 )
 from ee.hogai.notebook.notebook_serializer import NotebookSerializer
 from ee.hogai.utils.helpers import extract_content_from_ai_message
 from ee.hogai.utils.types import WithCommentary
-from ee.hogai.utils.types.base import BaseState, BaseStateWithMessages
+from ee.hogai.utils.types.base import BaseState, BaseStateWithMessages, InsightArtifact, TaskArtifact
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +59,7 @@ class execute_tasks(WithCommentary):
     Execute a batch of work, assigning tasks to assistants. Returns the aggregated results of the tasks.
     """
 
-    tasks: list[TaskExecutionItem] = Field(description="The tasks to execute")
+    tasks: list[DeepResearchTask] = Field(description="The tasks to execute")
 
 
 class todo_write(WithCommentary):
@@ -337,7 +336,7 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
     async def _handle_artifacts_read(self, tool_call, state: DeepResearchState) -> PartialDeepResearchState:
         """Read artifacts generated from completed tasks."""
         # Collect all artifacts from task results
-        artifacts: list[InsightArtifact] = []
+        artifacts: list[TaskArtifact] = []
         for single_task_result in state.task_results:
             artifacts.extend(single_task_result.artifacts)
 
@@ -381,7 +380,7 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
             )
 
         # Collect all available artifacts
-        artifacts: list[InsightArtifact] = []
+        artifacts: list[TaskArtifact] = []
         for single_task_result in state.task_results:
             artifacts.extend(single_task_result.artifacts)
 
@@ -406,7 +405,7 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
         visualization_messages = [
             VisualizationItem(query=artifact.description, answer=artifact.query)
             for artifact in selected_artifacts
-            if artifact.query
+            if isinstance(artifact, InsightArtifact)
         ]
 
         return PartialDeepResearchState(

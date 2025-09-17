@@ -19,11 +19,11 @@ from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,
     DeepResearchNodeName,
     DeepResearchState,
-    InsightArtifact,
     PartialDeepResearchState,
 )
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor
 from ee.hogai.notebook.notebook_serializer import NotebookContext
+from ee.hogai.utils.types.base import InsightArtifact, TaskArtifact
 
 
 class FormattedInsight(BaseModel):
@@ -93,9 +93,9 @@ class DeepResearchReportNode(DeepResearchNode):
             messages=[notebook_update_message],
         )
 
-    def _collect_all_artifacts(self, state: DeepResearchState) -> list[InsightArtifact]:
+    def _collect_all_artifacts(self, state: DeepResearchState) -> list[TaskArtifact]:
         """Collect all artifacts from task results."""
-        artifacts = []
+        artifacts: list[TaskArtifact] = []
         for result in state.task_results:
             artifacts.extend(result.artifacts)
 
@@ -106,12 +106,12 @@ class DeepResearchReportNode(DeepResearchNode):
         artifacts = [artifact for artifact in artifacts if artifact.id in valid_ids]
         return artifacts
 
-    def _format_insights(self, artifacts: list[InsightArtifact]) -> list[FormattedInsight]:
+    def _format_insights(self, artifacts: list[TaskArtifact]) -> list[FormattedInsight]:
         """Format insight artifacts using the query executor."""
         formatted_insights = []
 
         for artifact in artifacts:
-            if not artifact.query:
+            if not isinstance(artifact, InsightArtifact):
                 # Skip artifacts without queries (shouldn't happen in production)
                 continue
 
@@ -190,9 +190,11 @@ class DeepResearchReportNode(DeepResearchNode):
 
         return "\n".join(formatted_parts)
 
-    def _create_context(self, artifacts: list[InsightArtifact]) -> NotebookContext:
+    def _create_context(self, artifacts: list[TaskArtifact]) -> NotebookContext:
         """
         Create a context for the notebook serializer.
         """
-        context = NotebookContext(insights={artifact.id: artifact for artifact in artifacts})
+        context = NotebookContext(
+            insights={artifact.id: artifact for artifact in artifacts if isinstance(artifact, InsightArtifact)}
+        )
         return context
