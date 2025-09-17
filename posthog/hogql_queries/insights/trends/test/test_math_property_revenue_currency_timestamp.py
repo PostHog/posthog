@@ -18,19 +18,7 @@ class TestDataWarehouseTimestampHandling(ClickhouseTestMixin, BaseTest):
             self.cleanup_dw_table()
 
     def setup_test_data_warehouse_table(self):
-        # Create CSV data with mixed timestamp scenarios - including NULL timestamps
-        csv_content = """id,timestamp_field,revenue_amount,currency_code
-1,2023-01-01 10:00:00,100.50,USD
-2,2023-01-02 11:30:00,75.25,EUR
-3,,50.00,GBP
-4,2023-01-04 14:15:00,200.75,JPY
-5,,125.30,CAD"""
-
-        # Write test CSV file
         csv_path = Path(__file__).parent / "data" / "timestamp_test.csv"
-        csv_path.parent.mkdir(exist_ok=True)
-        with open(csv_path, "w") as f:
-            f.write(csv_content)
 
         # Create data warehouse table
         table, source, credential, df, cleanup_fn = create_data_warehouse_table_from_csv(
@@ -47,9 +35,6 @@ class TestDataWarehouseTimestampHandling(ClickhouseTestMixin, BaseTest):
         )
 
         self.cleanup_dw_table = cleanup_fn
-
-        # Clean up CSV file
-        csv_path.unlink()
 
         return table.name
 
@@ -138,24 +123,8 @@ class TestDataWarehouseTimestampHandling(ClickhouseTestMixin, BaseTest):
 
     @snapshot_clickhouse_queries
     def test_string_and_date32_fields(self):
-        csv_content = """id,timestamp_str,revenue_amount,currency_code
-1,2023-01-01,100.50,USD
-2,2023-01-02,75.25,EUR
-3,,50.00,GBP
-4,2023-01-04,200.75,JPY
-5,,125.30,CAD"""
-
-        date32_csv_content = """id,timestamp_date32,revenue_amount,currency_code
-1,2023-01-01,100.50,USD
-2,2023-01-02,75.25,EUR
-3,1970-01-01,50.00,GBP
-4,2023-01-04,200.75,JPY
-5,1970-01-01,125.30,CAD"""
-
         string_csv_path = Path(__file__).parent / "data" / "string_timestamp_test.csv"
-        string_csv_path.parent.mkdir(exist_ok=True)
-        with open(string_csv_path, "w") as f:
-            f.write(csv_content)
+        date32_csv_path = Path(__file__).parent / "data" / "date32_timestamp_test.csv"
 
         string_table, _, _, _, string_cleanup = create_data_warehouse_table_from_csv(
             csv_path=string_csv_path,
@@ -169,10 +138,6 @@ class TestDataWarehouseTimestampHandling(ClickhouseTestMixin, BaseTest):
             test_bucket=TEST_BUCKET,
             team=self.team,
         )
-
-        date32_csv_path = Path(__file__).parent / "data" / "date32_timestamp_test.csv"
-        with open(date32_csv_path, "w") as f:
-            f.write(date32_csv_content)
 
         date32_table, _, _, _, date32_cleanup = create_data_warehouse_table_from_csv(
             csv_path=date32_csv_path,
@@ -247,5 +212,3 @@ class TestDataWarehouseTimestampHandling(ClickhouseTestMixin, BaseTest):
         finally:
             string_cleanup()
             date32_cleanup()
-            string_csv_path.unlink()
-            date32_csv_path.unlink()
