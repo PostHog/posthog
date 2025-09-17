@@ -7,7 +7,6 @@ from zoneinfo import ZoneInfo
 from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError
-from django.utils import timezone
 
 from posthog.schema import PersonsOnEventsMode
 
