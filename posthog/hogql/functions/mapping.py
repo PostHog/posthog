@@ -1774,6 +1774,7 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "groupArrayMovingAvgIf": HogQLFunctionMeta("groupArrayMovingAvgIf", 2, 2, aggregate=True),
     "groupArrayMovingSum": HogQLFunctionMeta("groupArrayMovingSum", 1, 1, aggregate=True),
     "groupArrayMovingSumIf": HogQLFunctionMeta("groupArrayMovingSumIf", 2, 2, aggregate=True),
+    "groupArraySample": HogQLFunctionMeta("groupArraySample", 1, 1, aggregate=True),
     "groupBitAnd": HogQLFunctionMeta("groupBitAnd", 1, 1, aggregate=True),
     "groupBitAndIf": HogQLFunctionMeta("groupBitAndIf", 2, 2, aggregate=True),
     "groupBitOr": HogQLFunctionMeta("groupBitOr", 1, 1, aggregate=True),
