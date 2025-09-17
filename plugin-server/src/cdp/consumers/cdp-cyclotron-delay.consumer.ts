@@ -34,6 +34,19 @@ export class CdpCyclotronDelayConsumer extends CdpConsumerBase {
         return { backgroundTask: Promise.resolve() }
     }
 
+    public async start() {
+        await super.start()
+        await this.cyclotronJobQueue.start()
+    }
+
+    public async stop() {
+        logger.info('🔄', 'Stopping cyclotron delay consumer')
+        await this.cyclotronJobQueue.stop()
+
+        // IMPORTANT: super always comes last
+        await super.stop()
+    }
+
     public isHealthy(): HealthCheckResult {
         return this.cyclotronJobQueue.isHealthy()
     }
