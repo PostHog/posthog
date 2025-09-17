@@ -60,6 +60,9 @@
                 "name": {
                     "type": "string"
                 },
+                "optionalInFunnel": {
+                    "type": "boolean"
+                },
                 "properties": {
                     "description": "Properties configurable in the interface",
                     "items": {
@@ -556,6 +559,9 @@
                     "$ref": "#/definitions/TracesQuery"
                 },
                 {
+                    "$ref": "#/definitions/TraceQuery"
+                },
+                {
                     "$ref": "#/definitions/VectorSearchQuery"
                 }
             ]
@@ -778,6 +784,7 @@
                 "find_error_tracking_impactful_issue_event_list",
                 "experiment_results_summary",
                 "create_survey",
+                "analyze_survey_responses",
                 "search_docs",
                 "search_insights",
                 "session_summarization"
@@ -1880,6 +1887,9 @@
                     "description": "Action name from the plan.",
                     "type": "string"
                 },
+                "optionalInFunnel": {
+                    "type": "boolean"
+                },
                 "properties": {
                     "items": {
                         "$ref": "#/definitions/AssistantPropertyFilter"
@@ -1994,6 +2004,9 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "optionalInFunnel": {
+                    "type": "boolean"
                 },
                 "properties": {
                     "items": {
@@ -6989,6 +7002,9 @@
                         "name": {
                             "type": "string"
                         },
+                        "optionalInFunnel": {
+                            "type": "boolean"
+                        },
                         "orderBy": {
                             "description": "Columns to order by",
                             "items": {
@@ -7067,6 +7083,9 @@
                         },
                         "name": {
                             "type": "string"
+                        },
+                        "optionalInFunnel": {
+                            "type": "boolean"
                         },
                         "properties": {
                             "description": "Properties configurable in the interface",
@@ -7148,6 +7167,9 @@
                         },
                         "name": {
                             "type": "string"
+                        },
+                        "optionalInFunnel": {
+                            "type": "boolean"
                         },
                         "properties": {
                             "description": "Properties configurable in the interface",
@@ -8963,6 +8985,9 @@
                         },
                         {
                             "$ref": "#/definitions/TracesQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/TraceQuery"
                         }
                     ],
                     "description": "Source of the events"
@@ -9091,6 +9116,9 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "optionalInFunnel": {
+                    "type": "boolean"
                 },
                 "properties": {
                     "description": "Properties configurable in the interface",
@@ -9781,6 +9809,9 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "optionalInFunnel": {
+                    "type": "boolean"
                 },
                 "properties": {
                     "description": "Properties configurable in the interface",
@@ -10763,6 +10794,9 @@
                 "name": {
                     "type": "string"
                 },
+                "optionalInFunnel": {
+                    "type": "boolean"
+                },
                 "orderBy": {
                     "description": "Columns to order by",
                     "items": {
@@ -11019,6 +11053,9 @@
                 },
                 "name": {
                     "type": "string"
+                },
+                "optionalInFunnel": {
+                    "type": "boolean"
                 },
                 "properties": {
                     "description": "Properties configurable in the interface",
@@ -12235,6 +12272,9 @@
                 "llm_analytics",
                 "product_analytics",
                 "revenue_analytics",
+                "revenue_analytics_metadata",
+                "marketing_settings",
+                "embedded_analytics",
                 "sql_editor",
                 "web_analytics",
                 "error_tracking",
@@ -12246,6 +12286,7 @@
                 "experiment",
                 "feature_flag",
                 "data_pipeline",
+                "data_pipeline_metadata",
                 "data_warehouse",
                 "task",
                 "link",
@@ -12261,13 +12302,13 @@
                 "person",
                 "cohort",
                 "group",
-                "insight_funnel",
-                "insight_trend",
-                "insight_retention",
-                "insight_user_path",
-                "insight_lifecycle",
-                "insight_stickiness",
-                "insight_hogql"
+                "insight/funnels",
+                "insight/trends",
+                "insight/retention",
+                "insight/paths",
+                "insight/lifecycle",
+                "insight/stickiness",
+                "insight/hog"
             ],
             "type": "string"
         },
@@ -12611,6 +12652,9 @@
                 "name": {
                     "type": "string"
                 },
+                "optionalInFunnel": {
+                    "type": "boolean"
+                },
                 "properties": {
                     "description": "Properties configurable in the interface",
                     "items": {
@@ -12684,6 +12728,9 @@
                 "name": {
                     "type": "string"
                 },
+                "optionalInFunnel": {
+                    "type": "boolean"
+                },
                 "orderBy": {
                     "description": "Columns to order by",
                     "items": {
@@ -12729,6 +12776,9 @@
                 },
                 "name": {
                     "type": ["string", "null"]
+                },
+                "optionalInFunnel": {
+                    "type": "boolean"
                 },
                 "order": {
                     "type": "number"
@@ -14848,7 +14898,8 @@
                 "linear",
                 "github",
                 "meta-ads",
-                "clickup"
+                "clickup",
+                "reddit-ads"
             ],
             "type": "string"
         },
@@ -15411,11 +15462,11 @@
             "type": "object"
         },
         "MarketingAnalyticsBaseColumns": {
-            "enum": ["Campaign", "Source", "Cost", "Clicks", "Impressions", "CPC", "CTR"],
+            "enum": ["Campaign", "Source", "Cost", "Clicks", "Impressions", "CPC", "CTR", "Reported Conversion"],
             "type": "string"
         },
         "MarketingAnalyticsColumnsSchemaNames": {
-            "enum": ["campaign", "clicks", "cost", "currency", "date", "impressions", "source"],
+            "enum": ["campaign", "clicks", "cost", "currency", "date", "impressions", "source", "reported_conversion"],
             "type": "string"
         },
         "MarketingAnalyticsConfig": {
@@ -16396,6 +16447,7 @@
                 "EventTaxonomyQuery",
                 "ActorsPropertyTaxonomyQuery",
                 "TracesQuery",
+                "TraceQuery",
                 "VectorSearchQuery"
             ],
             "type": "string"
@@ -17094,6 +17146,10 @@
                 },
                 "filters_override": {
                     "$ref": "#/definitions/DashboardFilter"
+                },
+                "name": {
+                    "description": "Name given to a query. It's used to identify the query in the UI. Up to 128 characters for a name.",
+                    "type": "string"
                 },
                 "query": {
                     "$ref": "#/definitions/QuerySchema",
@@ -20772,6 +20828,9 @@
                     "$ref": "#/definitions/TracesQuery"
                 },
                 {
+                    "$ref": "#/definitions/TraceQuery"
+                },
+                {
                     "$ref": "#/definitions/VectorSearchQuery"
                 }
             ],
@@ -23031,6 +23090,10 @@
                     "description": "Length of recording in seconds.",
                     "type": "number"
                 },
+                "retention_period_days": {
+                    "description": "retention period for this recording",
+                    "type": "number"
+                },
                 "snapshot_source": {
                     "enum": ["web", "mobile", "unknown"],
                     "type": "string"
@@ -23190,14 +23253,23 @@
                 "disabledReason": {
                     "type": ["string", "null"]
                 },
+                "docsUrl": {
+                    "type": "string"
+                },
                 "existingSource": {
                     "type": "boolean"
+                },
+                "featureFlag": {
+                    "type": "string"
                 },
                 "fields": {
                     "items": {
                         "$ref": "#/definitions/SourceFieldConfig"
                     },
                     "type": "array"
+                },
+                "iconPath": {
+                    "type": "string"
                 },
                 "label": {
                     "type": "string"
@@ -23209,7 +23281,7 @@
                     "type": "boolean"
                 }
             },
-            "required": ["name", "caption", "fields"],
+            "required": ["name", "fields", "iconPath"],
             "type": "object"
         },
         "SourceFieldConfig": {
@@ -23448,6 +23520,9 @@
                     "type": "string"
                 },
                 "impressions": {
+                    "type": "string"
+                },
+                "reported_conversion": {
                     "type": "string"
                 },
                 "source": {
@@ -23784,6 +23859,53 @@
                 }
             },
             "required": ["questions"],
+            "type": "object"
+        },
+        "SurveyAnalysisQuestionGroup": {
+            "additionalProperties": false,
+            "properties": {
+                "questionId": {
+                    "default": "unknown",
+                    "description": "Question identifier",
+                    "type": "string"
+                },
+                "questionName": {
+                    "default": "Unknown question",
+                    "description": "Question text",
+                    "type": "string"
+                },
+                "responses": {
+                    "default": [],
+                    "description": "List of responses for this question",
+                    "items": {
+                        "$ref": "#/definitions/SurveyAnalysisResponseItem"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["questionName", "questionId", "responses"],
+            "type": "object"
+        },
+        "SurveyAnalysisResponseItem": {
+            "additionalProperties": false,
+            "properties": {
+                "isOpenEnded": {
+                    "default": true,
+                    "description": "Whether this is an open-ended response",
+                    "type": "boolean"
+                },
+                "responseText": {
+                    "default": "",
+                    "description": "The response text content",
+                    "type": "string"
+                },
+                "timestamp": {
+                    "default": "",
+                    "description": "Response timestamp",
+                    "type": "string"
+                }
+            },
+            "required": ["responseText", "timestamp", "isOpenEnded"],
             "type": "object"
         },
         "SurveyAppearanceSchema": {
@@ -24389,6 +24511,41 @@
             ],
             "type": "object"
         },
+        "TileFilters": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdown_filter": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BreakdownFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "date_from": {
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "type": ["string", "null"]
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "type": "object"
+        },
         "TimelineEntry": {
             "additionalProperties": false,
             "properties": {
@@ -24408,6 +24565,47 @@
                 }
             },
             "required": ["events"],
+            "type": "object"
+        },
+        "TraceQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "filterTestAccounts": {
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "TraceQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "$ref": "#/definitions/TracesQueryResponse"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "traceId": {
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "traceId"],
             "type": "object"
         },
         "TracesQuery": {
@@ -24448,9 +24646,6 @@
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
-                },
-                "traceId": {
-                    "type": "string"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -25071,6 +25266,9 @@
                 "query": {
                     "default": "",
                     "type": "string"
+                },
+                "short_id": {
+                    "$ref": "#/definitions/InsightShortId"
                 },
                 "type": {
                     "const": "ai/viz",

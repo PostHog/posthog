@@ -3,7 +3,7 @@ import { z } from 'zod'
 
 import { CyclotronJobInputsValidationResult } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 
-import { HogFlowActionSchema } from './steps/types'
+import { HogFlowActionSchema, HogFlowTriggerSchema } from './steps/types'
 
 const HogFlowEdgeSchema = z.object({
     from: z.string(),
@@ -17,18 +17,9 @@ export const HogFlowSchema = z.object({
     team_id: z.number(),
     version: z.number(),
     name: z.string(),
+    description: z.string().optional(),
     status: z.enum(['active', 'draft', 'archived']),
-    trigger: z.object({
-        type: z.literal('event'),
-        filters: z.any(),
-    }),
-    trigger_masking: z
-        .object({
-            ttl: z.number(),
-            hash: z.string(),
-            threshold: z.number(),
-        })
-        .optional(),
+    trigger: HogFlowTriggerSchema.optional(),
     conversion: z
         .object({
             window_minutes: z.number(),

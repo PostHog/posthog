@@ -462,17 +462,14 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             to: urls.webAnalytics(),
                             tooltipDocLink: 'https://posthog.com/docs/web-analytics/getting-started',
                         },
-
-                        featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS]
-                            ? {
-                                  identifier: Scene.RevenueAnalytics,
-                                  label: 'Revenue analytics',
-                                  icon: <IconPiggyBank />,
-                                  to: urls.revenueAnalytics(),
-                                  tag: 'beta' as const,
-                                  tooltipDocLink: 'https://posthog.com/docs/revenue-analytics/getting-started',
-                              }
-                            : null,
+                        {
+                            identifier: Scene.RevenueAnalytics,
+                            label: 'Revenue analytics',
+                            icon: <IconPiggyBank />,
+                            to: urls.revenueAnalytics(),
+                            tag: 'beta' as const,
+                            tooltipDocLink: 'https://posthog.com/docs/revenue-analytics/getting-started',
+                        },
                         {
                             identifier: Scene.Replay,
                             label: 'Session replay',
@@ -589,10 +586,10 @@ export const navigation3000Logic = kea<navigation3000LogicType>([
                             tooltipDocLink: 'https://posthog.com/docs/data-warehouse/query#querying-sources-with-sql',
                         },
                         {
-                            identifier: Scene.Pipeline,
+                            identifier: Scene.DataPipelines,
                             label: 'Data pipelines',
                             icon: <IconPlug />,
-                            to: urls.pipeline(),
+                            to: urls.dataPipelines('overview'),
                             tooltipDocLink: 'https://posthog.com/docs/cdp',
                         },
                         featureFlags[FEATURE_FLAGS.HEATMAPS_UI]

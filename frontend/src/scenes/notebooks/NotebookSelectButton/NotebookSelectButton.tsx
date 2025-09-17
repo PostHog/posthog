@@ -4,7 +4,7 @@ import { ReactChild, ReactElement, useEffect } from 'react'
 import { IconNotebook, IconPlus } from '@posthog/icons'
 import { LemonDivider, LemonDropdown, ProfilePicture } from '@posthog/lemon-ui'
 
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
@@ -132,17 +132,21 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
                     onChange={(s) => setSearchQuery(s)}
                     fullWidth
                 />
-                <AccessControlledLemonButton
-                    data-attr="notebooks-select-button-create"
-                    fullWidth
-                    icon={<IconPlus />}
-                    onClick={openNewNotebook}
+                <AccessControlAction
                     resourceType={AccessControlResourceType.Notebook}
                     minAccessLevel={AccessControlLevel.Editor}
                     userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.Notebook]}
                 >
-                    New notebook
-                </AccessControlledLemonButton>
+                    <LemonButton
+                        data-attr="notebooks-select-button-create"
+                        fullWidth
+                        icon={<IconPlus />}
+                        onClick={openNewNotebook}
+                    >
+                        New notebook
+                    </LemonButton>
+                </AccessControlAction>
+
                 <LemonButton
                     fullWidth
                     onClick={() => {

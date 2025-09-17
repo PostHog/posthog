@@ -63,7 +63,7 @@ export const manifest: ProductManifest = {
             href: urls.messaging(),
             type: 'messaging',
             visualOrder: PRODUCT_VISUAL_ORDER.messaging,
-            category: 'Tools',
+            category: 'Unreleased',
             tags: ['alpha'],
             flag: FEATURE_FLAGS.MESSAGING,
             iconType: 'messaging',

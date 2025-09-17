@@ -15,7 +15,10 @@ from posthog.schema import DatabaseSerializedFieldType, HogQLQueryModifiers
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FieldOrTable
-from posthog.hogql.database.s3_table import S3Table, build_function_call
+from posthog.hogql.database.s3_table import (
+    DataWarehouseTable as HogQLDataWarehouseTable,
+    build_function_call,
+)
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
@@ -171,6 +174,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             access_key=self.credential.access_key,
             access_secret=self.credential.access_secret,
             context=placeholder_context,
+            table_size_mib=self.size_in_s3_mib,
         )
         try:
             # chdb hangs in CI during tests
@@ -238,6 +242,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 access_key=self.credential.access_key,
                 access_secret=self.credential.access_secret,
                 context=placeholder_context,
+                table_size_mib=self.size_in_s3_mib,
             )
 
             result = sync_execute(
@@ -258,6 +263,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             access_key=self.credential.access_key,
             access_secret=self.credential.access_secret,
             context=placeholder_context,
+            table_size_mib=self.size_in_s3_mib,
         )
         try:
             # chdb hangs in CI during tests
@@ -299,6 +305,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 access_key=self.credential.access_key,
                 access_secret=self.credential.access_secret,
                 context=placeholder_context,
+                table_size_mib=self.size_in_s3_mib,
             )
 
         except Exception as err:
@@ -306,7 +313,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             raise
         return s3_table_func, placeholder_context
 
-    def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> S3Table:
+    def hogql_definition(self, modifiers: Optional[HogQLQueryModifiers] = None) -> HogQLDataWarehouseTable:
         columns = self.columns or {}
 
         fields: dict[str, FieldOrTable] = {}
@@ -372,7 +379,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             access_key = self.credential.access_key
             access_secret = self.credential.access_secret
 
-        return S3Table(
+        return HogQLDataWarehouseTable(
             name=self.name,
             url=self.url_pattern,
             format=self.format,

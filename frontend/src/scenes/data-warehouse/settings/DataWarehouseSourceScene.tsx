@@ -7,7 +7,7 @@ import { DataPipelinesSelfManagedSource } from 'scenes/data-pipelines/DataPipeli
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { Breadcrumb, PipelineTab } from '~/types'
+import { Breadcrumb } from '~/types'
 
 import type { dataWarehouseSourceSceneLogicType } from './DataWarehouseSourceSceneType'
 import { Schemas } from './source/Schemas'
@@ -53,14 +53,14 @@ export const dataWarehouseSourceSceneLogic = kea<dataWarehouseSourceSceneLogicTy
             (breadcrumbName): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.Pipeline,
+                        key: Scene.DataPipelines,
                         name: 'Data pipelines',
-                        path: urls.pipeline(PipelineTab.Overview),
+                        path: urls.dataPipelines('overview'),
                     },
                     {
-                        key: Scene.Pipeline,
+                        key: [Scene.DataPipelines, 'sources'],
                         name: `Sources`,
-                        path: urls.pipeline(PipelineTab.Sources),
+                        path: urls.dataPipelines('sources'),
                     },
                     {
                         key: Scene.DataWarehouseSource,
@@ -77,7 +77,7 @@ export const dataWarehouseSourceSceneLogic = kea<dataWarehouseSourceSceneLogicTy
     })),
     urlToAction(({ actions, values }) => {
         return {
-            [urls.dataWarehouseSource(':id', ':tab')]: (params): void => {
+            [urls.dataWarehouseSource(':id', ':tab' as any)]: (params): void => {
                 let possibleTab = (params.tab ?? 'configuration') as DataWarehouseSourceSceneTab
 
                 if (params.id?.startsWith('self-managed-')) {

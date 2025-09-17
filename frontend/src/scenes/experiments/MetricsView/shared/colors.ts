@@ -12,6 +12,7 @@ export interface ChartColors {
     BAR_CONTROL: string
     BAR_MIDDLE_POINT: string
     BAR_MIDDLE_POINT_CONTROL: string
+    EXPOSURES_AXIS_LINES: string
 }
 
 export function useChartColors(): ChartColors {
@@ -27,6 +28,7 @@ export function useChartColors(): ChartColors {
         BAR_CONTROL: isDarkModeOn ? 'rgba(217, 217, 217, 0.2)' : 'rgba(217, 217, 217, 0.4)',
         BAR_MIDDLE_POINT: 'black',
         BAR_MIDDLE_POINT_CONTROL: 'rgba(0, 0, 0, 0.4)',
+        EXPOSURES_AXIS_LINES: isDarkModeOn ? 'rgba(217, 217, 217, 0.2)' : 'rgba(217, 217, 217, 0.4)',
     }
 }
 
@@ -41,4 +43,5 @@ export const COLORS: ChartColors = {
     BAR_CONTROL: 'rgba(217, 217, 217, 0.4)',
     BAR_MIDDLE_POINT: 'black',
     BAR_MIDDLE_POINT_CONTROL: 'rgba(0, 0, 0, 0.4)',
+    EXPOSURES_AXIS_LINES: 'rgba(217, 217, 217, 0.4)',
 }

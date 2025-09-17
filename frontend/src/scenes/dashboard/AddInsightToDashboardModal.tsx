@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { BindLogic } from 'kea'
 
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { getAppContext } from 'lib/utils/getAppContext'
@@ -33,18 +33,21 @@ export function AddInsightToDashboardModal(): JSX.Element {
                         >
                             Cancel
                         </LemonButton>
-                        <AccessControlledLemonButton
-                            type="primary"
-                            data-attr="dashboard-add-new-insight"
-                            to={urls.insightNew({ dashboardId: dashboard?.id })}
+                        <AccessControlAction
                             resourceType={AccessControlResourceType.Insight}
                             minAccessLevel={AccessControlLevel.Editor}
                             userAccessLevel={
                                 getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight]
                             }
                         >
-                            New insight
-                        </AccessControlledLemonButton>
+                            <LemonButton
+                                type="primary"
+                                data-attr="dashboard-add-new-insight"
+                                to={urls.insightNew({ dashboardId: dashboard?.id })}
+                            >
+                                New insight
+                            </LemonButton>
+                        </AccessControlAction>
                     </>
                 }
             >

@@ -1,6 +1,8 @@
 import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import type { MaxUIContext } from 'scenes/max/maxTypes'
 
+import { InsightShortId } from '~/types'
+
 import {
     AssistantFunnelsQuery,
     AssistantHogQLQuery,
@@ -112,6 +114,7 @@ export interface VisualizationItem {
 
 export interface VisualizationMessage extends BaseAssistantMessage, VisualizationItem {
     type: AssistantMessageType.Visualization
+    short_id?: InsightShortId
 }
 
 export interface FailureMessage extends BaseAssistantMessage {
@@ -224,6 +227,7 @@ export type AssistantContextualTool =
     | 'find_error_tracking_impactful_issue_event_list'
     | 'experiment_results_summary'
     | 'create_survey'
+    | 'analyze_survey_responses'
     | 'search_docs'
     | 'search_insights'
     | 'session_summarization'

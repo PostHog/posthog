@@ -35,7 +35,8 @@ export function getPublicSupportSnippet(
     includeCurrentLocation = true
 ): string {
     if (!cloudRegion) {
-        return ''
+        // we don't call this without region being available, so we return some value so we can see errors in visual regression tests
+        return '🚫'
     }
     return (
         (includeCurrentLocation ? getCurrentLocationLink() : '') +

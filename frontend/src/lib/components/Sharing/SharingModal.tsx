@@ -162,25 +162,16 @@ export function SharingModalContent({
                                 minAccessLevel={AccessControlLevel.Editor}
                                 userAccessLevel={userAccessLevel}
                             >
-                                {({ disabled, disabledReason }) => (
-                                    <>
-                                        {disabled && disabledReason && (
-                                            <LemonBanner type="warning">{disabledReason}</LemonBanner>
-                                        )}
-                                        <LemonSwitch
-                                            id="sharing-switch"
-                                            label={`Share ${resource} publicly`}
-                                            checked={sharingConfiguration.enabled}
-                                            data-attr="sharing-switch"
-                                            onChange={(active) => setIsEnabled(active)}
-                                            disabled={disabled}
-                                            bordered
-                                            fullWidth
-                                            tooltip={disabledReason}
-                                            loading={sharingConfigurationLoading}
-                                        />
-                                    </>
-                                )}
+                                <LemonSwitch
+                                    id="sharing-switch"
+                                    label={`Share ${resource} publicly`}
+                                    checked={sharingConfiguration.enabled}
+                                    data-attr="sharing-switch"
+                                    onChange={(active) => setIsEnabled(active)}
+                                    bordered
+                                    fullWidth
+                                    loading={sharingConfigurationLoading}
+                                />
                             </AccessControlAction>
                         )}
 

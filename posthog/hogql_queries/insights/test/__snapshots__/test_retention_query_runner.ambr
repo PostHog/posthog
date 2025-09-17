@@ -19,16 +19,16 @@
            intervals_from_base
   ORDER BY start_event_matching_interval ASC,
            intervals_from_base ASC
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=23622320128,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=600,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=23622320128,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating.1
@@ -95,16 +95,16 @@
            intervals_from_base
   ORDER BY start_event_matching_interval ASC,
            intervals_from_base ASC
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=23622320128,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=600,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=23622320128,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events
@@ -127,16 +127,16 @@
            intervals_from_base
   ORDER BY start_event_matching_interval ASC,
            intervals_from_base ASC
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=23622320128,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=600,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=23622320128,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestClickhouseRetentionGroupAggregation.test_groups_aggregating_person_on_events.1
@@ -203,16 +203,16 @@
            intervals_from_base
   ORDER BY start_event_matching_interval ASC,
            intervals_from_base ASC
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=23622320128,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=600,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=23622320128,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRetention.test_day_interval_sampled
@@ -242,16 +242,16 @@
            intervals_from_base
   ORDER BY start_event_matching_interval ASC,
            intervals_from_base ASC
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=23622320128,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=600,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=23622320128,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRetention.test_month_interval_with_person_on_events_v2
@@ -290,16 +290,16 @@
            intervals_from_base
   ORDER BY start_event_matching_interval ASC,
            intervals_from_base ASC
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=23622320128,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=600,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=23622320128,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRetention.test_retention_event_action
@@ -329,16 +329,16 @@
            intervals_from_base
   ORDER BY start_event_matching_interval ASC,
            intervals_from_base ASC
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=23622320128,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=600,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=23622320128,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRetention.test_retention_with_user_properties_via_action
@@ -378,16 +378,16 @@
            intervals_from_base
   ORDER BY start_event_matching_interval ASC,
            intervals_from_base ASC
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=23622320128,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=600,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=23622320128,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRetention.test_timezones
@@ -417,16 +417,16 @@
            intervals_from_base
   ORDER BY start_event_matching_interval ASC,
            intervals_from_base ASC
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=23622320128,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=600,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=23622320128,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRetention.test_timezones.1
@@ -456,16 +456,16 @@
            intervals_from_base
   ORDER BY start_event_matching_interval ASC,
            intervals_from_base ASC
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=23622320128,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=600,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=23622320128,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRetention.test_week_interval
@@ -495,16 +495,16 @@
            intervals_from_base
   ORDER BY start_event_matching_interval ASC,
            intervals_from_base ASC
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=23622320128,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=600,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=23622320128,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---
 # name: TestRetention.test_week_interval.1
@@ -534,15 +534,15 @@
            intervals_from_base
   ORDER BY start_event_matching_interval ASC,
            intervals_from_base ASC
-  LIMIT 10000 SETTINGS readonly=2,
-                       max_execution_time=60,
-                       allow_experimental_object_type=1,
-                       format_csv_allow_double_quotes=0,
-                       max_ast_elements=4000000,
-                       max_expanded_ast_elements=4000000,
-                       max_bytes_before_external_group_by=23622320128,
-                       transform_null_in=1,
-                       optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+  LIMIT 100000 SETTINGS readonly=2,
+                        max_execution_time=600,
+                        allow_experimental_object_type=1,
+                        format_csv_allow_double_quotes=0,
+                        max_ast_elements=4000000,
+                        max_expanded_ast_elements=4000000,
+                        max_bytes_before_external_group_by=23622320128,
+                        transform_null_in=1,
+                        optimize_min_equality_disjunction_chain_length=4294967295,
+                        allow_experimental_join_condition=1
   '''
 # ---

@@ -30,7 +30,6 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
         dragStartOffset,
         textInputPosition,
         isLoading,
-        html,
         lineWidth,
         fontSize,
     } = useValues(takeScreenshotLogic({ screenshotKey: screenshotKey }))
@@ -44,7 +43,6 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
         setSelectedTextIndex,
         setDragStartOffset,
         setTextInputPosition,
-        setHtml,
         setImageFile,
         setLineWidth,
         setFontSize,
@@ -68,7 +66,6 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
         setSelectedTextIndex(null)
         setDragStartOffset(null)
         setMode('draw')
-        setHtml(null)
         setImageFile(null)
     }, [
         setIsOpen,
@@ -78,7 +75,6 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
         setSelectedTextIndex,
         setDragStartOffset,
         setMode,
-        setHtml,
         setImageFile,
     ])
 
@@ -182,9 +178,8 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
             setTexts([])
             setHistoryStack([])
             setSelectedTextIndex(null)
-            setHtml(null)
         }
-    }, [isOpen, imageFile, originalImage, handleClose, html, setOriginalImage, setSelectedTextIndex, setHtml])
+    }, [isOpen, imageFile, originalImage, handleClose, setOriginalImage, setSelectedTextIndex])
 
     useEffect(() => {
         if (isOpen && originalImage) {
