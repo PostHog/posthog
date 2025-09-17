@@ -1,6 +1,6 @@
 import './MarketingAnalyticsTableStyleOverride.scss'
 
-import { useActions } from 'kea'
+import { BuiltLogic, LogicWrapper, useActions } from 'kea'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -25,9 +25,14 @@ import { MarketingAnalyticsColumnConfigModal } from './MarketingAnalyticsColumnC
 export type MarketingAnalyticsTableProps = {
     query: DataTableNode
     insightProps: InsightLogicProps
+    attachTo?: LogicWrapper | BuiltLogic
 }
 
-export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyticsTableProps): JSX.Element => {
+export const MarketingAnalyticsTable = ({
+    query,
+    insightProps,
+    attachTo,
+}: MarketingAnalyticsTableProps): JSX.Element => {
     const { setQuery } = useActions(marketingAnalyticsTableLogic)
     const { showColumnConfigModal } = useActions(marketingAnalyticsLogic)
 
@@ -74,7 +79,13 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
                 </div>
             </div>
             <div className="relative marketing-analytics-table-container">
-                <Query query={query} readOnly={false} context={marketingAnalyticsContext} setQuery={setQuery} />
+                <Query
+                    attachTo={attachTo}
+                    query={query}
+                    readOnly={false}
+                    context={marketingAnalyticsContext}
+                    setQuery={setQuery}
+                />
             </div>
             <MarketingAnalyticsColumnConfigModal query={query} />
         </div>
