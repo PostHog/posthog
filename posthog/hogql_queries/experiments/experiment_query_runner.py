@@ -128,20 +128,12 @@ class ExperimentQueryRunner(QueryRunner):
         select_fields = [
             ast.Field(chain=["exposures", "variant"]),
             ast.Field(chain=["exposures", "entity_id"]),
+            ast.Field(chain=["exposures", "exposure_event_uuid"]),
             ast.Alias(
                 expr=get_metric_aggregation_expr(self.experiment, self.metric, self.team),
                 alias="value",
             ),
         ]
-
-        # For funnel metrics, also collect session_ids
-        if isinstance(self.metric, ExperimentFunnelMetric):
-            select_fields.append(
-                ast.Alias(
-                    expr=parse_expr("groupUniqArray(metric_events.session_id)"),
-                    alias="session_ids",
-                )
-            )
 
         # Get time window constraints for events relative to exposure time
         metric_time_window = get_exposure_time_window_constraints(
@@ -186,6 +178,7 @@ class ExperimentQueryRunner(QueryRunner):
             group_by=[
                 ast.Field(chain=["exposures", "variant"]),
                 ast.Field(chain=["exposures", "entity_id"]),
+                ast.Field(chain=["exposures", "exposure_event_uuid"]),
             ],
         )
 
@@ -388,13 +381,13 @@ class ExperimentQueryRunner(QueryRunner):
 
             # Add sampled session IDs for each step
             sampled_session_exprs = []
-            for i in range(num_steps):
-                # For each step, collect session_ids from users who reached that step (not more!)
-                # and sample up to 10 of them
+            for i in range(num_steps + 1):
+                # For each step, get at least 100 event uuids matching that step. For the users that have 0 matching steps
+                # in the funnel (-1), we return the event uuid for the exposure event.
                 sampled_expr = f"""
                     groupArraySampleIf(100)(
-                        metric_events.value.2,
-                        metric_events.value.1 = {i}
+                        if(metric_events.value.2 != '', metric_events.value.2, toString(metric_events.exposure_event_uuid)),
+                        metric_events.value.1 = {i} - 1
                     )
                 """
                 sampled_session_exprs.append(sampled_expr)
