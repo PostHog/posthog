@@ -59,7 +59,7 @@ from posthog.models.activity_logging.activity_log import (
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort import DEFAULT_COHORT_INSERT_BATCH_SIZE, CohortOrEmpty
-from posthog.models.cohort.util import get_dependent_cohorts, print_cohort_hogql_query
+from posthog.models.cohort.util import get_all_dependency_cohorts, print_cohort_hogql_query
 from posthog.models.cohort.validation import CohortTypeValidationSerializer
 from posthog.models.feature_flag.flag_matching import (
     FeatureFlagMatcher,
@@ -84,7 +84,6 @@ from posthog.queries.util import get_earliest_timestamp
 from posthog.renderers import SafeJSONRenderer
 from posthog.tasks.calculate_cohort import (
     calculate_cohort_from_list,
-    increment_version_and_enqueue_calculate_cohort,
     insert_cohort_from_feature_flag,
     insert_cohort_from_insight_filter,
     insert_cohort_from_query,
@@ -301,7 +300,7 @@ class CohortSerializer(serializers.ModelSerializer):
         elif cohort.query is not None:
             raise ValidationError("Cannot create a dynamic cohort with a query. Set is_static to true.")
         else:
-            increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=request.user)
+            cohort.enqueue_calculation(initiating_user=request.user)
 
         report_user_action(request.user, "cohort created", cohort.get_analytics_metadata())
         return cohort
@@ -539,12 +538,12 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def _validate_nested_cohort_behavioral_filters(self, prop: Any, cohort_used_in_flags: bool):
         nested_cohort = Cohort.objects.get(pk=prop.value, team__project_id=self.context["project_id"])
-        dependent_cohorts = get_dependent_cohorts(nested_cohort)
+        dependency_cohorts = get_all_dependency_cohorts(nested_cohort)
 
-        for dependent_cohort in [nested_cohort, *dependent_cohorts]:
-            if cohort_used_in_flags and any(p.type == "behavioral" for p in dependent_cohort.properties.flat):
+        for dependency_cohort in [nested_cohort, *dependency_cohorts]:
+            if cohort_used_in_flags and any(p.type == "behavioral" for p in dependency_cohort.properties.flat):
                 raise serializers.ValidationError(
-                    detail=f"A dependent cohort ({dependent_cohort.name}) has filters based on events. These cohorts can't be used in feature flags.",
+                    detail=f"A dependency cohort ({dependency_cohort.name}) has filters based on events. These cohorts can't be used in feature flags.",
                     code="behavioral_cohort_found",
                 )
 
@@ -595,14 +594,11 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.save()
 
         if not deleted_state:
-            if cohort.is_static:
+            if cohort.is_static and request.FILES.get("csv"):
                 # You can't update a static cohort using the trend/stickiness thing
-                if request.FILES.get("csv"):
-                    self._calculate_static_by_csv(request.FILES["csv"], cohort)
-                else:
-                    increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=request.user)
+                self._calculate_static_by_csv(request.FILES["csv"], cohort)
             else:
-                increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=request.user)
+                cohort.enqueue_calculation(initiating_user=request.user)
 
         report_user_action(
             request.user,

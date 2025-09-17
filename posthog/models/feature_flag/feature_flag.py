@@ -326,7 +326,7 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
         sort_by_topological_order=False,
     ) -> list[int]:
-        from posthog.models.cohort.util import get_dependent_cohorts, sort_cohorts_topologically
+        from posthog.models.cohort.util import get_all_dependency_cohorts, sort_cohorts_topologically
 
         if seen_cohorts_cache is None:
             seen_cohorts_cache = {}
@@ -351,8 +351,8 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
                         cohort_ids.add(cohort.pk)
                         cohort_ids.update(
                             [
-                                dependent_cohort.pk
-                                for dependent_cohort in get_dependent_cohorts(
+                                dependency_cohort.pk
+                                for dependency_cohort in get_all_dependency_cohorts(
                                     cohort,
                                     using_database=using_database,
                                     seen_cohorts_cache=seen_cohorts_cache,

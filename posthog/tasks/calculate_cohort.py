@@ -18,7 +18,7 @@ from posthog.clickhouse.query_tagging import QueryTags, update_tags
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Cohort
 from posthog.models.cohort import CohortOrEmpty
-from posthog.models.cohort.util import get_dependent_cohorts, get_static_cohort_size, sort_cohorts_topologically
+from posthog.models.cohort.util import get_all_dependency_cohorts, get_static_cohort_size, sort_cohorts_topologically
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.tasks.utils import CeleryQueue
@@ -185,7 +185,7 @@ def enqueue_cohorts_to_calculate(parallel_count: int) -> None:
 
 
 def increment_version_and_enqueue_calculate_cohort(cohort: Cohort, *, initiating_user: Optional[User]) -> None:
-    dependent_cohorts = get_dependent_cohorts(cohort)
+    dependent_cohorts = get_all_dependency_cohorts(cohort)
     if dependent_cohorts:
         logger.info("cohort_has_dependencies", cohort_id=cohort.id, dependent_count=len(dependent_cohorts))
 
