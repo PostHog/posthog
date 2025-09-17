@@ -11,8 +11,12 @@ import { ERROR_TRACKING_DETAILS_RESOLUTION } from '../utils'
 
 type NotUndefined<T> = T extends undefined ? never : T
 
-function generateFallbackData(dateRange: DateRange, volumeResolution: number): SparklineData {
+function generateFallbackData(dateRange: DateRange | undefined, volumeResolution: number): SparklineData {
     const defaultData = new Array(volumeResolution).fill({ value: 0, date: new Date() })
+
+    if (!dateRange) {
+        return defaultData
+    }
 
     if (!dateRange.date_from) {
         return defaultData
@@ -51,7 +55,7 @@ function generateDataFromVolumeBuckets(
 export function useSparklineData(
     aggregations: ErrorTrackingIssueAggregations | undefined,
     volumeResolution: number,
-    dateRange: DateRange
+    dateRange?: DateRange
 ): SparklineData {
     return useMemo(() => {
         if (aggregations?.volume_buckets) {
