@@ -90,12 +90,12 @@ export function IssueAIFix(): JSX.Element {
             {integrationId ? (
                 <div className="flex gap-2">
                     {!showRepositoryPicker ? (
-                        <>
+                        <div className="flex gap-2 items-end w-full">
                             <ButtonPrimitive
                                 variant="outline"
                                 size="sm"
                                 onClick={() => setShowRepositoryPicker(true)}
-                                className="flex items-center gap-2 px-3 truncate"
+                                className="flex items-center gap-2 px-3 truncate flex-1"
                                 tooltip="Click to change repository"
                             >
                                 <IconGitRepository className="text-muted-alt" />
@@ -115,7 +115,7 @@ export function IssueAIFix(): JSX.Element {
                             >
                                 {isInProgress ? 'Generating fix...' : isDone ? 'Fix generated' : 'Fix with AI'}
                             </LemonButton>
-                        </>
+                        </div>
                     ) : (
                         <div className="w-full space-y-2">
                             <label className="text-xs font-medium text-muted-alt">Select repository</label>
