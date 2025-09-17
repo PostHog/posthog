@@ -1,14 +1,13 @@
-import { BindLogic, BuiltLogic, useMountedLogic, useValues } from 'kea'
+import { BindLogic, useMountedLogic, useValues } from 'kea'
 import { Slide, ToastContainer } from 'react-toastify'
 
 import { KeaDevtools } from 'lib/KeaDevTools'
-import { FEATURE_FLAGS, MOCK_NODE_PROCESS } from 'lib/constants'
+import { MOCK_NODE_PROCESS } from 'lib/constants'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
 import { eventIngestionRestrictionLogic } from 'lib/logic/eventIngestionRestrictionLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { appLogic } from 'scenes/appLogic'
 import { appScenes } from 'scenes/appScenes'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -27,17 +26,11 @@ export function App(): JSX.Element | null {
     useMountedLogic(sceneLogic({ scenes: appScenes }))
     useMountedLogic(apiStatusLogic)
     useMountedLogic(eventIngestionRestrictionLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     useThemedHtml()
-
-    // Old style persistence - no tabs, keep all loaded logics around forever ("turbo mode")
-    // New style persistence - keep all open tabs around, discard logics when a tab is closed
-    const useTurboModePersistence = !featureFlags[FEATURE_FLAGS.SCENE_TABS]
 
     if (showApp) {
         return (
             <>
-                {useTurboModePersistence ? <LoadedSceneLogics /> : null}
                 <AppScene />
                 {showingDevTools ? <KeaDevtools /> : null}
             </>
@@ -45,27 +38,6 @@ export function App(): JSX.Element | null {
     }
 
     return <SpinnerOverlay sceneLevel visible={showingDelayedSpinner} />
-}
-
-function LoadedSceneLogic({ logic }: { logic: BuiltLogic }): null {
-    if (!logic) {
-        throw new Error('Loading scene without a logic')
-    }
-    useMountedLogic(logic)
-    return null
-}
-
-function LoadedSceneLogics(): JSX.Element {
-    const { loadedSceneLogics } = useValues(sceneLogic)
-    return (
-        <>
-            {Object.entries(loadedSceneLogics)
-                .filter(([_, logic]) => !!logic)
-                .map(([key, logic]) => (
-                    <LoadedSceneLogic key={key} logic={logic} />
-                ))}
-        </>
-    )
 }
 
 function AppScene(): JSX.Element | null {

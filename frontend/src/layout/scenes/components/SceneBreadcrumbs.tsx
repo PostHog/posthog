@@ -3,22 +3,35 @@ import { useValues } from 'kea'
 import { IconArrowLeft } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
-import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { cn } from 'lib/utils/css-classes'
 
-export function SceneBreadcrumbBackButton(): JSX.Element | null {
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { Breadcrumb } from '~/types'
+
+interface SceneBreadcrumbBackButtonProps {
+    forceBackTo?: Breadcrumb
+    className?: string
+}
+
+export function SceneBreadcrumbBackButton({
+    forceBackTo,
+    className,
+}: SceneBreadcrumbBackButtonProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
 
-    return breadcrumbs.length > 1 ? (
+    const backTo = forceBackTo || breadcrumbs[breadcrumbs.length - 2]
+
+    return !!forceBackTo || breadcrumbs.length > 1 ? (
         <Link
-            className="flex items-center gap-1 text-tertiary text-xs pl-[var(--button-padding-x-lg)]"
-            aria-label={`Go back to ${breadcrumbs[breadcrumbs.length - 2].name}`}
-            to={breadcrumbs[breadcrumbs.length - 2].path}
+            className={cn('flex items-center gap-1 text-tertiary text-xs pl-[var(--button-padding-x-lg)]', className)}
+            aria-label={`Go back to ${backTo.name}`}
+            to={backTo.path}
             buttonProps={{
                 variant: 'default',
             }}
         >
             <IconArrowLeft aria-hidden="true" className="size-3 text-tertiary" />
-            <span>{breadcrumbs[breadcrumbs.length - 2].name}</span>
+            <span>{backTo.name}</span>
         </Link>
     ) : null
 }

@@ -30,7 +30,7 @@ export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>
     content?: JSX.Element | null
     metaDetails?: JSX.Element | null
     /** Buttons to show in the editing controls dropdown. */
-    moreButtons: JSX.Element
+    moreButtons?: JSX.Element
     /** Tooltip for the editing controls dropdown. */
     moreTooltip?: string
     /** Tooltip for the details button. */

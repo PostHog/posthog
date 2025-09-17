@@ -105,7 +105,7 @@ function LinkedFlagSelector(): JSX.Element | null {
                                         updateCurrentTeam({ session_recording_linked_flag: { id, key, variant: null } })
                                     }}
                                     disabledReason={disabledReason ?? undefined}
-                                    readOnly={disabledReason !== undefined}
+                                    readOnly={!!disabledReason}
                                 />
                             )}
                         </AccessControlAction>

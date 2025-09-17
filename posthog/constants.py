@@ -354,3 +354,11 @@ DEFAULT_SURVEY_APPEARANCE = {
     "shuffleQuestions": False,
     "surveyPopupDelaySeconds": None,
 }
+
+# Mapping of social_django backend names
+SOCIAL_AUTH_PROVIDER_DISPLAY_NAMES = {
+    "google-oauth2": "Google OAuth",
+    "github": "GitHub",
+    "gitlab": "GitLab",
+    "saml": "SAML",
+}

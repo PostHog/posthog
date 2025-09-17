@@ -298,11 +298,6 @@ def get_schema_if_exists(schema_name: str, team_id: int, source_id: uuid.UUID) -
 
 
 @database_sync_to_async
-def aget_schema_if_exists(schema_name: str, team_id: int, source_id: uuid.UUID) -> ExternalDataSchema | None:
-    return get_schema_if_exists(schema_name=schema_name, team_id=team_id, source_id=source_id)
-
-
-@database_sync_to_async
 def aget_schema_by_id(schema_id: str, team_id: int) -> ExternalDataSchema | None:
     return (
         ExternalDataSchema.objects.prefetch_related("source").exclude(deleted=True).get(id=schema_id, team_id=team_id)

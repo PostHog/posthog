@@ -273,13 +273,16 @@ class Resolver(CloningVisitor):
             isinstance(asterisk.table_type, ast.SelectSetQueryType)
             or isinstance(asterisk.table_type, ast.SelectQueryType)
             or isinstance(asterisk.table_type, ast.SelectQueryAliasType)
-            or isinstance(asterisk.table_type, ast.SelectViewType)
         ):
             select = asterisk.table_type
-            while isinstance(select, ast.SelectQueryAliasType) or isinstance(select, ast.SelectViewType):
-                select = select.select_query_type
+
+            # Recursion because might be an `ast.BaseTableType` such as `ast.SelectViewType`
+            if isinstance(select, ast.SelectQueryAliasType):
+                return self._asterisk_columns(ast.AsteriskType(table_type=select.select_query_type), chain_prefix)
+
             if isinstance(select, ast.SelectSetQueryType):
                 select = select.types[0]
+
             if isinstance(select, ast.SelectQueryType):
                 return [ast.Field(chain=[*chain_prefix, key]) for key in select.columns.keys()]
             else:

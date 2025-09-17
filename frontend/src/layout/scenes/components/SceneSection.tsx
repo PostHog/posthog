@@ -1,10 +1,13 @@
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { IconInfo } from '@posthog/icons'
+
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 import { cn } from 'lib/utils/css-classes'
 
 interface SceneSectionProps {
     title?: React.ReactNode
     description?: React.ReactNode
+    titleHelper?: React.ReactNode
     isLoading?: boolean
     children: React.ReactNode
     className?: string
@@ -17,43 +20,17 @@ interface SceneSectionProps {
 export function SceneSection({
     title,
     description,
+    titleHelper,
     isLoading,
     children,
     className,
-    hideTitleAndDescription,
     actions,
     titleSize = 'base',
 }: SceneSectionProps): JSX.Element {
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
-
     const Component = titleSize === 'sm' ? 'h3' : 'h2'
     const titleClassName = titleSize === 'sm' ? 'text-sm' : 'text-base'
 
     // If not in new scene layout, we don't want to show anything new
-    if (!newSceneLayout) {
-        return (
-            <div className={cn('scene-section--fallback flex flex-col gap-y-4', className)}>
-                {!hideTitleAndDescription && (
-                    <div className="flex">
-                        <div className="flex flex-col gap-y-0 flex-1 justify-center">
-                            <Component
-                                className={cn(
-                                    'font-semibold my-0 mb-1 max-w-prose',
-                                    titleClassName,
-                                    !description && 'mb-0'
-                                )}
-                            >
-                                {title}
-                            </Component>
-                            <p className="m-0">{description}</p>
-                        </div>
-                        {actions && <div className="flex gap-x-2 flex-none self-center">{actions}</div>}
-                    </div>
-                )}
-                {children}
-            </div>
-        )
-    }
 
     if (isLoading) {
         return (
@@ -85,12 +62,18 @@ export function SceneSection({
                     <div className="flex flex-col gap-y-0 flex-1 justify-center">
                         <Component
                             className={cn(
-                                'font-semibold my-0 mb-1 max-w-prose',
+                                'font-semibold my-0 mb-1 max-w-prose flex items-center gap-x-1',
                                 titleClassName,
                                 !description && 'mb-0'
                             )}
                         >
                             {title}
+
+                            {titleHelper && (
+                                <ButtonPrimitive tooltip={titleHelper} size="sm">
+                                    <IconInfo className="size-4 text-sm text-secondary" />
+                                </ButtonPrimitive>
+                            )}
                         </Component>
                         {description && <p className="text-sm text-secondary my-0 max-w-prose">{description}</p>}
                     </div>

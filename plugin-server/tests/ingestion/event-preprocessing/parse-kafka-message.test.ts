@@ -1,16 +1,19 @@
 import { Message } from 'node-rdkafka'
 
-import { parseKafkaMessage } from '../../../src/ingestion/event-preprocessing/parse-kafka-message'
+import { createParseKafkaMessageStep } from '../../../src/ingestion/event-preprocessing/parse-kafka-message'
 import { logger } from '../../../src/utils/logger'
+import { drop, success } from '../../../src/worker/ingestion/event-pipeline/pipeline-step-result'
 
 // Mock dependencies
 jest.mock('../../../src/utils/logger')
 
-describe('parseKafkaMessage', () => {
+describe('createParseKafkaMessageStep', () => {
     const mockLogger = logger as jest.Mocked<typeof logger>
+    let step: ReturnType<typeof createParseKafkaMessageStep>
 
     beforeEach(() => {
         jest.clearAllMocks()
+        step = createParseKafkaMessageStep()
     })
 
     describe('successful parsing', () => {
@@ -35,28 +38,33 @@ describe('parseKafkaMessage', () => {
                 ),
             } as Message
 
-            const result = parseKafkaMessage(mockMessage)
+            const input = { message: mockMessage }
+            const result = step(input)
 
-            expect(result).toEqual({
-                message: mockMessage,
-                event: {
-                    event: 'test_event',
-                    distinct_id: 'test_user',
-                    team_id: 1,
-                    properties: {
-                        test: 'value',
-                        $ip: '127.0.0.1',
-                        $sent_at: '2023-01-01T00:00:01Z',
+            expect(result).toEqual(
+                success({
+                    message: mockMessage,
+                    event: {
+                        event: {
+                            event: 'test_event',
+                            distinct_id: 'test_user',
+                            team_id: 1,
+                            properties: {
+                                test: 'value',
+                                $ip: '127.0.0.1',
+                                $sent_at: '2023-01-01T00:00:01Z',
+                            },
+                            token: 'test_token',
+                            ip: null,
+                            site_url: 'https://example.com',
+                            uuid: 'test-uuid',
+                            now: '2023-01-01T00:00:00Z',
+                            sent_at: '2023-01-01T00:00:01Z',
+                            kafka_offset: '123',
+                        },
                     },
-                    token: 'test_token',
-                    ip: null,
-                    site_url: 'https://example.com',
-                    uuid: 'test-uuid',
-                    now: '2023-01-01T00:00:00Z',
-                    sent_at: '2023-01-01T00:00:01Z',
-                    kafka_offset: '123',
-                },
-            })
+                })
+            )
         })
 
         it('should parse message with minimal event data', () => {
@@ -71,17 +79,22 @@ describe('parseKafkaMessage', () => {
                 ),
             } as Message
 
-            const result = parseKafkaMessage(mockMessage)
+            const input = { message: mockMessage }
+            const result = step(input)
 
-            expect(result).toEqual({
-                message: mockMessage,
-                event: {
-                    event: 'minimal_event',
-                    distinct_id: 'user123',
-                    ip: null,
-                    properties: {},
-                },
-            })
+            expect(result).toEqual(
+                success({
+                    message: mockMessage,
+                    event: {
+                        event: {
+                            event: 'minimal_event',
+                            distinct_id: 'user123',
+                            ip: null,
+                            properties: {},
+                        },
+                    },
+                })
+            )
         })
 
         it('should handle message with additional raw event fields', () => {
@@ -98,19 +111,24 @@ describe('parseKafkaMessage', () => {
                 ),
             } as Message
 
-            const result = parseKafkaMessage(mockMessage)
+            const input = { message: mockMessage }
+            const result = step(input)
 
-            expect(result).toEqual({
-                message: mockMessage,
-                event: {
-                    event: 'test_event',
-                    distinct_id: 'test_user',
-                    custom_field: 'custom_value',
-                    another_field: 42,
-                    ip: null,
-                    properties: {},
-                },
-            })
+            expect(result).toEqual(
+                success({
+                    message: mockMessage,
+                    event: {
+                        event: {
+                            event: 'test_event',
+                            distinct_id: 'test_user',
+                            custom_field: 'custom_value',
+                            another_field: 42,
+                            ip: null,
+                            properties: {},
+                        },
+                    },
+                })
+            )
         })
 
         it('should preserve all properties from both data and raw event', () => {
@@ -128,18 +146,23 @@ describe('parseKafkaMessage', () => {
                 ),
             } as Message
 
-            const result = parseKafkaMessage(mockMessage)
+            const input = { message: mockMessage }
+            const result = step(input)
 
-            expect(result).toEqual({
-                message: mockMessage,
-                event: {
-                    event: 'test_event',
-                    distinct_id: 'test_user',
-                    properties: { outer: 'value' }, // This will overwrite the inner properties
-                    token: 'test_token',
-                    ip: null,
-                },
-            })
+            expect(result).toEqual(
+                success({
+                    message: mockMessage,
+                    event: {
+                        event: {
+                            event: 'test_event',
+                            distinct_id: 'test_user',
+                            properties: { outer: 'value' }, // This will overwrite the inner properties
+                            token: 'test_token',
+                            ip: null,
+                        },
+                    },
+                })
+            )
         })
 
         it('should normalize event data during parsing', () => {
@@ -160,24 +183,29 @@ describe('parseKafkaMessage', () => {
                 ),
             } as Message
 
-            const result = parseKafkaMessage(mockMessage)
+            const input = { message: mockMessage }
+            const result = step(input)
 
-            expect(result).toEqual({
-                message: mockMessage,
-                event: {
-                    event: 'test_event',
-                    distinct_id: 'test\uFFFDuser', // null byte replaced with replacement character
-                    team_id: 1,
-                    properties: {
-                        test: 'value',
-                        $ip: '192.168.1.1', // ip from raw event field added to properties
-                        $sent_at: '2023-01-01T00:00:01Z', // sent_at added to properties
+            expect(result).toEqual(
+                success({
+                    message: mockMessage,
+                    event: {
+                        event: {
+                            event: 'test_event',
+                            distinct_id: 'test\uFFFDuser', // null byte replaced with replacement character
+                            team_id: 1,
+                            properties: {
+                                test: 'value',
+                                $ip: '192.168.1.1', // ip from raw event field added to properties
+                                $sent_at: '2023-01-01T00:00:01Z', // sent_at added to properties
+                            },
+                            token: 'test\uFFFDtoken', // null byte replaced with replacement character
+                            ip: null, // ip field set to null for safety
+                            sent_at: '2023-01-01T00:00:01Z',
+                        },
                     },
-                    token: 'test\uFFFDtoken', // null byte replaced with replacement character
-                    ip: null, // ip field set to null for safety
-                    sent_at: '2023-01-01T00:00:01Z',
-                },
-            })
+                })
+            )
         })
     })
 
@@ -187,9 +215,10 @@ describe('parseKafkaMessage', () => {
                 value: null,
             } as Message
 
-            const result = parseKafkaMessage(mockMessage)
+            const input = { message: mockMessage }
+            const result = step(input)
 
-            expect(result).toBeNull()
+            expect(result).toEqual(drop('Failed to parse Kafka message'))
             expect(mockLogger.warn).toHaveBeenCalledWith('Failed to parse Kafka message', {
                 error: expect.any(Error),
             })
@@ -200,9 +229,10 @@ describe('parseKafkaMessage', () => {
                 value: undefined,
             } as unknown as Message
 
-            const result = parseKafkaMessage(mockMessage)
+            const input = { message: mockMessage }
+            const result = step(input)
 
-            expect(result).toBeNull()
+            expect(result).toEqual(drop('Failed to parse Kafka message'))
             expect(mockLogger.warn).toHaveBeenCalledWith('Failed to parse Kafka message', {
                 error: expect.any(Error),
             })
@@ -213,9 +243,10 @@ describe('parseKafkaMessage', () => {
                 value: Buffer.from('invalid json'),
             } as Message
 
-            const result = parseKafkaMessage(mockMessage)
+            const input = { message: mockMessage }
+            const result = step(input)
 
-            expect(result).toBeNull()
+            expect(result).toEqual(drop('Failed to parse Kafka message'))
             expect(mockLogger.warn).toHaveBeenCalledWith('Failed to parse Kafka message', {
                 error: expect.any(Error),
             })
@@ -231,45 +262,10 @@ describe('parseKafkaMessage', () => {
                 ),
             } as Message
 
-            const result = parseKafkaMessage(mockMessage)
+            const input = { message: mockMessage }
+            const result = step(input)
 
-            expect(result).toBeNull()
-            expect(mockLogger.warn).toHaveBeenCalledWith('Failed to parse Kafka message', {
-                error: expect.any(Error),
-            })
-        })
-
-        it('should return null when data field is missing', () => {
-            const mockMessage: Message = {
-                value: Buffer.from(
-                    JSON.stringify({
-                        token: 'test_token',
-                        // missing data field
-                    })
-                ),
-            } as Message
-
-            const result = parseKafkaMessage(mockMessage)
-
-            expect(result).toBeNull()
-            expect(mockLogger.warn).toHaveBeenCalledWith('Failed to parse Kafka message', {
-                error: expect.any(Error),
-            })
-        })
-
-        it('should return null when data field is not a string', () => {
-            const mockMessage: Message = {
-                value: Buffer.from(
-                    JSON.stringify({
-                        data: { not: 'a string' },
-                        token: 'test_token',
-                    })
-                ),
-            } as Message
-
-            const result = parseKafkaMessage(mockMessage)
-
-            expect(result).toBeNull()
+            expect(result).toEqual(drop('Failed to parse Kafka message'))
             expect(mockLogger.warn).toHaveBeenCalledWith('Failed to parse Kafka message', {
                 error: expect.any(Error),
             })
@@ -287,9 +283,10 @@ describe('parseKafkaMessage', () => {
                 ),
             } as Message
 
-            const result = parseKafkaMessage(mockMessage)
+            const input = { message: mockMessage }
+            const result = step(input)
 
-            expect(result).toBeNull()
+            expect(result).toEqual(drop('Failed to parse Kafka message'))
             expect(mockLogger.warn).toHaveBeenCalledWith('Failed to parse Kafka message', {
                 error: expect.any(Error),
             })
@@ -305,9 +302,10 @@ describe('parseKafkaMessage', () => {
                 ),
             } as Message
 
-            const result = parseKafkaMessage(mockMessage)
+            const input = { message: mockMessage }
+            const result = step(input)
 
-            expect(result).toBeNull()
+            expect(result).toEqual(drop('Failed to parse Kafka message'))
             expect(mockLogger.warn).toHaveBeenCalledWith('Failed to parse Kafka message', {
                 error: expect.any(Error),
             })
@@ -323,17 +321,22 @@ describe('parseKafkaMessage', () => {
                 ),
             } as Message
 
-            const result = parseKafkaMessage(mockMessage)
+            const input = { message: mockMessage }
+            const result = step(input)
 
-            expect(result).toEqual({
-                message: mockMessage,
-                event: {
-                    token: 'test_token',
-                    distinct_id: 'undefined',
-                    ip: null,
-                    properties: {},
-                },
-            })
+            expect(result).toEqual(
+                success({
+                    message: mockMessage,
+                    event: {
+                        event: {
+                            token: 'test_token',
+                            distinct_id: 'undefined',
+                            ip: null,
+                            properties: {},
+                        },
+                    },
+                })
+            )
         })
 
         it('should handle message with null values', () => {
@@ -350,18 +353,23 @@ describe('parseKafkaMessage', () => {
                 ),
             } as Message
 
-            const result = parseKafkaMessage(mockMessage)
+            const input = { message: mockMessage }
+            const result = step(input)
 
-            expect(result).toEqual({
-                message: mockMessage,
-                event: {
-                    event: 'test_event',
-                    distinct_id: 'null',
-                    properties: {},
-                    token: 'null',
-                    ip: null,
-                },
-            })
+            expect(result).toEqual(
+                success({
+                    message: mockMessage,
+                    event: {
+                        event: {
+                            event: 'test_event',
+                            distinct_id: 'null',
+                            properties: {},
+                            token: 'null',
+                            ip: null,
+                        },
+                    },
+                })
+            )
         })
     })
 })

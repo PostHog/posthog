@@ -9,11 +9,11 @@ import { TreeNodeDisplayIcon } from 'lib/lemon-ui/LemonTree/LemonTreeUtils'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { cn } from 'lib/utils/css-classes'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
-import { PipelineStage } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
 import { draftsLogic } from '../draftsLogic'
@@ -91,14 +91,19 @@ export const QueryDatabase = (): JSX.Element => {
                 return (
                     <span className="truncate">
                         {hasMatches && searchTerm ? (
-                            <SearchHighlightMultiple
-                                string={item.name}
-                                substring={searchTerm}
-                                className="font-mono text-xs"
-                            />
+                            <SearchHighlightMultiple string={item.name} substring={searchTerm} className="text-xs" />
                         ) : (
-                            <div className="flex flex-row justify-between gap-1">
-                                <span className="truncate font-mono text-xs">{item.name}</span>
+                            <div className="flex flex-row gap-1 justify-between">
+                                <span
+                                    className={cn(
+                                        ['managed-views', 'views', 'sources', 'drafts'].includes(item.record?.type) &&
+                                            'font-bold',
+                                        item.record?.type === 'column' && 'font-mono text-xs',
+                                        'truncate'
+                                    )}
+                                >
+                                    {item.name}
+                                </span>
                                 {renderTableCount(item.record?.row_count)}
                             </div>
                         )}
@@ -296,7 +301,7 @@ export const QueryDatabase = (): JSX.Element => {
                             className="z-2"
                             onClick={(e) => {
                                 e.stopPropagation()
-                                router.actions.push(urls.pipelineNodeNew(PipelineStage.Source))
+                                router.actions.push(urls.dataWarehouseSourceNew())
                             }}
                             data-attr="sql-editor-add-source"
                         >

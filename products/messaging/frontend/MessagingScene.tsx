@@ -159,7 +159,7 @@ export function MessagingScene(): JSX.Element {
 
     return (
         <SceneContent className="messaging">
-            <SceneTitleSection name={capitalizeFirstLetter(currentTab)} resourceType={{ type: 'message' }} />
+            <SceneTitleSection name="Messaging" resourceType={{ type: 'messaging' }} />
             <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} />
         </SceneContent>
     )

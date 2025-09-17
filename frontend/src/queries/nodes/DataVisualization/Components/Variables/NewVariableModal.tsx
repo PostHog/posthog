@@ -128,7 +128,8 @@ const renderVariableSpecificFields = (
 }
 
 export const NewVariableModal = (): JSX.Element => {
-    const { closeModal, updateVariable, save, openNewVariableModal } = useActions(variableModalLogic)
+    const { closeModal, updateVariable, save, openNewVariableModal, changeTypeExistingVariable } =
+        useActions(variableModalLogic)
     const { isModalOpen, variable, modalType } = useValues(variableModalLogic)
     const { deleteVariable } = useActions(variableDataLogic)
     const title = modalType === 'new' ? `New ${variable.type} variable` : `Editing ${variable.name}`
@@ -193,7 +194,13 @@ export const NewVariableModal = (): JSX.Element => {
                 <LemonField.Pure label="Type" className="gap-1">
                     <LemonSelect
                         value={variable.type}
-                        onChange={(value) => openNewVariableModal(value as VariableType)}
+                        onChange={(value) => {
+                            if (modalType === 'new') {
+                                openNewVariableModal(value as VariableType)
+                            } else {
+                                changeTypeExistingVariable(value as VariableType)
+                            }
+                        }}
                         options={[
                             {
                                 value: 'String',
