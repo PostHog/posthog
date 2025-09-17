@@ -23253,6 +23253,9 @@
                 "disabledReason": {
                     "type": ["string", "null"]
                 },
+                "docsUrl": {
+                    "type": "string"
+                },
                 "existingSource": {
                     "type": "boolean"
                 },
@@ -23278,7 +23281,7 @@
                     "type": "boolean"
                 }
             },
-            "required": ["name", "caption", "fields", "iconPath"],
+            "required": ["name", "fields", "iconPath"],
             "type": "object"
         },
         "SourceFieldConfig": {

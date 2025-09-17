@@ -1,4 +1,7 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
+import { Link, Spinner } from '@posthog/lemon-ui'
 
 import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
 import { SceneTextInput } from 'lib/components/Scenes/SceneTextInput'
@@ -13,6 +16,7 @@ import {
     DropdownMenuOpenIndicator,
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { pluralize } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
@@ -32,7 +36,7 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
     const { issue } = useValues(errorTrackingIssueSceneLogic)
     const { updateName, updateDescription, updateAssignee, updateStatus } = useActions(errorTrackingIssueSceneLogic)
     const hasTasks = useFeatureFlag('TASKS')
-
+    const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
     return issue ? (
         <div className="flex flex-col gap-2">
             <SceneTextInput
@@ -55,6 +59,7 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
                 disabled={issue.status != 'active'}
             />
             <IssueExternalReference />
+            {hasIssueSplitting && <IssueFingerprints />}
             {hasTasks && <IssueTasks />}
             <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
 
@@ -162,6 +167,25 @@ const IssueExternalReference = (): JSX.Element => {
     return (
         <ScenePanelLabel title="External references">
             <ExternalReferences />
+        </ScenePanelLabel>
+    )
+}
+
+const IssueFingerprints = (): JSX.Element => {
+    const { issue, issueFingerprints, issueFingerprintsLoading } = useValues(errorTrackingIssueSceneLogic)
+    const { loadIssueFingerprints } = useActions(errorTrackingIssueSceneLogic)
+
+    useEffect(() => {
+        loadIssueFingerprints()
+    }, [loadIssueFingerprints])
+
+    return (
+        <ScenePanelLabel title="Fingerprints">
+            <Link to={issue ? urls.errorTrackingIssueFingerprints(issue.id) : undefined}>
+                <ButtonPrimitive fullWidth>
+                    {issueFingerprintsLoading ? <Spinner /> : `${pluralize(issueFingerprints.length, 'fingerprint')}`}
+                </ButtonPrimitive>
+            </Link>
         </ScenePanelLabel>
     )
 }
