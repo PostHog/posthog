@@ -1,7 +1,7 @@
 import re
 import json
 import math
-from typing import Literal, Optional, TypeVar, cast
+from typing import Any, Literal, Optional, TypeVar, cast
 from uuid import uuid4
 
 from django.conf import settings
@@ -12,6 +12,7 @@ from langchain_core.messages import (
     BaseMessage,
     HumanMessage as LangchainHumanMessage,
     ToolMessage as LangchainToolMessage,
+    convert_to_openai_messages,
     trim_messages,
 )
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
@@ -45,7 +46,7 @@ from posthog.models.organization import OrganizationMembership
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
-from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.helpers import find_last_ui_context
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
@@ -390,16 +391,16 @@ class RootNode(RootNodeUIContextMixin):
             },
             config,
         )
-        message = cast(LangchainAIMessage, message)
+        message: dict[str, Any] = convert_to_openai_messages(cast(LangchainAIMessage, message))
 
         return PartialAssistantState(
             root_conversation_start_id=new_window_id,
             messages=[
                 AssistantMessage(
-                    content=str(message.content),
+                    content=str(message["content"]),
                     tool_calls=[
                         AssistantToolCall(id=tool_call["id"], name=tool_call["name"], args=tool_call["args"])
-                        for tool_call in message.tool_calls
+                        for tool_call in message["tool_calls"]
                     ],
                     id=str(uuid4()),
                 ),
@@ -471,9 +472,8 @@ class RootNode(RootNodeUIContextMixin):
         # It _probably_ doesn't matter, but let's use a lower temperature for _maybe_ less of a risk of hallucinations.
         # We were previously using 0.0, but that wasn't useful, as the false determinism didn't help in any way,
         # only made evals less useful precisely because of the false determinism.
-        base_model = MaxChatOpenAI(
-            model="gpt-4.1",
-            temperature=0.3,
+        base_model = MaxChatAnthropic(
+            model="claude-sonnet-4-0",
             streaming=True,
             stream_usage=True,
             user=self._user,
