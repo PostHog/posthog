@@ -2863,6 +2863,20 @@ wheels = [
 ]
 
 [[package]]
+name = "langchain-anthropic"
+version = "0.3.16"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "anthropic" },
+    { name = "langchain-core" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/24/57/6cff500c4086f8c2d4aa4554450ab99dc6fcfc9f5bb8678624970b7138d9/langchain_anthropic-0.3.16.tar.gz", hash = "sha256:8af6abcf914b5c25f0bec69dc808b58a50595cde48819c450a7af7a2d8c18642", size = 55282, upload-time = "2025-06-26T13:19:06.375Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/18/1f/263bbb0cf96472d292041cb803355fc0478194d05c7d3184c046dcacc803/langchain_anthropic-0.3.16-py3-none-any.whl", hash = "sha256:f27d646700f27c3131f1accc8c2c238c813ad5d49e53e45458de0afadc7c447d", size = 29183, upload-time = "2025-06-26T13:19:05.527Z" },
+]
+
+[[package]]
 name = "langchain-community"
 version = "0.3.27"
 source = { registry = "https://pypi.org/simple" }
@@ -4121,6 +4135,7 @@ dependencies = [
     { name = "kafka-python" },
     { name = "kombu" },
     { name = "langchain" },
+    { name = "langchain-anthropic" },
     { name = "langchain-community" },
     { name = "langchain-openai" },
     { name = "langchain-perplexity" },
@@ -4351,6 +4366,7 @@ requires-dist = [
     { name = "kafka-python", specifier = "==2.0.2" },
     { name = "kombu", specifier = "==5.3.2" },
     { name = "langchain", specifier = "==0.3.26" },
+    { name = "langchain-anthropic", specifier = ">=0.3.16" },
     { name = "langchain-community", specifier = "==0.3.27" },
     { name = "langchain-openai", specifier = "==0.3.32" },
     { name = "langchain-perplexity", specifier = ">=0.1.1" },

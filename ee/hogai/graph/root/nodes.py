@@ -309,40 +309,6 @@ class RootNode(RootNodeUIContextMixin):
     def node_name(self) -> MaxNodeName:
         return AssistantNodeName.ROOT
 
-    async def get_reasoning_message(
-        self, input: BaseState, default_message: Optional[str] = None
-    ) -> ReasoningMessage | None:
-        if not isinstance(input, BaseStateWithMessages):
-            return None
-        ui_context = find_last_ui_context(input.messages)
-        if ui_context and (ui_context.dashboards or ui_context.insights):
-            return ReasoningMessage(content="Calculating context")
-        return None
-
-    def _has_session_summarization_feature_flag(self) -> bool:
-        """
-        Check if the user has the session summarization feature flag enabled.
-        """
-        return posthoganalytics.feature_enabled(
-            "max-session-summarization",
-            str(self._user.distinct_id),
-            groups={"organization": str(self._team.organization_id)},
-            group_properties={"organization": {"id": str(self._team.organization_id)}},
-            send_feature_flag_events=False,
-        )
-
-    def _has_insight_search_feature_flag(self) -> bool:
-        """
-        Check if the user has the insight search feature flag enabled.
-        """
-        return posthoganalytics.feature_enabled(
-            "max-ai-insight-search",
-            str(self._user.distinct_id),
-            groups={"organization": str(self._team.organization_id)},
-            group_properties={"organization": {"id": str(self._team.organization_id)}},
-            send_feature_flag_events=False,
-        )
-
     """
     Determines the maximum number of tokens allowed in the conversation window.
     """
@@ -438,6 +404,40 @@ class RootNode(RootNodeUIContextMixin):
                     id=str(uuid4()),
                 ),
             ],
+        )
+
+    async def get_reasoning_message(
+        self, input: BaseState, default_message: Optional[str] = None
+    ) -> ReasoningMessage | None:
+        if not isinstance(input, BaseStateWithMessages):
+            return None
+        ui_context = find_last_ui_context(input.messages)
+        if ui_context and (ui_context.dashboards or ui_context.insights):
+            return ReasoningMessage(content="Calculating context")
+        return None
+
+    def _has_session_summarization_feature_flag(self) -> bool:
+        """
+        Check if the user has the session summarization feature flag enabled.
+        """
+        return posthoganalytics.feature_enabled(
+            "max-session-summarization",
+            str(self._user.distinct_id),
+            groups={"organization": str(self._team.organization_id)},
+            group_properties={"organization": {"id": str(self._team.organization_id)}},
+            send_feature_flag_events=False,
+        )
+
+    def _has_insight_search_feature_flag(self) -> bool:
+        """
+        Check if the user has the insight search feature flag enabled.
+        """
+        return posthoganalytics.feature_enabled(
+            "max-ai-insight-search",
+            str(self._user.distinct_id),
+            groups={"organization": str(self._team.organization_id)},
+            group_properties={"organization": {"id": str(self._team.organization_id)}},
+            send_feature_flag_events=False,
         )
 
     def _get_billing_info(self, config: RunnableConfig) -> tuple[bool, str]:
