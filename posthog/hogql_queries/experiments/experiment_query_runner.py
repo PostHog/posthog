@@ -379,20 +379,20 @@ class ExperimentQueryRunner(QueryRunner):
             step_counts_expr = f"tuple({', '.join(step_count_exprs)}) as step_counts"
             select_fields.append(parse_expr(step_counts_expr))
 
-            # Add sampled session IDs for each step
-            sampled_session_exprs = []
+            # Add evenut uuids for each step
+            event_uuids_exprs = []
             for i in range(num_steps + 1):
                 # For each step, get at least 100 event uuids matching that step. For the users that have 0 matching steps
                 # in the funnel (-1), we return the event uuid for the exposure event.
-                sampled_expr = f"""
+                event_uuids_expr = f"""
                     groupArraySampleIf(100)(
                         if(metric_events.value.2 != '', metric_events.value.2, toString(metric_events.exposure_event_uuid)),
                         metric_events.value.1 = {i} - 1
                     )
                 """
-                sampled_session_exprs.append(sampled_expr)
-            sampled_sessions_expr = f"tuple({', '.join(sampled_session_exprs)}) as sampled_session_ids"
-            select_fields.append(parse_expr(sampled_sessions_expr))
+                event_uuids_exprs.append(event_uuids_expr)
+            event_uuids_exprs_sql = f"tuple({', '.join(event_uuids_exprs)}) as step_event_uuids"
+            select_fields.append(parse_expr(event_uuids_exprs_sql))
         else:
             # For non-funnel metrics, use the original logic
             select_fields.extend(

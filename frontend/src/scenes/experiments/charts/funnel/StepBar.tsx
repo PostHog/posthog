@@ -32,17 +32,17 @@ export function StepBar({ step, stepIndex, series }: StepBarProps): JSX.Element 
 
     // Get sampled sessions from the experiment result
     // Find the variant result that matches this series
-    let sampledSessionIds: string[][] | undefined
+    let stepEventUUIDs: string[][] | undefined
     if (experimentResult) {
         const variantKey = series.breakdown_value
         if (variantKey === 'control') {
-            sampledSessionIds = experimentResult.baseline?.sampled_session_ids
+            stepEventUUIDs = experimentResult.baseline?.step_event_uuids
         } else {
             const variantResult = experimentResult.variant_results?.find((v: any) => v.key === variantKey)
-            sampledSessionIds = variantResult?.sampled_session_ids
+            stepEventUUIDs = variantResult?.step_event_uuids
         }
     }
-    const hasRecordings = sampledSessionIds && sampledSessionIds[stepIndex]?.length > 0
+    const hasRecordings = stepEventUUIDs && stepEventUUIDs[stepIndex]?.length > 0
 
     const handleClick = (converted: boolean): void => {
         if (hasRecordings) {
@@ -83,12 +83,12 @@ export function StepBar({ step, stepIndex, series }: StepBarProps): JSX.Element 
                 />
             </div>
 
-            {isModalOpen && sampledSessionIds && (
+            {isModalOpen && stepEventUUIDs && (
                 <SampledSessionsModal
                     isOpen={isModalOpen}
                     onClose={() => setIsModalOpen(false)}
                     title={`Step ${stepIndex + 1}: ${step.name}`}
-                    sessions={sampledSessionIds[stepIndex].map((id: string) => ({ session_id: id }))}
+                    sessions={stepEventUUIDs[stepIndex].map((id: string) => ({ session_id: id }))}
                     variant={String(series.breakdown_value || 'control')}
                     stepName={step.name}
                     converted={modalType === 'converted'}

@@ -3824,8 +3824,8 @@ class ExperimentStatsBase(BaseModel):
     key: str
     number_of_samples: int
     numerator_denominator_sum_product: Optional[float] = None
-    sampled_session_ids: Optional[list[list[str]]] = None
     step_counts: Optional[list[int]] = None
+    step_event_uuids: Optional[list[list[str]]] = None
     sum: float
     sum_squares: float
 
@@ -3839,8 +3839,8 @@ class ExperimentStatsBaseValidated(BaseModel):
     key: str
     number_of_samples: int
     numerator_denominator_sum_product: Optional[float] = None
-    sampled_session_ids: Optional[list[list[str]]] = None
     step_counts: Optional[list[int]] = None
+    step_event_uuids: Optional[list[list[str]]] = None
     sum: float
     sum_squares: float
     validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
@@ -3858,9 +3858,9 @@ class ExperimentVariantResultBayesian(BaseModel):
     method: Literal["bayesian"] = "bayesian"
     number_of_samples: int
     numerator_denominator_sum_product: Optional[float] = None
-    sampled_session_ids: Optional[list[list[str]]] = None
     significant: Optional[bool] = None
     step_counts: Optional[list[int]] = None
+    step_event_uuids: Optional[list[list[str]]] = None
     sum: float
     sum_squares: float
     validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
@@ -3878,9 +3878,9 @@ class ExperimentVariantResultFrequentist(BaseModel):
     number_of_samples: int
     numerator_denominator_sum_product: Optional[float] = None
     p_value: Optional[float] = None
-    sampled_session_ids: Optional[list[list[str]]] = None
     significant: Optional[bool] = None
     step_counts: Optional[list[int]] = None
+    step_event_uuids: Optional[list[list[str]]] = None
     sum: float
     sum_squares: float
     validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None

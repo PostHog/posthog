@@ -2685,7 +2685,7 @@ export interface ExperimentStatsBase {
     denominator_sum_squares?: number
     numerator_denominator_sum_product?: number
     step_counts?: integer[]
-    sampled_session_ids?: string[][]
+    step_event_uuids?: string[][]
 }
 
 export enum ExperimentStatsValidationFailure {
@@ -2696,7 +2696,6 @@ export enum ExperimentStatsValidationFailure {
 
 export interface ExperimentStatsBaseValidated extends ExperimentStatsBase {
     validation_failures?: ExperimentStatsValidationFailure[]
-    sampled_session_ids?: string[][]
 }
 
 export interface ExperimentVariantResultFrequentist extends ExperimentStatsBaseValidated {
@@ -2704,7 +2703,6 @@ export interface ExperimentVariantResultFrequentist extends ExperimentStatsBaseV
     significant?: boolean
     p_value?: number
     confidence_interval?: [number, number]
-    sampled_session_ids?: string[][]
 }
 
 export interface ExperimentVariantResultBayesian extends ExperimentStatsBaseValidated {
@@ -2712,7 +2710,6 @@ export interface ExperimentVariantResultBayesian extends ExperimentStatsBaseVali
     significant?: boolean
     chance_to_win?: number
     credible_interval?: [number, number]
-    sampled_session_ids?: string[][]
 }
 
 export interface NewExperimentQueryResponse {

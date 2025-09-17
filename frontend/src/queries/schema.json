@@ -12030,18 +12030,18 @@
                 "numerator_denominator_sum_product": {
                     "type": "number"
                 },
-                "sampled_session_ids": {
+                "step_counts": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "step_event_uuids": {
                     "items": {
                         "items": {
                             "type": "string"
                         },
                         "type": "array"
-                    },
-                    "type": "array"
-                },
-                "step_counts": {
-                    "items": {
-                        "$ref": "#/definitions/integer"
                     },
                     "type": "array"
                 },
@@ -12073,18 +12073,18 @@
                 "numerator_denominator_sum_product": {
                     "type": "number"
                 },
-                "sampled_session_ids": {
+                "step_counts": {
+                    "items": {
+                        "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "step_event_uuids": {
                     "items": {
                         "items": {
                             "type": "string"
                         },
                         "type": "array"
-                    },
-                    "type": "array"
-                },
-                "step_counts": {
-                    "items": {
-                        "$ref": "#/definitions/integer"
                     },
                     "type": "array"
                 },
@@ -12264,21 +12264,21 @@
                 "numerator_denominator_sum_product": {
                     "type": "number"
                 },
-                "sampled_session_ids": {
-                    "items": {
-                        "items": {
-                            "type": "string"
-                        },
-                        "type": "array"
-                    },
-                    "type": "array"
-                },
                 "significant": {
                     "type": "boolean"
                 },
                 "step_counts": {
                     "items": {
                         "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "step_event_uuids": {
+                    "items": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
                     },
                     "type": "array"
                 },
@@ -12331,21 +12331,21 @@
                 "p_value": {
                     "type": "number"
                 },
-                "sampled_session_ids": {
-                    "items": {
-                        "items": {
-                            "type": "string"
-                        },
-                        "type": "array"
-                    },
-                    "type": "array"
-                },
                 "significant": {
                     "type": "boolean"
                 },
                 "step_counts": {
                     "items": {
                         "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "step_event_uuids": {
+                    "items": {
+                        "items": {
+                            "type": "string"
+                        },
+                        "type": "array"
                     },
                     "type": "array"
                 },
