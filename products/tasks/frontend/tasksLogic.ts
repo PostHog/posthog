@@ -351,8 +351,12 @@ export const tasksLogic = kea<tasksLogicType>([
                         const stage = allWorkflows
                             .flatMap(w => w.stages || [])
                             .find(s => s.id === task.current_stage)
-                        const stageKey = stage?.key
-                        return stageKey === 'in_progress' || stageKey === 'todo' || stageKey === 'testing'
+                        // Consider any non-final stage as "active" (exclude archived stages and common final stage names)
+                        if (stage && !stage.is_archived) {
+                            // Common final stage names that indicate completion
+                            const finalStageKeys = ['done', 'completed', 'closed', 'finished']
+                            return !finalStageKeys.includes(stage.key.toLowerCase())
+                        }
                     }
                     return false
                 }),

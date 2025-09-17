@@ -15,67 +15,63 @@ logger = get_logger(__name__)
 
 
 @temporalio.activity.defn(name="get_workflow_configuration")
-async def get_workflow_configuration_activity(task_id: str, team_id: int) -> Dict[str, Any]:
+async def get_workflow_configuration_activity(params: Dict[str, Any]) -> Dict[str, Any]:
     """Get the workflow configuration for a task."""
     try:
+        task_id = params["task_id"]
+        team_id = params["team_id"]
+        
         from django.db import transaction
         from products.tasks.backend.models import Task, TaskWorkflow
+        from asgiref.sync import sync_to_async
         
-        with transaction.atomic():
-            task = Task.objects.select_related('workflow', 'current_stage').get(
-                id=task_id, team_id=team_id
-            )
-            
-            # Get effective workflow (custom or team default)
-            workflow = task.effective_workflow
-            if not workflow:
-                logger.warning(f"No workflow found for task {task_id}, using legacy behavior")
-                return {
-                    "has_workflow": False,
-                    "current_stage_key": task.current_stage.key if task.current_stage else 'backlog',
-                    "transitions": []
-                }
-            
-            # Get current stage
-            current_stage = task.current_stage
-            if not current_stage:
-                # Use first stage as default
-                current_stage = workflow.stages.filter(is_archived=False).order_by('position').first()
-                if current_stage:
-                    task.current_stage = current_stage
-                    task.save(update_fields=['current_stage'])
-                else:
-                    logger.error(f"Could not find any stage for task {task_id}")
+        @sync_to_async
+        def get_workflow_config():
+            with transaction.atomic():
+                task = Task.objects.select_related('workflow', 'current_stage').get(
+                    id=task_id, team_id=team_id
+                )
+                
+                # Get effective workflow (custom or team default)
+                workflow = task.effective_workflow
+                if not workflow:
+                    logger.warning(f"No workflow found for task {task_id}, using legacy behavior")
                     return {
                         "has_workflow": False,
                         "current_stage_key": task.current_stage.key if task.current_stage else 'backlog',
                         "transitions": []
                     }
-            
-            # Get available transitions from current stage
-            transitions = list(workflow.transitions.filter(
-                from_stage=current_stage,
-                is_active=True
-            ).select_related('to_stage', 'agent').values(
-                'id',
-                'to_stage__key',
-                'to_stage__name',
-                'trigger_type',
-                'agent__name',
-                'agent__agent_type',
-                'agent__config',
-                'conditions'
-            ))
-            
-            return {
-                "has_workflow": True,
-                "workflow_id": str(workflow.id),
-                "workflow_name": workflow.name,
-                "current_stage_key": current_stage.key,
-                "current_stage_name": current_stage.name,
-                "current_stage_is_manual_only": current_stage.is_manual_only,
-                "transitions": transitions
-            }
+                
+                # Get current stage
+                current_stage = task.current_stage
+                if not current_stage:
+                    # Use first stage as default
+                    current_stage = workflow.stages.filter(is_archived=False).order_by('position').first()
+                    if current_stage:
+                        task.current_stage = current_stage
+                        task.save(update_fields=['current_stage'])
+                    else:
+                        logger.error(f"Could not find any stage for task {task_id}")
+                        return {
+                            "has_workflow": False,
+                            "current_stage_key": task.current_stage.key if task.current_stage else 'backlog',
+                            "transitions": []
+                        }
+                
+                # For now, simplified transitions (no transitions model yet)
+                transitions = []
+                
+                return {
+                    "has_workflow": True,
+                    "workflow_id": str(workflow.id),
+                    "workflow_name": workflow.name,
+                    "current_stage_key": current_stage.key,
+                    "current_stage_name": current_stage.name,
+                    "current_stage_is_manual_only": current_stage.is_manual_only,
+                    "transitions": transitions
+                }
+        
+        return await get_workflow_config()
             
     except Exception as e:
         logger.exception(f"Failed to get workflow configuration for task {task_id}: {e}")
@@ -89,52 +85,62 @@ async def get_workflow_configuration_activity(task_id: str, team_id: int) -> Dic
 
 @temporalio.activity.defn(name="get_agent_triggered_transition")
 async def get_agent_triggered_transition_activity(
-    task_id: str, 
-    team_id: int, 
-    current_stage_key: str
+    params: Dict[str, Any]
 ) -> Optional[Dict[str, Any]]:
     """Find an agent-triggered transition from the current stage."""
     try:
+        task_id = params["task_id"]
+        team_id = params["team_id"]
+        current_stage_key = params["current_stage_key"]
+        
         from django.db import transaction
         from products.tasks.backend.models import Task
+        from asgiref.sync import sync_to_async
         
-        with transaction.atomic():
-            task = Task.objects.select_related('workflow', 'current_stage').get(
-                id=task_id, team_id=team_id
-            )
-            
-            workflow = task.effective_workflow
-            if not workflow:
-                return None
-            
-            current_stage = task.current_stage
-            if not current_stage or current_stage.key != current_stage_key:
-                # Try to find stage by key
-                try:
-                    current_stage = workflow.stages.get(key=current_stage_key)
-                except:
-                    logger.error(f"Could not find stage with key {current_stage_key}")
+        @sync_to_async
+        def get_agent_transition():
+            with transaction.atomic():
+                task = Task.objects.select_related('workflow', 'current_stage').get(
+                    id=task_id, team_id=team_id
+                )
+                
+                workflow = task.effective_workflow
+                if not workflow:
                     return None
-            
-            # Find agent-triggered transitions
-            agent_transitions = workflow.transitions.filter(
-                from_stage=current_stage,
-                trigger_type='agent',
-                is_active=True
-            ).select_related('to_stage', 'agent').first()
-            
-            if not agent_transitions:
-                return None
-            
-            return {
-                "transition_id": str(agent_transitions.id),
-                "to_stage_key": agent_transitions.to_stage.key,
-                "to_stage_name": agent_transitions.to_stage.name,
-                "agent_name": agent_transitions.agent.name if agent_transitions.agent else None,
-                "agent_type": agent_transitions.agent.agent_type if agent_transitions.agent else None,
-                "agent_config": agent_transitions.agent.config if agent_transitions.agent else {},
-                "conditions": agent_transitions.conditions
-            }
+                
+                current_stage = task.current_stage
+                if not current_stage or current_stage.key != current_stage_key:
+                    # Try to find stage by key
+                    try:
+                        current_stage = workflow.stages.get(key=current_stage_key)
+                    except:
+                        logger.error(f"Could not find stage with key {current_stage_key}")
+                        return None
+                
+                # Check if current stage has an agent and find next stage
+                if not current_stage.agent:
+                    return None
+                
+                # Find the next stage in the workflow
+                next_stage = workflow.stages.filter(
+                    position__gt=current_stage.position,
+                    is_archived=False
+                ).order_by('position').first()
+                
+                if not next_stage:
+                    return None
+                
+                return {
+                    "transition_id": None,
+                    "to_stage_key": next_stage.key,
+                    "to_stage_name": next_stage.name,
+                    "agent_name": current_stage.agent.name,
+                    "agent_type": current_stage.agent.agent_type,
+                    "agent_config": current_stage.agent.config,
+                    "conditions": {}
+                }
+        
+        return await get_agent_transition()
             
     except Exception as e:
         logger.exception(f"Failed to get agent transition for task {task_id}: {e}")
@@ -143,71 +149,66 @@ async def get_agent_triggered_transition_activity(
 
 @temporalio.activity.defn(name="move_task_to_stage")
 async def move_task_to_stage_activity(
-    task_id: str, 
-    team_id: int, 
-    target_stage_key: str,
-    transition_id: Optional[str] = None
+    params: Dict[str, Any]
 ) -> Dict[str, Any]:
     """Move a task to a specific workflow stage."""
     try:
+        task_id = params["task_id"]
+        team_id = params["team_id"]
+        target_stage_key = params["target_stage_key"]
+        transition_id = params.get("transition_id")
+        
         from django.db import transaction
         from products.tasks.backend.models import Task
+        from asgiref.sync import sync_to_async
         
-        with transaction.atomic():
-            task = Task.objects.select_related('workflow', 'current_stage').get(
-                id=task_id, team_id=team_id
-            )
-            
-            workflow = task.effective_workflow
-            if not workflow:
-                # Without workflow, cannot move to specific stage
-                logger.warning(f"Task {task_id} has no workflow, cannot move to stage {target_stage_key}")
-                return {
-                    "success": False,
-                    "error": f"Task has no workflow configured",
-                    "previous_stage": task.current_stage.key if task.current_stage else 'backlog',
-                    "new_stage": target_stage_key
-                }
-            
-            # Find target stage
-            try:
-                target_stage = workflow.stages.get(key=target_stage_key)
-            except:
-                logger.error(f"Could not find target stage {target_stage_key}")
-                return {
-                    "success": False,
-                    "error": f"Target stage {target_stage_key} not found"
-                }
-            
-            # Check if transition is valid
-            if transition_id:
-                transition_exists = workflow.transitions.filter(
-                    id=transition_id,
-                    from_stage=task.current_stage,
-                    to_stage=target_stage,
-                    is_active=True
-                ).exists()
+        @sync_to_async
+        def move_task():
+            with transaction.atomic():
+                task = Task.objects.select_related('workflow', 'current_stage').get(
+                    id=task_id, team_id=team_id
+                )
                 
-                if not transition_exists:
+                workflow = task.effective_workflow
+                if not workflow:
+                    # Without workflow, cannot move to specific stage
+                    logger.warning(f"Task {task_id} has no workflow, cannot move to stage {target_stage_key}")
                     return {
                         "success": False,
-                        "error": f"Invalid transition from {task.current_stage.key if task.current_stage else 'none'} to {target_stage_key}"
+                        "error": f"Task has no workflow configured",
+                        "previous_stage": task.current_stage.key if task.current_stage else 'backlog',
+                        "new_stage": target_stage_key
                     }
-            
-            previous_stage_key = task.current_stage.key if task.current_stage else 'backlog'
-            
-            # Update task
-            task.current_stage = target_stage
-            task.save(update_fields=['current_stage'])
-            
-            logger.info(f"Task {task_id} moved from {previous_stage_key} to {target_stage_key}")
-            
-            return {
-                "success": True,
-                "message": f"Task moved from {previous_stage_key} to {target_stage_key}",
-                "previous_stage": previous_stage_key,
-                "new_stage": target_stage_key
-            }
+                
+                # Find target stage
+                try:
+                    target_stage = workflow.stages.get(key=target_stage_key)
+                except:
+                    logger.error(f"Could not find target stage {target_stage_key}")
+                    return {
+                        "success": False,
+                        "error": f"Target stage {target_stage_key} not found"
+                    }
+                
+                # Simplified validation: can move to any stage in the same workflow
+                # (transition_id parameter is ignored since there are no transition models)
+                
+                previous_stage_key = task.current_stage.key if task.current_stage else 'backlog'
+                
+                # Update task
+                task.current_stage = target_stage
+                task.save(update_fields=['current_stage'])
+                
+                logger.info(f"Task {task_id} moved from {previous_stage_key} to {target_stage_key}")
+                
+                return {
+                    "success": True,
+                    "message": f"Task moved from {previous_stage_key} to {target_stage_key}",
+                    "previous_stage": previous_stage_key,
+                    "new_stage": target_stage_key
+                }
+        
+        return await move_task()
             
     except Exception as e:
         logger.exception(f"Failed to move task {task_id} to stage {target_stage_key}: {e}")
@@ -219,65 +220,68 @@ async def move_task_to_stage_activity(
 
 @temporalio.activity.defn(name="should_trigger_agent_workflow")
 async def should_trigger_agent_workflow_activity(
-    task_id: str,
-    team_id: int,
-    new_status: str,
-    previous_status: str
+    params: Dict[str, Any]
 ) -> Dict[str, Any]:
     """Determine if an agent workflow should be triggered for a status change."""
     try:
+        task_id = params["task_id"]
+        team_id = params["team_id"] 
+        new_status = params["new_status"]
+        previous_status = params["previous_status"]
+        
         from django.db import transaction
         from products.tasks.backend.models import Task
+        from asgiref.sync import sync_to_async
         
-        with transaction.atomic():
-            task = Task.objects.select_related('workflow', 'current_stage').get(
-                id=task_id, team_id=team_id
-            )
-            
-            workflow = task.effective_workflow
-            if not workflow:
-                # Legacy behavior: trigger on move to "todo"
-                should_trigger = new_status == "todo"
-                return {
-                    "should_trigger": should_trigger,
-                    "trigger_reason": "Legacy behavior: moved to TODO" if should_trigger else "No legacy trigger",
-                    "workflow_name": "Legacy Workflow"
-                }
-            
-            # Find the stage corresponding to new_status
-            try:
-                current_stage = workflow.stages.get(key=new_status)
-            except:
-                logger.error(f"Could not find stage for status {new_status}")
-                return {
-                    "should_trigger": False,
-                    "trigger_reason": f"Stage {new_status} not found in workflow"
-                }
-            
-            # Check if there are any agent-triggered transitions from this stage
-            agent_transitions = workflow.transitions.filter(
-                from_stage=current_stage,
-                trigger_type='agent',
-                is_active=True
-            ).exists()
-            
-            if agent_transitions:
-                # Update task to use the correct stage
-                task.current_stage = current_stage
-                task.save(update_fields=['current_stage'])
+        @sync_to_async
+        def get_task_and_check_trigger():
+            with transaction.atomic():
+                task = Task.objects.select_related('workflow', 'current_stage').get(
+                    id=task_id, team_id=team_id
+                )
+                
+                workflow = task.effective_workflow
+                if not workflow:
+                    # Legacy behavior: trigger on move to "todo"
+                    should_trigger = new_status == "todo"
+                    return {
+                        "should_trigger": should_trigger,
+                        "trigger_reason": "Legacy behavior: moved to TODO" if should_trigger else "No legacy trigger",
+                        "workflow_name": "Legacy Workflow"
+                    }
+                
+                # Find the stage corresponding to new_status
+                try:
+                    current_stage = workflow.stages.get(key=new_status)
+                except:
+                    logger.error(f"Could not find stage for status {new_status}")
+                    return {
+                        "should_trigger": False,
+                        "trigger_reason": f"Stage {new_status} not found in workflow"
+                    }
+                
+                # Simplified agent check: stages with agents attached can trigger workflows
+                agent_transitions = current_stage.agent is not None
+                
+                if agent_transitions:
+                    # Update task to use the correct stage
+                    task.current_stage = current_stage
+                    task.save(update_fields=['current_stage'])
+                    
+                    return {
+                        "should_trigger": True,
+                        "trigger_reason": f"Agent transitions available from {new_status}",
+                        "workflow_name": workflow.name,
+                        "current_stage_key": new_status
+                    }
                 
                 return {
-                    "should_trigger": True,
-                    "trigger_reason": f"Agent transitions available from {new_status}",
-                    "workflow_name": workflow.name,
-                    "current_stage_key": new_status
+                    "should_trigger": False,
+                    "trigger_reason": f"No agent transitions from {new_status}",
+                    "workflow_name": workflow.name
                 }
-            
-            return {
-                "should_trigger": False,
-                "trigger_reason": f"No agent transitions from {new_status}",
-                "workflow_name": workflow.name
-            }
+        
+        return await get_task_and_check_trigger()
             
     except Exception as e:
         logger.exception(f"Failed to check agent workflow trigger for task {task_id}: {e}")
@@ -289,13 +293,15 @@ async def should_trigger_agent_workflow_activity(
 
 @temporalio.activity.defn(name="execute_agent_for_transition")
 async def execute_agent_for_transition_activity(
-    task_id: str,
-    team_id: int,
-    transition_config: Dict[str, Any],
-    repo_info: Optional[Dict[str, Any]] = None
+    params: Dict[str, Any]
 ) -> Dict[str, Any]:
     """Execute the appropriate agent for a workflow transition."""
     try:
+        task_id = params["task_id"]
+        team_id = params["team_id"]
+        transition_config = params["transition_config"]
+        repo_info = params.get("repo_info")
+        
         agent_type = transition_config.get('agent_type')
         agent_config = transition_config.get('agent_config', {})
         
@@ -374,5 +380,5 @@ async def execute_agent_for_transition_activity(
         return {
             "success": False,
             "error": str(e),
-            "agent_type": transition_config.get('agent_type', 'unknown')
+            "agent_type": params.get('transition_config', {}).get('agent_type', 'unknown')
         }

@@ -465,10 +465,12 @@ class WorkflowAgnosticTaskProcessingWorkflow(PostHogWorkflow):
             logger.info(f"Step 1: Checking if agent workflow should be triggered for task {inputs.task_id}")
             trigger_check = await workflow.execute_activity(
                 should_trigger_agent_workflow_activity,
-                inputs.task_id,
-                inputs.team_id,
-                inputs.new_status,
-                inputs.previous_status,
+                {
+                    "task_id": inputs.task_id,
+                    "team_id": inputs.team_id,
+                    "new_status": inputs.new_status,
+                    "previous_status": inputs.previous_status,
+                },
                 start_to_close_timeout=timedelta(minutes=2),
                 retry_policy=RetryPolicy(
                     initial_interval=timedelta(seconds=10),
@@ -487,8 +489,10 @@ class WorkflowAgnosticTaskProcessingWorkflow(PostHogWorkflow):
             logger.info(f"Step 2: Getting workflow configuration for task {inputs.task_id}")
             workflow_config = await workflow.execute_activity(
                 get_workflow_configuration_activity,
-                inputs.task_id,
-                inputs.team_id,
+                {
+                    "task_id": inputs.task_id,
+                    "team_id": inputs.team_id,
+                },
                 start_to_close_timeout=timedelta(minutes=2),
                 retry_policy=RetryPolicy(
                     initial_interval=timedelta(seconds=10),
@@ -512,9 +516,11 @@ class WorkflowAgnosticTaskProcessingWorkflow(PostHogWorkflow):
                 # Get available agent transition
                 agent_transition = await workflow.execute_activity(
                     get_agent_triggered_transition_activity,
-                    inputs.task_id,
-                    inputs.team_id,
-                    current_stage_key,
+                    {
+                        "task_id": inputs.task_id,
+                        "team_id": inputs.team_id,
+                        "current_stage_key": current_stage_key,
+                    },
                     start_to_close_timeout=timedelta(minutes=2),
                 )
 
@@ -533,29 +539,16 @@ class WorkflowAgnosticTaskProcessingWorkflow(PostHogWorkflow):
                         break
 
                 try:
-                    # Move to next stage first (some agents expect the task to be in the target stage)
-                    move_result = await workflow.execute_activity(
-                        move_task_to_stage_activity,
-                        inputs.task_id,
-                        inputs.team_id,
-                        agent_transition['to_stage_key'],
-                        agent_transition['transition_id'],
-                        start_to_close_timeout=timedelta(minutes=2),
-                    )
-
-                    if not move_result.get("success"):
-                        logger.error(f"Failed to move task to {agent_transition['to_stage_key']}: {move_result.get('error')}")
-                        break
-
-                    current_stage_key = agent_transition['to_stage_key']
-
-                    # Execute the agent
+                    # Execute the agent first (while task is still in current stage)
+                    logger.info(f"Executing agent '{agent_transition['agent_name']}' for stage '{current_stage_key}'")
                     agent_result = await workflow.execute_activity(
                         execute_agent_for_transition_activity,
-                        inputs.task_id,
-                        inputs.team_id,
-                        agent_transition,
-                        repo_info,
+                        {
+                            "task_id": inputs.task_id,
+                            "team_id": inputs.team_id,
+                            "transition_config": agent_transition,
+                            "repo_info": repo_info,
+                        },
                         start_to_close_timeout=timedelta(minutes=30),
                         retry_policy=RetryPolicy(
                             initial_interval=timedelta(minutes=1),
@@ -566,9 +559,31 @@ class WorkflowAgnosticTaskProcessingWorkflow(PostHogWorkflow):
 
                     if not agent_result.get("success"):
                         logger.error(f"Agent execution failed: {agent_result.get('error')}")
-                        # Don't break - the task has been moved, which is progress
+                        # Break the loop since agent failed - don't move the task
+                        break
                     else:
                         logger.info(f"Agent execution successful: {agent_result.get('message')}")
+                        
+                        # Move to the target stage after successful agent execution
+                        logger.info(f"Agent completed successfully, moving to target stage: {agent_transition['to_stage_key']}")
+                        move_result = await workflow.execute_activity(
+                            move_task_to_stage_activity,
+                            {
+                                "task_id": inputs.task_id,
+                                "team_id": inputs.team_id,
+                                "target_stage_key": agent_transition['to_stage_key'],
+                                "transition_id": agent_transition['transition_id'],
+                            },
+                            start_to_close_timeout=timedelta(minutes=2),
+                        )
+
+                        if move_result.get("success"):
+                            current_stage_key = agent_transition['to_stage_key']
+                            logger.info(f"Successfully moved to stage: {current_stage_key}")
+                        else:
+                            logger.error(f"Failed to move task to {agent_transition['to_stage_key']}: {move_result.get('error')}")
+                            # Break since we couldn't move the task
+                            break
 
                     # Handle repository cleanup for code generation
                     if repo_info and repo_info.get("repo_path"):
@@ -630,23 +645,28 @@ class WorkflowAgnosticTaskProcessingWorkflow(PostHogWorkflow):
                 # Move to in_progress
                 await workflow.execute_activity(
                     move_task_to_stage_activity,
-                    inputs.task_id,
-                    inputs.team_id,
-                    "in_progress",
+                    {
+                        "task_id": inputs.task_id,
+                        "team_id": inputs.team_id,
+                        "target_stage_key": "in_progress",
+                        "transition_id": None,
+                    },
                     start_to_close_timeout=timedelta(minutes=2),
                 )
 
                 # Execute AI agent
                 agent_result = await workflow.execute_activity(
                     execute_agent_for_transition_activity,
-                    inputs.task_id,
-                    inputs.team_id,
                     {
-                        "agent_type": "code_generation",
-                        "to_stage_key": "testing",
-                        "agent_config": {}
+                        "task_id": inputs.task_id,
+                        "team_id": inputs.team_id,
+                        "transition_config": {
+                            "agent_type": "code_generation",
+                            "to_stage_key": "testing",
+                            "agent_config": {}
+                        },
+                        "repo_info": repo_info,
                     },
-                    repo_info,
                     start_to_close_timeout=timedelta(minutes=30),
                 )
 
@@ -654,9 +674,12 @@ class WorkflowAgnosticTaskProcessingWorkflow(PostHogWorkflow):
                 if agent_result.get("success"):
                     await workflow.execute_activity(
                         move_task_to_stage_activity,
-                        inputs.task_id,
-                        inputs.team_id,
-                        "testing",
+                        {
+                            "task_id": inputs.task_id,
+                            "team_id": inputs.team_id,
+                            "target_stage_key": "testing",
+                            "transition_id": None,
+                        },
                         start_to_close_timeout=timedelta(minutes=2),
                     )
 

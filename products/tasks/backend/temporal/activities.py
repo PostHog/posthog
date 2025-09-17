@@ -56,9 +56,9 @@ async def get_github_integration_token(team_id: int, task_id: str) -> str:
 @activity.defn
 async def process_task_moved_to_todo_activity(inputs: TaskProcessingInputs) -> str:
     """
-    Background processing activity when a task is moved to TODO status.
+    Background processing activity when a task stage changes.
     This is where you can add any background work you want to happen when
-    a card moves to the todo column. Examples:
+    a task moves between stages. Examples:
     - Send notifications
     - Update external systems
     - Generate reports
@@ -82,10 +82,10 @@ async def process_task_moved_to_todo_activity(inputs: TaskProcessingInputs) -> s
         # Get the task from the database
         task = await database_sync_to_async(Task.objects.get)(id=inputs.task_id, team_id=inputs.team_id)
 
-        # Verify the task is still in todo stage
-        if not (task.current_stage and task.current_stage.key == "todo"):
-            logger.warning(f"Task {inputs.task_id} is no longer in todo stage, skipping processing")
-            return f"Task stage changed, skipping processing"
+        # Verify the task has a current stage (workflow-agnostic)
+        if not task.current_stage:
+            logger.warning(f"Task {inputs.task_id} has no current stage, skipping processing")
+            return f"Task has no workflow stage, skipping processing"
 
         # TODO: Add your actual background processing logic here
         # Examples:
@@ -97,7 +97,7 @@ async def process_task_moved_to_todo_activity(inputs: TaskProcessingInputs) -> s
         logger.info(f"Updating external tracking systems for task {inputs.task_id}...")
 
         # 3. Log analytics event
-        logger.info(f"Logging analytics event for todo transition...")
+        logger.info(f"Logging analytics event for stage transition to {task.current_stage.key}...")
 
         # 4. Process any automated tasks
         logger.info(f"Running automated processing for task type: {task.origin_product}")
