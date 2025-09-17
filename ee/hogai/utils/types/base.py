@@ -265,9 +265,9 @@ class _SharedAssistantState(BaseStateWithMessages, BaseStateWithIntermediateStep
     """
     The short ID of the notebook being used.
     """
-    create_dashboard_query: Optional[str] = Field(default=None)
+    dashboard_name: Optional[str] = Field(default=None)
     """
-    The user's query for creating a dashboard with insights.
+    The name of the dashboard to be created based on the user request.
     """
     selected_insight_ids: Optional[list[int]] = Field(default=None)
     """

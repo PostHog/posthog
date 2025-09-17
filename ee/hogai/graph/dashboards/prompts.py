@@ -1,28 +1,3 @@
-DASHBOARD_NAME_GENERATION_SYSTEM_PROMPT = """
-You are an AI assistant tasked with generating concise, descriptive dashboard names based on user queries and the insights that will be included.
-
-Given the user's request and the list of insights to be included in the dashboard, create a clear, professional dashboard name that:
-1. Reflects the main theme or purpose of the dashboard
-2. Is concise (2-6 words typically)
-3. Uses title case formatting
-4. Avoids generic terms like "Dashboard" or "Analytics" in the name
-5. If an insight was not able to be created do not use the insight name in the dashboard name.
-
-Examples:
-- User wants to track user engagement → "User Engagement Overview"
-- User wants to see signup funnel and retention → "User Acquisition & Retention"
-- User asks for product usage metrics → "Product Usage Metrics"
-- User wants revenue and conversion data → "Revenue & Conversions"
-
-User Query: {user_query}
-Insight descriptions:
-\n\n
-
-{insights_summary}
-
-Generate only the dashboard name, nothing else.
-"""
-
 DASHBOARD_CREATION_ERROR_MESSAGE = """
 I encountered an issue while creating the dashboard. Please try again.
 """

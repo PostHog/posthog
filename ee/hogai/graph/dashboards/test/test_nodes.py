@@ -322,34 +322,13 @@ class TestDashboardCreationNode:
 
     @pytest.mark.asyncio
     @patch("ee.hogai.graph.dashboards.nodes.get_stream_writer")
-    async def test_arun_missing_create_dashboard_query(self, mock_get_stream_writer):
-        """Test arun returns error when create_dashboard_query is missing."""
-        mock_writer = MagicMock()
-        mock_get_stream_writer.return_value = mock_writer
-
-        state = AssistantState(
-            create_dashboard_query=None,
-            search_insights_queries=[InsightQuery(name="Test", description="Test")],
-            root_tool_call_id="test_call",
-        )
-        config = RunnableConfig()
-
-        result = await self.node.arun(state, config)
-
-        assert isinstance(result, PartialAssistantState)
-        assert len(result.messages) == 1
-        assert isinstance(result.messages[0], AssistantToolCallMessage)
-        assert "Dashboard creation query is required" in result.messages[0].content
-
-    @pytest.mark.asyncio
-    @patch("ee.hogai.graph.dashboards.nodes.get_stream_writer")
     async def test_arun_missing_search_insights_queries(self, mock_get_stream_writer):
         """Test arun returns error when search_insights_queries is missing."""
         mock_writer = MagicMock()
         mock_get_stream_writer.return_value = mock_writer
 
         state = AssistantState(
-            create_dashboard_query="Create dashboard",
+            dashboard_name="Create dashboard",
             search_insights_queries=None,
             root_tool_call_id="test_call",
         )
@@ -366,12 +345,10 @@ class TestDashboardCreationNode:
     @patch("ee.hogai.graph.dashboards.nodes.get_stream_writer")
     @patch.object(DashboardCreationNode, "_search_insights")
     @patch.object(DashboardCreationNode, "_create_insights")
-    @patch.object(DashboardCreationNode, "_generate_dashboard_name")
     @patch.object(DashboardCreationNode, "_create_dashboard_with_insights")
     async def test_arun_successful_flow(
         self,
         mock_create_dashboard,
-        mock_generate_name,
         mock_create_insights,
         mock_search_insights,
         mock_get_stream_writer,
@@ -391,7 +368,6 @@ class TestDashboardCreationNode:
         mock_insights[1].name = "Insight 2"
 
         mock_create_dashboard.return_value = (mock_dashboard, mock_insights)
-        mock_generate_name.return_value = "Test Dashboard"
 
         # Setup search results with found insights
         search_result = {
@@ -407,7 +383,7 @@ class TestDashboardCreationNode:
         mock_create_insights.return_value = search_result
 
         state = AssistantState(
-            create_dashboard_query="Create dashboard",
+            dashboard_name="Create dashboard",
             search_insights_queries=[InsightQuery(name="Query 1", description="Description 1")],
             root_tool_call_id="test_call",
         )
@@ -446,7 +422,7 @@ class TestDashboardCreationNode:
         mock_create_insights.return_value = search_result
 
         state = AssistantState(
-            create_dashboard_query="Create dashboard",
+            dashboard_name="Create dashboard",
             search_insights_queries=[InsightQuery(name="Query 1", description="Description 1")],
             root_tool_call_id="test_call",
         )
@@ -470,7 +446,7 @@ class TestDashboardCreationNode:
         mock_search_insights.side_effect = Exception("Test error")
 
         state = AssistantState(
-            create_dashboard_query="Create dashboard",
+            dashboard_name="Create dashboard",
             search_insights_queries=[InsightQuery(name="Query 1", description="Description 1")],
             root_tool_call_id="test_call",
         )
@@ -654,40 +630,6 @@ class TestDashboardCreationNodeAsyncMethods:
             assert "task_1" in result
             assert len(result["task_1"].found_insight_ids) == 2
             assert len(result["task_1"].found_insight_messages) == 1
-
-    @pytest.mark.asyncio
-    @patch("ee.hogai.graph.dashboards.nodes.get_stream_writer")
-    @patch.object(DashboardCreationNode, "_model")
-    async def test_generate_dashboard_name_success(self, mock_model, mock_get_stream_writer):
-        """Test _generate_dashboard_name with successful generation."""
-        mock_writer = MagicMock()
-        mock_get_stream_writer.return_value = mock_writer
-
-        mock_response = MagicMock()
-        mock_response.content = "User Engagement Dashboard"
-        mock_model.ainvoke = AsyncMock(return_value=mock_response)
-
-        result = await self.node._generate_dashboard_name("Create user engagement dashboard", ["Found insights"])
-
-        assert result == "User Engagement Dashboard"
-        mock_model.ainvoke.assert_called_once()
-
-    @pytest.mark.asyncio
-    @patch("ee.hogai.graph.dashboards.nodes.get_stream_writer")
-    @patch.object(DashboardCreationNode, "_model")
-    async def test_generate_dashboard_name_exception(self, mock_model, mock_get_stream_writer):
-        """Test _generate_dashboard_name handles exceptions."""
-        mock_writer = MagicMock()
-        mock_get_stream_writer.return_value = mock_writer
-        mock_model.ainvoke.side_effect = Exception("Model error")
-
-        with patch("ee.hogai.graph.dashboards.nodes.capture_exception") as mock_capture:
-            with patch("ee.hogai.graph.dashboards.nodes.logger") as mock_logger:
-                result = await self.node._generate_dashboard_name("Create dashboard", [])
-
-                assert result == "Analytics Dashboard"
-                mock_capture.assert_called_once()
-                mock_logger.exception.assert_called_once()
 
     @pytest.mark.asyncio
     @patch("ee.hogai.graph.dashboards.nodes.get_stream_writer")

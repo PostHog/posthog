@@ -724,13 +724,12 @@ class RootNodeTools(AssistantNode):
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif tool_call.name == "create_dashboard":
-            # Convert raw data to InsightQuery objects
-            raw_queries = tool_call.args["search_insights_queries"]
+            raw_queries = tool_call.args.get("search_insights_queries")
             search_insights_queries = [InsightQuery.model_validate(query) for query in raw_queries]
 
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
-                create_dashboard_query=tool_call.args["create_dashboard_query"],
+                dashboard_name=tool_call.args.get("dashboard_name"),
                 search_insights_queries=search_insights_queries,
                 root_tool_calls_count=tool_call_count + 1,
             )

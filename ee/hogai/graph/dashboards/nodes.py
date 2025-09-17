@@ -5,7 +5,7 @@ from uuid import uuid4
 from django.db import transaction
 
 import structlog
-from langchain_core.messages import AIMessageChunk, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 from langgraph.config import get_stream_writer
@@ -41,7 +41,6 @@ from ee.hogai.utils.types.base import InsightCreationTaskExecutionResult, Insigh
 
 from .prompts import (
     DASHBOARD_CREATION_ERROR_MESSAGE,
-    DASHBOARD_NAME_GENERATION_SYSTEM_PROMPT,
     DASHBOARD_NO_INSIGHTS_MESSAGE,
     DASHBOARD_SUCCESS_MESSAGE_TEMPLATE,
     HYPERLINK_USAGE_INSTRUCTIONS,
@@ -216,10 +215,9 @@ class DashboardCreationNode(AssistantNode):
         return sum(len(query.found_insight_ids) for query in queries_metadata.values())
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        if not state.create_dashboard_query:
-            return self._create_error_response(
-                "Dashboard creation query is required", state.root_tool_call_id or "unknown"
-            )
+        dashboard_name = (
+            state.dashboard_name[:50] or "Analytics Dashboard"
+        )  # Default dashboard name here to avoid not fulfilling the request
 
         if not state.search_insights_queries:
             return self._create_error_response(
@@ -268,8 +266,6 @@ class DashboardCreationNode(AssistantNode):
 
             if not all_insight_ids:
                 return self._create_no_insights_response(state.root_tool_call_id or "unknown", "\n".join(messages))
-
-            dashboard_name = await self._generate_dashboard_name(state.create_dashboard_query, messages)
 
             dashboard, all_insights = await self._create_dashboard_with_insights(dashboard_name, all_insight_ids)
 
@@ -325,17 +321,6 @@ class DashboardCreationNode(AssistantNode):
         query_metadata = await self._process_insight_creation_results(
             final_task_executor_state.task_results, query_metadata
         )
-
-        # for task in final_task_executor_state.task_results:
-        #     if task.status == TaskExecutionStatus.COMPLETED:
-        #         query_metadata[task.id].created_insight_ids.update(created_insights[task.id])
-        #         query_metadata[task.id].created_insight_messages.append(
-        #             f"\n -{query_metadata[task.id].query.name}: Insight was created successfully with the description **{query_metadata[task.id].query.description}**"
-        #         )
-        #     else:
-        #         query_metadata[task.id].created_insight_messages.append(
-        #             f"\n -{query_metadata[task.id].query.name}: Could not create insights for the query with the description **{task.description}**"
-        #         )
 
         return query_metadata
 
@@ -430,31 +415,6 @@ class DashboardCreationNode(AssistantNode):
 
         return query_metadata
 
-    async def _generate_dashboard_name(self, query: str, last_messages: list[str]) -> str:
-        """Generate a dashboard name based on the query and insights."""
-        self._stream_reasoning(progress_message="Generating dashboard name", writer=self._get_stream_writer())
-        try:
-            insights_summary = "\n".join(last_messages)
-
-            messages = [
-                SystemMessage(
-                    content=DASHBOARD_NAME_GENERATION_SYSTEM_PROMPT.format(
-                        user_query=query, insights_summary=insights_summary
-                    )
-                ),
-                HumanMessage(content="Generate the dashboard name."),
-            ]
-
-            response = await self._model.ainvoke(messages)
-            dashboard_name = response.content.strip() if hasattr(response, "content") else "Analytics Dashboard"
-
-            return dashboard_name[:50]
-
-        except Exception as e:
-            capture_exception(e)
-            logger.exception(f"Error generating dashboard name: {e}", exc_info=True)
-            return "Analytics Dashboard"
-
     async def _create_dashboard_with_insights(
         self, dashboard_name: str, insights: set[int]
     ) -> tuple[Dashboard, list[Insight]]:
@@ -528,7 +488,7 @@ class DashboardCreationNode(AssistantNode):
                     visible=True,
                 ),
             ],
-            create_dashboard_query=None,
+            dashboard_name=None,
             search_insights_queries=None,
             root_tool_call_id=None,
             root_tool_insight_plan=None,
@@ -545,7 +505,7 @@ class DashboardCreationNode(AssistantNode):
                     id=str(uuid4()),
                 ),
             ],
-            create_dashboard_query=None,
+            dashboard_name=None,
             root_tool_call_id=None,
             search_insights_queries=None,
             selected_insight_ids=None,
@@ -563,7 +523,7 @@ class DashboardCreationNode(AssistantNode):
                     id=str(uuid4()),
                 ),
             ],
-            create_dashboard_query=None,
+            dashboard_name=None,
             root_tool_call_id=None,
             search_insights_queries=None,
             selected_insight_ids=None,

@@ -430,9 +430,9 @@ You will be given the expected dashboard creation requirements and the actual ge
    - Number of insights mentioned should match the number of insights in the `search_insights_queries` field.
    - Each insight should address the corresponding query requirements mentioned in the `search_insights_queries` field.
    - Insight names and descriptions should be appropriate for the requested content
-   - The dashboard name should be relevant to the `create_dashboard_query` field and should not include information about insights that were not created.
+   - The dashboard name should be relevant to the `dashboard_name` field.
    - If an insight was not created it should be mentioned in the output message as such.
-4. Query Alignment: The dashboard should fulfill the `create_dashboard_query` requirements.
+4. Query Alignment: The dashboard should fulfill the `dashboard_name` requirements.
 5. Error Handling: If there are errors, they should be meaningful and not due to basic validation failures.
 6. Make sure to check that the dashboards and insights have the corresponding hyperlinks.
 </evaluation_criteria>

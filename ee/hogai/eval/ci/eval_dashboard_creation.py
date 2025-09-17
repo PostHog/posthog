@@ -67,7 +67,7 @@ async def eval_tool_routing_dashboard_creation(call_root_for_dashboard_creation,
     await MaxPublicEval(
         experiment_name="tool_routing_dashboard_creation",
         task=task_with_context,
-        scores=[ToolRelevance(semantic_similarity_args={"search_insights_queries", "create_dashboard_query"})],
+        scores=[ToolRelevance(semantic_similarity_args={"search_insights_queries", "dashboard_name"})],
         data=[
             # Cases where create_dashboard should be used
             EvalCase(
@@ -76,7 +76,7 @@ async def eval_tool_routing_dashboard_creation(call_root_for_dashboard_creation,
                     id="1",
                     name="create_dashboard",
                     args={
-                        "create_dashboard_query": "Create a dashboard showing user engagement metrics with signup funnel and retention data for Hedgebox.",
+                        "dashboard_name": "User engagement metrics",
                         "search_insights_queries": [
                             {
                                 "description": "Track key user engagement metrics for Hedgebox, such as daily active users, weekly active users, and event activity (e.g., file uploads, shares, and collaboration actions).",
@@ -100,7 +100,7 @@ async def eval_tool_routing_dashboard_creation(call_root_for_dashboard_creation,
                     id="2",
                     name="create_dashboard",
                     args={
-                        "create_dashboard_query": "Create a dashboard with an insight showing how many users were created yesterday.",
+                        "dashboard_name": "Users created yesterday",
                         "search_insights_queries": [
                             {
                                 "description": "Shows the total number of users who were created yesterday. Filters for user creation events with a date range set to yesterday.",
@@ -116,7 +116,7 @@ async def eval_tool_routing_dashboard_creation(call_root_for_dashboard_creation,
                     id="3",
                     name="create_dashboard",
                     args={
-                        "create_dashboard_query": "Create a dashboard with two insights: one showing users in California who performed 'chat with ai' events in the past 7 days, and another showing the trend of signups over the last 30 days.",
+                        "dashboard_name": "California AI and signups overview",
                         "search_insights_queries": [
                             {
                                 "description": "List of users located in California who performed the 'chat with ai' event in the past 7 days. Filter by location (California) and event name ('chat with ai').",
@@ -136,7 +136,7 @@ async def eval_tool_routing_dashboard_creation(call_root_for_dashboard_creation,
                     id="4",
                     name="create_dashboard",
                     args={
-                        "create_dashboard_query": "Create a dashboard with an insight showing the trend of signups over the last 30 days.",
+                        "dashboard_name": "Signups trend overview",
                         "search_insights_queries": [
                             {
                                 "description": "Shows the daily trend of user signups over the past 30 days. This insight tracks the number of signups per day to help monitor growth and user acquisition patterns.",
@@ -206,7 +206,7 @@ async def eval_tool_call_dashboard_creation(patch_get_stream_writer, pytestconfi
         data=[
             EvalCase(
                 input={
-                    "create_dashboard_query": "Create a dashboard with an insight showing how many users were created yesterday.",
+                    "dashboard_name": "Users created yesterday",
                     "search_insights_queries": [
                         {
                             "description": "Shows the total number of users who were created yesterday. Filters for user creation events with a date range set to yesterday.",
@@ -215,7 +215,7 @@ async def eval_tool_call_dashboard_creation(patch_get_stream_writer, pytestconfi
                     ],
                 },
                 expected={
-                    "create_dashboard_query": "Create a dashboard with an insight showing how many users were created yesterday.",
+                    "dashboard_name": "Users created yesterday",
                     "search_insights_queries": [
                         {
                             "description": "Shows the total number of users who were created yesterday. Filters for user creation events with a date range set to yesterday.",
@@ -227,7 +227,7 @@ async def eval_tool_call_dashboard_creation(patch_get_stream_writer, pytestconfi
             # Challenging cases for dashboard creation execution
             EvalCase(
                 input={
-                    "create_dashboard_query": "Create a comprehensive user analytics dashboard with multiple complex insights.",
+                    "dashboard_name": "Comprehensive user analytics",
                     "search_insights_queries": [
                         {
                             "description": "User engagement metrics including daily active users, session duration, and feature usage patterns.",
@@ -244,7 +244,7 @@ async def eval_tool_call_dashboard_creation(patch_get_stream_writer, pytestconfi
                     ],
                 },
                 expected={
-                    "create_dashboard_query": "Create a comprehensive user analytics dashboard with multiple complex insights.",
+                    "dashboard_name": "Comprehensive user analytics",
                     "search_insights_queries": [
                         {
                             "description": "User engagement metrics including daily active users, session duration, and feature usage patterns.",
@@ -263,7 +263,7 @@ async def eval_tool_call_dashboard_creation(patch_get_stream_writer, pytestconfi
             ),
             EvalCase(
                 input={
-                    "create_dashboard_query": "Build an executive dashboard for quarterly business review with key performance indicators.",
+                    "dashboard_name": "Executive dashboard for quarterly business review",
                     "search_insights_queries": [
                         {
                             "description": "Quarterly revenue growth, customer acquisition costs, and profitability metrics.",
@@ -280,7 +280,7 @@ async def eval_tool_call_dashboard_creation(patch_get_stream_writer, pytestconfi
                     ],
                 },
                 expected={
-                    "create_dashboard_query": "Build an executive dashboard for quarterly business review with key performance indicators.",
+                    "dashboard_name": "Executive dashboard for quarterly business review",
                     "search_insights_queries": [
                         {
                             "description": "Quarterly revenue growth, customer acquisition costs, and profitability metrics.",
@@ -299,7 +299,7 @@ async def eval_tool_call_dashboard_creation(patch_get_stream_writer, pytestconfi
             ),
             EvalCase(
                 input={
-                    "create_dashboard_query": "Create a real-time monitoring dashboard for system health and user activity.",
+                    "dashboard_name": "Real-time monitoring for system health and user activity",
                     "search_insights_queries": [
                         {
                             "description": "Real-time user activity including active sessions, page views, and event tracking.",
@@ -316,7 +316,7 @@ async def eval_tool_call_dashboard_creation(patch_get_stream_writer, pytestconfi
                     ],
                 },
                 expected={
-                    "create_dashboard_query": "Create a real-time monitoring dashboard for system health and user activity.",
+                    "dashboard_name": "Real-time monitoring dashboard for system health and user activity",
                     "search_insights_queries": [
                         {
                             "description": "Real-time user activity including active sessions, page views, and event tracking.",
@@ -335,7 +335,7 @@ async def eval_tool_call_dashboard_creation(patch_get_stream_writer, pytestconfi
             ),
             EvalCase(
                 input={
-                    "create_dashboard_query": "Design a marketing attribution dashboard showing campaign performance and conversion paths.",
+                    "dashboard_name": "Marketing attribution campaign performance and conversion paths",
                     "search_insights_queries": [
                         {
                             "description": "Marketing campaign performance including click-through rates, conversion rates, and ROI by channel.",
@@ -352,7 +352,7 @@ async def eval_tool_call_dashboard_creation(patch_get_stream_writer, pytestconfi
                     ],
                 },
                 expected={
-                    "create_dashboard_query": "Design a marketing attribution dashboard showing campaign performance and conversion paths.",
+                    "dashboard_name": "Marketing attribution campaign performance and conversion paths",
                     "search_insights_queries": [
                         {
                             "description": "Marketing campaign performance including click-through rates, conversion rates, and ROI by channel.",

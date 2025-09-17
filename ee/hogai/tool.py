@@ -118,21 +118,15 @@ class create_dashboard(BaseModel):
     Use this tool when users ask to create, build, or make a new dashboard with insights.
     This tool will search for existing insights that match the user's requirements,
     or create new insights if none are found, then combine them into a dashboard.
-    Do not call the `search_insights` tool if this tool is used.
     Do not call this tool if the user only asks to find, search for, or look up existing insights and does not ask to create a dashboard.
     """
 
     search_insights_queries: list[InsightQuery] = Field(
         description="A list of insights to be included in the dashboard. Include all the insights that the user mentioned."
     )
-    create_dashboard_query: str = Field(
+    dashboard_name: str = Field(
         description=(
-            "The user's complete request for dashboard creation. "
-            "Include all relevant context from earlier messages too, as the tool won't see that conversation history. "
-            "Examples: "
-            "'Create a dashboard showing user engagement metrics with signup funnel and retention data' "
-            "'Build a revenue dashboard with conversion rates and top performing features' "
-            "'Make a product analytics dashboard tracking feature usage and user behavior'"
+            "The name of the dashboard to be created based on the user request. It should be short and concise as it will be displayed as a header in the dashboard tile."
         )
     )
 
