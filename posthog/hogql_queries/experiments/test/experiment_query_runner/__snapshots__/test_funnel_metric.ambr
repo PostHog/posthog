@@ -6,7 +6,7 @@
          countIf(ifNull(equals(metric_events.value, 1), 0)) AS total_sum,
          countIf(ifNull(equals(metric_events.value, 1), 0)) AS total_sum_of_squares,
          tuple(countIf(ifNull(greaterOrEquals(metric_events.value, 0), 0)), countIf(ifNull(greaterOrEquals(metric_events.value, 1), 0))) AS step_counts,
-         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 1), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
+         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 1), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
@@ -67,7 +67,7 @@
          countIf(ifNull(equals(metric_events.value, 1), 0)) AS total_sum,
          countIf(ifNull(equals(metric_events.value, 1), 0)) AS total_sum_of_squares,
          tuple(countIf(ifNull(greaterOrEquals(metric_events.value, 0), 0)), countIf(ifNull(greaterOrEquals(metric_events.value, 1), 0))) AS step_counts,
-         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 1), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
+         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 1), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
@@ -128,7 +128,7 @@
          countIf(ifNull(equals(metric_events.value, 1), 0)) AS total_sum,
          countIf(ifNull(equals(metric_events.value, 1), 0)) AS total_sum_of_squares,
          tuple(countIf(ifNull(greaterOrEquals(metric_events.value, 0), 0)), countIf(ifNull(greaterOrEquals(metric_events.value, 1), 0))) AS step_counts,
-         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 1), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
+         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 1), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
@@ -189,7 +189,7 @@
          countIf(ifNull(equals(metric_events.value, 1), 0)) AS total_sum,
          countIf(ifNull(equals(metric_events.value, 1), 0)) AS total_sum_of_squares,
          tuple(countIf(ifNull(greaterOrEquals(metric_events.value, 0), 0)), countIf(ifNull(greaterOrEquals(metric_events.value, 1), 0))) AS step_counts,
-         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 1), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
+         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 1), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
@@ -250,7 +250,7 @@
          countIf(ifNull(equals(metric_events.value, 1), 0)) AS total_sum,
          countIf(ifNull(equals(metric_events.value, 1), 0)) AS total_sum_of_squares,
          tuple(countIf(ifNull(greaterOrEquals(metric_events.value, 0), 0)), countIf(ifNull(greaterOrEquals(metric_events.value, 1), 0))) AS step_counts,
-         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 1), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
+         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 1), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
@@ -311,7 +311,7 @@
          countIf(ifNull(equals(metric_events.value, 1), 0)) AS total_sum,
          countIf(ifNull(equals(metric_events.value, 1), 0)) AS total_sum_of_squares,
          tuple(countIf(ifNull(greaterOrEquals(metric_events.value, 0), 0)), countIf(ifNull(greaterOrEquals(metric_events.value, 1), 0))) AS step_counts,
-         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 1), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
+         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 1), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
@@ -372,7 +372,7 @@
          countIf(ifNull(equals(metric_events.value, 1), 0)) AS total_sum,
          countIf(ifNull(equals(metric_events.value, 1), 0)) AS total_sum_of_squares,
          tuple(countIf(ifNull(greaterOrEquals(metric_events.value, 0), 0)), countIf(ifNull(greaterOrEquals(metric_events.value, 1), 0))) AS step_counts,
-         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 1), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
+         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 1), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
@@ -433,7 +433,7 @@
          countIf(ifNull(equals(metric_events.value, 5), 0)) AS total_sum,
          countIf(ifNull(equals(metric_events.value, 5), 0)) AS total_sum_of_squares,
          tuple(countIf(ifNull(greaterOrEquals(metric_events.value, 0), 0)), countIf(ifNull(greaterOrEquals(metric_events.value, 1), 0)), countIf(ifNull(greaterOrEquals(metric_events.value, 2), 0)), countIf(ifNull(greaterOrEquals(metric_events.value, 3), 0)), countIf(ifNull(greaterOrEquals(metric_events.value, 4), 0)), countIf(ifNull(greaterOrEquals(metric_events.value, 5), 0))) AS step_counts,
-         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 1), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 2), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 3), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 4), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 5), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
+         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 1), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 2), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 3), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 4), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 5), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
@@ -498,7 +498,7 @@
          countIf(ifNull(equals(metric_events.value, 2), 0)) AS total_sum,
          countIf(ifNull(equals(metric_events.value, 2), 0)) AS total_sum_of_squares,
          tuple(countIf(ifNull(greaterOrEquals(metric_events.value, 0), 0)), countIf(ifNull(greaterOrEquals(metric_events.value, 1), 0)), countIf(ifNull(greaterOrEquals(metric_events.value, 2), 0))) AS step_counts,
-         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 1), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 2), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
+         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 1), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 2), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
@@ -560,7 +560,7 @@
          countIf(ifNull(equals(metric_events.value, 1), 0)) AS total_sum,
          countIf(ifNull(equals(metric_events.value, 1), 0)) AS total_sum_of_squares,
          tuple(countIf(ifNull(greaterOrEquals(metric_events.value, 0), 0)), countIf(ifNull(greaterOrEquals(metric_events.value, 1), 0))) AS step_counts,
-         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 1), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
+         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 1), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
@@ -621,7 +621,7 @@
          countIf(ifNull(equals(metric_events.value, 1), 0)) AS total_sum,
          countIf(ifNull(equals(metric_events.value, 1), 0)) AS total_sum_of_squares,
          tuple(countIf(ifNull(greaterOrEquals(metric_events.value, 0), 0)), countIf(ifNull(greaterOrEquals(metric_events.value, 1), 0))) AS step_counts,
-         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 1), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
+         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10), arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 1), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
@@ -682,7 +682,7 @@
          countIf(ifNull(equals(metric_events.value, 0), 0)) AS total_sum,
          countIf(ifNull(equals(metric_events.value, 0), 0)) AS total_sum_of_squares,
          tuple(countIf(ifNull(greaterOrEquals(metric_events.value, 0), 0))) AS step_counts,
-         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
+         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
@@ -742,7 +742,7 @@
          countIf(ifNull(equals(metric_events.value, 0), 0)) AS total_sum,
          countIf(ifNull(equals(metric_events.value, 0), 0)) AS total_sum_of_squares,
          tuple(countIf(ifNull(greaterOrEquals(metric_events.value, 0), 0))) AS step_counts,
-         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
+         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
@@ -833,7 +833,7 @@
          countIf(ifNull(equals(metric_events.value, 0), 0)) AS total_sum,
          countIf(ifNull(equals(metric_events.value, 0), 0)) AS total_sum_of_squares,
          tuple(countIf(ifNull(greaterOrEquals(metric_events.value, 0), 0))) AS step_counts,
-         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
+         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
@@ -1010,7 +1010,7 @@
          countIf(ifNull(equals(metric_events.value, 0), 0)) AS total_sum,
          countIf(ifNull(equals(metric_events.value, 0), 0)) AS total_sum_of_squares,
          tuple(countIf(ifNull(greaterOrEquals(metric_events.value, 0), 0))) AS step_counts,
-         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
+         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
@@ -1187,7 +1187,7 @@
          countIf(ifNull(equals(metric_events.value, 0), 0)) AS total_sum,
          countIf(ifNull(equals(metric_events.value, 0), 0)) AS total_sum_of_squares,
          tuple(countIf(ifNull(greaterOrEquals(metric_events.value, 0), 0))) AS step_counts,
-         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
+         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
@@ -1364,7 +1364,7 @@
          countIf(ifNull(equals(metric_events.value, 0), 0)) AS total_sum,
          countIf(ifNull(equals(metric_events.value, 0), 0)) AS total_sum_of_squares,
          tuple(countIf(ifNull(greaterOrEquals(metric_events.value, 0), 0))) AS step_counts,
-         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
+         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
@@ -1561,7 +1561,7 @@
          countIf(ifNull(equals(metric_events.value, 0), 0)) AS total_sum,
          countIf(ifNull(equals(metric_events.value, 0), 0)) AS total_sum_of_squares,
          tuple(countIf(ifNull(greaterOrEquals(metric_events.value, 0), 0))) AS step_counts,
-         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
+         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
@@ -1758,7 +1758,7 @@
          countIf(ifNull(equals(metric_events.value, 0), 0)) AS total_sum,
          countIf(ifNull(equals(metric_events.value, 0), 0)) AS total_sum_of_squares,
          tuple(countIf(ifNull(greaterOrEquals(metric_events.value, 0), 0))) AS step_counts,
-         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
+         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
@@ -1955,7 +1955,7 @@
          countIf(ifNull(equals(metric_events.value, 0), 0)) AS total_sum,
          countIf(ifNull(equals(metric_events.value, 0), 0)) AS total_sum_of_squares,
          tuple(countIf(ifNull(greaterOrEquals(metric_events.value, 0), 0))) AS step_counts,
-         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
+         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
@@ -2118,7 +2118,7 @@
          countIf(ifNull(equals(metric_events.value, 0), 0)) AS total_sum,
          countIf(ifNull(equals(metric_events.value, 0), 0)) AS total_sum_of_squares,
          tuple(countIf(ifNull(greaterOrEquals(metric_events.value, 0), 0))) AS step_counts,
-         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
+         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
@@ -2281,7 +2281,7 @@
          countIf(ifNull(equals(metric_events.value, 0), 0)) AS total_sum,
          countIf(ifNull(equals(metric_events.value, 0), 0)) AS total_sum_of_squares,
          tuple(countIf(ifNull(greaterOrEquals(metric_events.value, 0), 0))) AS step_counts,
-         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(greaterOrEquals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
+         tuple(arraySlice(arrayDistinct(arrayFlatten(arrayFilter(x -> notEmpty(x), groupArray(if(ifNull(equals(metric_events.value, 0), 0), metric_events.session_ids, []))))), 1, 10)) AS sampled_session_ids
   FROM
     (SELECT exposures.variant AS variant,
             exposures.entity_id AS entity_id,
