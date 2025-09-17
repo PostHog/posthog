@@ -190,10 +190,10 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "id",
                 "last_seen",
                 "first_seen",
-                "volumeRange",
                 "occurrences",
                 "sessions",
                 "users",
+                "volumeRange",
                 "library",
             ],
         )
@@ -217,10 +217,10 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "id",
                 "last_seen",
                 "first_seen",
-                "volumeRange",
                 "occurrences",
                 "sessions",
                 "users",
+                "volumeRange",
                 "first_event",
                 "library",
             ],
@@ -609,6 +609,12 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         first_aggregations = results[0]["aggregations"]
         self.assertEqual(sum(first_aggregations["volumeRange"]), 24 * 5)
         self.assertEqual(first_aggregations["volumeRange"], [60, 60, 0, 0])
+
+    # @freeze_time("2020-01-12")
+    # @snapshot_clickhouse_queries
+    # def test_sorting_by_revenue(self):
+    #     results = self._calculate(orderBy="revenue")["results"]
+    #     self.assertEqual(len(results), 4)
 
 
 class TestSearchTokenizer(TestCase):
