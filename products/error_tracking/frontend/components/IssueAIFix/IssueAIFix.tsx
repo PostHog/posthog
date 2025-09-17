@@ -2,13 +2,12 @@ import { useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 
 import { IconExternal, IconGitRepository, IconMagicWand } from '@posthog/icons'
-import { LemonButton, LemonTag, Popover } from '@posthog/lemon-ui'
+import { LemonButton, Popover } from '@posthog/lemon-ui'
 
 import { GitHubRepositoryPicker } from 'lib/integrations/GitHubIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { Label } from 'lib/ui/Label/Label'
 
 import { releasePreviewLogic } from '../ExceptionAttributesPreview/ReleasesPreview/releasePreviewLogic'
 
@@ -76,16 +75,7 @@ export function IssueAIFix(): JSX.Element {
     const isDone = status === 'done'
 
     return (
-        <div className="relative border border-border rounded-lg p-3 space-y-3 mt-2">
-            {/* Label integrated into border */}
-            <div className="absolute -top-2.5 -left-1 px-1 bg-bg-3000">
-                <div className="flex items-center gap-2">
-                    <Label intent="menu">AI Assistant</Label>
-                    <LemonTag size="small" type="danger">
-                        Experimental
-                    </LemonTag>
-                </div>
-            </div>
+        <div className="space-y-3">
             {/* Repository Selection and Fix Button on same line */}
             {integrationId ? (
                 <div className="flex gap-2 items-stretch">
@@ -95,7 +85,7 @@ export function IssueAIFix(): JSX.Element {
                                 variant="outline"
                                 size="fit"
                                 onClick={() => setShowRepositoryPicker(true)}
-                                className="flex items-center gap-2 px-3 py-2 h-full border border-border rounded-lg hover:bg-bg-3000 text-sm min-w-0 max-w-[200px] flex-shrink-0"
+                                className="flex items-center gap-2 px-3 py-2 h-full border border-border rounded-lg hover:bg-bg-3000 text-sm min-w-0 flex-1"
                                 tooltip="Click to change repository"
                             >
                                 <IconGitRepository className="text-muted-alt flex-shrink-0" />
@@ -110,7 +100,7 @@ export function IssueAIFix(): JSX.Element {
                                 loading={isInProgress}
                                 disabled={isDone || !repository}
                                 disabledReason={!repository ? 'Select a repository first' : undefined}
-                                className="flex-1 min-w-0"
+                                className="flex-shrink-0"
                             >
                                 {isInProgress ? 'Generating fix...' : isDone ? 'Fix generated' : 'Fix with AI'}
                             </LemonButton>

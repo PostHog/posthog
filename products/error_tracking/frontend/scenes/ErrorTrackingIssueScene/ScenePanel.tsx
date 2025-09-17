@@ -169,5 +169,9 @@ const IssueExternalReference = (): JSX.Element => {
 }
 
 const IssueAIFixSection = (): JSX.Element => {
-    return <IssueAIFix />
+    return (
+        <ScenePanelLabel title="AI Assistant">
+            <IssueAIFix />
+        </ScenePanelLabel>
+    )
 }
