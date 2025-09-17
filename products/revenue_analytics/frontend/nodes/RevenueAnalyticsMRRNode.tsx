@@ -1,11 +1,10 @@
-import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { BindLogic, BuiltLogic, LogicWrapper, useActions, useMountedLogic, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconGraph } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonSegmentedButtonOption } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -21,7 +20,13 @@ import { GraphDataset } from '~/types'
 
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
 import { MRRBreakdownModal, mrrBreakdownModalLogic } from './modals'
-import { RevenueAnalyticsLineGraph, TileProps, TileWrapper, extractLabelAndDatasets } from './shared'
+import {
+    RevenueAnalyticsLineGraph,
+    TileProps,
+    TileWrapper,
+    extractLabelAndDatasets,
+    goalLinesFromRevenueGoals,
+} from './shared'
 
 const MODE_OPTIONS: LemonSegmentedButtonOption<'mrr' | 'arr'>[] = [
     { value: 'mrr', label: 'MRR' },
@@ -29,28 +34,33 @@ const MODE_OPTIONS: LemonSegmentedButtonOption<'mrr' | 'arr'>[] = [
 ]
 
 let uniqueNode = 0
+
 export function RevenueAnalyticsMRRNode(props: {
     query: RevenueAnalyticsMRRQuery
     cachedResults?: AnyResponseType
     context: QueryContext
+    attachTo?: LogicWrapper | BuiltLogic
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `RevenueAnalyticsMRR.${uniqueNode++}`)
 
+    const dataNodeLogicProps = {
+        query: props.query,
+        key,
+        cachedResults: props.cachedResults,
+        loadPriority,
+        onData,
+        dataNodeCollectionId: dataNodeCollectionId ?? key,
+    }
+
+    useAttachedLogic(insightLogic(props.context.insightProps ?? {}), props.attachTo)
+    useAttachedLogic(insightVizDataLogic(props.context.insightProps ?? {}), props.attachTo)
+    useAttachedLogic(dataNodeLogic(dataNodeLogicProps), props.attachTo)
+
     return (
         <BindLogic logic={insightLogic} props={props.context.insightProps ?? {}}>
             <BindLogic logic={insightVizDataLogic} props={props.context.insightProps ?? {}}>
-                <BindLogic
-                    logic={dataNodeLogic}
-                    props={{
-                        query: props.query,
-                        key,
-                        cachedResults: props.cachedResults,
-                        loadPriority,
-                        onData,
-                        dataNodeCollectionId: dataNodeCollectionId ?? key,
-                    }}
-                >
+                <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                     <Tile context={props.context} />
                 </BindLogic>
 
@@ -61,8 +71,7 @@ export function RevenueAnalyticsMRRNode(props: {
 }
 
 const Tile = ({ context }: TileProps): JSX.Element => {
-    const { baseCurrency, breakdownProperties, mrrMode } = useValues(revenueAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { baseCurrency, breakdownProperties, revenueGoals, mrrMode } = useValues(revenueAnalyticsLogic)
 
     const logic = useMountedLogic(dataNodeLogic)
     const { response, responseLoading } = useValues(logic)
@@ -101,24 +110,22 @@ const Tile = ({ context }: TileProps): JSX.Element => {
             tooltip="MRR is the total amount of recurring revenue generated from all sources, including all products and services in the last 30 days. ARR is that value multiplied by 12."
             extra={
                 <div className="flex items-center gap-1 text-muted-alt">
-                    {featureFlags[FEATURE_FLAGS.MRR_BREAKDOWN_REVENUE_ANALYTICS] && (
-                        <LemonButton
-                            icon={<IconGraph />}
-                            onClick={handleBreakdownClick}
-                            tooltip="View MRR breakdown"
-                            type="secondary"
-                            size="small"
-                            disabledReason={
-                                responseLoading
-                                    ? 'Waiting for data...'
-                                    : datasets.length === 0
-                                      ? 'No MRR data available'
-                                      : undefined
-                            }
-                        >
-                            MRR Breakdown
-                        </LemonButton>
-                    )}
+                    <LemonButton
+                        icon={<IconGraph />}
+                        onClick={handleBreakdownClick}
+                        tooltip="View MRR breakdown"
+                        type="secondary"
+                        size="small"
+                        disabledReason={
+                            responseLoading
+                                ? 'Waiting for data...'
+                                : datasets.length === 0
+                                  ? 'No MRR data available'
+                                  : undefined
+                        }
+                    >
+                        MRR Breakdown
+                    </LemonButton>
 
                     <LemonSegmentedButton value={mrrMode} onChange={setMRRMode} options={MODE_OPTIONS} size="small" />
                 </div>
@@ -139,6 +146,10 @@ const Tile = ({ context }: TileProps): JSX.Element => {
                         aggregationAxisFormat: 'numeric',
                         aggregationAxisPrefix: isPrefix ? currencySymbol : undefined,
                         aggregationAxisPostfix: isPrefix ? undefined : currencySymbol,
+                        goalLines: goalLinesFromRevenueGoals(revenueGoals, 'mrr').map((goalLine) => ({
+                            ...goalLine,
+                            value: mrrMode === 'mrr' ? goalLine.value : goalLine.value * 12,
+                        })),
                     }}
                 />
             )}

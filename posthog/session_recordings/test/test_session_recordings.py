@@ -62,6 +62,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             first_timestamp=timestamp,
             last_timestamp=timestamp,
             ensure_analytics_event_in_session=False,
+            retention_period_days=90,
         )
 
     @parameterized.expand(
@@ -380,6 +381,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "start_time": ANY,
                 "start_url": "https://not-provided-by-test.com",
                 "storage": "object_storage",
+                "retention_period_days": None,
                 "viewed": False,
                 "viewers": [],
                 "ongoing": True,
@@ -579,6 +581,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             first_timestamp=base_time.isoformat(),
             last_timestamp=(base_time + relativedelta(seconds=30)).isoformat(),
             distinct_id="d1",
+            retention_period_days=30,
         )
 
         other_user = User.objects.create(email="paul@not-first-user.com")
@@ -616,6 +619,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "uuid": ANY,
             },
             "storage": "object_storage",
+            "retention_period_days": 30,
             "snapshot_source": "web",
             "ongoing": None,
             "activity_score": None,
@@ -807,8 +811,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     @patch(
-        "ee.session_recordings.session_recording_extensions.object_storage.copy_objects",
-        return_value=2,
+        "posthog.session_recordings.session_recording_v2_service.copy_to_lts",
+        return_value="some-lts-path",
     )
     def test_persist_session_recording(self, _mock_copy_objects: MagicMock) -> None:
         self.produce_replay_summary("user", "1", now() - relativedelta(days=1), team_id=self.team.pk)

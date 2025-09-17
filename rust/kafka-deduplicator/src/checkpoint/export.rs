@@ -10,7 +10,7 @@ use tracing::{debug, error, info, warn};
 
 use super::{CheckpointConfig, CheckpointUploader};
 use crate::kafka::types::Partition;
-use crate::rocksdb::deduplication_store::DeduplicationStore;
+use crate::store::DeduplicationStore;
 
 const CHECKPOINT_LAST_TIMESTAMP_GAUGE: &str = "checkpoint_last_timestamp";
 const CHECKPOINT_DURATION_HISTOGRAM: &str = "checkpoint_duration_seconds";

@@ -11,6 +11,8 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Breadcrumb } from '~/types'
 
 import { CampaignsTable } from './Campaigns/CampaignsTable'
@@ -46,10 +48,6 @@ export const messagingSceneLogic = kea<messagingSceneLogicType>([
             (_, p) => [p.tab],
             (tab): Breadcrumb[] => {
                 return [
-                    {
-                        key: Scene.Messaging,
-                        name: 'Messaging',
-                    },
                     {
                         key: [Scene.Messaging, tab],
                         name: capitalizeFirstLetter(tab.replaceAll('_', ' ')),
@@ -159,5 +157,10 @@ export function MessagingScene(): JSX.Element {
         },
     ]
 
-    return <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} />
+    return (
+        <SceneContent className="messaging">
+            <SceneTitleSection name="Messaging" resourceType={{ type: 'messaging' }} />
+            <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} />
+        </SceneContent>
+    )
 }

@@ -7,8 +7,8 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import PlanningStepStatus, TaskExecutionItem, TaskExecutionStatus
 
-from ee.hogai.utils.types import AssistantMessageUnion, BaseState, InsightArtifact, add_and_merge_messages
-from ee.hogai.utils.types.base import append, replace
+from ee.hogai.utils.types import AssistantMessageUnion, InsightArtifact, add_and_merge_messages
+from ee.hogai.utils.types.base import BaseStateWithMessages, append, replace
 
 
 class DeepResearchTodo(BaseModel):
@@ -43,7 +43,7 @@ class DeepResearchIntermediateResult(BaseModel):
     artifact_ids: list[str] = Field(default=[])
 
 
-class _SharedDeepResearchState(BaseState):
+class _SharedDeepResearchState(BaseStateWithMessages):
     todos: Annotated[Optional[list[DeepResearchTodo]], replace] = Field(default=None)
     """
     The current TO-DO list.

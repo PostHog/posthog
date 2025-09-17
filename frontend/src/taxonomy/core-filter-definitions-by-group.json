@@ -26,6 +26,11 @@
             "description": "The current assignee of an issue.",
             "label": "Issue assignee"
         },
+        "first_seen": {
+            "description": "The first time the issue was seen.",
+            "label": "Issue first seen",
+            "type": "DateTime"
+        },
         "issue_description": {
             "description": "The description of an issue.",
             "label": "Issue description"

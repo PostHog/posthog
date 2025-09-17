@@ -15,6 +15,7 @@ use axum::response::{IntoResponse, Response};
 use axum::{debug_handler, Json};
 use axum_client_ip::InsecureClientIp;
 use bytes::Bytes;
+use serde_json;
 use std::collections::HashMap;
 use tracing::Instrument;
 use uuid::Uuid;
@@ -28,27 +29,24 @@ struct LogContext<'a> {
     request_id: Uuid,
     is_from_decide: bool,
     query_version: Option<i32>,
-    mapped_version: Option<i32>,
+    response_format: &'a str,
 }
 
-/// Maps decide endpoint versions to flags endpoint versions
-/// decide v3 -> flags v1
-/// decide v4 -> flags v2
-/// All other versions pass through unchanged
-fn map_decide_version(query_version: Option<i32>, is_from_decide: bool) -> Option<i32> {
-    if is_from_decide {
-        match query_version {
-            Some(3) => Some(1),
-            Some(4) => Some(2),
-            other => other,
-        }
-    } else {
-        query_version
-    }
+/// Extracts request ID from X-REQUEST-ID header, falling back to generating a new UUID if not present or invalid
+/// Good for tracing logs from the Contour layer all the way to the property evaluation
+fn extract_request_id(headers: &HeaderMap) -> Uuid {
+    headers
+        .get("X-REQUEST-ID")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<Uuid>().ok())
+        .unwrap_or_else(Uuid::new_v4)
 }
 
-fn get_minimal_flags_response(version: Option<&str>) -> Result<Json<ServiceResponse>, FlagError> {
-    let request_id = Uuid::new_v4();
+fn get_minimal_flags_response(
+    headers: &HeaderMap,
+    version: Option<&str>,
+) -> Result<Json<ServiceResponse>, FlagError> {
+    let request_id = extract_request_id(headers);
 
     // Parse version string to determine response format
     let version_num = version.map(|v| v.parse::<i32>().unwrap_or(1)).unwrap_or(1);
@@ -56,6 +54,10 @@ fn get_minimal_flags_response(version: Option<&str>) -> Result<Json<ServiceRespo
     // Create minimal config response
     let config = ConfigResponse {
         supported_compression: vec!["gzip".to_string(), "gzip-js".to_string()],
+        config: Some(serde_json::json!({"enable_collect_everything": true})),
+        toolbar_params: Some(serde_json::json!({})),
+        is_authenticated: Some(false),
+        session_recording: Some(crate::api::types::SessionRecordingField::Disabled(false)),
         ..Default::default()
     };
 
@@ -78,6 +80,64 @@ fn get_minimal_flags_response(version: Option<&str>) -> Result<Json<ServiceRespo
     Ok(Json(service_response))
 }
 
+/// Determines the response format based on whether the request came from decide and the version parameter.
+///
+/// When the request is from decide (X-Original-Endpoint: decide):
+/// - v=1 or missing -> DecideV1 response format
+/// - v=2 -> DecideV2 response format  
+/// - v=3 -> FlagsV1 response format
+/// - v>=4 -> FlagsV2 response format
+///
+/// When the request is not from decide:
+/// - v>=2 -> FlagsV2 response format
+/// - v=1 or missing -> FlagsV1 response format
+///
+/// Returns a tuple of (response, format_name) for logging purposes
+fn get_versioned_response(
+    is_from_decide: bool,
+    version: Option<i32>,
+    response: FlagsResponse,
+) -> Result<(ServiceResponse, &'static str), FlagError> {
+    if is_from_decide {
+        match version {
+            Some(1) | None => Ok((
+                ServiceResponse::DecideV1(crate::api::types::DecideV1Response::from_response(
+                    response,
+                )),
+                "DecideV1",
+            )),
+            Some(2) => Ok((
+                ServiceResponse::DecideV2(crate::api::types::DecideV2Response::from_response(
+                    response,
+                )),
+                "DecideV2",
+            )),
+            Some(3) => Ok((
+                ServiceResponse::Default(LegacyFlagsResponse::from_response(response)),
+                "FlagsV1",
+            )),
+            Some(v) if v >= 4 => Ok((ServiceResponse::V2(response), "FlagsV2")),
+            Some(_) => {
+                // Any other version defaults to DecideV1
+                Ok((
+                    ServiceResponse::DecideV1(crate::api::types::DecideV1Response::from_response(
+                        response,
+                    )),
+                    "DecideV1",
+                ))
+            }
+        }
+    } else {
+        match version {
+            Some(v) if v >= 2 => Ok((ServiceResponse::V2(response), "FlagsV2")),
+            _ => Ok((
+                ServiceResponse::Default(LegacyFlagsResponse::from_response(response)),
+                "FlagsV1",
+            )),
+        }
+    }
+}
+
 /// Feature flag evaluation endpoint.
 /// Only supports a specific shape of data, and rejects any malformed data.
 #[debug_handler]
@@ -90,13 +150,16 @@ pub async fn flags(
     path: MatchedPath,
     body: Bytes,
 ) -> Result<Response, FlagError> {
-    let request_id = Uuid::new_v4();
+    let request_id = extract_request_id(&headers);
 
     // Handle different HTTP methods
     match method {
         Method::GET => {
             // GET requests return minimal flags response
-            return Ok(get_minimal_flags_response(query_params.version.as_deref())?.into_response());
+            return Ok(
+                get_minimal_flags_response(&headers, query_params.version.as_deref())?
+                    .into_response(),
+            );
         }
         Method::POST => {
             // POST requests continue with full processing logic below
@@ -168,23 +231,6 @@ pub async fn flags(
         .as_deref()
         .map(|v| v.parse::<i32>().unwrap_or(1));
 
-    // Apply version mapping for decide endpoint
-    let version = map_decide_version(query_version, is_from_decide);
-
-    // Log request info at info level for visibility
-    let log_context = LogContext {
-        headers: &headers,
-        query_params: &query_params,
-        method: &method,
-        path: &path,
-        ip: &ip.to_string(),
-        request_id,
-        is_from_decide,
-        query_version,
-        mapped_version: version,
-    };
-    log_request_info(log_context);
-
     // Create debug span for detailed tracing when debugging
     let _span = create_request_span(
         &headers,
@@ -199,14 +245,24 @@ pub async fn flags(
         .instrument(_span)
         .await?;
 
-    let versioned_response: Result<ServiceResponse, FlagError> = match version {
-        Some(v) if v >= 2 => Ok(ServiceResponse::V2(response)),
-        _ => Ok(ServiceResponse::Default(
-            LegacyFlagsResponse::from_response(response),
-        )),
-    };
+    // Determine the response format based on whether request is from decide and version
+    let (versioned_response, response_format) =
+        get_versioned_response(is_from_decide, query_version, response)?;
 
-    Ok(Json(versioned_response?).into_response())
+    let log_context = LogContext {
+        headers: &headers,
+        query_params: &query_params,
+        method: &method,
+        path: &path,
+        ip: &ip.to_string(),
+        request_id,
+        is_from_decide,
+        query_version,
+        response_format,
+    };
+    log_request_info(log_context);
+
+    Ok(Json(versioned_response).into_response())
 }
 
 fn log_request_info(ctx: LogContext) {
@@ -238,7 +294,7 @@ fn log_request_info(ctx: LogContext) {
         request_id = %ctx.request_id,
         is_from_decide = %ctx.is_from_decide,
         query_version = ?ctx.query_version,
-        mapped_version = ?ctx.mapped_version,
+        response_format = %ctx.response_format,
         "Processing request"
     );
 }
@@ -288,30 +344,6 @@ mod tests {
         extract::{FromRequest, Request},
         http::Uri,
     };
-
-    #[test]
-    fn test_map_decide_version() {
-        // Test decide v3 -> flags v1
-        assert_eq!(map_decide_version(Some(3), true), Some(1));
-
-        // Test decide v4 -> flags v2
-        assert_eq!(map_decide_version(Some(4), true), Some(2));
-
-        // Test non-decide v3 stays v3
-        assert_eq!(map_decide_version(Some(3), false), Some(3));
-
-        // Test non-decide v4 stays v4
-        assert_eq!(map_decide_version(Some(4), false), Some(4));
-
-        // Test decide with other versions unchanged
-        assert_eq!(map_decide_version(Some(1), true), Some(1));
-        assert_eq!(map_decide_version(Some(2), true), Some(2));
-        assert_eq!(map_decide_version(Some(5), true), Some(5));
-
-        // Test None version stays None
-        assert_eq!(map_decide_version(None, true), None);
-        assert_eq!(map_decide_version(None, false), None);
-    }
 
     #[tokio::test]
     async fn test_query_param_extraction() {
@@ -418,5 +450,36 @@ mod tests {
 
         assert_eq!(params_config_missing.version, Some("1".to_string()));
         assert_eq!(params_config_missing.config, None);
+    }
+
+    #[test]
+    fn test_extract_request_id() {
+        use axum::http::HeaderValue;
+
+        // Test with valid UUID in header
+        let mut headers = HeaderMap::new();
+        let valid_uuid = "550e8400-e29b-41d4-a716-446655440000";
+        headers.insert("x-request-id", HeaderValue::from_static(valid_uuid));
+
+        let extracted_id = extract_request_id(&headers);
+        assert_eq!(extracted_id.to_string(), valid_uuid);
+
+        // Test with invalid UUID in header - should generate new UUID
+        let mut headers_invalid = HeaderMap::new();
+        headers_invalid.insert("x-request-id", HeaderValue::from_static("invalid-uuid"));
+
+        let extracted_id_invalid = extract_request_id(&headers_invalid);
+        // Should be a valid UUID (not the invalid string)
+        assert_ne!(extracted_id_invalid.to_string(), "invalid-uuid");
+        assert!(extracted_id_invalid.to_string().len() == 36); // UUID format
+
+        // Test without header - should generate new UUID
+        let empty_headers = HeaderMap::new();
+        let extracted_id_empty = extract_request_id(&empty_headers);
+        assert!(extracted_id_empty.to_string().len() == 36); // UUID format
+
+        // Two calls without header should generate different UUIDs
+        let extracted_id_empty2 = extract_request_id(&empty_headers);
+        assert_ne!(extracted_id_empty, extracted_id_empty2);
     }
 }

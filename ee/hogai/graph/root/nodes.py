@@ -31,6 +31,7 @@ from posthog.schema import (
     HumanMessage,
     MaxInsightContext,
     MaxUIContext,
+    ReasoningMessage,
     RetentionQuery,
     TrendsQuery,
 )
@@ -41,12 +42,15 @@ from posthog.hogql_queries.apply_dashboard_filters import (
 )
 from posthog.models.organization import OrganizationMembership
 
+from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
+from ee.hogai.utils.helpers import find_last_ui_context
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import BaseState, BaseStateWithMessages
 
-from ..base import AssistantNode
 from .prompts import (
     ROOT_BILLING_CONTEXT_ERROR_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
@@ -298,6 +302,16 @@ class RootNode(RootNodeUIContextMixin):
     Determines the maximum number of tool calls allowed in a single generation.
     """
     CONVERSATION_WINDOW_SIZE = 64000
+
+    async def get_reasoning_message(
+        self, input: BaseState, default_message: Optional[str] = None
+    ) -> ReasoningMessage | None:
+        if not isinstance(input, BaseStateWithMessages):
+            return None
+        ui_context = find_last_ui_context(input.messages)
+        if ui_context and (ui_context.dashboards or ui_context.insights):
+            return ReasoningMessage(content="Calculating context")
+        return None
 
     def _has_session_summarization_feature_flag(self) -> bool:
         """
@@ -629,6 +643,38 @@ class RootNode(RootNodeUIContextMixin):
 
 
 class RootNodeTools(AssistantNode):
+    async def get_reasoning_message(
+        self, input: BaseState, default_message: Optional[str] = None
+    ) -> ReasoningMessage | None:
+        if not isinstance(input, BaseStateWithMessages):
+            return None
+        if not input.messages:
+            return None
+        assert isinstance(input.messages[-1], AssistantMessage)
+        tool_calls = input.messages[-1].tool_calls or []
+        assert len(tool_calls) <= 1
+        if len(tool_calls) == 0:
+            return None
+        tool_call = tool_calls[0]
+        content = None
+        if tool_call.name == "create_and_query_insight":
+            content = "Coming up with an insight"
+        elif tool_call.name == "search_documentation":
+            content = "Checking PostHog docs"
+        elif tool_call.name == "retrieve_billing_information":
+            content = "Checking your billing data"
+        else:
+            # This tool should be in CONTEXTUAL_TOOL_NAME_TO_TOOL, but it might not be in the rare case
+            # when the tool has been removed from the backend since the user's frontend was loaded
+            ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL.get(tool_call.name)  # type: ignore
+            content = (
+                ToolClass(team=self._team, user=self._user).thinking_message
+                if ToolClass
+                else f"Running tool {tool_call.name}"
+            )
+
+        return ReasoningMessage(content=content) if content else None
+
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_message = state.messages[-1]
         if not isinstance(last_message, AssistantMessage) or not last_message.tool_calls:

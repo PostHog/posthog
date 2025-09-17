@@ -7,10 +7,13 @@ export function PythonInstructions(): JSX.Element {
         <>
             <SDKInstallPythonInstructions enableExceptionAutocapture />
             <p>
-                If you're using Django 4.2+, you can enable the exception autocapture integration which will also
+                If you're using Django, you can enable the exception autocapture middleware which will also
                 automatically capture Django errors.
             </p>
-            <PythonSetupSnippet enableExceptionAutocapture djangoIntegration />
+            <CodeSnippet language={Language.Python}>
+                MIDDLEWARE += ["posthog.integrations.django.PosthogContextMiddleware”]
+            </CodeSnippet>
+            <PythonSetupSnippet enableExceptionAutocapture />
             <h4>Optional: Capture exceptions manually</h4>
             <p>If you'd like, you can manually capture exceptions that you handle in your application.</p>
             <CodeSnippet language={Language.Python}>

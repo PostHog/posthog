@@ -11,6 +11,9 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { performQuery } from '~/queries/query'
 import {
     ExperimentMetric,
@@ -165,19 +168,19 @@ export function ExperimentMetricForm({
     const hideDeleteBtn = (_: any, index: number): boolean => index === 0
 
     return (
-        <div className="deprecated-space-y-4">
-            <div>
-                <LemonLabel className="mb-1">Type</LemonLabel>
-                <LemonRadio
-                    data-attr="metrics-selector"
-                    value={metric.metric_type}
-                    onChange={handleMetricTypeChange}
-                    options={radioOptions}
-                />
-            </div>
-            <div>
-                <LemonLabel className="mb-1">Metric</LemonLabel>
-
+        <SceneContent>
+            <SceneSection title="Shared metric type" className="max-w-prose">
+                <div>
+                    <LemonRadio
+                        data-attr="metrics-selector"
+                        value={metric.metric_type}
+                        onChange={handleMetricTypeChange}
+                        options={radioOptions}
+                    />
+                </div>
+            </SceneSection>
+            <SceneDivider />
+            <SceneSection title="Metric" className="max-w-prose">
                 {isExperimentMeanMetric(metric) && (
                     <>
                         <ActionFilter
@@ -219,7 +222,7 @@ export function ExperimentMetricForm({
                         typeKey="experiment-metric"
                         buttonCopy="Add step"
                         showSeriesIndicator={false}
-                        hideRename={true}
+                        hideRename={false}
                         hideDeleteBtn={hideDeleteBtn}
                         sortable={true}
                         showNestedArrow={true}
@@ -297,52 +300,60 @@ export function ExperimentMetricForm({
                         </div>
                     </div>
                 )}
-            </div>
-            <div>
-                <LemonLabel className="mb-1">Goal</LemonLabel>
-                <LemonSelect<ExperimentMetricGoal>
-                    value={metric.goal || ExperimentMetricGoal.Increase}
-                    onChange={(value) => handleSetMetric({ ...metric, goal: value })}
-                    options={[
-                        { value: ExperimentMetricGoal.Increase, label: 'Increase' },
-                        { value: ExperimentMetricGoal.Decrease, label: 'Decrease' },
-                    ]}
-                />
-                <div className="text-muted text-sm mt-1">
-                    For example, conversion rates should increase, while bounce rates should decrease.
+            </SceneSection>
+            <SceneDivider />
+            <SceneSection title="Goal" className="max-w-prose">
+                <div className="flex flex-col gap-1">
+                    <LemonSelect<ExperimentMetricGoal>
+                        value={metric.goal || ExperimentMetricGoal.Increase}
+                        onChange={(value) => handleSetMetric({ ...metric, goal: value })}
+                        options={[
+                            { value: ExperimentMetricGoal.Increase, label: 'Increase' },
+                            { value: ExperimentMetricGoal.Decrease, label: 'Decrease' },
+                        ]}
+                    />
+                    <div className="text-muted text-sm">
+                        For example, conversion rates should increase, while bounce rates should decrease.
+                    </div>
                 </div>
-            </div>
+            </SceneSection>
+            <SceneDivider />
             <ExperimentMetricConversionWindowFilter metric={metric} handleSetMetric={handleSetMetric} />
+            <SceneDivider />
             {isExperimentFunnelMetric(metric) && (
-                <ExperimentMetricFunnelOrderSelector metric={metric} handleSetMetric={handleSetMetric} />
+                <>
+                    <ExperimentMetricFunnelOrderSelector metric={metric} handleSetMetric={handleSetMetric} />
+                    <SceneDivider />
+                </>
             )}
             {isExperimentMeanMetric(metric) && (
-                <ExperimentMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
+                <>
+                    <ExperimentMetricOutlierHandling metric={metric} handleSetMetric={handleSetMetric} />
+                    <SceneDivider />
+                </>
             )}
-            <div>
-                <LemonLabel
-                    className="mb-1"
-                    info={
-                        <div className="flex flex-col gap-2">
-                            <div>This shows recent activity for your selected metric over the past 2 weeks.</div>
-                            <div>
-                                It's a quick health check to ensure your tracking is working properly, so that you'll
-                                receive accurate results when your experiment starts.
-                            </div>
-                            <div>
-                                If you see zero activity, double-check that this metric is being tracked properly in
-                                your application. Head to{' '}
-                                <Link target="_blank" className="font-semibold" to={urls.insightNew()}>
-                                    Product analytics
-                                    <IconOpenInNew fontSize="18" />
-                                </Link>{' '}
-                                to do a detailed analysis of the events received so far.
-                            </div>
+            <SceneSection
+                title="Recent activity"
+                className="max-w-prose"
+                titleHelper={
+                    <div className="flex flex-col gap-2">
+                        <div>This shows recent activity for your selected metric over the past 2 weeks.</div>
+                        <div>
+                            It's a quick health check to ensure your tracking is working properly, so that you'll
+                            receive accurate results when your experiment starts.
                         </div>
-                    }
-                >
-                    Recent activity
-                </LemonLabel>
+                        <div>
+                            If you see zero activity, double-check that this metric is being tracked properly in your
+                            application. Head to{' '}
+                            <Link target="_blank" className="font-semibold" to={urls.insightNew()}>
+                                Product analytics
+                                <IconOpenInNew fontSize="18" />
+                            </Link>{' '}
+                            to do a detailed analysis of the events received so far.
+                        </div>
+                    </div>
+                }
+            >
                 <div className="border rounded p-4 bg-bg-light">
                     {isLoading ? (
                         <div className="flex items-center gap-2">
@@ -362,7 +373,7 @@ export function ExperimentMetricForm({
                         </div>
                     )}
                 </div>
-            </div>
-        </div>
+            </SceneSection>
+        </SceneContent>
     )
 }

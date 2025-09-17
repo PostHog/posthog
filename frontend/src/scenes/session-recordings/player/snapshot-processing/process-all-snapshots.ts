@@ -27,25 +27,26 @@ import {
 
 import { PostHogEE } from '../../../../../@posthog/ee/types'
 
+export type ProcessingCache = Record<SourceKey, RecordingSnapshot[]>
 /**
- * NB this both mutates and returns snapshotsBySource
+ * NB this mutates processingCache and returns the processed snapshots
  *
  * there are several steps to processing snapshots as received from the API
  * before they are playable, vanilla rrweb data
  */
 export function processAllSnapshots(
     sources: SessionRecordingSnapshotSource[] | null,
-    snapshotsBySource: Record<SourceKey | 'processed', SessionRecordingSnapshotSourceResponse> | null,
+    snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> | null,
+    processingCache: ProcessingCache,
     viewportForTimestamp: (timestamp: number) => ViewportResolution | undefined,
     sessionRecordingId: string
-): Record<SourceKey | 'processed', SessionRecordingSnapshotSourceResponse> {
+): RecordingSnapshot[] {
     if (!sources || !snapshotsBySource) {
-        return { processed: {} }
+        return []
     }
 
     const result: RecordingSnapshot[] = []
     const matchedExtensions = new Set<string>()
-    const seenHashes: Set<string> = new Set()
 
     let metaCount = 0
     let fullSnapshotCount = 0
@@ -54,34 +55,56 @@ export function processAllSnapshots(
     // since it could be large and processed more than once,
     // so we need to do as little as possible, as fast as possible
     for (const source of sources) {
+        // const seenTimestamps: Set<number> = new Set()
         const sourceKey = keyForSource(source)
 
-        if (snapshotsBySource?.[sourceKey]?.processed) {
+        if (sourceKey in processingCache) {
             // If we already processed this source, skip it
             // here we loop and push one by one, to avoid a spread on a large array
-            for (const snapshot of snapshotsBySource[sourceKey].snapshots || []) {
+            for (const snapshot of processingCache[sourceKey]) {
                 result.push(snapshot)
             }
             continue
         }
 
+        if (!(sourceKey in snapshotsBySource)) {
+            continue
+        }
+
         // sorting is very cheap for already sorted lists
-        const sourceSnapshots = (snapshotsBySource?.[sourceKey]?.snapshots || []).sort(
-            (a, b) => a.timestamp - b.timestamp
-        )
-
+        const sourceSnapshots = snapshotsBySource[sourceKey].snapshots || []
         const sourceResult: RecordingSnapshot[] = []
+        const sortedSnapshots = sourceSnapshots.sort((a, b) => a.timestamp - b.timestamp)
+        let snapshotIndex = 0
+        let previousTimestamp = null
+        let seenHashes = new Set<number>()
 
-        for (const snapshot of sourceSnapshots) {
-            const { delay: _delay, ...delayFreeSnapshot } = snapshot
+        while (snapshotIndex < sortedSnapshots.length) {
+            let snapshot = sortedSnapshots[snapshotIndex]
+            let currentTimestamp = snapshot.timestamp
 
-            const key = (snapshot as any).seen || cyrb53(JSON.stringify(delayFreeSnapshot))
-            ;(snapshot as any).seen = key
-
-            if (seenHashes.has(key)) {
-                continue
+            // Hashing is expensive, so we only do it when events have the same timestamp
+            if (currentTimestamp === previousTimestamp) {
+                if (seenHashes.size === 0) {
+                    seenHashes.add(hashSnapshot(sortedSnapshots[snapshotIndex - 1]))
+                }
+                const snapshotHash = hashSnapshot(snapshot)
+                if (!seenHashes.has(snapshotHash)) {
+                    seenHashes.add(snapshotHash)
+                } else {
+                    throttleCapture(`${sessionRecordingId}-duplicate-snapshot`, () => {
+                        posthog.capture('session recording has duplicate snapshots', {
+                            sessionRecordingId,
+                            sourceKey: sourceKey,
+                        })
+                    })
+                    // Duplicate snapshot found, skip it
+                    snapshotIndex++
+                    continue
+                }
+            } else {
+                seenHashes = new Set<number>()
             }
-            seenHashes.add(key)
 
             if (snapshot.type === EventType.Meta) {
                 metaCount += 1
@@ -114,18 +137,13 @@ export function processAllSnapshots(
                     })
                 }
             }
-
-            sourceResult.push(snapshot)
-        }
-
-        snapshotsBySource[sourceKey] = snapshotsBySource[sourceKey] || {}
-        snapshotsBySource[sourceKey].snapshots = sourceResult
-        snapshotsBySource[sourceKey].processed = true
-        // doing push.apply to mutate the original array
-        // and avoid a spread on a large array
-        for (const snapshot of sourceResult) {
             result.push(snapshot)
+            sourceResult.push(snapshot)
+            previousTimestamp = currentTimestamp
+            snapshotIndex++
         }
+
+        processingCache[sourceKey] = sourceResult
     }
 
     // sorting is very cheap for already sorted lists
@@ -133,15 +151,7 @@ export function processAllSnapshots(
 
     // Optional second pass: patch meta-events on the sorted array
     const needToPatchMeta = fullSnapshotCount > 0 && fullSnapshotCount > metaCount
-    snapshotsBySource['processed'] = {
-        source: 'processed',
-        processed: true,
-        sourceLoaded: true,
-        snapshots: needToPatchMeta
-            ? patchMetaEventIntoWebData(result, viewportForTimestamp, sessionRecordingId)
-            : result,
-    }
-    return snapshotsBySource
+    return needToPatchMeta ? patchMetaEventIntoWebData(result, viewportForTimestamp, sessionRecordingId) : result
 }
 
 let postHogEEModule: PostHogEE
@@ -168,6 +178,11 @@ export function hasAnyWireframes(snapshotData: Record<string, any>[]): boolean {
     return snapshotData.some((d) => {
         return mobileFullSnapshot(d) || mobileIncrementalUpdate(d)
     })
+}
+
+function hashSnapshot(snapshot: RecordingSnapshot): number {
+    const { delay, ...delayFreeSnapshot } = snapshot
+    return cyrb53(JSON.stringify(delayFreeSnapshot))
 }
 
 /**

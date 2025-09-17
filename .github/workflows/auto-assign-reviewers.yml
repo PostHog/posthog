@@ -1,7 +1,7 @@
 name: Auto Assign Reviewers
 
 on:
-    pull_request:
+    pull_request_target:
         # Only opened or when clicking ready otherwise you can never remove the reviewers
         types: [opened, ready_for_review]
 
@@ -19,6 +19,7 @@ jobs:
               uses: actions/checkout@v4
               with:
                   fetch-depth: 0
+                  ref: ${{ github.event.pull_request.head.sha }}
 
             - name: Setup Node.js
               uses: actions/setup-node@v4
@@ -33,5 +34,7 @@ jobs:
                   GITHUB_TOKEN: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
                   GITHUB_REPOSITORY: ${{ github.repository }}
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
               run: |
                   node .github/scripts/assign-reviewers.js

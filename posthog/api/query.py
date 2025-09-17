@@ -35,7 +35,7 @@ from posthog.api.services.query import process_query_model
 from posthog.api.utils import action, is_insight_actors_options_query, is_insight_actors_query, is_insight_query
 from posthog.clickhouse.client.execute_async import cancel_query, get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
-from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
@@ -87,7 +87,12 @@ def _process_query_request(
         # Here in query endpoint we always want to calculate if the cache is stale
         execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
-    tag_queries(query=query.model_dump())
+    qt = get_query_tags()
+    if request_data.name:
+        qt.request_name = request_data.name
+    elif hasattr(request_data.query, "name") and isinstance(request_data.query.name, str):
+        qt.request_name = request_data.query.name
+    qt.query = query.model_dump()
 
     return query, query_id, execution_mode
 

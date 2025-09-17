@@ -85,6 +85,7 @@ class AssistantContextualTool(StrEnum):
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
+    ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
     SEARCH_DOCS = "search_docs"
     SEARCH_INSIGHTS = "search_insights"
     SESSION_SUMMARIZATION = "session_summarization"
@@ -1295,30 +1296,47 @@ class FileSystemEntry(BaseModel):
 
 
 class FileSystemIconType(StrEnum):
-    PLUG = "plug"
-    COHORT = "cohort"
-    INSIGHT = "insight"
-    DEFINITIONS = "definitions"
-    WARNING = "warning"
-    ERROR_TRACKING = "errorTracking"
-    AI = "ai"
-    CURSOR = "cursor"
+    DASHBOARD = "dashboard"
+    LLM_ANALYTICS = "llm_analytics"
+    PRODUCT_ANALYTICS = "product_analytics"
+    REVENUE_ANALYTICS = "revenue_analytics"
+    REVENUE_ANALYTICS_METADATA = "revenue_analytics_metadata"
+    MARKETING_SETTINGS = "marketing_settings"
+    EMBEDDED_ANALYTICS = "embedded_analytics"
+    SQL_EDITOR = "sql_editor"
+    WEB_ANALYTICS = "web_analytics"
+    ERROR_TRACKING = "error_tracking"
     HEATMAP = "heatmap"
-    DATABASE = "database"
-    FOLDER = "folder"
-    HAND_MONEY = "handMoney"
-    LIVE = "live"
-    NOTIFICATION = "notification"
-    PIE_CHART = "pieChart"
-    PIGGY_BANK = "piggyBank"
-    SQL = "sql"
-    INSIGHT_FUNNEL = "insightFunnel"
-    INSIGHT_TRENDS = "insightTrends"
-    INSIGHT_RETENTION = "insightRetention"
-    INSIGHT_USER_PATHS = "insightUserPaths"
-    INSIGHT_LIFECYCLE = "insightLifecycle"
-    INSIGHT_STICKINESS = "insightStickiness"
-    INSIGHT_HOG_QL = "insightHogQL"
+    SESSION_REPLAY = "session_replay"
+    SURVEY = "survey"
+    USER_INTERVIEW = "user_interview"
+    EARLY_ACCESS_FEATURE = "early_access_feature"
+    EXPERIMENT = "experiment"
+    FEATURE_FLAG = "feature_flag"
+    DATA_PIPELINE = "data_pipeline"
+    DATA_PIPELINE_METADATA = "data_pipeline_metadata"
+    DATA_WAREHOUSE = "data_warehouse"
+    TASK = "task"
+    LINK = "link"
+    LOGS = "logs"
+    MESSAGING = "messaging"
+    NOTEBOOK = "notebook"
+    ACTION = "action"
+    COMMENT = "comment"
+    ANNOTATION = "annotation"
+    EVENT_DEFINITION = "event_definition"
+    PROPERTY_DEFINITION = "property_definition"
+    INGESTION_WARNING = "ingestion_warning"
+    PERSON = "person"
+    COHORT = "cohort"
+    GROUP = "group"
+    INSIGHT_FUNNELS = "insight/funnels"
+    INSIGHT_TRENDS = "insight/trends"
+    INSIGHT_RETENTION = "insight/retention"
+    INSIGHT_PATHS = "insight/paths"
+    INSIGHT_LIFECYCLE = "insight/lifecycle"
+    INSIGHT_STICKINESS = "insight/stickiness"
+    INSIGHT_HOG = "insight/hog"
 
 
 class FileSystemImport(BaseModel):
@@ -1334,6 +1352,7 @@ class FileSystemImport(BaseModel):
     )
     flag: Optional[str] = None
     href: Optional[str] = Field(default=None, description="Object's URL")
+    iconColor: Optional[list[str]] = Field(default=None, description="Color of the icon")
     iconType: Optional[FileSystemIconType] = None
     id: Optional[str] = None
     meta: Optional[dict[str, Any]] = Field(default=None, description="Metadata")
@@ -1391,6 +1410,7 @@ class FunnelExclusionLegacy(BaseModel):
     id: Optional[Union[str, float]] = None
     index: Optional[float] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     order: Optional[float] = None
     type: Optional[EntityType] = None
 
@@ -1617,6 +1637,7 @@ class IntegrationKind(StrEnum):
     GITHUB = "github"
     META_ADS = "meta-ads"
     CLICKUP = "clickup"
+    REDDIT_ADS = "reddit-ads"
 
 
 class IntervalType(StrEnum):
@@ -1676,6 +1697,7 @@ class MarketingAnalyticsBaseColumns(StrEnum):
     IMPRESSIONS = "Impressions"
     CPC = "CPC"
     CTR = "CTR"
+    REPORTED_CONVERSION = "Reported Conversion"
 
 
 class MarketingAnalyticsColumnsSchemaNames(StrEnum):
@@ -1686,6 +1708,7 @@ class MarketingAnalyticsColumnsSchemaNames(StrEnum):
     DATE = "date"
     IMPRESSIONS = "impressions"
     SOURCE = "source"
+    REPORTED_CONVERSION = "reported_conversion"
 
 
 class MarketingAnalyticsHelperForColumnNames(StrEnum):
@@ -1911,6 +1934,7 @@ class NodeKind(StrEnum):
     EVENT_TAXONOMY_QUERY = "EventTaxonomyQuery"
     ACTORS_PROPERTY_TAXONOMY_QUERY = "ActorsPropertyTaxonomyQuery"
     TRACES_QUERY = "TracesQuery"
+    TRACE_QUERY = "TraceQuery"
     VECTOR_SEARCH_QUERY = "VectorSearchQuery"
 
 
@@ -2265,12 +2289,18 @@ class RevenueAnalyticsBreakdown(BaseModel):
     type: Literal["revenue_analytics"] = "revenue_analytics"
 
 
+class MrrOrGross(StrEnum):
+    MRR = "mrr"
+    GROSS = "gross"
+
+
 class RevenueAnalyticsGoal(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     due_date: str
     goal: float
+    mrr_or_gross: Optional[MrrOrGross] = MrrOrGross.GROSS
     name: str
 
 
@@ -2456,6 +2486,7 @@ class SourceMap(BaseModel):
     currency: Optional[str] = None
     date: Optional[str] = None
     impressions: Optional[str] = None
+    reported_conversion: Optional[str] = None
     source: Optional[str] = None
 
 
@@ -2499,6 +2530,15 @@ class SuggestedQuestionsQueryResponse(BaseModel):
         extra="forbid",
     )
     questions: list[str]
+
+
+class SurveyAnalysisResponseItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    isOpenEnded: Optional[bool] = Field(default=True, description="Whether this is an open-ended response")
+    responseText: Optional[str] = Field(default="", description="The response text content")
+    timestamp: Optional[str] = Field(default="", description="Response timestamp")
 
 
 class Value(BaseModel):
@@ -3910,6 +3950,10 @@ class HogQLQueryModifiers(BaseModel):
     sessionsV2JoinMode: Optional[SessionsV2JoinMode] = None
     timings: Optional[bool] = None
     useMaterializedViews: Optional[bool] = None
+    usePreaggregatedTableTransforms: Optional[bool] = Field(
+        default=None,
+        description="Try to automatically convert HogQL queries to use preaggregated tables at the AST level *",
+    )
     usePresortedEventsTable: Optional[bool] = None
     useWebAnalyticsPreAggregatedTables: Optional[bool] = None
 
@@ -4508,6 +4552,9 @@ class SavedInsightNode(BaseModel):
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
     showResults: Optional[bool] = None
     showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")
+    showSavedFilters: Optional[bool] = Field(
+        default=None, description="Show saved filters feature for this table (requires uniqueKey)"
+    )
     showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
     showTable: Optional[bool] = None
@@ -4621,6 +4668,7 @@ class SessionRecordingType(BaseModel):
     )
     person: Optional[PersonType] = None
     recording_duration: float = Field(..., description="Length of recording in seconds.")
+    retention_period_days: Optional[float] = Field(default=None, description="retention period for this recording")
     snapshot_source: SnapshotSource
     start_time: str = Field(..., description="When the recording starts in ISO format.")
     start_url: Optional[str] = None
@@ -4740,6 +4788,17 @@ class SuggestedQuestionsQuery(BaseModel):
     response: Optional[SuggestedQuestionsQueryResponse] = None
     tags: Optional[QueryLogTags] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class SurveyAnalysisQuestionGroup(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    questionId: Optional[str] = Field(default="unknown", description="Question identifier")
+    questionName: Optional[str] = Field(default="Unknown question", description="Question text")
+    responses: Optional[list[SurveyAnalysisResponseItem]] = Field(
+        default=[], description="List of responses for this question"
+    )
 
 
 class SurveyAppearanceSchema(BaseModel):
@@ -5614,6 +5673,7 @@ class AssistantTrendsActionsNode(BaseModel):
     math_property: Optional[str] = None
     math_property_type: Optional[str] = None
     name: str = Field(..., description="Action name from the plan.")
+    optionalInFunnel: Optional[bool] = None
     properties: Optional[
         list[
             Union[
@@ -5661,6 +5721,7 @@ class AssistantTrendsEventsNode(BaseModel):
     math_property: Optional[str] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     properties: Optional[
         list[
             Union[
@@ -7124,6 +7185,7 @@ class ConversionGoalFilter1(BaseModel):
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     orderBy: Optional[list[str]] = Field(default=None, description="Columns to order by")
     properties: Optional[
         list[
@@ -7209,6 +7271,7 @@ class ConversionGoalFilter2(BaseModel):
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     properties: Optional[
         list[
             Union[
@@ -7296,6 +7359,7 @@ class ConversionGoalFilter3(BaseModel):
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     properties: Optional[
         list[
             Union[
@@ -7858,6 +7922,7 @@ class DataWarehouseNode(BaseModel):
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     properties: Optional[
         list[
             Union[
@@ -7966,6 +8031,7 @@ class EntityNode(BaseModel):
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     properties: Optional[
         list[
             Union[
@@ -8177,6 +8243,7 @@ class EventsNode(BaseModel):
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     orderBy: Optional[list[str]] = Field(default=None, description="Columns to order by")
     properties: Optional[
         list[
@@ -8289,6 +8356,7 @@ class ExperimentDataWarehouseNode(BaseModel):
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     properties: Optional[
         list[
             Union[
@@ -8464,6 +8532,7 @@ class FunnelExclusionActionsNode(BaseModel):
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     properties: Optional[
         list[
             Union[
@@ -8548,6 +8617,7 @@ class FunnelExclusionEventsNode(BaseModel):
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     orderBy: Optional[list[str]] = Field(default=None, description="Columns to order by")
     properties: Optional[
         list[
@@ -10664,6 +10734,79 @@ class TeamTaxonomyQueryResponse(BaseModel):
     )
 
 
+class TileFilters(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown_filter: Optional[BreakdownFilter] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = None
+
+
+class TraceQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: Optional[DateRange] = None
+    filterTestAccounts: Optional[bool] = None
+    kind: Literal["TraceQuery"] = "TraceQuery"
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = Field(default=None, description="Properties configurable in the interface")
+    response: Optional[TracesQueryResponse] = None
+    tags: Optional[QueryLogTags] = None
+    traceId: str
+    version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class TracesQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10703,7 +10846,6 @@ class TracesQuery(BaseModel):
     response: Optional[TracesQueryResponse] = None
     showColumnConfigurator: Optional[bool] = None
     tags: Optional[QueryLogTags] = None
-    traceId: Optional[str] = None
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
@@ -11013,6 +11155,7 @@ class ActionsNode(BaseModel):
     math_property_revenue_currency: Optional[RevenueCurrencyPropertyConfig] = None
     math_property_type: Optional[str] = None
     name: Optional[str] = None
+    optionalInFunnel: Optional[bool] = None
     properties: Optional[
         list[
             Union[
@@ -11512,6 +11655,7 @@ class FunnelsFilter(BaseModel):
     resultCustomizations: Optional[dict[str, ResultCustomizationByValue]] = Field(
         default=None, description="Customizations for the appearance of result datasets."
     )
+    showValuesOnSeries: Optional[bool] = False
     useUdf: Optional[bool] = None
 
 
@@ -13461,6 +13605,7 @@ class VisualizationMessage(BaseModel):
     initiator: Optional[str] = None
     plan: Optional[str] = None
     query: Optional[str] = ""
+    short_id: Optional[str] = None
     type: Literal["ai/viz"] = "ai/viz"
 
 
@@ -13952,6 +14097,9 @@ class DataTableNode(BaseModel):
     )
     showReload: Optional[bool] = Field(default=None, description="Show a reload button")
     showResultsTable: Optional[bool] = Field(default=None, description="Show a results table")
+    showSavedFilters: Optional[bool] = Field(
+        default=None, description="Show saved filters feature for this table (requires uniqueKey)"
+    )
     showSavedQueries: Optional[bool] = Field(default=None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(default=None, description="Include a free text search field (PersonsNode only)")
     showTestAccountFilters: Optional[bool] = Field(default=None, description="Show filter to exclude test accounts")
@@ -13983,6 +14131,7 @@ class DataTableNode(BaseModel):
         ExperimentFunnelsQuery,
         ExperimentTrendsQuery,
         TracesQuery,
+        TraceQuery,
     ] = Field(..., description="Source of the events")
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -14042,6 +14191,7 @@ class HogQLAutocomplete(BaseModel):
             CalendarHeatmapQuery,
             RecordingsQuery,
             TracesQuery,
+            TraceQuery,
             VectorSearchQuery,
         ]
     ] = Field(default=None, description="Query in whose context to validate.")
@@ -14107,6 +14257,7 @@ class HogQLMetadata(BaseModel):
             CalendarHeatmapQuery,
             RecordingsQuery,
             TracesQuery,
+            TraceQuery,
             VectorSearchQuery,
         ]
     ] = Field(
@@ -14207,6 +14358,7 @@ class MaxInsightContext(BaseModel):
         EventTaxonomyQuery,
         ActorsPropertyTaxonomyQuery,
         TracesQuery,
+        TraceQuery,
         VectorSearchQuery,
     ] = Field(..., discriminator="kind")
     type: Literal["insight"] = "insight"
@@ -14232,6 +14384,12 @@ class QueryRequest(BaseModel):
         default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
     )
     filters_override: Optional[DashboardFilter] = None
+    name: Optional[str] = Field(
+        default=None,
+        description=(
+            "Name given to a query. It's used to identify the query in the UI. Up to 128 characters for a name."
+        ),
+    )
     query: Union[
         EventsNode,
         ActionsNode,
@@ -14289,6 +14447,7 @@ class QueryRequest(BaseModel):
         EventTaxonomyQuery,
         ActorsPropertyTaxonomyQuery,
         TracesQuery,
+        TraceQuery,
         VectorSearchQuery,
     ] = Field(
         ...,
@@ -14376,6 +14535,7 @@ class QuerySchemaRoot(
             EventTaxonomyQuery,
             ActorsPropertyTaxonomyQuery,
             TracesQuery,
+            TraceQuery,
             VectorSearchQuery,
         ]
     ]
@@ -14437,6 +14597,7 @@ class QuerySchemaRoot(
         EventTaxonomyQuery,
         ActorsPropertyTaxonomyQuery,
         TracesQuery,
+        TraceQuery,
         VectorSearchQuery,
     ] = Field(..., discriminator="kind")
 
@@ -14502,6 +14663,7 @@ class QueryUpgradeRequest(BaseModel):
         EventTaxonomyQuery,
         ActorsPropertyTaxonomyQuery,
         TracesQuery,
+        TraceQuery,
         VectorSearchQuery,
     ] = Field(..., discriminator="kind")
 
@@ -14567,6 +14729,7 @@ class QueryUpgradeResponse(BaseModel):
         EventTaxonomyQuery,
         ActorsPropertyTaxonomyQuery,
         TracesQuery,
+        TraceQuery,
         VectorSearchQuery,
     ] = Field(..., discriminator="kind")
 
@@ -14606,9 +14769,11 @@ class SourceConfig(BaseModel):
         extra="forbid",
     )
     betaSource: Optional[bool] = None
-    caption: Union[str, Any]
+    caption: Optional[Union[str, Any]] = None
     disabledReason: Optional[str] = None
+    docsUrl: Optional[str] = None
     existingSource: Optional[bool] = None
+    featureFlag: Optional[str] = None
     fields: list[
         Union[
             SourceFieldInputConfig,
@@ -14619,6 +14784,7 @@ class SourceConfig(BaseModel):
             SourceFieldSSHTunnelConfig,
         ]
     ]
+    iconPath: str
     label: Optional[str] = None
     name: ExternalDataSourceType
     unreleasedSource: Optional[bool] = None

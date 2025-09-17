@@ -1,8 +1,6 @@
-import { IconPiggyBank } from '@posthog/icons'
-
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
+import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
@@ -12,7 +10,7 @@ export const manifest: ProductManifest = {
             name: 'Revenue Analytics',
             import: () => import('./frontend/RevenueAnalyticsScene'),
             projectBased: true,
-            defaultDocsPath: '/docs/web-analytics/revenue-analytics',
+            defaultDocsPath: '/docs/revenue-analytics',
             activityScope: 'RevenueAnalytics',
         },
     },
@@ -29,13 +27,12 @@ export const manifest: ProductManifest = {
             href: urls.revenueAnalytics(),
             type: 'revenue',
             tags: ['beta'],
-            flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
         },
     ],
     fileSystemTypes: {
         revenue: {
             name: 'Revenue',
-            icon: <IconPiggyBank />,
+            iconType: 'revenue_analytics' as FileSystemIconType,
             href: () => urls.revenueAnalytics(),
             iconColor: ['var(--color-product-revenue-analytics-light)', 'var(--color-product-revenue-analytics-dark)'],
             filterKey: 'revenue',
@@ -45,16 +42,8 @@ export const manifest: ProductManifest = {
         {
             path: 'Revenue settings',
             category: 'Definitions',
-            iconType: 'handMoney',
+            iconType: 'revenue_analytics_metadata' as FileSystemIconType,
             href: urls.revenueSettings(),
-            flag: FEATURE_FLAGS.REVENUE_ANALYTICS,
-        },
-        {
-            path: 'Marketing settings',
-            category: 'Definitions',
-            iconType: 'definitions',
-            href: urls.marketingAnalytics(),
-            flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
         },
     ],
 }

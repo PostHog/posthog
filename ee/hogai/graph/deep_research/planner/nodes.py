@@ -1,5 +1,5 @@
 import logging
-from typing import Literal, cast
+from typing import Literal, Optional, cast
 from uuid import uuid4
 
 from langchain_core.messages import (
@@ -19,6 +19,7 @@ from posthog.schema import (
     PlanningMessage,
     PlanningStep,
     ProsemirrorJSONContent,
+    ReasoningMessage,
     VisualizationItem,
 )
 
@@ -49,6 +50,7 @@ from ee.hogai.graph.deep_research.types import (
 from ee.hogai.notebook.notebook_serializer import NotebookSerializer
 from ee.hogai.utils.helpers import extract_content_from_ai_message
 from ee.hogai.utils.types import WithCommentary
+from ee.hogai.utils.types.base import BaseState, BaseStateWithMessages
 
 logger = logging.getLogger(__name__)
 
@@ -181,6 +183,33 @@ class DeepResearchPlannerNode(DeepResearchNode):
 
 
 class DeepResearchPlannerToolsNode(DeepResearchNode):
+    async def get_reasoning_message(
+        self, input: BaseState, default_message: Optional[str] = None
+    ) -> ReasoningMessage | None:
+        if not isinstance(input, BaseStateWithMessages):
+            return None
+        if not input.messages:
+            return None
+        assert isinstance(input.messages[-1], AssistantMessage)
+        tool_calls = input.messages[-1].tool_calls or []
+        assert len(tool_calls) <= 1
+        if len(tool_calls) == 0:
+            return None
+        tool_call = tool_calls[0]
+        if tool_call.name == "todo_write":
+            return ReasoningMessage(content="Writing todos")
+        elif tool_call.name == "todo_read":
+            return ReasoningMessage(content="Reading todos")
+        elif tool_call.name == "artifacts_read":
+            return ReasoningMessage(content="Reading artifacts")
+        elif tool_call.name == "execute_tasks":
+            return ReasoningMessage(content="Executing tasks")
+        elif tool_call.name == "result_write":
+            return ReasoningMessage(content="Writing intermediate results")
+        elif tool_call.name == "finalize_research":
+            return ReasoningMessage(content="Finalizing research")
+        return None
+
     async def arun(self, state: DeepResearchState, config: RunnableConfig) -> PartialDeepResearchState:
         last_message = state.messages[-1]
         if not isinstance(last_message, AssistantMessage):

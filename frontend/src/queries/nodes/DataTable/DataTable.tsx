@@ -12,6 +12,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
+import { ViewLinkButton } from 'scenes/data-warehouse/ViewLinkModal'
 import { groupViewLogic } from 'scenes/groups/groupViewLogic'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
@@ -26,6 +27,8 @@ import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/data
 import { BackToSource } from '~/queries/nodes/DataTable/BackToSource'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
+import { DataTableSavedFilters } from '~/queries/nodes/DataTable/DataTableSavedFilters'
+import { DataTableSavedFiltersButton } from '~/queries/nodes/DataTable/DataTableSavedFiltersButton'
 import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
 import { InsightActorsQueryOptions } from '~/queries/nodes/DataTable/InsightActorsQueryOptions'
 import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
@@ -200,6 +203,7 @@ export function DataTable({
         showColumnConfigurator,
         showPersistentColumnConfigurator,
         showSavedQueries,
+        showSavedFilters,
         expandable,
         embedded,
         showOpenEditorButton,
@@ -632,6 +636,14 @@ export function DataTable({
                 taxonomicGroupTypes={Array.isArray(showPropertyFilter) ? showPropertyFilter : undefined}
             />
         ) : null,
+        showSavedFilters && uniqueKey ? (
+            <DataTableSavedFiltersButton
+                key="saved-filters-button"
+                uniqueKey={String(uniqueKey)}
+                query={query}
+                setQuery={setQuery}
+            />
+        ) : null,
         showPropertyFilter && sourceFeatures.has(QueryFeature.personPropertyFilters) ? (
             <PersonPropertyFilters
                 key="person-property"
@@ -675,6 +687,9 @@ export function DataTable({
     ].filter((x) => !!x)
 
     const secondRowRight = [
+        sourceFeatures.has(QueryFeature.linkDataButton) && hasCrmIterationOneEnabled ? (
+            <ViewLinkButton tableName="groups" />
+        ) : null,
         (showColumnConfigurator || showPersistentColumnConfigurator) &&
         sourceFeatures.has(QueryFeature.columnConfigurator) ? (
             <ColumnConfigurator key="column-configurator" query={query} setQuery={setQuery} />
@@ -724,6 +739,9 @@ export function DataTable({
                             {firstRowLeft.length > 0 && firstRowRight.length > 0 ? <div className="flex-1" /> : null}
                             {firstRowRight}
                         </div>
+                    )}
+                    {showSavedFilters && uniqueKey && (
+                        <DataTableSavedFilters uniqueKey={String(uniqueKey)} query={query} setQuery={setQuery} />
                     )}
                     {showFirstRow && showSecondRow && <LemonDivider className="my-0" />}
                     {showSecondRow && (

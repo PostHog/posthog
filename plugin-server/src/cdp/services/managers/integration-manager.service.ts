@@ -1,5 +1,5 @@
-import { EncryptedFields } from '~/cdp/encryption-utils'
 import { IntegrationType } from '~/cdp/types'
+import { EncryptedFields } from '~/cdp/utils/encryption-utils'
 import { PubSub } from '~/utils/pubsub'
 
 import { PostgresRouter, PostgresUse } from '../../../utils/db/postgres'

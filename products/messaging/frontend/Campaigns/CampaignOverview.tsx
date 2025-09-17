@@ -1,10 +1,9 @@
 import '@xyflow/react/dist/style.css'
 
-import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import posthog from 'posthog-js'
 
-import { IconBolt, IconLeave, IconPlusSmall, IconTarget } from '@posthog/icons'
+import { IconLeave, IconPlusSmall, IconTarget } from '@posthog/icons'
 import { LemonButton, LemonLabel, LemonTag, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -16,7 +15,6 @@ import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
 import { CampaignLogicProps, campaignLogic } from './campaignLogic'
-import { HogFlowFilters } from './hogflows/filters/HogFlowFilters'
 
 export function CampaignOverview(props: CampaignLogicProps): JSX.Element {
     return (
@@ -24,7 +22,6 @@ export function CampaignOverview(props: CampaignLogicProps): JSX.Element {
             <Form id="campaign-overview" logic={campaignLogic} props={props} formKey="campaign" enableFormOnSubmit>
                 <div className="flex flex-col flex-wrap gap-4 items-start">
                     <BasicInfoSection />
-                    <TriggerSection {...props} />
                     <ConversionGoalSection />
                     <ExitConditionSection />
                 </div>
@@ -42,37 +39,6 @@ function BasicInfoSection(): JSX.Element {
             <LemonField name="description" label="Description">
                 <LemonTextArea placeholder="Help your teammates understand this campaign" />
             </LemonField>
-        </div>
-    )
-}
-
-function TriggerSection(props: CampaignLogicProps): JSX.Element {
-    const logic = campaignLogic(props)
-    const { campaignValidationErrors } = useValues(logic)
-
-    return (
-        <div className="flex flex-col py-2 w-full">
-            <div className="flex flex-col">
-                <span className="flex items-center">
-                    <IconBolt className="text-lg" />
-                    <span className="text-lg font-semibold">Trigger event</span>
-                </span>
-                <p className="mb-0">Choose which events or actions will enter a user into the campaign.</p>
-            </div>
-            <LemonDivider />
-            <LemonField name={['trigger', 'filters']} className="max-w-200">
-                {({ value, onChange }) => (
-                    <HogFlowFilters
-                        filters={value ?? {}}
-                        setFilters={onChange}
-                        typeKey="campaign-trigger"
-                        buttonCopy="Add trigger event"
-                    />
-                )}
-            </LemonField>
-            {campaignValidationErrors.trigger?.filters && (
-                <span className="text-danger text-sm mt-2">{campaignValidationErrors.trigger.filters}</span>
-            )}
         </div>
     )
 }

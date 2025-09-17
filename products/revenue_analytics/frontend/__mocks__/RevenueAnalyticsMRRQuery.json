@@ -42,12 +42,12 @@
                         "2025-04-01T00:00:00-03:00",
                         "2025-05-01T00:00:00-03:00"
                     ],
-                    "id": "stripe.prod",
-                    "name": "stripe.prod"
+                    "id": "stripe.saas",
+                    "name": "stripe.saas"
                 },
-                "data": [57108.46, 96657.07, 58204.82, 7459.76, 65818.62],
+                "data": [47108.46, 57657.07, 67204.82, 62259.76, 67818.62],
                 "days": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
-                "label": "stripe.prod",
+                "label": "stripe.saas",
                 "labels": ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
             },
             "new": {
@@ -59,12 +59,12 @@
                         "2025-04-01T00:00:00-03:00",
                         "2025-05-01T00:00:00-03:00"
                     ],
-                    "id": "New | stripe.prod",
-                    "name": "New | stripe.prod"
+                    "id": "New | stripe.saas",
+                    "name": "New | stripe.saas"
                 },
                 "data": [7108.46, 6657.07, 8204.82, 459.76, 5818.62],
                 "days": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
-                "label": "New | stripe.prod",
+                "label": "New | stripe.saas",
                 "labels": ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
             },
             "expansion": {
@@ -76,12 +76,12 @@
                         "2025-04-01T00:00:00-03:00",
                         "2025-05-01T00:00:00-03:00"
                     ],
-                    "id": "Expansion | stripe.prod",
-                    "name": "Expansion | stripe.prod"
+                    "id": "Expansion | stripe.saas",
+                    "name": "Expansion | stripe.saas"
                 },
                 "data": [108.46, 657.07, 204.82, 59.76, 818.62],
                 "days": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
-                "label": "Expansion | stripe.prod",
+                "label": "Expansion | stripe.saas",
                 "labels": ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
             },
             "contraction": {
@@ -93,12 +93,12 @@
                         "2025-04-01T00:00:00-03:00",
                         "2025-05-01T00:00:00-03:00"
                     ],
-                    "id": "Contraction | stripe.prod",
-                    "name": "Contraction | stripe.prod"
+                    "id": "Contraction | stripe.saas",
+                    "name": "Contraction | stripe.saas"
                 },
                 "data": [-5710.46, -9665.07, -5820.82, -745.76, -6581.62],
                 "days": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
-                "label": "Contraction | stripe.prod",
+                "label": "Contraction | stripe.saas",
                 "labels": ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
             },
             "churn": {
@@ -110,12 +110,12 @@
                         "2025-04-01T00:00:00-03:00",
                         "2025-05-01T00:00:00-03:00"
                     ],
-                    "id": "Churn | stripe.prod",
-                    "name": "Churn | stripe.prod"
+                    "id": "Churn | stripe.saas",
+                    "name": "Churn | stripe.saas"
                 },
                 "data": [-571.46, -966.07, -582.82, -74.76, -658.62],
                 "days": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
-                "label": "Churn | stripe.prod",
+                "label": "Churn | stripe.saas",
                 "labels": ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
             }
         },
@@ -129,12 +129,12 @@
                         "2025-04-01T00:00:00-03:00",
                         "2025-05-01T00:00:00-03:00"
                     ],
-                    "id": "stripe.dev",
-                    "name": "stripe.dev"
+                    "id": "stripe.merch",
+                    "name": "stripe.merch"
                 },
-                "data": [6657.07, 7500, 57108.46, 32000.82, 12818.62],
+                "data": [6657.07, 16500, 17108.46, 32000.82, 35818.62],
                 "days": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
-                "label": "stripe.dev",
+                "label": "stripe.merch",
                 "labels": ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
             },
             "new": {
@@ -146,12 +146,12 @@
                         "2025-04-01T00:00:00-03:00",
                         "2025-05-01T00:00:00-03:00"
                     ],
-                    "id": "New | stripe.dev",
-                    "name": "New | stripe.dev"
+                    "id": "New | stripe.merch",
+                    "name": "New | stripe.merch"
                 },
                 "data": [657.07, 500, 7108.46, 2000.82, 2818.62],
                 "days": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
-                "label": "New | stripe.dev",
+                "label": "New | stripe.merch",
                 "labels": ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
             },
             "expansion": {
@@ -163,12 +163,12 @@
                         "2025-04-01T00:00:00-03:00",
                         "2025-05-01T00:00:00-03:00"
                     ],
-                    "id": "Expansion | stripe.dev",
-                    "name": "Expansion | stripe.dev"
+                    "id": "Expansion | stripe.merch",
+                    "name": "Expansion | stripe.merch"
                 },
                 "data": [57.07, 0, 108.46, 0.82, 818.62],
                 "days": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
-                "label": "Expansion | stripe.dev",
+                "label": "Expansion | stripe.merch",
                 "labels": ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
             },
             "contraction": {
@@ -180,12 +180,12 @@
                         "2025-04-01T00:00:00-03:00",
                         "2025-05-01T00:00:00-03:00"
                     ],
-                    "id": "Contraction | stripe.dev",
-                    "name": "Contraction | stripe.dev"
+                    "id": "Contraction | stripe.merch",
+                    "name": "Contraction | stripe.merch"
                 },
                 "data": [-665.07, -750, -5710.46, -3200.82, -1281.62],
                 "days": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
-                "label": "Contraction | stripe.dev",
+                "label": "Contraction | stripe.merch",
                 "labels": ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
             },
             "churn": {
@@ -197,12 +197,12 @@
                         "2025-04-01T00:00:00-03:00",
                         "2025-05-01T00:00:00-03:00"
                     ],
-                    "id": "Churn | stripe.dev",
-                    "name": "Churn | stripe.dev"
+                    "id": "Churn | stripe.merch",
+                    "name": "Churn | stripe.merch"
                 },
                 "data": [-66.07, -75, -571.46, -320.82, -128.62],
                 "days": ["2025-01-01", "2025-02-01", "2025-03-01", "2025-04-01", "2025-05-01"],
-                "label": "Churn | stripe.dev",
+                "label": "Churn | stripe.merch",
                 "labels": ["Jan 2025", "Feb 2025", "Mar 2025", "Apr 2025", "May 2025"]
             }
         }

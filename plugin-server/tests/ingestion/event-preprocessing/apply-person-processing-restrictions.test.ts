@@ -1,9 +1,11 @@
-import { applyPersonProcessingRestrictions } from '../../../src/ingestion/event-preprocessing/apply-person-processing-restrictions'
+import { createApplyPersonProcessingRestrictionsStep } from '../../../src/ingestion/event-preprocessing/apply-person-processing-restrictions'
 import { IncomingEventWithTeam } from '../../../src/types'
 import { EventIngestionRestrictionManager } from '../../../src/utils/event-ingestion-restriction-manager'
+import { success } from '../../../src/worker/ingestion/event-pipeline/pipeline-step-result'
 
-describe('applyPersonProcessingRestrictions', () => {
+describe('createApplyPersonProcessingRestrictionsStep', () => {
     let eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    let step: ReturnType<typeof createApplyPersonProcessingRestrictionsStep>
 
     const createEventWithTeam = (overrides: any = {}): IncomingEventWithTeam => {
         const defaultEvent = {
@@ -34,6 +36,8 @@ describe('applyPersonProcessingRestrictions', () => {
         eventIngestionRestrictionManager = {
             shouldSkipPerson: jest.fn(),
         } as unknown as EventIngestionRestrictionManager
+
+        step = createApplyPersonProcessingRestrictionsStep(eventIngestionRestrictionManager)
     })
 
     it('should not modify event if no skip conditions', () => {
@@ -41,13 +45,15 @@ describe('applyPersonProcessingRestrictions', () => {
             event: { token: 'valid-token-abc', distinct_id: 'user-123', properties: { defaultProp: 'defaultValue' } },
             team: { person_processing_opt_out: false },
         })
+        const input = { eventWithTeam }
         jest.mocked(eventIngestionRestrictionManager.shouldSkipPerson).mockReturnValue(false)
 
-        applyPersonProcessingRestrictions(eventWithTeam, eventIngestionRestrictionManager)
+        const result = step(input)
 
-        expect(eventWithTeam.event.properties).toEqual({ defaultProp: 'defaultValue' })
-        expect(eventWithTeam.event.token).toBe('valid-token-abc')
-        expect(eventWithTeam.event.distinct_id).toBe('user-123')
+        expect(result).toEqual(success(input))
+        expect(input.eventWithTeam.event.properties).toEqual({ defaultProp: 'defaultValue' })
+        expect(input.eventWithTeam.event.token).toBe('valid-token-abc')
+        expect(input.eventWithTeam.event.distinct_id).toBe('user-123')
         expect(eventIngestionRestrictionManager.shouldSkipPerson).toHaveBeenCalledWith('valid-token-abc', 'user-123')
     })
 
@@ -56,11 +62,13 @@ describe('applyPersonProcessingRestrictions', () => {
             event: { token: 'restricted-token-def', distinct_id: 'restricted-user-456' },
             team: { person_processing_opt_out: false },
         })
+        const input = { eventWithTeam }
         jest.mocked(eventIngestionRestrictionManager.shouldSkipPerson).mockReturnValue(true)
 
-        applyPersonProcessingRestrictions(eventWithTeam, eventIngestionRestrictionManager)
+        const result = step(input)
 
-        expect(eventWithTeam.event.properties?.$process_person_profile).toBe(false)
+        expect(result).toEqual(success(input))
+        expect(input.eventWithTeam.event.properties?.$process_person_profile).toBe(false)
         expect(eventIngestionRestrictionManager.shouldSkipPerson).toHaveBeenCalledWith(
             'restricted-token-def',
             'restricted-user-456'
@@ -72,11 +80,13 @@ describe('applyPersonProcessingRestrictions', () => {
             event: { token: 'opt-out-token-ghi', distinct_id: 'opt-out-user-789' },
             team: { person_processing_opt_out: true },
         })
+        const input = { eventWithTeam }
         jest.mocked(eventIngestionRestrictionManager.shouldSkipPerson).mockReturnValue(false)
 
-        applyPersonProcessingRestrictions(eventWithTeam, eventIngestionRestrictionManager)
+        const result = step(input)
 
-        expect(eventWithTeam.event.properties?.$process_person_profile).toBe(false)
+        expect(result).toEqual(success(input))
+        expect(input.eventWithTeam.event.properties?.$process_person_profile).toBe(false)
         expect(eventIngestionRestrictionManager.shouldSkipPerson).toHaveBeenCalledWith(
             'opt-out-token-ghi',
             'opt-out-user-789'
@@ -91,17 +101,19 @@ describe('applyPersonProcessingRestrictions', () => {
                 properties: { customProp: 'customValue', $set: { a: 1, b: 2 } },
             },
         })
+        const input = { eventWithTeam }
         jest.mocked(eventIngestionRestrictionManager.shouldSkipPerson).mockReturnValue(true)
 
-        applyPersonProcessingRestrictions(eventWithTeam, eventIngestionRestrictionManager)
+        const result = step(input)
 
-        expect(eventWithTeam.event.properties).toMatchObject({
+        expect(result).toEqual(success(input))
+        expect(input.eventWithTeam.event.properties).toMatchObject({
             customProp: 'customValue',
             $set: { a: 1, b: 2 },
             $process_person_profile: false,
         })
-        expect(eventWithTeam.event.token).toBe('preserve-token-jkl')
-        expect(eventWithTeam.event.distinct_id).toBe('preserve-user-012')
+        expect(input.eventWithTeam.event.token).toBe('preserve-token-jkl')
+        expect(input.eventWithTeam.event.distinct_id).toBe('preserve-user-012')
         expect(eventIngestionRestrictionManager.shouldSkipPerson).toHaveBeenCalledWith(
             'preserve-token-jkl',
             'preserve-user-012'
@@ -116,11 +128,13 @@ describe('applyPersonProcessingRestrictions', () => {
                 properties: { customProp: 'customValue' },
             },
         })
+        const input = { eventWithTeam }
         jest.mocked(eventIngestionRestrictionManager.shouldSkipPerson).mockReturnValue(false)
 
-        applyPersonProcessingRestrictions(eventWithTeam, eventIngestionRestrictionManager)
+        const result = step(input)
 
-        expect(eventWithTeam.event.properties).toEqual({ customProp: 'customValue' })
+        expect(result).toEqual(success(input))
+        expect(input.eventWithTeam.event.properties).toEqual({ customProp: 'customValue' })
         expect(eventIngestionRestrictionManager.shouldSkipPerson).toHaveBeenCalledWith(
             undefined,
             'undefined-token-user-999'
@@ -135,11 +149,13 @@ describe('applyPersonProcessingRestrictions', () => {
                 properties: { customProp: 'customValue' },
             },
         })
+        const input = { eventWithTeam }
         jest.mocked(eventIngestionRestrictionManager.shouldSkipPerson).mockReturnValue(true)
 
-        applyPersonProcessingRestrictions(eventWithTeam, eventIngestionRestrictionManager)
+        const result = step(input)
 
-        expect(eventWithTeam.event.properties).toMatchObject({
+        expect(result).toEqual(success(input))
+        expect(input.eventWithTeam.event.properties).toMatchObject({
             customProp: 'customValue',
             $process_person_profile: false,
         })

@@ -21,15 +21,20 @@ export interface CampaignLogicProps {
     id?: string
 }
 
+export const TRIGGER_NODE_ID = 'trigger_node'
+export const EXIT_NODE_ID = 'exit_node'
+
+export type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
+
 const NEW_CAMPAIGN: HogFlow = {
     id: 'new',
     name: '',
     actions: [
         {
-            id: 'trigger_node',
+            id: TRIGGER_NODE_ID,
             type: 'trigger',
             name: 'Trigger',
-            description: 'User performs an action to start the campaign',
+            description: 'User performs an action to start the campaign.',
             created_at: 0,
             updated_at: 0,
             config: {
@@ -38,10 +43,10 @@ const NEW_CAMPAIGN: HogFlow = {
             },
         },
         {
-            id: 'exit_node',
+            id: EXIT_NODE_ID,
             type: 'exit',
             name: 'Exit',
-            description: 'User moved through the campaign without errors',
+            description: 'User moved through the campaign without errors.',
             config: {
                 reason: 'Default exit',
             },
@@ -51,19 +56,11 @@ const NEW_CAMPAIGN: HogFlow = {
     ],
     edges: [
         {
-            from: 'trigger_node',
-            to: 'exit_node',
+            from: TRIGGER_NODE_ID,
+            to: EXIT_NODE_ID,
             type: 'continue',
         },
     ],
-    trigger: {
-        type: 'event',
-        filters: {
-            events: [],
-            actions: [],
-        },
-    },
-    trigger_masking: { ttl: 0, hash: '', threshold: 0 },
     conversion: { window_minutes: 0, filters: [] },
     exit_condition: 'exit_only_at_end',
     version: 1,
@@ -78,7 +75,11 @@ export const campaignLogic = kea<campaignLogicType>([
     props({ id: 'new' } as CampaignLogicProps),
     key((props) => props.id || 'new'),
     actions({
-        setCampaignActionConfig: (actionId: string, config: Partial<HogFlowAction['config']>) => ({ actionId, config }),
+        partialSetCampaignActionConfig: (actionId: string, config: Partial<HogFlowAction['config']>) => ({
+            actionId,
+            config,
+        }),
+        setCampaignActionConfig: (actionId: string, config: HogFlowAction['config']) => ({ actionId, config }),
         setCampaignAction: (actionId: string, action: HogFlowAction) => ({ actionId, action }),
         setCampaignActionEdges: (actionId: string, edges: HogFlow['edges']) => ({ actionId, edges }),
         // NOTE: This is a wrapper for setCampaignValues, to get around some weird typegen issues
@@ -111,7 +112,9 @@ export const campaignLogic = kea<campaignLogicType>([
             {} as Record<string, HogFunctionTemplateType>,
             {
                 loadHogFunctionTemplatesById: async () => {
-                    const allTemplates = await api.hogFunctions.listTemplates({ types: ['destination'] })
+                    const allTemplates = await api.hogFunctions.listTemplates({
+                        types: ['destination', 'source_webhook'],
+                    })
 
                     const allTemplatesById = allTemplates.results.reduce(
                         (acc, template) => {
@@ -129,16 +132,9 @@ export const campaignLogic = kea<campaignLogicType>([
     forms(({ actions, values }) => ({
         campaign: {
             defaults: NEW_CAMPAIGN,
-            errors: ({ name, trigger, actions }) => {
+            errors: ({ name, actions }) => {
                 const errors = {
                     name: !name ? 'Name is required' : undefined,
-                    trigger: {
-                        type: trigger.type === 'event' ? undefined : 'Invalid trigger type',
-                        filters:
-                            trigger.filters.events.length === 0 && trigger.filters.actions.length === 0
-                                ? 'At least one event or action is required'
-                                : undefined,
-                    },
                     actions: actions.some((action) => !(values.actionValidationErrorsById[action.id]?.valid ?? true))
                         ? 'Some fields need work'
                         : undefined,
@@ -212,6 +208,16 @@ export const campaignLogic = kea<campaignLogicType>([
                                 result.valid = configValidation.valid
                                 result.errors = configValidation.errors
                             }
+                        } else if (action.type === 'trigger') {
+                            // custom validation here that we can't easily express in the schema
+                            if (action.config.type === 'event') {
+                                if (!action.config.filters.events?.length && !action.config.filters.actions?.length) {
+                                    result.valid = false
+                                    result.errors = {
+                                        filters: 'At least one event or action is required',
+                                    }
+                                }
+                            }
                         }
 
                         acc[action.id] = result
@@ -221,17 +227,26 @@ export const campaignLogic = kea<campaignLogicType>([
                 )
             },
         ],
+
+        triggerAction: [
+            (s) => [s.campaign],
+            (campaign): TriggerAction | null => {
+                return (campaign.actions.find((action) => action.type === 'trigger') as TriggerAction) ?? null
+            },
+        ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         loadCampaignSuccess: async ({ originalCampaign }) => {
             actions.resetCampaign(originalCampaign)
         },
         saveCampaignSuccess: async ({ originalCampaign }) => {
             lemonToast.success('Campaign saved')
-            originalCampaign.id &&
+            if (props.id === 'new' && originalCampaign.id) {
                 router.actions.replace(
                     urls.messagingCampaign(originalCampaign.id, campaignSceneLogic.findMounted()?.values.currentTab)
                 )
+            }
+
             actions.resetCampaign(originalCampaign)
         },
         discardChanges: () => {
@@ -260,8 +275,16 @@ export const campaignLogic = kea<campaignLogicType>([
                 return
             }
 
-            action.config = { ...action.config, ...config }
+            action.config = { ...config } as HogFlowAction['config']
             actions.setCampaignValues({ actions: [...values.campaign.actions] })
+        },
+        partialSetCampaignActionConfig: async ({ actionId, config }) => {
+            const action = values.campaign.actions.find((action) => action.id === actionId)
+            if (!action) {
+                return
+            }
+
+            actions.setCampaignActionConfig(actionId, { ...action.config, ...config } as HogFlowAction['config'])
         },
         setCampaignAction: async ({ actionId, action }) => {
             const newActions = values.campaign.actions.map((a) => (a.id === actionId ? action : a))

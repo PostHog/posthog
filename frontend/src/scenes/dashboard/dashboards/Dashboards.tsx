@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { PageHeader } from 'lib/components/PageHeader'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
@@ -33,7 +34,6 @@ export function Dashboards(): JSX.Element {
     const { setCurrentTab } = useActions(dashboardsLogic)
     const { dashboards, currentTab, isFiltering } = useValues(dashboardsLogic)
     const { showNewDashboardModal } = useActions(newDashboardLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const enabledTabs: LemonTab<DashboardsTab>[] = [
         {
@@ -55,20 +55,17 @@ export function Dashboards(): JSX.Element {
             <DeleteDashboardModal />
             <PageHeader
                 buttons={
-                    <AccessControlledLemonButton
-                        data-attr="new-dashboard"
-                        onClick={() => {
-                            showNewDashboardModal()
-                        }}
-                        type="primary"
-                        minAccessLevel={AccessControlLevel.Editor}
+                    <AccessControlAction
                         resourceType={AccessControlResourceType.Dashboard}
+                        minAccessLevel={AccessControlLevel.Editor}
                         userAccessLevel={
                             getAppContext()?.resource_access_control?.[AccessControlResourceType.Dashboard]
                         }
                     >
-                        New dashboard
-                    </AccessControlledLemonButton>
+                        <LemonButton data-attr="new-dashboard" onClick={showNewDashboardModal} type="primary">
+                            New dashboard
+                        </LemonButton>
+                    </AccessControlAction>
                 }
             />
             <SceneTitleSection
@@ -76,7 +73,6 @@ export function Dashboards(): JSX.Element {
                 description="Create and manage your dashboards"
                 resourceType={{
                     type: 'dashboard',
-                    typePlural: 'dashboards',
                 }}
             />
             <SceneDivider />
@@ -84,7 +80,7 @@ export function Dashboards(): JSX.Element {
                 activeKey={currentTab}
                 onChange={(newKey) => setCurrentTab(newKey)}
                 tabs={enabledTabs}
-                sceneInset={newSceneLayout}
+                sceneInset
             />
 
             <div>

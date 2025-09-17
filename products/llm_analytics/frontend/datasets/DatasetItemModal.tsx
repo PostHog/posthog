@@ -10,27 +10,31 @@ import { LemonModalContent, LemonModalFooter, LemonModalHeader } from 'lib/lemon
 import { DatasetItem } from '~/types'
 
 import { JSONEditor } from '../components/JSONEditor'
-import { DatasetItemModalLogicProps, TraceMetadata, datasetItemModalLogic } from './datasetItemModalLogic'
+import { DatasetItemModalLogicProps, datasetItemModalLogic } from './datasetItemModalLogic'
 
 export interface DatasetItemModalProps {
     isOpen: boolean
     onClose: (refetchDatasetItems?: boolean) => void
     datasetId: string
-    datasetItem?: DatasetItem | null
-    traceMetadata?: TraceMetadata
+    partialDatasetItem?: Partial<DatasetItem> | null
+    /**
+     * Whether the modal should display the "Save and add another" button.
+     */
+    displayBulkCreationButton?: boolean
+    title?: string
 }
 
 export const DatasetItemModal = React.memo(function DatasetItemModal({
     isOpen,
     onClose,
-    datasetItem,
-    traceMetadata,
+    partialDatasetItem,
     datasetId,
+    displayBulkCreationButton,
+    title,
 }: DatasetItemModalProps): JSX.Element {
     const logicProps: DatasetItemModalLogicProps = {
         datasetId,
-        datasetItem,
-        traceMetadata,
+        partialDatasetItem,
         closeModal: onClose,
         isModalOpen: isOpen,
     }
@@ -53,7 +57,7 @@ export const DatasetItemModal = React.memo(function DatasetItemModal({
                 className="flex flex-col overflow-y-hidden"
             >
                 <LemonModalHeader>
-                    <h3>{datasetItem ? 'Edit dataset item' : 'New dataset item'}</h3>
+                    <h3>{title ?? (partialDatasetItem?.id ? 'Edit dataset item' : 'New dataset item')}</h3>
                 </LemonModalHeader>
 
                 <LemonModalContent className="flex flex-col gap-4">
@@ -69,7 +73,7 @@ export const DatasetItemModal = React.memo(function DatasetItemModal({
                 </LemonModalContent>
 
                 <LemonModalFooter>
-                    {!datasetItem && (
+                    {displayBulkCreationButton && !partialDatasetItem?.id && (
                         <LemonButton
                             type="secondary"
                             loading={isDatasetItemFormSubmitting}

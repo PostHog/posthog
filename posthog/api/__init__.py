@@ -40,6 +40,7 @@ from ..session_recordings.session_recording_playlist_api import SessionRecording
 from ..taxonomy import property_definition_api
 from . import (
     activity_log,
+    advanced_activity_logs,
     alert,
     annotation,
     app_metrics,
@@ -181,6 +182,12 @@ projects_router.register(
     r"activity_log",
     activity_log.ActivityLogViewSet,
     "project_activity_log",
+    ["project_id"],
+)
+projects_router.register(
+    r"advanced_activity_logs",
+    advanced_activity_logs.AdvancedActivityLogsViewSet,
+    "project_advanced_activity_logs",
     ["project_id"],
 )
 projects_router.register(
@@ -666,6 +673,13 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"error_tracking/fingerprints",
+    error_tracking.ErrorTrackingFingerprintViewSet,
+    "project_error_tracking_fingerprint",
+    ["team_id"],
+)
+
+environments_router.register(
     r"error_tracking/issues",
     error_tracking.ErrorTrackingIssueViewSet,
     "project_error_tracking_issue",
@@ -827,14 +841,14 @@ projects_router.register(
     ["project_id"],
 )
 
-environments_router.register(
+register_grandfathered_environment_nested_viewset(
     r"datasets",
     DatasetViewSet,
     "environment_datasets",
     ["team_id"],
 )
 
-environments_router.register(
+register_grandfathered_environment_nested_viewset(
     r"dataset_items",
     DatasetItemViewSet,
     "environment_dataset_items",
