@@ -354,7 +354,7 @@ class Team(UUIDTClassicModel):
     session_replay_config = field_access_control(models.JSONField(null=True, blank=True), "session_recording", "editor")
     session_recording_retention_period = models.CharField(
         max_length=6,
-        choices=SessionRecordingRetentionPeriod,
+        choices=SessionRecordingRetentionPeriod.choices,
         default=SessionRecordingRetentionPeriod.LEGACY,
     )
     survey_config = models.JSONField(null=True, blank=True)
@@ -377,7 +377,7 @@ class Team(UUIDTClassicModel):
     # DEPRECATED - do not use
     access_control = models.BooleanField(default=False)
 
-    week_start_day = models.SmallIntegerField(null=True, blank=True, choices=WeekStartDay)
+    week_start_day = models.SmallIntegerField(null=True, blank=True, choices=WeekStartDay.choices)
     # This is not a manual setting. It's updated automatically to reflect if the team uses site apps or not.
     inject_web_apps = models.BooleanField(null=True)
 
@@ -392,7 +392,7 @@ class Team(UUIDTClassicModel):
     recording_domains: ArrayField = ArrayField(models.CharField(max_length=200, null=True), blank=True, null=True)
     human_friendly_comparison_periods = models.BooleanField(default=False, null=True, blank=True)
     cookieless_server_hash_mode = models.SmallIntegerField(
-        default=CookielessServerHashMode.DISABLED, choices=CookielessServerHashMode, null=True
+        default=CookielessServerHashMode.DISABLED, choices=CookielessServerHashMode.choices, null=True
     )
 
     primary_dashboard = models.ForeignKey(
@@ -430,7 +430,7 @@ class Team(UUIDTClassicModel):
     session_recording_retention_period_days = models.IntegerField(null=True, default=None, blank=True)
     session_recording_retention_period = models.CharField(
         max_length=6,
-        choices=SessionRecordingRetentionPeriod,
+        choices=SessionRecordingRetentionPeriod.choices,
         default=SessionRecordingRetentionPeriod.LEGACY,
     )
     # DEPRECATED, DISUSED: plugins are enabled for everyone now

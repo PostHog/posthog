@@ -334,6 +334,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
         )
+        self.client.force_login(self.user)
         event = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
         response = self.client.get(f"/api/projects/@current/property_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -352,6 +353,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
         )
+        self.client.force_login(self.user)
         event = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
         response = self.client.get(f"/api/projects/@current/property_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -389,6 +391,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
         )
+        self.client.force_login(self.user)
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="hidden test property")
         response = self.client.get(f"/api/projects/@current/property_definitions/{property.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -431,6 +434,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
         )
+        self.client.force_login(self.user)
         property = EnterprisePropertyDefinition.objects.create(
             team=self.team, name="verified test property", verified=True
         )
@@ -494,6 +498,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
         )
+        self.client.force_login(self.user)
         event = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
         response = self.client.get(f"/api/projects/@current/property_definitions/{event.id}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
