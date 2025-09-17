@@ -1,20 +1,24 @@
-import { OriginProduct, TaskStatus } from './types'
+import { OriginProduct } from './types'
 
-// Status display constants
-export const STATUS_LABELS: Record<TaskStatus, string> = {
-    [TaskStatus.BACKLOG]: 'Backlog',
-    [TaskStatus.TODO]: 'To Do',
-    [TaskStatus.IN_PROGRESS]: 'In Progress',
-    [TaskStatus.TESTING]: 'Testing',
-    [TaskStatus.DONE]: 'Done',
+// Stage display constants (now dynamic based on workflow stages)
+export const STAGE_LABELS: Record<string, string> = {
+    'backlog': 'Backlog',
+    'todo': 'To Do',
+    'in_progress': 'In Progress',
+    'testing': 'Testing',
+    'done': 'Done',
+    'input': 'Input',
+    'complete': 'Complete',
 }
 
-export const STATUS_COLORS: Record<TaskStatus, string> = {
-    [TaskStatus.BACKLOG]: 'bg-stone-100 text-stone-800',
-    [TaskStatus.TODO]: 'bg-blue-100 text-blue-800',
-    [TaskStatus.IN_PROGRESS]: 'bg-amber-100 text-amber-800',
-    [TaskStatus.TESTING]: 'bg-violet-100 text-violet-800',
-    [TaskStatus.DONE]: 'bg-green-100 text-green-800',
+export const STAGE_COLORS: Record<string, string> = {
+    'backlog': 'bg-stone-100 text-stone-800',
+    'todo': 'bg-blue-100 text-blue-800',
+    'in_progress': 'bg-amber-100 text-amber-800',
+    'testing': 'bg-violet-100 text-violet-800',
+    'done': 'bg-green-100 text-green-800',
+    'input': 'bg-gray-100 text-gray-800',
+    'complete': 'bg-green-100 text-green-800',
 }
 
 // Origin product display constants

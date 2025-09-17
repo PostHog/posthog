@@ -24,6 +24,13 @@ from .github_activities import (
     create_pr_activity,
 )
 from .inputs import CommitChangesInputs, CreatePRInputs, TaskProcessingInputs
+from .workflow_activities import (
+    execute_agent_for_transition_activity,
+    get_agent_triggered_transition_activity,
+    get_workflow_configuration_activity,
+    move_task_to_stage_activity,
+    should_trigger_agent_workflow_activity,
+)
 
 logger = get_logger(__name__)
 
@@ -426,3 +433,246 @@ class TaskProcessingWorkflow(PostHogWorkflow):
         else:
             logger.info(f"Task {inputs.task_id} status changed to {inputs.new_status}, no processing needed")
             return f"No processing required for status: {inputs.new_status}"
+
+
+# NEW WORKFLOW-AGNOSTIC SYSTEM
+
+@temporalio.workflow.defn(name="process-task-workflow-agnostic")
+class WorkflowAgnosticTaskProcessingWorkflow(PostHogWorkflow):
+    """Workflow-agnostic task processing that adapts to any workflow configuration."""
+
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> TaskProcessingInputs:
+        """Parse inputs from the management command CLI."""
+        loaded = json.loads(inputs[0])
+        return TaskProcessingInputs(**loaded)
+
+    @temporalio.workflow.run
+    async def run(self, inputs: TaskProcessingInputs) -> str:
+        """
+        Main workflow execution that adapts to workflow configuration.
+
+        This workflow:
+        1. Checks if agent automation should be triggered
+        2. Gets workflow configuration for the task
+        3. Executes the appropriate agents based on transitions
+        4. Moves the task through configured stages
+        """
+        logger.info(f"Starting workflow-agnostic processing for task {inputs.task_id}")
+
+        try:
+            # Step 1: Check if we should trigger agent processing
+            logger.info(f"Step 1: Checking if agent workflow should be triggered for task {inputs.task_id}")
+            trigger_check = await workflow.execute_activity(
+                should_trigger_agent_workflow_activity,
+                inputs.task_id,
+                inputs.team_id,
+                inputs.new_status,
+                inputs.previous_status,
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=10),
+                    maximum_interval=timedelta(seconds=30),
+                    maximum_attempts=3,
+                ),
+            )
+
+            if not trigger_check.get("should_trigger", False):
+                logger.info(f"Agent workflow not triggered: {trigger_check.get('trigger_reason', 'Unknown reason')}")
+                return f"No agent processing needed: {trigger_check.get('trigger_reason', 'Unknown reason')}"
+
+            logger.info(f"Agent workflow triggered: {trigger_check.get('trigger_reason', '')}")
+
+            # Step 2: Get workflow configuration
+            logger.info(f"Step 2: Getting workflow configuration for task {inputs.task_id}")
+            workflow_config = await workflow.execute_activity(
+                get_workflow_configuration_activity,
+                inputs.task_id,
+                inputs.team_id,
+                start_to_close_timeout=timedelta(minutes=2),
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=10),
+                    maximum_interval=timedelta(seconds=30),
+                    maximum_attempts=3,
+                ),
+            )
+
+            if not workflow_config.get("has_workflow", False):
+                logger.info("No workflow configuration found, falling back to legacy processing")
+                return await self._execute_legacy_workflow(inputs)
+
+            current_stage_key = workflow_config.get("current_stage_key")
+            logger.info(f"Current stage: {current_stage_key} in workflow: {workflow_config.get('workflow_name')}")
+
+            # Step 3: Process agent transitions in a loop until no more agent transitions
+            max_transitions = 10  # Prevent infinite loops
+            transitions_executed = 0
+
+            while transitions_executed < max_transitions:
+                # Get available agent transition
+                agent_transition = await workflow.execute_activity(
+                    get_agent_triggered_transition_activity,
+                    inputs.task_id,
+                    inputs.team_id,
+                    current_stage_key,
+                    start_to_close_timeout=timedelta(minutes=2),
+                )
+
+                if not agent_transition:
+                    logger.info(f"No agent transitions available from stage {current_stage_key}")
+                    break
+
+                logger.info(f"Step {3 + transitions_executed}: Executing agent transition to {agent_transition['to_stage_key']}")
+
+                # Set up repository if this is a code generation agent
+                repo_info = None
+                if agent_transition.get('agent_type') == 'code_generation':
+                    repo_info = await self._setup_repository(inputs)
+                    if not repo_info.get("success"):
+                        logger.error(f"Failed to setup repository: {repo_info.get('error')}")
+                        break
+
+                try:
+                    # Move to next stage first (some agents expect the task to be in the target stage)
+                    move_result = await workflow.execute_activity(
+                        move_task_to_stage_activity,
+                        inputs.task_id,
+                        inputs.team_id,
+                        agent_transition['to_stage_key'],
+                        agent_transition['transition_id'],
+                        start_to_close_timeout=timedelta(minutes=2),
+                    )
+
+                    if not move_result.get("success"):
+                        logger.error(f"Failed to move task to {agent_transition['to_stage_key']}: {move_result.get('error')}")
+                        break
+
+                    current_stage_key = agent_transition['to_stage_key']
+
+                    # Execute the agent
+                    agent_result = await workflow.execute_activity(
+                        execute_agent_for_transition_activity,
+                        inputs.task_id,
+                        inputs.team_id,
+                        agent_transition,
+                        repo_info,
+                        start_to_close_timeout=timedelta(minutes=30),
+                        retry_policy=RetryPolicy(
+                            initial_interval=timedelta(minutes=1),
+                            maximum_interval=timedelta(minutes=5),
+                            maximum_attempts=2,
+                        ),
+                    )
+
+                    if not agent_result.get("success"):
+                        logger.error(f"Agent execution failed: {agent_result.get('error')}")
+                        # Don't break - the task has been moved, which is progress
+                    else:
+                        logger.info(f"Agent execution successful: {agent_result.get('message')}")
+
+                    # Handle repository cleanup for code generation
+                    if repo_info and repo_info.get("repo_path"):
+                        try:
+                            await workflow.execute_activity(
+                                cleanup_repo_activity,
+                                repo_info["repo_path"],
+                                start_to_close_timeout=timedelta(minutes=2),
+                            )
+                        except Exception as cleanup_error:
+                            logger.warning(f"Repository cleanup failed: {cleanup_error}")
+
+                    transitions_executed += 1
+
+                except Exception as e:
+                    logger.exception(f"Error during agent transition: {e}")
+                    break
+
+            success_msg = f"Workflow processing completed for task {inputs.task_id}. "
+            success_msg += f"Executed {transitions_executed} transitions, final stage: {current_stage_key}"
+            logger.info(success_msg)
+            return success_msg
+
+        except Exception as e:
+            error_msg = f"Workflow-agnostic processing failed for task {inputs.task_id}: {str(e)}"
+            logger.exception(error_msg)
+            return error_msg
+
+    async def _setup_repository(self, inputs: TaskProcessingInputs) -> dict:
+        """Set up repository for code generation agents."""
+        try:
+            repo_info = await workflow.execute_activity(
+                clone_repo_and_create_branch_activity,
+                inputs,
+                start_to_close_timeout=timedelta(minutes=10),
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=30),
+                    maximum_interval=timedelta(minutes=2),
+                    maximum_attempts=2,
+                ),
+            )
+            return repo_info
+        except Exception as e:
+            logger.exception(f"Failed to setup repository: {e}")
+            return {"success": False, "error": str(e)}
+
+    async def _execute_legacy_workflow(self, inputs: TaskProcessingInputs) -> str:
+        """Fall back to legacy workflow behavior."""
+        logger.info("Executing legacy workflow behavior")
+
+        if inputs.new_status != "todo":
+            return "Legacy workflow: No processing required for non-TODO status"
+
+        try:
+            # Execute the legacy TODO processing
+            repo_info = await self._setup_repository(inputs)
+
+            if repo_info.get("success"):
+                # Move to in_progress
+                await workflow.execute_activity(
+                    move_task_to_stage_activity,
+                    inputs.task_id,
+                    inputs.team_id,
+                    "in_progress",
+                    start_to_close_timeout=timedelta(minutes=2),
+                )
+
+                # Execute AI agent
+                agent_result = await workflow.execute_activity(
+                    execute_agent_for_transition_activity,
+                    inputs.task_id,
+                    inputs.team_id,
+                    {
+                        "agent_type": "code_generation",
+                        "to_stage_key": "testing",
+                        "agent_config": {}
+                    },
+                    repo_info,
+                    start_to_close_timeout=timedelta(minutes=30),
+                )
+
+                # Move to testing
+                if agent_result.get("success"):
+                    await workflow.execute_activity(
+                        move_task_to_stage_activity,
+                        inputs.task_id,
+                        inputs.team_id,
+                        "testing",
+                        start_to_close_timeout=timedelta(minutes=2),
+                    )
+
+                # Cleanup
+                if repo_info.get("repo_path"):
+                    try:
+                        await workflow.execute_activity(
+                            cleanup_repo_activity,
+                            repo_info["repo_path"],
+                            start_to_close_timeout=timedelta(minutes=2),
+                        )
+                    except Exception:
+                        pass  # Don't fail for cleanup issues
+
+            return "Legacy workflow processing completed"
+
+        except Exception as e:
+            logger.exception(f"Legacy workflow failed: {e}")
+            return f"Legacy workflow failed: {str(e)}"

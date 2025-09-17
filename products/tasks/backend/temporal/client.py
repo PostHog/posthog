@@ -28,7 +28,7 @@ async def _execute_task_processing_workflow(
     retry_policy = RetryPolicy(maximum_attempts=3)
 
     result = await client.execute_workflow(
-        "process-task-status-change",
+        "process-task-workflow-agnostic",
         inputs,
         id=workflow_id,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,

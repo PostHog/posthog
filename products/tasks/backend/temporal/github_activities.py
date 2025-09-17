@@ -173,7 +173,7 @@ async def create_pr_activity(inputs: CreatePRInputs) -> dict[str, Any]:
 ## Task: {task.title}
 
 **Task ID:** {task.id}
-**Status:** {task.status}
+**Status:** {task.current_stage.key if task.current_stage else 'backlog'}
 **Priority:** {getattr(task, 'priority', 'N/A')}
 
 ### Description

@@ -5,7 +5,7 @@ import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTextArea } from 
 
 import { ORIGIN_PRODUCT_LABELS } from '../constants'
 import { tasksLogic } from '../tasksLogic'
-import { OriginProduct, TaskStatus, TaskUpsertProps } from '../types'
+import { OriginProduct, TaskUpsertProps } from '../types'
 import { RepositoryConfig, RepositorySelector } from './RepositorySelector'
 
 interface TaskCreateModalProps {
@@ -16,7 +16,6 @@ interface TaskCreateModalProps {
 interface TaskFormData {
     title: string
     description: string
-    status: TaskStatus
     origin_product: OriginProduct
     repositoryConfig: RepositoryConfig
 }
@@ -27,7 +26,6 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
     const [formData, setFormData] = useState<TaskFormData>({
         title: '',
         description: '',
-        status: TaskStatus.BACKLOG,
         origin_product: OriginProduct.USER_CREATED,
         repositoryConfig: {
             integrationId: undefined,
@@ -43,7 +41,6 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
         setFormData({
             title: '',
             description: '',
-            status: TaskStatus.BACKLOG,
             origin_product: OriginProduct.USER_CREATED,
             repositoryConfig: {
                 integrationId: undefined,
@@ -93,7 +90,6 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
             const taskData: TaskUpsertProps = {
                 title: formData.title,
                 description: formData.description,
-                status: formData.status,
                 origin_product: formData.origin_product,
                 repository_config: {
                     organization: formData.repositoryConfig.organization || '',
@@ -172,22 +168,7 @@ export function TaskCreateModal({ isOpen, onClose }: TaskCreateModalProps): JSX.
                         {errors.description && <p className="text-danger text-xs mt-1">{errors.description}</p>}
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium mb-2">Status</label>
-                            <LemonSelect
-                                value={formData.status}
-                                onChange={(value) => setFormData({ ...formData, status: value })}
-                                options={[
-                                    { value: TaskStatus.BACKLOG, label: 'Backlog' },
-                                    { value: TaskStatus.TODO, label: 'To Do' },
-                                    { value: TaskStatus.IN_PROGRESS, label: 'In Progress' },
-                                    { value: TaskStatus.TESTING, label: 'Testing' },
-                                    { value: TaskStatus.DONE, label: 'Done' },
-                                ]}
-                            />
-                        </div>
-
+                    <div>
                         <div>
                             <label className="block text-sm font-medium mb-2">Origin</label>
                             <LemonSelect

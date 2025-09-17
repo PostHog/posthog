@@ -1,11 +1,11 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 
-import { ORIGIN_PRODUCT_COLORS, ORIGIN_PRODUCT_LABELS, STATUS_COLORS, STATUS_LABELS } from '../constants'
+import { ORIGIN_PRODUCT_COLORS, ORIGIN_PRODUCT_LABELS, STAGE_COLORS, STAGE_LABELS } from '../constants'
 import { tasksLogic } from '../tasksLogic'
-import { Task, TaskStatus } from '../types'
+import { Task } from '../types'
 import { RepositoryConfig, RepositorySelector } from './RepositorySelector'
 import { TaskProgressDisplay } from './TaskProgressDisplay'
 
@@ -15,7 +15,8 @@ interface TaskModalProps {
 }
 
 export function TaskModal({ task, onClose }: TaskModalProps): JSX.Element {
-    const { scopeTask, updateTask } = useActions(tasksLogic)
+    const { assignTaskToWorkflow, updateTask } = useActions(tasksLogic)
+    const { allWorkflows } = useValues(tasksLogic)
     const [isEditingRepository, setIsEditingRepository] = useState(false)
     const [repositoryConfig, setRepositoryConfig] = useState<RepositoryConfig>({
         integrationId: task?.github_integration || undefined,
@@ -23,6 +24,23 @@ export function TaskModal({ task, onClose }: TaskModalProps): JSX.Element {
         repository: task?.repository_config?.repository || undefined,
     })
     const [savingRepository, setSavingRepository] = useState(false)
+    const [selectedWorkflowId, setSelectedWorkflowId] = useState<string>('')
+
+    const isInBacklog = !task.workflow || !task.current_stage
+
+    // Get current stage info for this task
+    const getCurrentStage = () => {
+        if (task.workflow && task.current_stage) {
+            const stage = allWorkflows
+                .flatMap(w => w.stages || [])
+                .find(s => s.id === task.current_stage)
+            return stage
+        }
+        return null
+    }
+    
+    const currentStage = getCurrentStage()
+    const stageKey = currentStage?.key || 'backlog'
 
     const formatDate = (dateString: string): string => {
         return new Date(dateString).toLocaleDateString('en-US', {
@@ -34,9 +52,11 @@ export function TaskModal({ task, onClose }: TaskModalProps): JSX.Element {
         })
     }
 
-    const handleScope = (): void => {
-        scopeTask(task.id)
-        onClose()
+    const handleAssignToWorkflow = (e: React.MouseEvent): void => {
+        e.stopPropagation()
+        if (selectedWorkflowId) {
+            assignTaskToWorkflow(task.id, selectedWorkflowId)
+        }
     }
 
     const handleSaveRepository = async (): Promise<void> => {
@@ -80,10 +100,10 @@ export function TaskModal({ task, onClose }: TaskModalProps): JSX.Element {
                     <div className="flex gap-2">
                         <span
                             className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                                STATUS_COLORS[task.status]
+                                STAGE_COLORS[stageKey]
                             }`}
                         >
-                            {STATUS_LABELS[task.status]}
+                            {STAGE_LABELS[stageKey] || stageKey}
                         </span>
                         <span
                             className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
@@ -159,7 +179,7 @@ export function TaskModal({ task, onClose }: TaskModalProps): JSX.Element {
                 </div>
 
                 {/* Progress Display - only show for in_progress, testing, or done tasks */}
-                {[TaskStatus.IN_PROGRESS, TaskStatus.TESTING, TaskStatus.DONE].includes(task.status) && (
+                {['in_progress', 'testing', 'done'].includes(stageKey) && (
                     <TaskProgressDisplay task={task} />
                 )}
 
@@ -177,13 +197,32 @@ export function TaskModal({ task, onClose }: TaskModalProps): JSX.Element {
 
                 {/* Actions */}
                 <div className="flex justify-between items-center pt-4 border-t border-border">
-                    <div>
-                        {task.status === TaskStatus.BACKLOG && (
-                            <LemonButton type="primary" onClick={handleScope}>
-                                Scope to Todo
-                            </LemonButton>
-                        )}
+                {isInBacklog && allWorkflows.length > 0 && (
+                    <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
+                        <LemonSelect
+                            value={selectedWorkflowId}
+                            onChange={(value) => setSelectedWorkflowId(value)}
+                            options={[
+                                { value: '', label: 'Select workflow...' },
+                                ...allWorkflows.map(workflow => ({
+                                    value: workflow.id,
+                                    label: workflow.name,
+                                }))
+                            ]}
+                            placeholder="Select workflow"
+                            size="small"
+                            className="min-w-32"
+                        />
+                        <LemonButton
+                            size="xsmall"
+                            type="primary"
+                            onClick={handleAssignToWorkflow}
+                            disabled={!selectedWorkflowId}
+                        >
+                            Assign
+                        </LemonButton>
                     </div>
+                )}
                     <LemonButton onClick={onClose}>Close</LemonButton>
                 </div>
             </div>

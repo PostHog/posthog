@@ -82,10 +82,10 @@ async def process_task_moved_to_todo_activity(inputs: TaskProcessingInputs) -> s
         # Get the task from the database
         task = await database_sync_to_async(Task.objects.get)(id=inputs.task_id, team_id=inputs.team_id)
 
-        # Verify the task is still in todo status
-        if task.status != "todo":
-            logger.warning(f"Task {inputs.task_id} is no longer in todo status, skipping processing")
-            return f"Task status changed, skipping processing"
+        # Verify the task is still in todo stage
+        if not (task.current_stage and task.current_stage.key == "todo"):
+            logger.warning(f"Task {inputs.task_id} is no longer in todo stage, skipping processing")
+            return f"Task stage changed, skipping processing"
 
         # TODO: Add your actual background processing logic here
         # Examples:
@@ -135,17 +135,22 @@ async def update_issue_status_activity(args: dict) -> str:
 
         Task = apps.get_model("tasks", "Task")
 
-        # Update the task status
-        def update_status():
+        # Update the task stage
+        def update_stage():
+            from .models import WorkflowStage
             task = Task.objects.get(id=task_id, team_id=team_id)
-            task.status = new_status
-            task.save()
+            # Find stage by key 
+            stage = WorkflowStage.objects.filter(key=new_status, is_archived=False).first()
+            if stage:
+                task.current_stage = stage
+                task.workflow = stage.workflow
+                task.save()
             return task
 
-        await database_sync_to_async(update_status)()
+        await database_sync_to_async(update_stage)()
 
-        logger.info(f"Successfully updated task {task_id} status to {new_status}")
-        return f"Task {task_id} status updated to {new_status}"
+        logger.info(f"Successfully updated task {task_id} stage to {new_status}")
+        return f"Task {task_id} stage updated to {new_status}"
 
     except Exception as e:
         if "DoesNotExist" in str(type(e)):
@@ -173,7 +178,7 @@ async def get_task_details_activity(args: dict) -> dict[str, typing.Any]:
             "id": str(task.id),
             "title": task.title,
             "description": task.description,
-            "status": task.status,
+            "status": task.current_stage.key if task.current_stage else 'backlog',
             "origin_product": task.origin_product,
         }
 
