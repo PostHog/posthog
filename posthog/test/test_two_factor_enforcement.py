@@ -470,6 +470,8 @@ class TestAPIAuthenticationTwoFactorBypass(TestCase):
 
 
 class TestUserTwoFactorSessionIntegration(TestCase):
+    database = ["default", "replica"]
+
     def setUp(self):
         User = get_user_model()
         self.user = User.objects.create_user(
@@ -488,8 +490,6 @@ class TestUserTwoFactorSessionIntegration(TestCase):
 
         session = self.client.session
         session["django_two_factor-hex"] = "1234567890abcdef1234"
-        after_date = time.mktime((TWO_FACTOR_ENFORCEMENT_FROM_DATE + datetime.timedelta(days=1)).timetuple())
-        session[settings.SESSION_COOKIE_CREATED_AT_KEY] = after_date
         session.save()
 
         factory = RequestFactory()
@@ -497,14 +497,10 @@ class TestUserTwoFactorSessionIntegration(TestCase):
 
         middleware = SessionMiddleware(lambda request: HttpResponse())
         middleware.process_request(request)
-        after_date = time.mktime((TWO_FACTOR_ENFORCEMENT_FROM_DATE + datetime.timedelta(days=1)).timetuple())
-        request.session[settings.SESSION_COOKIE_CREATED_AT_KEY] = after_date
-        request.session.save()
 
         self.assertFalse(is_two_factor_verified_in_session(request))
 
         response = self.client.post(f"/api/users/@me/two_factor_validate/", {"token": "123456"})
-
         self.assertEqual(response.status_code, 200)
 
         test_request = factory.get("/")
