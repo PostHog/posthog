@@ -43,6 +43,7 @@ from posthog.tasks.tasks import (
     process_scheduled_changes,
     redis_celery_queue_depth,
     redis_heartbeat,
+    refresh_activity_log_fields_cache,
     replay_count_metrics,
     schedule_all_subscriptions,
     send_org_usage_reports,
@@ -243,6 +244,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*/12"),
         stop_surveys_reached_target.s(),
         name="stop surveys that reached responses limits",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="*/12", minute="0"),
+        refresh_activity_log_fields_cache.s(),
+        name="refresh activity log fields cache for large orgs",
     )
 
     sender.add_periodic_task(

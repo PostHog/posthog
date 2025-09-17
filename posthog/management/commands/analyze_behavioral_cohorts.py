@@ -6,7 +6,7 @@ from django.core.management.base import BaseCommand
 
 import structlog
 
-from posthog.clickhouse.client.connection import ClickHouseUser
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 
@@ -144,10 +144,10 @@ class Command(BaseCommand):
                 team_id=team_id,
                 feature=Feature.BEHAVIORAL_COHORTS,
                 cohort_id=cohort_id,
-                product=Product.PRODUCT_ANALYTICS,
+                product=Product.MESSAGING,
                 query_type="get_unique_conditions",
             ):
-                results = sync_execute(query, params, ch_user=ClickHouseUser.COHORTS)
+                results = sync_execute(query, params, ch_user=ClickHouseUser.COHORTS, workload=Workload.OFFLINE)
             return [
                 {
                     "team_id": row[0],
@@ -204,7 +204,7 @@ class Command(BaseCommand):
                     team_id=team_id,
                     feature=Feature.BEHAVIORAL_COHORTS,
                     cohort_id=cohort_id,
-                    product=Product.PRODUCT_ANALYTICS,
+                    product=Product.MESSAGING,
                     query_type="get_cohort_memberships",
                 ):
                     results = sync_execute(
@@ -217,6 +217,7 @@ class Command(BaseCommand):
                             "min_matches": min_matches,
                         },
                         ch_user=ClickHouseUser.COHORTS,
+                        workload=Workload.OFFLINE,
                     )
 
                 for row in results:
