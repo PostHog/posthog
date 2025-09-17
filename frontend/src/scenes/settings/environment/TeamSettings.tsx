@@ -114,13 +114,18 @@ export function Bookmarklet(): JSX.Element {
 function DebugInfoPanel(): JSX.Element | null {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { currentOrganization, currentOrganizationLoading } = useValues(organizationLogic)
-    const { preflight, preflightLoading } = useValues(preflightLogic)
+    const { preflight, preflightLoading, isCloudOrDev } = useValues(preflightLogic)
 
     const region = preflight?.region
     const anyLoading = preflightLoading || currentOrganizationLoading || currentTeamLoading
     const hasRequiredInfo = region && currentOrganization && currentTeam
 
     if (!hasRequiredInfo && !anyLoading) {
+        return null
+    }
+    if (!isCloudOrDev) {
+        // this data changes e.g. when session id changes, so it flaps in visual regression tests
+        // we only need it in cloud, (and dev for local testing if we want to change it) so...
         return null
     }
 
