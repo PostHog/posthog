@@ -203,10 +203,12 @@ export const campaignLogic = kea<campaignLogicType>([
                                 if (emailValue?.templating === 'liquid' && typeof value === 'string') {
                                     try {
                                         LiquidRenderer.parse(value)
+                                        return undefined
                                     } catch (e: any) {
                                         return `Liquid template error: ${e.message}`
                                     }
                                 }
+                                return undefined
                             }
 
                             const emailTemplateErrors: Partial<EmailTemplate> = {
