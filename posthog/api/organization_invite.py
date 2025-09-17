@@ -293,7 +293,7 @@ class OrganizationInviteViewSet(
     ordering = "-created_at"
 
     def dangerously_get_permissions(self):
-        if self.action == "create":
+        if self.action in ["create", "bulk"]:
             write_permissions = [
                 permission()
                 for permission in [permissions.IsAuthenticated, OrganizationMemberPermissions, UserCanInvitePermission]
