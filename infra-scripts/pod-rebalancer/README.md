@@ -59,7 +59,6 @@ docker run --rm -e DRY_RUN=true pod-rebalancer
 
 ```bash
 ./bin/rebalancer --help     # Show usage and configuration options
-./bin/rebalancer --version  # Show version information
 ```
 
 ## Configuration

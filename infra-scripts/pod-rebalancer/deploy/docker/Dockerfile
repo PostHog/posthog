@@ -54,7 +54,7 @@ USER rebalancer
 
 # Health check (optional - for debugging)
 HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD /app/pod-rebalancer --version || exit 1
+    CMD /app/pod-rebalancer --help > /dev/null || exit 1
 
 # Run the application
 ENTRYPOINT ["/app/pod-rebalancer"]
