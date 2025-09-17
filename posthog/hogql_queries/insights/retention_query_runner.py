@@ -610,6 +610,8 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                         breakdown_value,
                         start_event_matching_interval,
                         intervals_from_base
+
+                    LIMIT 1000000
                     """,
                     {"actor_query": actor_query},
                     timings=self.timings,
@@ -628,6 +630,8 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
                         ORDER BY start_event_matching_interval,
                                  intervals_from_base
+
+                        LIMIT 1000000
                     """,
                     {"actor_query": actor_query},
                     timings=self.timings,
