@@ -721,17 +721,17 @@ export function ReplayDataRetentionSettings(): JSX.Element {
                     Learn more
                 </Link>
             </p>
-            <LemonSegmentedButton
-                value={currentRetention}
-                onChange={(val) => val && handleRetentionChange(val)}
-                options={renderOptions()}
-                accessControl={{
-                    resourceType: AccessControlResourceType.SessionRecording,
-                    minAccessLevel: AccessControlLevel.Editor,
-                    userAccessLevel:
-                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
-                }}
-            />
+            <AccessControlAction
+                resourceType={AccessControlResourceType.SessionRecording}
+                minAccessLevel={AccessControlLevel.Editor}
+                userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]}
+            >
+                <LemonSegmentedButton
+                    value={currentRetention}
+                    onChange={(val) => val && handleRetentionChange(val)}
+                    options={renderOptions()}
+                />
+            </AccessControlAction>
             {!hasMaxRetentionEntitlement && (
                 <p className="mt-4">
                     Need longer data retention? Head over to our{' '}

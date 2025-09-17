@@ -3,8 +3,6 @@ import './LemonSegmentedButton.scss'
 import clsx from 'clsx'
 import React from 'react'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
-
 import { LemonButton, LemonButtonProps } from '../LemonButton'
 import { useSliderPositioning } from '../hooks'
 
@@ -27,12 +25,6 @@ export interface LemonSegmentedButtonProps<T extends React.Key> {
     size?: LemonButtonProps['size']
     className?: string
     fullWidth?: boolean
-    /** Access control props for automatic permission checking */
-    accessControl?: {
-        resourceType: AccessControlResourceType
-        minAccessLevel: AccessControlLevel
-        userAccessLevel?: AccessControlLevel
-    }
 }
 
 interface LemonSegmentedButtonCSSProperties extends React.CSSProperties {
@@ -48,7 +40,6 @@ export function LemonSegmentedButton<T extends React.Key>({
     size,
     fullWidth,
     className,
-    accessControl,
 }: LemonSegmentedButtonProps<T>): JSX.Element {
     const { containerRef, selectionRef, sliderWidth, sliderOffset, transitioning } = useSliderPositioning<
         HTMLDivElement,
@@ -108,7 +99,6 @@ export function LemonSegmentedButton<T extends React.Key>({
                             icon={option.icon}
                             data-attr={option['data-attr']}
                             tooltip={option.tooltip}
-                            accessControl={accessControl}
                             center
                         >
                             {option.label}

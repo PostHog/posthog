@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 BATCH_SIZE = 100
 
 
-def _parse_feature_to_retention(retention_feature):
+def _parse_feature_to_retention(retention_feature: dict) -> str | None:
     if not retention_feature or not retention_feature.get("limit") or not retention_feature.get("unit"):
         return None
 
@@ -38,7 +38,7 @@ def _parse_feature_to_retention(retention_feature):
 
 
 @shared_task(ignore_result=True)
-def enforce_max_replay_retention_period():
+def enforce_max_replay_retention_period() -> None:
     teams_to_update = []
 
     for team in Team.objects.exclude(session_recording_retention_period="legacy").only(
