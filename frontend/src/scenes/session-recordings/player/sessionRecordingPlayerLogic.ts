@@ -25,7 +25,7 @@ import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-type
 import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { now } from 'lib/dayjs'
+import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -415,13 +415,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         deleteRecording: true,
         openExplorer: true,
         takeScreenshot: true,
-        getClip: (format: ExporterFormat, duration: number = 5) => ({ format, duration }),
+        getClip: (format: ExporterFormat, duration: number = 5, filename?: string) => ({ format, duration, filename }),
         exportRecording: (
             format: ExporterFormat,
             timestamp: number = 0,
             mode: SessionRecordingPlayerMode = SessionRecordingPlayerMode.Screenshot,
-            duration: number = 5
-        ) => ({ format, timestamp, mode, duration }),
+            duration: number = 5,
+            filename?: string
+        ) => ({ format, timestamp, mode, duration, filename }),
         closeExplorer: true,
         openHeatmap: true,
         setExplorerProps: (props: SessionRecordingPlayerExplorerProps | null) => ({ props }),
@@ -1596,7 +1597,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 height: parseFloat(iframe.height),
             })
         },
-        exportRecording: ({ format, timestamp = 0, mode = SessionRecordingPlayerMode.Screenshot, duration = 5 }) => {
+        exportRecording: ({
+            format,
+            timestamp = 0,
+            mode = SessionRecordingPlayerMode.Screenshot,
+            duration = 5,
+            filename = '',
+        }) => {
             actions.setPause()
             const iframe = values.rootFrame?.querySelector('iframe')
             if (!iframe) {
@@ -1608,7 +1615,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 width: iframe?.width ? Number(iframe.width) : 1400,
                 height: iframe?.height ? Number(iframe.height) : 600,
                 css_selector: '.replayer-wrapper',
-                filename: `replay-${values.sessionRecordingId}`,
+                filename: filename || `replay-${values.sessionRecordingId}-${dayjs().format('YYYY-MM-DD-HH-mm')}`,
             })
         },
         takeScreenshot: async () => {
@@ -1616,13 +1623,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const timestamp = Math.max(0, getCurrentPlayerTime(values.logicProps) - 1)
             actions.exportRecording(ExporterFormat.PNG, timestamp, SessionRecordingPlayerMode.Screenshot)
         },
-        getClip: async ({ format, duration = 5 }) => {
+        getClip: async ({ format, duration = 5, filename }) => {
             // Center the clip around current time, minus 1 second offset for player start
             const timestamp = Math.max(
                 0,
                 Math.floor(getCurrentPlayerTime(values.logicProps) - 1 - Math.floor(duration / 2))
             )
-            actions.exportRecording(format, timestamp, SessionRecordingPlayerMode.Screenshot, duration)
+            actions.exportRecording(format, timestamp, SessionRecordingPlayerMode.Screenshot, duration, filename)
         },
         exportRecordingToVideoFile: async () => {
             const duration = values.sessionPlayerData?.durationMs
