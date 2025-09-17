@@ -49,7 +49,7 @@ impl Default for CheckpointConfig {
             aws_region: "us-east-1".to_string(),
             max_local_checkpoints: 5, // keep at least this many local checkpoints per topic partition
             max_checkpoint_retention_hours: 72, // no local checkpoint is saved more than this interval
-            max_concurrent_checkpoints: 3, // max number of concurrent checkpoint jobs to run
+            max_concurrent_checkpoints: 3,      // max number of concurrent checkpoint jobs to run
             s3_timeout: Duration::from_secs(300), // 5 minutes
         }
     }

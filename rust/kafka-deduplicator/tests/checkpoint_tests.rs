@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 
 use kafka_deduplicator::checkpoint::{CheckpointConfig, CheckpointExporter, CheckpointUploader};
 use kafka_deduplicator::checkpoint_manager::{
-    CheckpointManager, CheckpointMode, CheckpointPath, CheckpointWorker, CHECKPOINT_PARTITION_PREFIX, CHECKPOINT_TOPIC_PREFIX
+    CheckpointManager, CheckpointMode, CheckpointPath, CheckpointWorker,
+    CHECKPOINT_PARTITION_PREFIX, CHECKPOINT_TOPIC_PREFIX,
 };
 use kafka_deduplicator::kafka::types::Partition;
 use kafka_deduplicator::store::{DeduplicationStore, DeduplicationStoreConfig};
@@ -229,9 +230,7 @@ fn find_local_checkpoint_files(base_dir: &Path) -> Result<Vec<PathBuf>> {
 
             if path.is_file() {
                 checkpoint_files.push(path);
-            }
-
-            if path.is_dir() {
+            } else if path.is_dir() {
                 if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                     if name.starts_with(CHECKPOINT_TOPIC_PREFIX)
                         || name.starts_with(CHECKPOINT_PARTITION_PREFIX)

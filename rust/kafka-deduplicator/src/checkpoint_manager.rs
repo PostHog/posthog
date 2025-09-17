@@ -4,7 +4,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
@@ -91,6 +91,7 @@ impl CheckpointPath {
             .as_micros())
     }
 }
+
 /// Worker that handles checkpoint processing for individual partitions
 pub struct CheckpointWorker {
     /// Worker ID for logging
@@ -697,15 +698,15 @@ impl CheckpointManager {
                 let path = entry.path();
                 if path.is_dir() {
                     if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                        // these will be parent directories of the checkpoints; scan them recursively
+                        // these will be parent directories of the checkpoints; drill down and process each
                         if name.starts_with(CHECKPOINT_TOPIC_PREFIX)
                             && name.starts_with(CHECKPOINT_PARTITION_PREFIX)
                         {
-                           stack.push(path);
-                        }
-                        // name matches a 0-padded UNIX epoch timestamp in microseconds
-                        if name.chars().filter(|c| c.is_ascii_digit()).count() == name.len() {
-                            // this is the full path to a nested checkpoint file directory
+                            stack.push(path);
+                        } else if name.chars().filter(|c| c.is_ascii_digit()).count() == name.len()
+                        {
+                            // if the name matches a 0-padded UNIX epoch timestamp in microseconds, then
+                            // this is the full path to a directory containing the checkpoint files
                             checkpoint_dirs.push(path);
                         }
                     }
@@ -723,17 +724,22 @@ impl CheckpointManager {
         }
 
         // find all eligible checkpoint directories of form /base_dir/topic/partition/timestamp
-        let dirs_found = Self::find_checkpoint_dirs(&checkpoint_base_dir).await?;
+        let candidate_dirs = Self::find_checkpoint_dirs(&checkpoint_base_dir)
+            .await
+            .context("Checkpoint cleaner: failed loading local checkpoint directories")?;
 
         // first eliminate all dirs that are older than max retention period
-        let threshold_time = SystemTime::now() - Duration::from_hours(config.max_checkpoint_retention_hours as u64);
-        let mut remaining_dirs = Vec::new();
-        for candidate_dir in dirs_found.into_iter() {
-            if candidate_dir.metadata().await?.modified().unwrap() < threshold_time {
-                dirs_found.remove(candidate_dir);
-            }
-        }
+        let remaining_dirs = Self::remove_stale_checkpoint_dirs(config, candidate_dirs).await?;
 
+        // next, group remaining checkpoints dirs by parent /topic/partition
+        // and eliminate the oldest N past the configured retention count
+        Self::remove_checkpoint_dirs_past_partition_retention(config, remaining_dirs).await
+    }
+
+    async fn remove_checkpoint_dirs_past_partition_retention(
+        config: &CheckpointConfig,
+        remaining_dirs: Vec<PathBuf>,
+    ) -> Result<()> {
         // group /topic/partition/timestamp dirs by parent /topic/partition
         let mut paths_by_parent: HashMap<String, Vec<PathBuf>> =
             remaining_dirs
@@ -743,9 +749,6 @@ impl CheckpointManager {
                     acc.entry(parent).or_default().push(path);
                     acc
                 });
-
-        // TODO(eli): handle the case where all timestamps for a given group are ancient
-        // (example: partition + persistent volume is now handled by another pod)
 
         // iterate on each group, sort by timestamp dir, and eliminate the oldest N
         for checkpoint_dirs in paths_by_parent.values_mut() {
@@ -761,12 +764,12 @@ impl CheckpointManager {
                     if let Err(e) = tokio::fs::remove_dir_all(checkpoint_dir).await {
                         warn!(
                             checkpoint_path = checkpoint_path,
-                            "Checkpoint cleaner: failed to remove old checkpoint: {}", e
+                            "Checkpoint cleaner: failed to remove checkpoint past partition retention limit: {}", e
                         );
                     } else {
                         info!(
                             checkpoint_path = checkpoint_path,
-                            "Checkpoint cleaner: removed old checkpoint"
+                            "Checkpoint cleaner: removed checkpoint past partition retention limit"
                         );
                     }
                 }
@@ -774,6 +777,65 @@ impl CheckpointManager {
         }
 
         Ok(())
+    }
+
+    async fn remove_stale_checkpoint_dirs(
+        config: &CheckpointConfig,
+        candidate_dirs: Vec<PathBuf>,
+    ) -> Result<Vec<PathBuf>> {
+        let threshold_time = SystemTime::now()
+            - Duration::from_secs(config.max_checkpoint_retention_hours as u64 * 3600);
+        let mut remaining_dirs = Vec::new();
+
+        for candidate_dir in candidate_dirs.into_iter() {
+            let checkpoint_path = candidate_dir.to_string_lossy().to_string();
+            let checkpoint_child_dir = candidate_dir
+                .file_name()
+                .context("Checkpoint cleaner: failed to get checkpoint dir name")?
+                .to_string_lossy()
+                .to_string();
+
+            // the directory name should be a 0-padded UNIX epoch timestamp
+            // in microseconds indicating when the checkpoint was attempted
+            match Self::parse_checkpoint_timestamp(&checkpoint_child_dir) {
+                Ok(checkpoint_dir_created_at) => {
+                    if checkpoint_dir_created_at > threshold_time {
+                        remaining_dirs.push(candidate_dir);
+                    } else if let Err(e) = tokio::fs::remove_dir_all(&candidate_dir).await {
+                        warn!(
+                            checkpoint_path = checkpoint_path,
+                            "Checkpoint cleaner: failed to remove stale checkpoint: {}", e
+                        );
+                        remaining_dirs.push(candidate_dir);
+                    } else {
+                        info!(
+                            checkpoint_path = checkpoint_path,
+                            "Checkpoint cleaner: removed stale checkpoint"
+                        );
+                    }
+                }
+
+                Err(e) => {
+                    warn!(
+                        checkpoint_path = checkpoint_path,
+                        "Checkpoint cleaner: failed to parse checkpoint dir name as timestamp: {}",
+                        e
+                    );
+                    remaining_dirs.push(candidate_dir);
+                }
+            }
+        }
+
+        Ok(remaining_dirs)
+    }
+
+    fn parse_checkpoint_timestamp(dir_name: &str) -> Result<SystemTime> {
+        let microseconds = dir_name
+            .parse::<u128>()
+            .context("failed to parse directory name as microsecond timestamp")?;
+
+        let duration = Duration::from_micros(microseconds as u64);
+        Ok(UNIX_EPOCH + duration)
     }
 }
 
