@@ -135,6 +135,14 @@ class ExperimentQueryRunner(QueryRunner):
             ),
         ]
 
+        # For funnel metrics, we create a map between events and sessions, so we can look them up later
+        if isinstance(self.metric, ExperimentFunnelMetric):
+            select_fields.append(
+                parse_expr(
+                    "mapFromArrays(groupArray(COALESCE(toString(uuid), '')), groupArray(COALESCE(toString(session_id), ''))) AS uuid_to_session"
+                )
+            )
+
         # Get time window constraints for events relative to exposure time
         metric_time_window = get_exposure_time_window_constraints(
             self.metric,
@@ -386,7 +394,7 @@ class ExperimentQueryRunner(QueryRunner):
                 # in the funnel (-1), we return the event uuid for the exposure event.
                 event_uuids_expr = f"""
                     groupArraySampleIf(100)(
-                        if(metric_events.value.2 != '', metric_events.value.2, toString(metric_events.exposure_event_uuid)),
+                        if(metric_events.value.2 != '', uuid_to_session[metric_events.value.2], toString(metric_events.exposure_event_uuid)),
                         metric_events.value.1 = {i} - 1
                     )
                 """
