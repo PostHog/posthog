@@ -1099,9 +1099,12 @@ mod tests {
 
         // Set up the mock to return NotFound
         // Set up the mock to return an error
-        mock_redis = mock_redis.get_ret(&redis_key, Err(common_redis::CustomRedisError::Other(
-            "Some Redis error".to_string(),
-        )));
+        mock_redis = mock_redis.get_ret(
+            &redis_key,
+            Err(common_redis::CustomRedisError::Other(
+                "Some Redis error".to_string(),
+            )),
+        );
         let redis_client = Arc::new(mock_redis);
 
         // Create a CookielessManager
@@ -1109,12 +1112,14 @@ mod tests {
         let manager = CookielessManager::new(config, redis_client);
 
         // Get the error
-        let result = manager.get_identify_count(&hash, team_id).await.unwrap_err();
+        let result = manager
+            .get_identify_count(&hash, team_id)
+            .await
+            .unwrap_err();
 
         // Check that the error string includes the Redis key and the error message
         let error_str = result.to_string();
         assert!(error_str.contains(&redis_key));
         assert!(error_str.contains("Some Redis error"));
-
     }
 }
