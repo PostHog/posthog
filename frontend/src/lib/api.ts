@@ -3491,6 +3491,9 @@ const api = {
         async snapshot(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('snapshot').create()
         },
+        async updateSnapshot(viewId: DataWarehouseSavedQuery['id'], data: Record<string, any>): Promise<void> {
+            return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('snapshot_config').create({ data })
+        },
         async cancel(viewId: DataWarehouseSavedQuery['id']): Promise<void> {
             return await new ApiRequest().dataWarehouseSavedQuery(viewId).withAction('cancel').create()
         },

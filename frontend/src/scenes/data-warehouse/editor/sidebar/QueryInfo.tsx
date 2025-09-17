@@ -122,6 +122,9 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
     const [selectedColumns, setSelectedColumns] = useState<string[]>(editingView?.snapshot_config?.fields || [])
+    const [selectedMergeKey, setSelectedMergeKey] = useState<string | undefined>(
+        editingView?.snapshot_config?.merge_key || undefined
+    )
 
     const isLineageDependencyViewEnabled = featureFlags[FEATURE_FLAGS.LINEAGE_DEPENDENCY_VIEW]
 
@@ -135,6 +138,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
     } = useValues(dataWarehouseViewsLogic)
     const {
         updateDataWarehouseSavedQuery,
+        updateDataWarehouseSavedQuerySnapshot,
         loadOlderDataModelingJobs,
         cancelDataWarehouseSavedQuery,
         revertMaterialization,
@@ -313,9 +317,35 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                             label="Enabled"
                         />
                     </div>
-                    <div>
+
+                    <div className="mt-6">
+                        <h4 className="mb-2 font-medium">Merge key</h4>
                         {editingView && editingView.columns && (
-                            <div className="my-2 flex flex-row gap-2">
+                            <div className="flex flex-row gap-2">
+                                <LemonSelect
+                                    placeholder="Select merge key..."
+                                    value={selectedMergeKey}
+                                    options={editingView.columns.map((field) => ({
+                                        value: field.name,
+                                        label: field.name,
+                                    }))}
+                                    onChange={(newValue: string) => {
+                                        setSelectedMergeKey(newValue)
+                                        if (editingView) {
+                                            updateDataWarehouseSavedQuerySnapshot(editingView.id, {
+                                                merge_key: newValue,
+                                            })
+                                        }
+                                    }}
+                                />
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="mt-6">
+                        <h4 className="mb-2 font-medium">Columns</h4>
+                        {editingView && editingView.columns && (
+                            <div className="flex flex-row gap-2">
                                 <LemonInputSelect
                                     mode="multiple"
                                     placeholder="Select columns..."
@@ -333,16 +363,11 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                     type="secondary"
                                     onClick={() => {
                                         if (editingView) {
-                                            updateDataWarehouseSavedQuery({
-                                                id: editingView.id,
-                                                snapshot_config: {
-                                                    mode: 'check',
-                                                    fields: selectedColumns,
-                                                    timestamp_field: null,
-                                                    frequency: 'never',
-                                                },
-                                                types: [[]],
-                                                lifecycle: 'update',
+                                            updateDataWarehouseSavedQuerySnapshot(editingView.id, {
+                                                mode: 'check',
+                                                fields: selectedColumns,
+                                                timestamp_field: null,
+                                                frequency: 'never',
                                             })
                                         }
                                     }}
@@ -352,7 +377,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                             </div>
                         )}
                     </div>
-                    <div>
+                    <div className="mt-6">
                         {editingView?.snapshot_enabled && (
                             <LemonButton
                                 type="primary"
@@ -365,7 +390,7 @@ export function QueryInfo({ codeEditorKey }: QueryInfoProps): JSX.Element {
                                     editingView?.snapshot_config?.fields?.length === 0 ? 'No columns selected' : false
                                 }
                             >
-                                Snapshot now
+                                Snapshot
                             </LemonButton>
                         )}
                     </div>

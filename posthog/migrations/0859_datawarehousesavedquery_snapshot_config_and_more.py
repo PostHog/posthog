@@ -11,11 +11,6 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="datawarehousesavedquery",
-            name="snapshot_config",
-            field=models.JSONField(blank=True, default=dict, null=True),
-        ),
-        migrations.AddField(
-            model_name="datawarehousesavedquery",
             name="snapshot_enabled",
             field=models.BooleanField(default=False),
         ),

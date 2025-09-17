@@ -1,1 +1,1 @@
-0860_datawarehousetable_is_snapshot
+0862_datawarehousesnapshotconfig_datawarehousesnapshotjob

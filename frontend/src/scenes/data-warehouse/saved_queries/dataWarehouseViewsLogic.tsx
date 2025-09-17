@@ -63,6 +63,7 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         resetDataModelingJobs: () => {},
         setStartingMaterialization: (starting: boolean) => ({ starting }),
         runDataWarehouseSavedQuerySnapshot: (viewId: string) => ({ viewId }),
+        updateDataWarehouseSavedQuerySnapshot: (viewId: string, data: Record<string, any>) => ({ viewId, data }),
     }),
     loaders(({ values }) => ({
         dataWarehouseSavedQueries: [
@@ -165,6 +166,15 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         },
         updateDataWarehouseSavedQueryError: () => {
             lemonToast.error('Failed to update view')
+        },
+        updateDataWarehouseSavedQuerySnapshot: async ({ viewId, data }) => {
+            try {
+                await api.dataWarehouseSavedQueries.updateSnapshot(viewId, data)
+                lemonToast.success('Snapshot updated')
+                actions.loadDataWarehouseSavedQueries()
+            } catch {
+                lemonToast.error(`Failed to update snapshot`)
+            }
         },
         runDataWarehouseSavedQuery: async ({ viewId }) => {
             try {

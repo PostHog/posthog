@@ -64,6 +64,7 @@ from posthog.warehouse.models.external_data_schema import (
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
 )
+from posthog.warehouse.models.snapshot_config import DataWarehouseSnapshotConfig
 
 logger = structlog.get_logger(__name__)
 
@@ -76,6 +77,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
     last_run_at = serializers.SerializerMethodField(read_only=True)
     edited_history_id = serializers.CharField(write_only=True, required=False, allow_null=True)
     soft_update = serializers.BooleanField(write_only=True, required=False, allow_null=True)
+    snapshot_config = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -95,8 +97,8 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
             "latest_history_id",
             "soft_update",
             "snapshot_enabled",
-            "snapshot_config",
             "is_materialized",
+            "snapshot_config",
         ]
         read_only_fields = [
             "id",
@@ -112,6 +114,14 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         extra_kwargs = {
             "soft_update": {"write_only": True},
         }
+
+    def get_snapshot_config(self, view: DataWarehouseSavedQuery) -> DataWarehouseSnapshotConfig | None:
+        try:
+            return view.datawarehousesnapshotconfig.config
+        except DataWarehouseSnapshotConfig.DoesNotExist:
+            return None
+        except Exception:
+            return None
 
     def get_last_run_at(self, view: DataWarehouseSavedQuery) -> datetime | None:
         try:
@@ -344,6 +354,7 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
         if before_update and before_update.snapshot_enabled != view.snapshot_enabled:
             schedule_exists = snapshot_workflow_exists(str(view.id) + "-snapshot")
             if view.snapshot_enabled:
+                DataWarehouseSnapshotConfig.objects.get_or_create(team=view.team, saved_query=view)
                 sync_saved_query_snapshot_workflow(view, create=not schedule_exists)
             else:
                 if schedule_exists:
@@ -429,6 +440,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                     "datamodelingjob_set", queryset=DataModelingJob.objects.order_by("-last_run_at")[:1], to_attr="jobs"
                 ),
             )
+            .select_related("datawarehousesnapshotconfig")
             .exclude(deleted=True)
             .order_by(self.ordering)
         )
@@ -648,6 +660,21 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             return response.Response(
                 {"error": f"Failed to cancel workflow"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    @action(methods=["POST"], detail=True)
+    def snapshot_config(self, request: request.Request, *args, **kwargs) -> response.Response:
+        """Update the snapshot config for this saved query."""
+        saved_query = self.get_object()
+
+        if not saved_query.datawarehousesnapshotconfig:
+            raise response.Response({"error": f"Snapshot config does not exist"}, status=status.HTTP_400_BAD_REQUEST)
+
+        saved_query.datawarehousesnapshotconfig.config = {
+            **saved_query.datawarehousesnapshotconfig.config,
+            **request.data,
+        }
+        saved_query.datawarehousesnapshotconfig.save()
+        return response.Response(status=status.HTTP_200_OK)
 
 
 def try_convert_to_uuid(s: str) -> uuid.UUID | str:

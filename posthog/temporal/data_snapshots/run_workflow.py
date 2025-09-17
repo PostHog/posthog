@@ -18,13 +18,20 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.data_imports.pipelines.pipeline.utils import append_partition_key_to_table
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
-from posthog.temporal.data_snapshots.delta_snapshot import DeltaSnapshot
+from posthog.temporal.data_snapshots.delta_snapshot import DeltaSnapshot, calculate_partition_settings
 from posthog.warehouse.models.credential import get_or_create_datawarehouse_credential
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery, aget_saved_query_by_id
 from posthog.warehouse.models.table import DataWarehouseTable
 
 LOGGER = get_logger(__name__)
+
+
+@dataclasses.dataclass
+class CreateTableInputs:
+    team_id: int
+    saved_query_id: str
 
 
 @dataclasses.dataclass
@@ -66,14 +73,25 @@ async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> None:
     team = await database_sync_to_async(Team.objects.get)(id=inputs.team_id)
     delta_snapshot = DeltaSnapshot(saved_query)
 
-    stringified_hashed_columns = [f"toString({column})" for column in saved_query.snapshot_config.get("fields", [])]
+    stringified_hashed_columns = [f"toString({column})" for column in delta_snapshot.columns]
+
+    partition_settings = None
+    partition_settings = calculate_partition_settings(saved_query)
+    # if delta_snapshot.get_delta_table() is None:
+    #     partition_settings = calculate_partition_settings(saved_query)
+    # else:
+    #     partition_settings = get_partition_settings(saved_query)
+
+    merge_key = delta_snapshot.merge_key
+    if merge_key is None:
+        raise Exception("Merge key is required for snapshot")
 
     async for _, res in asyncstdlib.enumerate(
         hogql_table(
             f"""
         SELECT
             *,
-            id AS merge_key,
+            {merge_key} AS merge_key,
             toString(cityHash64(concatWithSeparator('_', {', '.join(stringified_hashed_columns)}))) AS row_hash,
             now() AS snapshot_ts
         FROM ({hogql_query})
@@ -86,11 +104,23 @@ async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> None:
         batch = _transform_unsupported_decimals(batch)
         batch = _transform_date_and_datetimes(batch, ch_types)
 
-        batch_with_nulls = batch.append_column(
+        batch = batch.append_column(
             DeltaSnapshot.VALID_UNTIL_COLUMN,
             pa.array([None] * batch.num_rows, type=pa.timestamp("us", tz="UTC")),
         )
-        delta_snapshot.snapshot(batch_with_nulls)
+
+        if partition_settings is not None:
+            batch, _, _ = append_partition_key_to_table(
+                batch,
+                partition_settings.partition_count,
+                partition_settings.partition_size,
+                [merge_key],
+                "md5",
+                None,
+                logger,
+            )
+
+        delta_snapshot.snapshot(batch)
         snapshot_table_uri = delta_snapshot.get_delta_table()
         file_uris = snapshot_table_uri.file_uris()
 

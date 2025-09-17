@@ -82,14 +82,16 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     deleted_name = models.CharField(max_length=128, default=None, null=True, blank=True)
     is_materialized = models.BooleanField(default=False, blank=True, null=True)
 
+    # Whether this saved query is a snapshot
+    is_snapshot = models.BooleanField(default=False, help_text="Whether this saved query is a snapshot")
+
+    # If this is query itself is a snapshot, these fields will be unused
     snapshot_enabled = models.BooleanField(default=False)
 
-    # Fields
-    # mode: "check" | "timestamp"
-    # timestamp_field: string
-    # frequency: "5min" | "30min" | "1hour" | "6hour" | "12hour" | "24hour" | "7day" | "30day" or "never"
-    # fields: list[str]
-    snapshot_config = models.JSONField(default=dict, null=True, blank=True)
+    # Snapshot SDC2 table
+    snapshot_table = models.ForeignKey(
+        "posthog.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True, related_name="snapshot_table"
+    )
 
     class Meta:
         constraints = [
@@ -274,6 +276,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
 def aget_saved_query_by_id(saved_query_id: str, team_id: int) -> DataWarehouseSavedQuery | None:
     return (
         DataWarehouseSavedQuery.objects.prefetch_related("team")
+        .select_related("datawarehousesnapshotconfig")
+        .prefetch_related("table")
         .exclude(deleted=True)
         .get(id=saved_query_id, team_id=team_id)
     )
