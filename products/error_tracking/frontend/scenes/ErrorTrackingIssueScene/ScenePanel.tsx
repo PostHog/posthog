@@ -57,8 +57,8 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
             />
             <IssueExternalReference />
             {hasTasks && <IssueTasks />}
-            <IssueAIFixSection />
             <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
+            <IssueAIFixSection />
 
             {/* Add a div here to break out of the gap-2 */}
             <div>
@@ -169,9 +169,5 @@ const IssueExternalReference = (): JSX.Element => {
 }
 
 const IssueAIFixSection = (): JSX.Element => {
-    return (
-        <ScenePanelLabel title="AI Assistant">
-            <IssueAIFix />
-        </ScenePanelLabel>
-    )
+    return <IssueAIFix />
 }

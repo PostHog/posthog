@@ -8,6 +8,7 @@ import { GitHubRepositoryPicker } from 'lib/integrations/GitHubIntegrationHelper
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { Label } from 'lib/ui/Label/Label'
 
 import { releasePreviewLogic } from '../ExceptionAttributesPreview/ReleasesPreview/releasePreviewLogic'
 
@@ -74,12 +75,15 @@ export function IssueAIFix(): JSX.Element {
     const isDone = status === 'done'
 
     return (
-        <div className="relative border border-border rounded-lg p-3 space-y-3">
-            {/* Experimental Badge */}
-            <div className="absolute -top-3 right-3">
-                <LemonTag size="small" type="danger" className="bg-bg-3000">
-                    Experimental
-                </LemonTag>
+        <div className="relative border border-border rounded-lg p-3 space-y-3 mt-2">
+            {/* Label integrated into border */}
+            <div className="absolute -top-2.5 -left-1 px-1 bg-bg-3000">
+                <div className="flex items-center gap-2">
+                    <Label intent="menu">AI Assistant</Label>
+                    <LemonTag size="small" type="danger">
+                        Experimental
+                    </LemonTag>
+                </div>
             </div>
             {/* Repository Selection */}
             {integrationId ? (
