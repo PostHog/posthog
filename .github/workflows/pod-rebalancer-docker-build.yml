@@ -12,7 +12,7 @@ on:
 jobs:
     build:
         name: Build pod-rebalancer
-        runs-on: depot-ubuntu-22.04
+        runs-on: depot-ubuntu-24.04
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow reading the repo contents
@@ -69,7 +69,7 @@ jobs:
               id: docker_build
               uses: depot/build-push-action@2583627a84956d07561420dcc1d0eb1f2af3fac0 # v1
               with:
-                  project: vznmbshh6q # PostHog's Depot project ID
+                  project: pbvxx42c2m
                   context: .
                   file: ./deploy/docker/Dockerfile
                   push: true
