@@ -36,13 +36,12 @@ export function EarlyAccessFeatures(): JSX.Element {
     const shouldShowEmptyState = earlyAccessFeatures.length == 0 && !earlyAccessFeaturesLoading
 
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             <SceneTitleSection
                 name="Early access features"
                 description="Allow your users to individually enable or disable features that are in public beta."
                 resourceType={{
                     type: 'early_access_feature',
-                    typePlural: 'Early access features',
                 }}
             />
             <SceneDivider />

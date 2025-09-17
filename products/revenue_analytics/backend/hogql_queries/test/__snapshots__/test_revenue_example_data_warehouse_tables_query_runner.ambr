@@ -7,7 +7,7 @@
          `stripe.posthog_test.revenue_item_revenue_view`.original_currency AS original_currency,
          `stripe.posthog_test.revenue_item_revenue_view`.amount AS amount,
          `stripe.posthog_test.revenue_item_revenue_view`.currency AS currency,
-         `stripe.posthog_test.revenue_item_revenue_view`.timestamp AS timestamp
+         toTimeZone(`stripe.posthog_test.revenue_item_revenue_view`.timestamp, 'UTC') AS timestamp
   FROM
     (SELECT if(ifNull(greater(invoice.period_months, 1), 0), concat(ifNull(toString(invoice.invoice_item_id), ''), '_', ifNull(toString(invoice.month_index), '')), invoice.invoice_item_id) AS id,
             invoice.invoice_item_id AS invoice_item_id,
@@ -76,7 +76,7 @@
          `stripe.posthog_test.revenue_item_revenue_view`.original_currency AS original_currency,
          `stripe.posthog_test.revenue_item_revenue_view`.amount AS amount,
          `stripe.posthog_test.revenue_item_revenue_view`.currency AS currency,
-         `stripe.posthog_test.revenue_item_revenue_view`.timestamp AS timestamp
+         toTimeZone(`stripe.posthog_test.revenue_item_revenue_view`.timestamp, 'UTC') AS timestamp
   FROM
     (SELECT NULL AS id,
             NULL AS invoice_item_id,

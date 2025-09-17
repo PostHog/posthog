@@ -541,13 +541,6 @@ async def materialize_model(
             await revert_materialization(saved_query, logger)
             await mark_job_as_failed(job, error_message, logger)
             raise Exception(f"Table reference missing for model {model_label}: {error_message}") from e
-        elif "no log files" in error_message:
-            error_message = f"Query did not return rows. Try changing your time range or query."
-            saved_query.latest_error = error_message
-            await logger.ainfo("Query did not return results for model %s, reverting materialization", model_label)
-            await revert_materialization(saved_query, logger)
-            await mark_job_as_failed(job, error_message, logger)
-            raise Exception(f"Query did not return results for model {model_label}: {error_message}") from e
         elif "Memory limit" in error_message:
             error_message = f"Query exceeded memory limit. Try reducing its scope by changing the time range."
             saved_query.latest_error = error_message
@@ -581,6 +574,9 @@ async def materialize_model(
     await logger.adebug("Copying query files in S3")
     prepare_s3_files_for_querying(saved_query.folder_path, saved_query.normalized_name, file_uris, True)
 
+    saved_query.is_materialized = True
+    await database_sync_to_async(saved_query.save)()
+
     await update_table_row_count(saved_query, row_count, logger)
 
     # Update the job record with the row count and completed status
@@ -613,26 +609,12 @@ async def revert_materialization(saved_query: DataWarehouseSavedQuery, logger: F
     unrecoverable error, like a table reference no longer existing.
     """
     try:
-        from posthog.warehouse.data_load.saved_query_service import delete_saved_query_schedule
-
-        await database_sync_to_async(delete_saved_query_schedule)(str(saved_query.id))
-
-        saved_query.sync_frequency_interval = None
-        saved_query.status = None
-        saved_query.last_run_at = None
-        saved_query.latest_error = None
-
-        # Clear the table reference so consumers will use the on-demand view instead
-        if saved_query.table is not None:
-            saved_query.table = None
-            table = await database_sync_to_async(DataWarehouseTable.objects.get)(id=saved_query.table_id)
-            await database_sync_to_async(table.soft_delete)()
-
-        await database_sync_to_async(saved_query.save)()
+        await database_sync_to_async(saved_query.revert_materialization)()
 
         await logger.ainfo("Successfully reverted materialization for saved query %s", saved_query.name)
 
     except Exception as e:
+        capture_exception(e)
         await logger.aexception("Failed to revert materialization for saved query %s: %s", saved_query.name, str(e))
 
 
@@ -1276,6 +1258,7 @@ async def finish_run_activity(inputs: FinishRunActivityInputs) -> None:
 class CreateTableActivityInputs:
     models: list[str]
     team_id: int
+    job_id: str
 
     @property
     def properties_to_log(self) -> dict[str, typing.Any]:
@@ -1300,7 +1283,7 @@ async def create_table_activity(inputs: CreateTableActivityInputs) -> None:
             )
             continue  # Skip this model if it's not a valid UUID
 
-        await create_table_from_saved_query(model, inputs.team_id)
+        await create_table_from_saved_query(inputs.job_id, model, inputs.team_id)
 
         try:
             saved_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.select_related("table").get)(
@@ -1471,7 +1454,7 @@ class RunWorkflow(PostHogWorkflow):
                 run_dag_activity,
                 run_model_activity_inputs,
                 start_to_close_timeout=dt.timedelta(hours=1),
-                heartbeat_timeout=dt.timedelta(minutes=1),
+                heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=temporalio.common.RetryPolicy(
                     maximum_attempts=1,
                 ),
@@ -1531,7 +1514,7 @@ class RunWorkflow(PostHogWorkflow):
 
         selected_labels = [selector.label for selector in inputs.select]
         create_table_activity_inputs = CreateTableActivityInputs(
-            models=[label for label in completed if label in selected_labels], team_id=inputs.team_id
+            models=[label for label in completed if label in selected_labels], team_id=inputs.team_id, job_id=job_id
         )
         await temporalio.workflow.execute_activity(
             create_table_activity,

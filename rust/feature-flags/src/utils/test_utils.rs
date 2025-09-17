@@ -173,6 +173,11 @@ impl Client for MockPgClient {
         // Simulate a database connection failure
         Err(CustomDatabaseError::Other(SqlxError::PoolTimedOut))
     }
+
+    fn get_pool_stats(&self) -> Option<common_database::PoolStats> {
+        // Return None for mock client
+        None
+    }
 }
 
 pub async fn setup_invalid_pg_client() -> Arc<dyn Client + Send + Sync> {

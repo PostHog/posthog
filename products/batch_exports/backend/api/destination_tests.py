@@ -926,14 +926,7 @@ class SnowflakeSchemaTestStep(DestinationTestStep):
 
 
 class SnowflakeDestinationTest(DestinationTest):
-    """A concrete implementation of a `DestinationTest` for Snowflake.
-
-    Attributes:
-        project_id: ID of BigQuery project we are batch exporting to.
-        dataset_id: ID of BigQuery dataset we are batch exporting to.
-        table_id: ID of BigQuery table we are batch exporting to.
-        service_account_info: Service account credentials used to access BigQuery.
-    """
+    """A concrete implementation of a `DestinationTest` for Snowflake."""
 
     def __init__(self):
         self.account = None

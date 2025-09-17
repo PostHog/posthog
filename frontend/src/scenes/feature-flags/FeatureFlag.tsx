@@ -21,8 +21,6 @@ import {
 } from '@posthog/icons'
 import { LemonDialog, LemonSegmentedButton, LemonSkeleton, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -30,7 +28,6 @@ import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -63,6 +60,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -209,7 +207,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         restoreFeatureFlag,
         editFeatureFlag,
         loadFeatureFlag,
-        saveFeatureFlag,
         createStaticCohort,
         setFeatureFlagFilters,
         setActiveTab,
@@ -229,8 +226,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
     const isNewFeatureFlag = id === 'new' || id === undefined
-
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     if (featureFlagMissing) {
         return <NotFound object="feature flag" />
@@ -283,7 +278,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             </>
                         )}
 
-                        {newSceneLayout ? <SceneDivider /> : <LemonDivider className="my-0" />}
+                        <SceneDivider />
                         <FeatureFlagCodeExample featureFlag={featureFlag} />
                     </div>
                 </>
@@ -350,6 +345,11 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
     return (
         <>
             <div className="feature-flag">
+                {isNewFeatureFlag && (
+                    <div className="mb-2 -ml-[var(--button-padding-x-lg)]">
+                        <SceneBreadcrumbBackButton />
+                    </div>
+                )}
                 {isNewFeatureFlag || isEditingFlag ? (
                     <Form
                         id="feature-flag"
@@ -359,6 +359,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         enableFormOnSubmit
                         className="deprecated-space-y-4"
                     >
+                        <SceneTitleSection name={featureFlag.key} resourceType={{ type: 'feature_flag' }} />
                         <PageHeader
                             buttons={
                                 <div className="flex items-center gap-2">
@@ -387,7 +388,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </div>
                             }
                         />
-                        <SceneContent forceNewSpacing>
+                        <SceneContent>
                             {featureFlag.experiment_set && featureFlag.experiment_set.length > 0 && (
                                 <LemonBanner type="warning">
                                     This feature flag is linked to an experiment. Edit settings here only for advanced
@@ -509,9 +510,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                     </LemonField>
                                 )}
                             </div>
-                            {newSceneLayout ? <SceneDivider /> : <LemonDivider className="my-2" />}
+                            <SceneDivider />
                             <FeatureFlagRollout />
-                            {newSceneLayout ? <SceneDivider /> : <LemonDivider className="my-2" />}
+                            <SceneDivider />
                             {!featureFlag.is_remote_configuration && (
                                 <>
                                     <FeatureFlagReleaseConditions
@@ -519,7 +520,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         filters={featureFlag.filters}
                                         onChange={setFeatureFlagFilters}
                                     />
-                                    {newSceneLayout ? <SceneDivider /> : <LemonDivider className="my-2" />}
+                                    <SceneDivider />
                                 </>
                             )}
 
@@ -590,49 +591,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             notebookProps={{
                                 href: urls.featureFlag(id),
                             }}
-                            caption={
-                                !newSceneLayout && (
-                                    <div>
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <div className="flex deprecated-space-x-1">
-                                                <div>
-                                                    <span className="text-secondary">Key:</span>{' '}
-                                                    <CopyToClipboardInline
-                                                        tooltipMessage={null}
-                                                        description="Feature flag key"
-                                                        className="justify-end"
-                                                    >
-                                                        {featureFlag.key}
-                                                    </CopyToClipboardInline>
-                                                </div>
-                                            </div>
-                                            <div>
-                                                {featureFlag?.tags && (
-                                                    <>
-                                                        {featureFlag.tags.length > 0 ? (
-                                                            <span className="text-secondary">Tags:</span>
-                                                        ) : null}{' '}
-                                                        {featureFlag.can_edit ? (
-                                                            <ObjectTags
-                                                                tags={featureFlag.tags}
-                                                                onChange={(tags) => {
-                                                                    saveFeatureFlag({ tags })
-                                                                }}
-                                                                tagsAvailable={tags.filter(
-                                                                    (tag: string) => !featureFlag.tags?.includes(tag)
-                                                                )}
-                                                            />
-                                                        ) : featureFlag.tags.length > 0 ? (
-                                                            <ObjectTags tags={featureFlag.tags} staticOnly />
-                                                        ) : null}
-                                                    </>
-                                                )}
-                                            </div>
-                                        </div>
-                                        <div className="mt-2">{featureFlag.name || <i>Description (optional)</i>}</div>
-                                    </div>
-                                )
-                            }
                             buttons={
                                 <>
                                     <div className="flex items-center gap-2">
@@ -672,10 +630,12 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                         </LemonButton>
                                                     )}
                                                     <LemonDivider />
-                                                    <AccessControlledLemonButton
-                                                        userAccessLevel={featureFlag.user_access_level}
-                                                        minAccessLevel={AccessControlLevel.Editor}
-                                                        resourceType={AccessControlResourceType.FeatureFlag}
+                                                    <LemonButton
+                                                        accessControl={{
+                                                            resourceType: AccessControlResourceType.FeatureFlag,
+                                                            minAccessLevel: AccessControlLevel.Editor,
+                                                            userAccessLevel: featureFlag.user_access_level,
+                                                        }}
                                                         data-attr={
                                                             featureFlag.deleted
                                                                 ? 'restore-feature-flag'
@@ -701,7 +661,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                         }
                                                     >
                                                         {featureFlag.deleted ? 'Restore' : 'Delete'} feature flag
-                                                    </AccessControlledLemonButton>
+                                                    </LemonButton>
                                                 </>
                                             }
                                         />
@@ -716,10 +676,12 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             type="secondary"
                                         />
 
-                                        <AccessControlledLemonButton
-                                            userAccessLevel={featureFlag.user_access_level}
-                                            minAccessLevel={AccessControlLevel.Editor}
-                                            resourceType={AccessControlResourceType.FeatureFlag}
+                                        <LemonButton
+                                            accessControl={{
+                                                resourceType: AccessControlResourceType.FeatureFlag,
+                                                minAccessLevel: AccessControlLevel.Editor,
+                                                userAccessLevel: featureFlag.user_access_level,
+                                            }}
                                             data-attr="edit-feature-flag"
                                             type="secondary"
                                             disabledReason={
@@ -734,12 +696,12 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             }}
                                         >
                                             Edit
-                                        </AccessControlledLemonButton>
+                                        </LemonButton>
                                     </div>
                                 </>
                             }
                         />
-                        <SceneContent forceNewSpacing>
+                        <SceneContent>
                             {earlyAccessFeature && earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && (
                                 <LemonBanner type="info">
                                     This feature flag is assigned to an early access feature in the{' '}
@@ -757,7 +719,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 description={featureFlag.name}
                                 resourceType={{
                                     type: 'feature_flag',
-                                    typePlural: 'Feature flags',
                                 }}
                             />
                             <SceneDivider />
@@ -765,7 +726,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 activeKey={activeTab}
                                 onChange={(tab) => tab !== activeTab && setActiveTab(tab)}
                                 tabs={tabs}
-                                sceneInset={newSceneLayout}
+                                sceneInset
                             />
                         </SceneContent>
                     </>
@@ -917,8 +878,6 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
 
     const filterGroups: FeatureFlagGroupType[] = featureFlag.filters.groups || []
 
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
-
     const confirmRevertMultivariateEnabled = (): void => {
         LemonDialog.open({
             title: 'Change value type?',
@@ -976,7 +935,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
     }
 
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             {readOnly ? (
                 <>
                     <div className="flex flex-col">
@@ -990,59 +949,51 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                                     </LemonTag>
                                 ) : (
                                     <div className="flex gap-2">
-                                        <AccessControlAction
-                                            userAccessLevel={featureFlag.user_access_level}
-                                            minAccessLevel={AccessControlLevel.Editor}
-                                            resourceType={AccessControlResourceType.FeatureFlag}
-                                        >
-                                            {({ disabledReason: accessControlDisabledReason }) => (
-                                                <>
-                                                    <LemonSwitch
-                                                        onChange={(newValue) => {
-                                                            LemonDialog.open({
-                                                                title: `${
-                                                                    newValue === true ? 'Enable' : 'Disable'
-                                                                } this flag?`,
-                                                                description: `This flag will be immediately ${
-                                                                    newValue === true
-                                                                        ? 'rolled out to'
-                                                                        : 'rolled back from'
-                                                                } the users matching the release conditions.`,
-                                                                primaryButton: {
-                                                                    children: 'Confirm',
-                                                                    type: 'primary',
-                                                                    onClick: () => {
-                                                                        const updatedFlag = {
-                                                                            ...featureFlag,
-                                                                            active: newValue,
-                                                                        }
-                                                                        setFeatureFlag(updatedFlag)
-                                                                        saveFeatureFlag(updatedFlag)
-                                                                    },
-                                                                    size: 'small',
-                                                                },
-                                                                secondaryButton: {
-                                                                    children: 'Cancel',
-                                                                    type: 'tertiary',
-                                                                    size: 'small',
-                                                                },
-                                                            })
-                                                        }}
-                                                        label={featureFlag.active ? 'Enabled' : 'Disabled'}
-                                                        disabledReason={
-                                                            accessControlDisabledReason ||
-                                                            (!featureFlag.can_edit
-                                                                ? "You only have view access to this feature flag. To make changes, contact the flag's creator."
-                                                                : null)
-                                                        }
-                                                        checked={featureFlag.active}
-                                                    />
-                                                    {!featureFlag.is_remote_configuration && (
-                                                        <FeatureFlagStatusIndicator flagStatus={flagStatus} />
-                                                    )}
-                                                </>
+                                        <>
+                                            <LemonSwitch
+                                                onChange={(newValue) => {
+                                                    LemonDialog.open({
+                                                        title: `${newValue === true ? 'Enable' : 'Disable'} this flag?`,
+                                                        description: `This flag will be immediately ${
+                                                            newValue === true ? 'rolled out to' : 'rolled back from'
+                                                        } the users matching the release conditions.`,
+                                                        primaryButton: {
+                                                            children: 'Confirm',
+                                                            type: 'primary',
+                                                            onClick: () => {
+                                                                const updatedFlag = {
+                                                                    ...featureFlag,
+                                                                    active: newValue,
+                                                                }
+                                                                setFeatureFlag(updatedFlag)
+                                                                saveFeatureFlag(updatedFlag)
+                                                            },
+                                                            size: 'small',
+                                                        },
+                                                        secondaryButton: {
+                                                            children: 'Cancel',
+                                                            type: 'tertiary',
+                                                            size: 'small',
+                                                        },
+                                                    })
+                                                }}
+                                                label={featureFlag.active ? 'Enabled' : 'Disabled'}
+                                                disabledReason={
+                                                    !featureFlag.can_edit
+                                                        ? "You only have view access to this feature flag. To make changes, contact the flag's creator."
+                                                        : null
+                                                }
+                                                checked={featureFlag.active}
+                                                accessControl={{
+                                                    resourceType: AccessControlResourceType.FeatureFlag,
+                                                    minAccessLevel: AccessControlLevel.Editor,
+                                                    userAccessLevel: featureFlag.user_access_level,
+                                                }}
+                                            />
+                                            {!featureFlag.is_remote_configuration && (
+                                                <FeatureFlagStatusIndicator flagStatus={flagStatus} />
                                             )}
-                                        </AccessControlAction>
+                                        </>
                                     </div>
                                 )}
                             </div>
@@ -1093,7 +1044,7 @@ function FeatureFlagRollout({ readOnly }: { readOnly?: boolean }): JSX.Element {
                             </>
                         )}
                     </div>
-                    {newSceneLayout ? <SceneDivider /> : <LemonDivider className="my-0" />}
+                    <SceneDivider />
                     {featureFlag.filters.multivariate && (
                         <>
                             <SceneSection title="Variant keys">

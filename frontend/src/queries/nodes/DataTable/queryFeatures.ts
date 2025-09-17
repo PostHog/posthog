@@ -25,6 +25,7 @@ export enum QueryFeature {
     eventPropertyFilters,
     personPropertyFilters,
     groupPropertyFilters,
+    linkDataButton,
     personsSearch,
     groupsSearch,
     savedEventsQueries,
@@ -86,6 +87,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.columnConfigurator)
+        features.add(QueryFeature.linkDataButton)
     }
 
     if (

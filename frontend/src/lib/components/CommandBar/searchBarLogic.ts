@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { getDefaultTreeProducts, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { groupsModel } from '~/models/groupsModel'
-import { FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { Group, InsightShortId, PersonType, SearchResponse, SearchableEntity } from '~/types'
 
 import { commandBarLogic } from './commandBarLogic'
@@ -57,7 +57,9 @@ function rankProductTreeItems(treeItems: FileSystemImport[], query: string): Tre
                 result_id: item.href || item.path,
                 extra_fields: {
                     ...item,
-                    icon: item.iconType ? iconForType(item.iconType) : iconForType(item.type),
+                    icon: item.iconType
+                        ? iconForType(item.iconType as FileSystemIconType)
+                        : iconForType(item.type as FileSystemIconType),
                     description: `Category: ${item.category}`,
                 },
                 rank,
@@ -588,7 +590,11 @@ export const searchBarLogic = kea<searchBarLogicType>([
             actions.loadGroup4Response(_)
         },
         openResult: ({ index }) => {
-            const result = values.combinedSearchResults![index]
+            const results = values.combinedSearchResults
+            if (!results || !results[index]) {
+                return // Early exit if no valid result
+            }
+            const result = results[index]
             router.actions.push(urlForResult(result))
             actions.hideCommandBar()
             actions.reportCommandBarSearchResultOpened(result.type)

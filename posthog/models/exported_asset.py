@@ -48,14 +48,17 @@ class ExportedAsset(models.Model):
         WEBM = "video/webm", "video/webm"
         MP4 = "video/mp4", "video/mp4"
         GIF = "image/gif", "image/gif"
+        JSON = "application/json", "application/json"
 
     SUPPORTED_FORMATS = [
         ExportFormat.PNG,
+        ExportFormat.PDF,
         ExportFormat.CSV,
         ExportFormat.XLSX,
         ExportFormat.WEBM,
         ExportFormat.MP4,
         ExportFormat.GIF,
+        ExportFormat.JSON,
     ]
 
     # Relations
@@ -114,6 +117,7 @@ class ExportedAsset(models.Model):
 
     def get_analytics_metadata(self):
         return {
+            "asset_id": self.id,
             "export_format": self.export_format,
             "dashboard_id": self.dashboard_id,
             "insight_id": self.insight_id,
@@ -128,6 +132,10 @@ class ExportedAsset(models.Model):
         expired_assets = ExportedAsset.objects_including_ttl_deleted.filter(expires_after__lte=now())
         logger.info("deleting_expired_assets", count=expired_assets.count())
         expired_assets.delete()
+
+    @classmethod
+    def get_supported_format_values(cls):
+        return [format_choice.value for format_choice in cls.SUPPORTED_FORMATS]
 
 
 def get_public_access_token(asset: ExportedAsset, expiry_delta: Optional[timedelta] = None) -> str:

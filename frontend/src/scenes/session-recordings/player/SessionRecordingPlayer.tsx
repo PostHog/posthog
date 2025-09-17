@@ -9,6 +9,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { BuilderHog2, SleepingHog } from 'lib/components/hedgehogs'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
+import useIsHovering from 'lib/hooks/useIsHovering'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -18,14 +19,14 @@ import { PlayerFrameCommentOverlay } from 'scenes/session-recordings/player/comm
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { urls } from 'scenes/urls'
 
-import { ExporterFormat } from '~/types'
-
 import { PlayerFrame } from './PlayerFrame'
 import { PlayerFrameOverlay } from './PlayerFrameOverlay'
 import { PlayerSidebar } from './PlayerSidebar'
 import { SessionRecordingNextConfirmation } from './SessionRecordingNextConfirmation'
+import { ClipOverlay } from './controller/ClipRecording'
 import { PlayerController } from './controller/PlayerController'
 import { PlayerMeta } from './player-meta/PlayerMeta'
+import { PlayerMetaTopSettings } from './player-meta/PlayerMetaTopSettings'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import {
@@ -101,12 +102,15 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     } = useActions(sessionRecordingPlayerLogic(logicProps))
     const { isNotFound, isRecentAndInvalid, isLikelyPastTTL } = useValues(sessionRecordingDataLogic(logicProps))
     const { loadSnapshots } = useActions(sessionRecordingDataLogic(logicProps))
-    const { isFullScreen, explorerMode, isBuffering, isCommenting, quickEmojiIsOpen } = useValues(
-        sessionRecordingPlayerLogic(logicProps)
-    )
-    const { setPlayNextAnimationInterrupted, setIsCommenting, takeScreenshot, setQuickEmojiIsOpen } = useActions(
-        sessionRecordingPlayerLogic(logicProps)
-    )
+    const { isFullScreen, explorerMode, isBuffering, isCommenting, quickEmojiIsOpen, showingClipParams, resolution } =
+        useValues(sessionRecordingPlayerLogic(logicProps))
+    const {
+        setPlayNextAnimationInterrupted,
+        setIsCommenting,
+        takeScreenshot,
+        setQuickEmojiIsOpen,
+        setShowingClipParams,
+    } = useActions(sessionRecordingPlayerLogic(logicProps))
     const speedHotkeys = useMemo(() => createPlaybackSpeedKey(setSpeed), [setSpeed])
     const { isVerticallyStacked, sidebarOpen, isCinemaMode } = useValues(playerSettingsLogic)
     const { setIsCinemaMode } = useActions(playerSettingsLogic)
@@ -141,7 +145,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
             // Not the maximum, but 4 for a balance between speed and quality
             setSpeed(MAX_PLAYBACK_SPEED)
         }
-    }, [mode, setSkipInactivitySetting, setSpeed, hidePlayerElements])
+    }, [mode, setSkipInactivitySetting, setSpeed, hidePlayerElements, resolution])
 
     useEffect(
         () => {
@@ -168,10 +172,10 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                 action: () => setQuickEmojiIsOpen(!quickEmojiIsOpen),
             },
             s: {
-                action: () => takeScreenshot(ExporterFormat.PNG),
+                action: () => takeScreenshot(),
             },
             x: {
-                action: () => takeScreenshot(ExporterFormat.GIF),
+                action: () => setShowingClipParams(!showingClipParams),
             },
             t: {
                 action: () => setIsCinemaMode(!isCinemaMode),
@@ -225,6 +229,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     )
 
     const { draggable, elementProps } = useNotebookDrag({ href: urls.replaySingle(sessionRecordingId) })
+    const showMeta = !(hidePlayerElements || (noMeta && !isFullScreen))
+    const isHovering = useIsHovering(playerRef)
 
     if (isNotFound) {
         return (
@@ -295,8 +301,15 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                     </div>
                                 ) : (
                                     <div className="flex w-full h-full">
-                                        <div className="flex flex-col flex-1 w-full">
-                                            {hidePlayerElements || (noMeta && !isFullScreen) ? null : <PlayerMeta />}
+                                        <div className="flex flex-col flex-1 w-full relative">
+                                            <div className="relative">
+                                                {showMeta ? (
+                                                    <>
+                                                        <PlayerMeta />
+                                                        <PlayerMetaTopSettings playerIsHovering={isHovering} />
+                                                    </>
+                                                ) : null}
+                                            </div>
                                             <div
                                                 className="SessionRecordingPlayer__body"
                                                 draggable={draggable}
@@ -307,10 +320,13 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                                     <>
                                                         <PlayerFrameOverlay />
                                                         <PlayerFrameCommentOverlay />
+                                                        <ClipOverlay />
                                                     </>
                                                 ) : null}
                                             </div>
-                                            {!hidePlayerElements ? <PlayerController /> : null}
+                                            {!hidePlayerElements ? (
+                                                <PlayerController playerIsHovering={isHovering} />
+                                            ) : null}
                                         </div>
                                     </div>
                                 )}

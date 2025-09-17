@@ -20,8 +20,6 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
-import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
-import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { IframeHeatmapBrowser } from './IframeHeatmapBrowser'
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
@@ -303,17 +301,9 @@ export function HeatmapsBrowser(): JSX.Element {
 
     return (
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
-            <SceneContent forceNewSpacing>
+            <SceneContent>
                 <Warnings />
-                <SceneTitleSection
-                    name="Heatmaps"
-                    description="See where users are clicking on your website."
-                    resourceType={{
-                        type: 'heatmap',
-                        typePlural: 'Heatmaps',
-                    }}
-                />
-                <SceneDivider />
+
                 <ReplayIframeDataIntro />
                 <div className="flex flex-col overflow-hidden w-full h-[90vh] rounded border">
                     <UrlSearchHeader />

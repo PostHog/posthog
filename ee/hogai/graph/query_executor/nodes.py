@@ -15,9 +15,9 @@ from posthog.schema import (
 
 from posthog.exceptions_capture import capture_exception
 
+from ee.hogai.graph.base import AssistantNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 
-from ..base import AssistantNode
 from .prompts import (
     FALLBACK_EXAMPLE_PROMPT,
     FUNNEL_STEPS_EXAMPLE_PROMPT,
@@ -35,7 +35,7 @@ from .query_executor import AssistantQueryExecutor
 class QueryExecutorNode(AssistantNode):
     name = AssistantNodeName.QUERY_EXECUTOR
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         viz_message = state.messages[-1]
         if isinstance(viz_message, FailureMessage):
             return PartialAssistantState()  # Exit early - something failed earlier
@@ -50,7 +50,7 @@ class QueryExecutorNode(AssistantNode):
 
         query_runner = AssistantQueryExecutor(self._team, self._utc_now_datetime)
         try:
-            results, used_fallback = query_runner.run_and_format_query(viz_message.answer)
+            results, used_fallback = await query_runner.arun_and_format_query(viz_message.answer)
             example_prompt = FALLBACK_EXAMPLE_PROMPT if used_fallback else self._get_example_prompt(viz_message)
         except Exception as err:
             if isinstance(err, NotImplementedError):

@@ -3,10 +3,11 @@ import { useActions } from 'kea'
 
 import { LemonLabel } from '@posthog/lemon-ui'
 
-import { HogFlowFilters } from '../filters/HogFlowFilters'
-import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { campaignLogic } from '../../campaignLogic'
+import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { HogFlowAction } from '../types'
 import { HogFlowDuration } from './components/HogFlowDuration'
+import { StepSchemaErrors } from './components/StepSchemaErrors'
 
 export function StepWaitUntilConditionConfiguration({
     node,
@@ -16,25 +17,28 @@ export function StepWaitUntilConditionConfiguration({
     const action = node.data
     const { condition, max_wait_duration } = action.config
 
-    const { setCampaignActionConfig } = useActions(hogFlowEditorLogic)
+    const { partialSetCampaignActionConfig } = useActions(campaignLogic)
 
     return (
         <>
+            <StepSchemaErrors />
+
             <div>
                 <LemonLabel>Wait time</LemonLabel>
                 <HogFlowDuration
                     value={max_wait_duration}
                     onChange={(value) => {
-                        setCampaignActionConfig(action.id, { max_wait_duration: value })
+                        partialSetCampaignActionConfig(action.id, { max_wait_duration: value })
                     }}
                 />
             </div>
 
             <div>
                 <LemonLabel>Conditions to wait for</LemonLabel>
-                <HogFlowFilters
+                <HogFlowPropertyFilters
+                    actionId={action.id}
                     filters={condition.filters ?? {}}
-                    setFilters={(filters) => setCampaignActionConfig(action.id, { condition: { filters } })}
+                    setFilters={(filters) => partialSetCampaignActionConfig(action.id, { condition: { filters } })}
                     typeKey="campaign-wait-until-condition"
                 />
             </div>
