@@ -1137,6 +1137,7 @@ class TestSurvey(APIBaseTest):
                         "has_encrypted_payloads": False,
                         "version": ANY,  # Add version field with ANY matcher
                         "evaluation_runtime": "all",
+                        "evaluation_tags": [],
                     },
                     "linked_flag": None,
                     "linked_flag_id": None,
