@@ -39,6 +39,7 @@ class MySQLSource(BaseSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabas
         return SourceConfig(
             name=SchemaExternalDataSourceType.MY_SQL,
             caption="Enter your MySQL/MariaDB credentials to automatically pull your MySQL data into the PostHog Data warehouse.",
+            iconPath="/static/services/mysql.png",
             fields=cast(
                 list[FieldType],
                 [

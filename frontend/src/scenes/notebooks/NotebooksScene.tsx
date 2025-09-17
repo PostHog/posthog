@@ -25,7 +25,7 @@ export const scene: SceneExport = {
 
 export function NotebooksScene(): JSX.Element {
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             <PageHeader
                 buttons={
                     <>

@@ -7,9 +7,8 @@ import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { IconCancel, IconRefresh } from 'lib/lemon-ui/icons'
-import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, BatchExportBackfill } from '~/types'
+import { BatchExportBackfill } from '~/types'
 
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { BatchExportBackfillsLogicProps, batchExportBackfillsLogic } from './batchExportBackfillsLogic'
@@ -53,10 +52,6 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
     const logic = batchExportBackfillsLogic({ id })
     const { latestBackfills, loading, hasMoreBackfillsToLoad, batchExportConfig } = useValues(logic)
     const { cancelBackfill, loadOlderBackfills, openBackfillModal } = useActions(logic)
-    // this permission acts as a proxy for the user's ability to cancel backfills
-
-    const { hasAvailableFeature } = useValues(userLogic)
-    const canStartBackfill = hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
 
     if (!batchExportConfig) {
         return <NotFound object="batch export" />
@@ -181,7 +176,7 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                         key: 'actions',
                         width: 0,
                         render: function RenderActions(_, backfill) {
-                            if (canStartBackfill && backfillIsCancelable(backfill.status)) {
+                            if (backfillIsCancelable(backfill.status)) {
                                 return (
                                     <div className="flex gap-1">
                                         <BackfillCancelButton backfill={backfill} cancelBackfill={cancelBackfill} />
@@ -194,11 +189,9 @@ function BatchExportLatestBackfills({ id }: BatchExportBackfillsLogicProps): JSX
                 emptyState={
                     <div className="deprecated-space-y-2">
                         <div>No backfills in this time range.</div>
-                        {canStartBackfill && (
-                            <LemonButton type="primary" onClick={() => openBackfillModal()}>
-                                Start backfill
-                            </LemonButton>
-                        )}
+                        <LemonButton type="primary" onClick={() => openBackfillModal()}>
+                            Start backfill
+                        </LemonButton>
                     </div>
                 }
             />

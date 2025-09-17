@@ -22,6 +22,7 @@ class BrazeSource(BaseSource[BrazeSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.BRAZE,
             label="Braze",
+            iconPath="/static/services/braze.png",
             caption="",
             fields=cast(list[FieldType], []),
             unreleasedSource=True,

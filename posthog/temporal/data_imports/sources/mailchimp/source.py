@@ -23,6 +23,7 @@ class MailchimpSource(BaseSource[MailchimpSourceConfig]):
             name=SchemaExternalDataSourceType.MAILCHIMP,
             label="Mailchimp",
             caption="",
+            iconPath="/static/services/mailchimp.png",
             fields=cast(list[FieldType], []),
             unreleasedSource=True,
         )

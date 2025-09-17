@@ -23,6 +23,7 @@ class RedshiftSource(BaseSource[RedshiftSourceConfig]):
             name=SchemaExternalDataSourceType.REDSHIFT,
             label="Redshift",
             caption="",
+            iconPath="/static/services/redshift.png",
             fields=cast(list[FieldType], []),
             unreleasedSource=True,
         )

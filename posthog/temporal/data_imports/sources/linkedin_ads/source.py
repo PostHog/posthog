@@ -37,6 +37,7 @@ class LinkedInAdsSource(BaseSource[LinkedinAdsSourceConfig]):
             label="LinkedIn Ads",
             caption="Ensure you have granted PostHog access to your LinkedIn Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/linkedin-ads).",
             betaSource=True,
+            iconPath="/static/services/linkedin.png",
             fields=cast(
                 list[FieldType],
                 [

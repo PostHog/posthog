@@ -177,6 +177,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     })),
     selectors({
         selectedItemMeta: [() => [(_, props) => props.filter], (filter) => filter],
+        showNumericalPropsOnly: [
+            () => [(_, props) => props.showNumericalPropsOnly],
+            (showNumericalPropsOnly) => showNumericalPropsOnly ?? false,
+        ],
         taxonomicFilterLogicKey: [
             (_, p) => [p.taxonomicFilterLogicKey],
             (taxonomicFilterLogicKey) => taxonomicFilterLogicKey,

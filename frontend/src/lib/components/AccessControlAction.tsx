@@ -42,13 +42,16 @@ export const accessLevelSatisfied = (
 export const getAccessControlDisabledReason = (
     resourceType: AccessControlResourceType,
     userAccessLevel: AccessControlLevel | undefined,
-    minAccessLevel: AccessControlLevel
+    minAccessLevel: AccessControlLevel,
+    includeAccessDetails: boolean = true
 ): string | null => {
     const hasAccess = userAccessLevel ? accessLevelSatisfied(resourceType, userAccessLevel, minAccessLevel) : true
     if (!hasAccess) {
-        return `You don't have sufficient permissions for this ${resourceTypeToString(
-            resourceType
-        )}. Your access level (${userAccessLevel}) doesn't meet the required level (${minAccessLevel}).`
+        let reason = `You don't have sufficient permissions for this ${resourceTypeToString(resourceType)}.`
+        if (includeAccessDetails) {
+            reason += ` Your access level (${userAccessLevel}) doesn't meet the required level (${minAccessLevel}).`
+        }
+        return reason
     }
     return null
 }

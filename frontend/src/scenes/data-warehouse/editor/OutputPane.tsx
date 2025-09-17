@@ -624,8 +624,7 @@ export function OutputPane(): JSX.Element {
                     {response && !responseError ? <LoadPreviewText localResponse={localStorageResponse} /> : <></>}
                 </div>
                 <div className="flex items-center gap-4">
-                    {featureFlags[FEATURE_FLAGS.QUERY_EXECUTION_DETAILS] ? <QueryExecutionDetails /> : <></>}
-                    <ElapsedTime />
+                    {featureFlags[FEATURE_FLAGS.QUERY_EXECUTION_DETAILS] ? <QueryExecutionDetails /> : <ElapsedTime />}
                 </div>
             </div>
             <RowDetailsModal

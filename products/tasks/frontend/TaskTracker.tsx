@@ -22,7 +22,6 @@ export function TaskTracker(): JSX.Element {
     const { activeTab } = useValues(tasksLogic)
     const { setActiveTab } = useActions(tasksLogic)
     const isEnabled = useFeatureFlag('TASKS')
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     if (!isEnabled) {
         return <NotFound object="Tasks" caption="This feature is not enabled for your project." />
@@ -49,12 +48,6 @@ export function TaskTracker(): JSX.Element {
     return (
         <div className="TaskTracker">
             <div className="space-y-4">
-                {!newSceneLayout && (
-                    <div>
-                        <h1 className="text-2xl font-bold">Tasks</h1>
-                        <p className="text-muted">Manage and track development tasks across all PostHog products</p>
-                    </div>
-                )}
                 <SceneTitleSection
                     name="Tasks"
                     description="Manage and track development tasks across all PostHog products"
@@ -64,13 +57,7 @@ export function TaskTracker(): JSX.Element {
                 />
                 <SceneDivider />
 
-                <LemonTabs
-                    activeKey={activeTab}
-                    onChange={setActiveTab}
-                    tabs={tabs}
-                    size="medium"
-                    sceneInset={newSceneLayout}
-                />
+                <LemonTabs activeKey={activeTab} onChange={setActiveTab} tabs={tabs} size="medium" sceneInset />
             </div>
         </div>
     )
