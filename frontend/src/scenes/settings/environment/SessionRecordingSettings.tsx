@@ -25,7 +25,6 @@ import { SESSION_RECORDING_OPT_OUT_SURVEY_ID } from 'lib/constants'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { IconSelectEvents } from 'lib/lemon-ui/icons'
 import { isObject, objectsEqual } from 'lib/utils'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { InternalMultipleChoiceSurvey } from 'scenes/session-recordings/components/InternalSurvey/InternalMultipleChoiceSurvey'
 import { getMaskingConfigFromLevel, getMaskingLevelFromConfig } from 'scenes/session-recordings/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -165,7 +164,6 @@ function LogCaptureSettings(): JSX.Element {
             <AccessControlAction
                 resourceType={AccessControlResourceType.SessionRecording}
                 minAccessLevel={AccessControlLevel.Editor}
-                userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]}
             >
                 <LemonSwitch
                     data-attr="opt-in-capture-console-log-switch"
@@ -216,7 +214,6 @@ function CanvasCaptureSettings(): JSX.Element | null {
             <AccessControlAction
                 resourceType={AccessControlResourceType.SessionRecording}
                 minAccessLevel={AccessControlLevel.Editor}
-                userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]}
             >
                 <LemonSwitch
                     data-attr="opt-in-capture-canvas-switch"
@@ -295,7 +292,6 @@ export function NetworkCaptureSettings(): JSX.Element {
             <AccessControlAction
                 resourceType={AccessControlResourceType.SessionRecording}
                 minAccessLevel={AccessControlLevel.Editor}
-                userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]}
             >
                 <LemonSwitch
                     data-attr="opt-in-capture-performance-switch"
@@ -333,9 +329,6 @@ export function NetworkCaptureSettings(): JSX.Element {
                     <AccessControlAction
                         resourceType={AccessControlResourceType.SessionRecording}
                         minAccessLevel={AccessControlLevel.Editor}
-                        userAccessLevel={
-                            getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
-                        }
                     >
                         <LemonSwitch
                             data-attr="opt-in-capture-network-headers-switch"
@@ -364,9 +357,6 @@ export function NetworkCaptureSettings(): JSX.Element {
                     <AccessControlAction
                         resourceType={AccessControlResourceType.SessionRecording}
                         minAccessLevel={AccessControlLevel.Editor}
-                        userAccessLevel={
-                            getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
-                        }
                     >
                         <LemonSwitch
                             data-attr="opt-in-capture-network-body-switch"
@@ -636,7 +626,6 @@ export function ReplayMaskingSettings(): JSX.Element {
             <AccessControlAction
                 resourceType={AccessControlResourceType.SessionRecording}
                 minAccessLevel={AccessControlLevel.Editor}
-                userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]}
             >
                 <LemonSelect
                     value={maskingLevel}
@@ -692,9 +681,6 @@ export function ReplayGeneral(): JSX.Element {
                 <AccessControlAction
                     resourceType={AccessControlResourceType.SessionRecording}
                     minAccessLevel={AccessControlLevel.Editor}
-                    userAccessLevel={
-                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
-                    }
                 >
                     <LemonSwitch
                         data-attr="opt-in-session-recording-switch"

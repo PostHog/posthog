@@ -9,7 +9,6 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { PageHeader } from 'lib/components/PageHeader'
 import { base64Encode } from 'lib/utils'
 import { getTextFromFile, selectFiles } from 'lib/utils/file-utils'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -72,9 +71,6 @@ export function NotebooksScene(): JSX.Element {
                         <AccessControlAction
                             resourceType={AccessControlResourceType.Notebook}
                             minAccessLevel={AccessControlLevel.Editor}
-                            userAccessLevel={
-                                getAppContext()?.resource_access_control?.[AccessControlResourceType.Notebook]
-                            }
                         >
                             <LemonButton data-attr="new-notebook" to={urls.notebook('new')} type="primary">
                                 New notebook
