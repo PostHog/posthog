@@ -111,7 +111,7 @@ export const metaAdsCostTile = (
         return null
     }
 
-    const column = columnTileConfig.RedditAds.columns[tileColumnSelection]
+    const column = columnTileConfig.MetaAds.columns[tileColumnSelection]
     if (!column) {
         return null
     }
@@ -119,7 +119,7 @@ export const metaAdsCostTile = (
     return {
         kind: NodeKind.DataWarehouseNode,
         id: table.id,
-        name: 'reddit',
+        name: 'meta',
         custom_name: `${table.name} ${tileColumnSelection}`,
         id_field: 'campaign_id',
         distinct_id_field: 'campaign_id',

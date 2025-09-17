@@ -258,7 +258,7 @@ export const columnTileConfig: {
             [MarketingAnalyticsColumnsSchemaNames.Cost]: {
                 name: 'spend',
                 type: 'float',
-                needsDivision: true,
+                needsDivision: false,
             },
             [MarketingAnalyticsColumnsSchemaNames.Impressions]: {
                 name: 'impressions',
