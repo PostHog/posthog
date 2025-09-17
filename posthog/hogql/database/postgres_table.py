@@ -20,20 +20,30 @@ def build_function_call(postgres_table_name: str, context: Optional[HogQLContext
         raw_params[param_name] = value
         return f"%({param_name})s"
 
-    databases = settings.DATABASES
-    database = databases["default"]
-
-    if "replica" in settings.DATABASES:
-        database = databases["replica"]
-
-    address = add_param(f"{database['HOST']}:{database['PORT']}")
-    if settings.DEBUG:
-        address = add_param("db:5432")  # docker container for clickhouse
-
-    db = add_param(database["NAME"])
     table = add_param(postgres_table_name)
-    user = add_param(database["USER"])
-    password = add_param(database["PASSWORD"])
+
+    if settings.DEBUG or settings.TEST:
+        databases = settings.DATABASES
+        database = databases["default"]
+
+        address = add_param("db:5432")  # docker container for postgres from clickhouse
+        db = add_param(database["NAME"])
+        user = add_param(database["USER"])
+        password = add_param(database["PASSWORD"])
+    else:
+        host_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_HOST
+        port_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_PORT
+        database_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_DATABASE
+        user_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_USER
+        password_var = settings.CLICKHOUSE_HOGQL_RDSPROXY_READ_PASSWORD
+
+        if not host_var or not port_var or not database_var or not user_var or not password_var:
+            raise ValueError("CLICKHOUSE_HOGQL_RDSPROXY env vars missing to create postgresql link from clickhouse")
+
+        address = add_param(f"{host_var}:{port_var}")
+        db = add_param(database_var)
+        user = add_param(user_var)
+        password = add_param(password_var)
 
     return f"postgresql({address}, {db}, {table}, {user}, {password})"
 
