@@ -14,11 +14,7 @@ type NotUndefined<T> = T extends undefined ? never : T
 function generateFallbackData(dateRange: DateRange | undefined, volumeResolution: number): SparklineData {
     const defaultData = new Array(volumeResolution).fill({ value: 0, date: new Date() })
 
-    if (!dateRange) {
-        return defaultData
-    }
-
-    if (!dateRange.date_from) {
+    if (!dateRange || !dateRange.date_from) {
         return defaultData
     }
 
