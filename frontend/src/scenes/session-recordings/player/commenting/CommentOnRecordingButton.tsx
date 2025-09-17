@@ -54,31 +54,27 @@ export function CommentOnRecordingButton({ className }: { className?: string }):
             minAccessLevel={AccessControlLevel.Editor}
             userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]}
         >
-            {({ disabled, disabledReason }) => (
-                <LemonButton
-                    size="xsmall"
-                    onClick={(e) => {
-                        e.stopPropagation()
-                        setIsCommenting(!isCommenting)
-                    }}
-                    tooltip={
-                        isCommenting ? (
-                            <>
-                                Stop commenting <KeyboardShortcut c />
-                            </>
-                        ) : (
-                            <>
-                                Comment on this recording <KeyboardShortcut c />
-                            </>
-                        )
-                    }
-                    data-attr={isCommenting ? 'stop-annotating-recording' : 'annotate-recording'}
-                    active={isCommenting}
-                    icon={<IconComment className={cn('text-lg', className)} />}
-                    disabled={disabled}
-                    disabledReason={disabledReason}
-                />
-            )}
+            <LemonButton
+                size="xsmall"
+                onClick={(e) => {
+                    e.stopPropagation()
+                    setIsCommenting(!isCommenting)
+                }}
+                tooltip={
+                    isCommenting ? (
+                        <>
+                            Stop commenting <KeyboardShortcut c />
+                        </>
+                    ) : (
+                        <>
+                            Comment on this recording <KeyboardShortcut c />
+                        </>
+                    )
+                }
+                data-attr={isCommenting ? 'stop-annotating-recording' : 'annotate-recording'}
+                active={isCommenting}
+                icon={<IconComment className={cn('text-lg', className)} />}
+            />
         </AccessControlAction>
     )
 }

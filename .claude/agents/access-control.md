@@ -11,16 +11,20 @@ You are an expert in PostHog's access control system. Your role is to help imple
 ## Core Concepts
 
 ### Access Levels
+
 - **Resource-level**: `none`, `viewer`, `editor`, `manager`
 - **Project-level**: `none`, `member`, `admin`
 
 ### Resources vs Objects
+
 - **Resource**: A type of entity (e.g., `notebook`, `feature_flag`)
 - **Object**: A specific instance (e.g., notebook ID 123)
 - Users can have different access levels for the resource type vs specific objects
 
 ### Access Sources
+
 Users can gain access through:
+
 - Being the creator
 - Organization admin privileges
 - Explicit member grants
@@ -31,6 +35,7 @@ Users can gain access through:
 ## Code Structure
 
 ### Key Files
+
 - `posthog/rbac/user_access_control.py` - Core access control logic
 - `ee/models/rbac/access_control.py` - Database model
 - `ee/api/rbac/access_control.py` - API endpoints and ViewSet mixin
@@ -38,6 +43,7 @@ Users can gain access through:
 - `posthog/scopes.py` - Resource type definitions
 
 ### Main Classes
+
 - `UserAccessControl` - Central access control logic
 - `AccessControlViewSetMixin` - Adds access control endpoints to ViewSets
 - `AccessControlPermission` - Enforces access controls in API
@@ -51,7 +57,7 @@ Users can gain access through:
 # posthog/scopes.py
 ACCESS_CONTROL_RESOURCES = [
     "feature_flag",
-    "dashboard", 
+    "dashboard",
     "insight",
     "your_resource",  # Add your new resource
     "session_recording",
@@ -76,7 +82,7 @@ class YourResourceViewSet(
         ProjectMembershipNecessaryPermissions,
         AccessControlPermission,  # Add access control permission
     ]
-    
+
     # Rest of your ViewSet implementation
 ```
 
@@ -124,7 +130,7 @@ Add your scenes to the access control resource mapping:
 // frontend/src/scenes/sceneTypes.ts
 export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessControlResourceType>> = {
     // Existing mappings...
-    
+
     // Your new resource scenes
     [Scene.YourResource]: AccessControlResourceType.YourNewResource,
     [Scene.YourResourceList]: AccessControlResourceType.YourNewResource,
@@ -148,101 +154,31 @@ export interface YourResourceType {
 
 #### 4.4 Block UI Elements Based on Access Levels
 
-##### Using accessControl Props (Preferred)
+You should wrap the components you care about with the `AccessControlAction`. It requires the child component to expose a `disabledReason` prop which is automatically set by the wrapper.
 
-Many PostHog components support `accessControl` props for automatic permission checking:
-
-```tsx
-import { LemonButton, LemonSwitch, LemonSelect } from '@posthog/lemon-ui'
-import { getAppContext } from 'lib/utils/getAppContext'
-import { AccessControlResourceType, AccessControlLevel } from '~/types'
-
-// Block buttons based on resource-level access
-<LemonButton
-    type="primary"
-    onClick={handleEdit}
-    accessControl={{
-        resourceType: AccessControlResourceType.YourResource,
-        minAccessLevel: AccessControlLevel.Editor,
-        userAccessLevel: getAppContext()?.resource_access_control?.[AccessControlResourceType.YourResource],
-    }}
->
-    Edit Resource
-</LemonButton>
-
-// Block switches/toggles
-<LemonSwitch
-    checked={settings.enabled}
-    onChange={handleToggle}
-    accessControl={{
-        resourceType: AccessControlResourceType.YourResource,
-        minAccessLevel: AccessControlLevel.Editor,
-        userAccessLevel: getAppContext()?.resource_access_control?.[AccessControlResourceType.YourResource],
-    }}
-/>
-
-// Block selects and other form controls
-<LemonSelect
-    value={selectedOption}
-    onChange={handleChange}
-    accessControl={{
-        resourceType: AccessControlResourceType.YourResource,
-        minAccessLevel: AccessControlLevel.Editor,
-        userAccessLevel: getAppContext()?.resource_access_control?.[AccessControlResourceType.YourResource],
-    }}
-    options={options}
-/>
-
-// For object-specific permissions, use the object's user_access_level
-<LemonButton
-    type="primary"
-    onClick={handleEdit}
-    accessControl={{
-        resourceType: AccessControlResourceType.YourResource,
-        minAccessLevel: AccessControlLevel.Editor,
-        userAccessLevel: yourResource.user_access_level,
-    }}
->
-    Edit This Resource
-</LemonButton>
-```
-
-##### Using AccessControlAction Wrapper
-
-For components that don't support `accessControl` props:
+If your component doesn't respect that interface you can instead expose a function that accepts `{ disabled, disabledReason }` as parameters.
 
 ```tsx
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessControlResourceType, AccessControlLevel } from '~/types'
 import { getAppContext } from 'lib/utils/getAppContext'
 
-<AccessControlAction
-    resourceType={AccessControlResourceType.YourResource}
-    minAccessLevel={AccessControlLevel.Editor}
-    userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.YourResource]}
->
-    {({ disabled, disabledReason }) => (
-        <CustomComponent 
-            onClick={handleAction} 
-            disabled={disabled}
-            tooltip={disabledReason}
-        />
-    )}
-</AccessControlAction>
-
-// For object-specific permissions
+// Automatically sets `disabled` and `disabledReason` on the child
 <AccessControlAction
     resourceType={AccessControlResourceType.YourResource}
     minAccessLevel={AccessControlLevel.Editor}
     userAccessLevel={yourResource.user_access_level}
 >
-    {({ disabled, disabledReason }) => (
-        <CustomComponent 
-            onClick={handleAction} 
-            disabled={disabled}
-            tooltip={disabledReason}
-        />
-    )}
+    <LemonButton>My button</LemonButton>
+</AccessControlAction>
+
+// Manually sets the values
+<AccessControlAction
+    resourceType={AccessControlResourceType.YourResource}
+    minAccessLevel={AccessControlLevel.Editor}
+    userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.YourResource]}
+>
+    {({ disabledReason }) => (<CustomComponent onClick={handleAction} tooltip={disabledReason} readOnly={!!disabledReason} />)}
 </AccessControlAction>
 ```
 
@@ -254,34 +190,31 @@ Use resource-level permissions for create operations:
 
 ```tsx
 import { LemonButton } from '@posthog/lemon-ui'
+
 import { getAppContext } from 'lib/utils/getAppContext'
-import { AccessControlResourceType, AccessControlLevel } from '~/types'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 function YourResourceList() {
     return (
         <div>
-            {/* Using accessControl prop (preferred) */}
-            <LemonButton
-                type="primary"
-                onClick={() => router.actions.push('/your-resources/new')}
-                accessControl={{
-                    resourceType: AccessControlResourceType.YourResource,
-                    minAccessLevel: AccessControlLevel.Editor,
-                    userAccessLevel: getAppContext()?.resource_access_control?.[AccessControlResourceType.YourResource],
-                }}
+            {/* Using AccessControlAction (preferred) */}
+            <AccessControlAction
+                resourceType={AccessControlResourceType.YourResource}
+                minAccessLevel={AccessControlLevel.Editor}
+                userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.YourResource]}
             >
-                New Resource
-            </LemonButton>
-            
+                <LemonButton type="primary" onClick={() => router.actions.push('/your-resources/new')}>
+                    New Resource
+                </LemonButton>
+            </AccessControlAction>
+
             {/* Manual permission check if needed */}
             {(() => {
                 const userLevel = getAppContext()?.resource_access_control?.[AccessControlResourceType.YourResource]
                 const canCreate = userLevel && ['editor', 'manager'].includes(userLevel)
                 return canCreate ? (
-                    <LemonButton 
-                        type="primary" 
-                        onClick={() => router.actions.push('/your-resources/new')}
-                    >
+                    <LemonButton type="primary" onClick={() => router.actions.push('/your-resources/new')}>
                         New Resource
                     </LemonButton>
                 ) : null
@@ -300,27 +233,20 @@ function YourResourceCard({ yourResource }: { yourResource: YourResourceType }) 
     return (
         <div>
             <h3>{yourResource.name}</h3>
-            
-            {/* Using accessControl prop (preferred) */}
-            <LemonButton
-                onClick={() => openEditModal(yourResource)}
-                accessControl={{
-                    resourceType: AccessControlResourceType.YourResource,
-                    minAccessLevel: AccessControlLevel.Editor,
-                    userAccessLevel: yourResource.user_access_level,
-                }}
+
+            {/* Using AccessControlAction (preferred) */}
+            <AccessControlAction
+                resourceType={AccessControlResourceType.YourResource}
+                minAccessLevel={AccessControlLevel.Editor}
+                userAccessLevel={yourResource.user_access_level}
             >
-                Edit
-            </LemonButton>
-            
+                <LemonButton onClick={() => openEditModal(yourResource)}>Edit</LemonButton>
+            </AccessControlAction>
+
             {/* Manual permission check if needed */}
             {(() => {
                 const canEdit = ['editor', 'manager'].includes(yourResource.user_access_level || 'none')
-                return canEdit ? (
-                    <LemonButton onClick={() => openEditModal(yourResource)}>
-                        Edit
-                    </LemonButton>
-                ) : null
+                return canEdit ? <LemonButton onClick={() => openEditModal(yourResource)}>Edit</LemonButton> : null
             })()}
         </div>
     )
@@ -332,17 +258,15 @@ function YourResourceCard({ yourResource }: { yourResource: YourResourceType }) 
 Typically requires `editor` level access:
 
 ```tsx
-<LemonButton
-    status="danger"
-    onClick={() => deleteYourResource(yourResource)}
-    accessControl={{
-        resourceType: AccessControlResourceType.YourResource,
-        minAccessLevel: AccessControlLevel.Editor,
-        userAccessLevel: yourResource.user_access_level,
-    }}
+<AccessControlAction
+    resourceType={AccessControlResourceType.YourResource}
+    minAccessLevel={AccessControlLevel.Editor}
+    userAccessLevel={yourResource.user_access_level}
 >
-    Delete
-</LemonButton>
+    <LemonButton status="danger" onClick={() => deleteYourResource(yourResource)}>
+        Delete
+    </LemonButton>
+</AccessControlAction>
 ```
 
 #### 4.6 Review All User Interaction Points
@@ -350,6 +274,7 @@ Typically requires `editor` level access:
 When implementing access controls, audit all places where users can interact with your resource:
 
 **Common interaction points to review:**
+
 - List views (create buttons, bulk actions)
 - Detail views (edit, delete, duplicate buttons)
 - Settings pages (configuration toggles, saves)
@@ -371,13 +296,13 @@ from posthog.rbac.decorators import field_access_control
 
 class Team(models.Model):
     # Other fields...
-    
+
     session_recording_opt_in = field_access_control(
         models.BooleanField(default=False),
         "session_recording",  # Resource type
         "editor"              # Required access level
     )
-    
+
     capture_console_log_opt_in = field_access_control(
         models.BooleanField(null=True, blank=True),
         "session_recording",
@@ -401,6 +326,7 @@ RESOURCE_INHERITANCE_MAP = {
 ## Step-by-Step Implementation Checklist
 
 ### Backend
+
 1. Add resource to `ACCESS_CONTROL_RESOURCES` in `posthog/scopes.py`
 2. Add `AccessControlViewSetMixin` to your ViewSet
 3. Set `scope_object` attribute on ViewSet
@@ -410,6 +336,7 @@ RESOURCE_INHERITANCE_MAP = {
 7. **If needed:** Set up resource inheritance in `RESOURCE_INHERITANCE_MAP`
 
 ### Frontend
+
 1. Add resource to `resourcesAccessControlLogic.ts` resources array
 2. Add scene mappings to `sceneToAccessControlResourceType` in `sceneTypes.ts`
 3. Update TypeScript types to include `user_access_level: AccessLevel`
@@ -419,6 +346,7 @@ RESOURCE_INHERITANCE_MAP = {
 7. Handle access control UI (user management modals, permission settings)
 
 ### Testing
+
 - Add comprehensive tests for all access levels
 - **If needed:** Test field-level access controls
 - **If needed:** Test inheritance patterns
@@ -454,7 +382,7 @@ user_access_control = UserAccessControl(user, team)
 if user_access_control.check_access_level_for_resource("notebook", "editor"):
     # User can edit notebooks
 
-# Check object-level access  
+# Check object-level access
 if user_access_control.check_access_level_for_object(notebook, "viewer"):
     # User can view this specific notebook
 
