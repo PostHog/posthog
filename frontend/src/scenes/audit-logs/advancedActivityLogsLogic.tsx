@@ -13,12 +13,33 @@ import { ActivityScope } from '~/types'
 
 import type { advancedActivityLogsLogicType } from './advancedActivityLogsLogicType'
 
+export interface DetailFilter {
+    operation: 'exact' | 'contains' | 'in'
+    value: string | string[]
+}
+
+export interface ActiveDetailFilter extends DetailFilter {
+    key: string
+    fieldPath: string
+    isCustom: boolean
+}
+
 export interface AdvancedActivityLogFilters {
     start_date?: string
     end_date?: string
     users?: string[]
     scopes?: ActivityScope[]
     activities?: string[]
+    detail_filters?: Record<string, DetailFilter>
+}
+
+export interface DetailField {
+    name: string
+    types: string[]
+}
+
+export interface ScopeFields {
+    fields: DetailField[]
 }
 
 export interface AvailableFilters {
@@ -27,6 +48,7 @@ export interface AvailableFilters {
         scopes: Array<{ value: string }>
         activities: Array<{ value: string }>
     }
+    detail_fields?: Record<string, ScopeFields>
 }
 
 export interface ExportedAsset {
@@ -46,6 +68,7 @@ export interface ExportedAsset {
             users?: string[]
             scopes?: string[]
             activities?: string[]
+            detail_filters?: Record<string, DetailFilter>
         }
     }
 }
@@ -55,7 +78,10 @@ const DEFAULT_FILTERS: AdvancedActivityLogFilters = {
     users: [],
     scopes: [],
     activities: [],
+    detail_filters: {},
 }
+
+const DEFAULT_ACTIVE_FILTERS: ActiveDetailFilter[] = []
 
 export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
     path(['scenes', 'audit-logs', 'advancedActivityLogsLogic']),
@@ -71,6 +97,10 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         loadAvailableFilters: true,
         loadExports: true,
         setActiveTab: (tab: 'logs' | 'exports') => ({ tab }),
+        addActiveFilter: (fieldPath: string, isCustom: boolean) => ({ fieldPath, isCustom }),
+        updateActiveFilter: (key: string, updates: Partial<ActiveDetailFilter>) => ({ key, updates }),
+        removeActiveFilter: (key: string) => ({ key }),
+        syncFiltersToAPI: true,
     }),
 
     reducers({
@@ -81,11 +111,39 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                 clearAllFilters: () => DEFAULT_FILTERS,
             },
         ],
+        activeFilters: [
+            DEFAULT_ACTIVE_FILTERS as ActiveDetailFilter[],
+            {
+                addActiveFilter: (state, { fieldPath, isCustom }) => {
+                    const key = `filter_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+                    return [
+                        ...state,
+                        {
+                            key,
+                            fieldPath: isCustom ? '' : fieldPath,
+                            operation: 'exact' as const,
+                            value: '',
+                            isCustom,
+                        },
+                    ]
+                },
+                updateActiveFilter: (state, { key, updates }) => {
+                    return state.map((filter) => (filter.key === key ? { ...filter, ...updates } : filter))
+                },
+                removeActiveFilter: (state, { key }) => {
+                    return state.filter((filter) => filter.key !== key)
+                },
+                clearAllFilters: () => DEFAULT_ACTIVE_FILTERS,
+            },
+        ],
         currentPage: [
             1,
             {
                 setPage: (_, { page }) => page,
                 setFilters: () => 1,
+                addDetailFilter: () => 1,
+                updateDetailFilter: () => 1,
+                removeDetailFilter: () => 1,
             },
         ],
         activeTab: [
@@ -119,6 +177,10 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     values.filters.users?.forEach((user) => params.append('users', user))
                     values.filters.scopes?.forEach((scope) => params.append('scopes', scope))
                     values.filters.activities?.forEach((activity) => params.append('activities', activity))
+
+                    if (values.filters.detail_filters && Object.keys(values.filters.detail_filters).length > 0) {
+                        params.append('detail_filters', JSON.stringify(values.filters.detail_filters))
+                    }
 
                     params.append('page', values.currentPage.toString())
                     params.append('page_size', ADVANCED_ACTIVITY_PAGE_SIZE.toString())
@@ -156,7 +218,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
     selectors(({ actions }) => ({
         isFeatureFlagEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.ADVANCED_ACTIVITY_LOGS],
+            (featureFlags: any): boolean => !!featureFlags[FEATURE_FLAGS.ADVANCED_ACTIVITY_LOGS],
         ],
 
         hasActiveFilters: [
@@ -167,7 +229,8 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                         filters.end_date ||
                         filters.users?.length ||
                         filters.scopes?.length ||
-                        filters.activities?.length
+                        filters.activities?.length ||
+                        (filters.detail_filters && Object.keys(filters.detail_filters).length > 0)
                 )
             },
         ],
@@ -198,9 +261,37 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
         clearAllFilters: () => {
             actions.loadAdvancedActivityLogs()
         },
+        addActiveFilter: ({ fieldPath }) => {
+            if (fieldPath === '__add_custom__') {
+                actions.addActiveFilter('', true)
+                return
+            }
+            actions.syncFiltersToAPI()
+        },
+        updateActiveFilter: () => {
+            actions.syncFiltersToAPI()
+        },
+        removeActiveFilter: () => {
+            actions.syncFiltersToAPI()
+        },
+        syncFiltersToAPI: () => {
+            const detailFilters: Record<string, DetailFilter> = {}
+            values.activeFilters.forEach((filter: ActiveDetailFilter) => {
+                if (filter.fieldPath && filter.fieldPath.trim()) {
+                    const fieldPath = filter.fieldPath.includes('::')
+                        ? filter.fieldPath.split('::')[1]
+                        : filter.fieldPath
+
+                    detailFilters[fieldPath] = {
+                        operation: filter.operation,
+                        value: filter.value,
+                    }
+                }
+            })
+            actions.setFilters({ detail_filters: detailFilters })
+        },
         exportLogs: async ({ format }) => {
             try {
-                // Convert relative dates to ISO strings for the export API
                 const startDate = values.filters.start_date
                     ? dateStringToDayJs(values.filters.start_date)?.toISOString()
                     : undefined
@@ -214,6 +305,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     users: values.filters.users,
                     scopes: values.filters.scopes,
                     activities: values.filters.activities,
+                    detail_filters: values.filters.detail_filters,
                 }
 
                 await api.create(`api/projects/@current/advanced_activity_logs/export/`, {

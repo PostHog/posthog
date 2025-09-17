@@ -18,6 +18,9 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SceneTextInput } from '~/lib/components/Scenes/SceneTextInput'
 import { SceneTextarea } from '~/lib/components/Scenes/SceneTextarea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from '~/lib/lemon-ui/LemonTable'
@@ -86,121 +89,129 @@ export function LLMAnalyticsDatasetScene(): JSX.Element {
 
     return (
         <Form id="dataset-form" formKey="datasetForm" logic={llmAnalyticsDatasetLogic}>
-            <PageHeader
-                buttons={
-                    !shouldDisplaySkeleton ? (
-                        displayEditForm ? (
-                            <>
-                                <LemonButton
-                                    type="secondary"
-                                    data-attr="cancel-dataset"
-                                    onClick={() => {
-                                        if (isEditingDataset) {
-                                            editDataset(false)
-                                            loadDataset()
-                                        } else {
-                                            router.actions.push(urls.llmAnalyticsDatasets())
-                                        }
-                                    }}
-                                    disabledReason={isDatasetFormSubmitting ? 'Saving…' : undefined}
-                                >
-                                    Cancel
-                                </LemonButton>
-                                <LemonButton
-                                    type="primary"
-                                    data-attr="save-dataset"
-                                    onClick={submitDatasetForm}
-                                    loading={isDatasetFormSubmitting}
-                                >
-                                    {isNewDataset ? 'Create dataset' : 'Save'}
-                                </LemonButton>
-                            </>
-                        ) : (
-                            <>
-                                <LemonButton
-                                    type="secondary"
-                                    onClick={() => editDataset(true)}
-                                    loading={false}
-                                    data-attr="edit-dataset"
-                                >
-                                    Edit
-                                </LemonButton>
-                                <LemonButton
-                                    type="primary"
-                                    onClick={() => triggerDatasetItemModal(true)}
-                                    data-attr="add-dataset-item"
-                                    icon={<IconPlusSmall />}
-                                >
-                                    Add item
-                                </LemonButton>
-                            </>
-                        )
-                    ) : undefined
-                }
-            />
+            <SceneContent>
+                <PageHeader
+                    buttons={
+                        !shouldDisplaySkeleton ? (
+                            displayEditForm ? (
+                                <>
+                                    <LemonButton
+                                        type="secondary"
+                                        data-attr="cancel-dataset"
+                                        onClick={() => {
+                                            if (isEditingDataset) {
+                                                editDataset(false)
+                                                loadDataset()
+                                            } else {
+                                                router.actions.push(urls.llmAnalyticsDatasets())
+                                            }
+                                        }}
+                                        disabledReason={isDatasetFormSubmitting ? 'Saving…' : undefined}
+                                    >
+                                        Cancel
+                                    </LemonButton>
+                                    <LemonButton
+                                        type="primary"
+                                        data-attr="save-dataset"
+                                        onClick={submitDatasetForm}
+                                        loading={isDatasetFormSubmitting}
+                                    >
+                                        {isNewDataset ? 'Create dataset' : 'Save'}
+                                    </LemonButton>
+                                </>
+                            ) : (
+                                <>
+                                    <LemonButton
+                                        type="secondary"
+                                        onClick={() => editDataset(true)}
+                                        loading={false}
+                                        data-attr="edit-dataset"
+                                    >
+                                        Edit
+                                    </LemonButton>
+                                    <LemonButton
+                                        type="primary"
+                                        onClick={() => triggerDatasetItemModal(true)}
+                                        data-attr="add-dataset-item"
+                                        icon={<IconPlusSmall />}
+                                    >
+                                        Add item
+                                    </LemonButton>
+                                </>
+                            )
+                        ) : undefined
+                    }
+                />
+                <SceneTitleSection
+                    name={datasetForm.name}
+                    resourceType={{ type: 'llm_analytics' }}
+                    isLoading={datasetLoading}
+                />
+                <SceneDivider />
 
-            {isDataset(dataset) && (
-                <ScenePanel>
-                    <ScenePanelMetaInfo>
-                        <SceneTextInput
-                            name="name"
-                            defaultValue={datasetForm.name}
-                            onSave={(value) => {
-                                setDatasetFormValue('name', value)
-                                submitDatasetForm()
-                            }}
-                            dataAttrKey={RESOURCE_TYPE}
-                            isLoading={datasetLoading}
-                        />
-                        <SceneTextarea
-                            name="description"
-                            defaultValue={datasetForm.description}
-                            onSave={(value) => {
-                                setDatasetFormValue('description', value)
-                                submitDatasetForm()
-                            }}
-                            dataAttrKey={RESOURCE_TYPE}
-                            optional
-                            isLoading={datasetLoading}
-                        />
-                    </ScenePanelMetaInfo>
-                    <ScenePanelDivider />
-                    <ScenePanelActions>
+                {isDataset(dataset) && (
+                    <ScenePanel>
+                        <ScenePanelMetaInfo>
+                            <SceneTextInput
+                                name="name"
+                                defaultValue={datasetForm.name}
+                                onSave={(value) => {
+                                    setDatasetFormValue('name', value)
+                                    submitDatasetForm()
+                                }}
+                                dataAttrKey={RESOURCE_TYPE}
+                                isLoading={datasetLoading}
+                            />
+                            <SceneTextarea
+                                name="description"
+                                defaultValue={datasetForm.description}
+                                onSave={(value) => {
+                                    setDatasetFormValue('description', value)
+                                    submitDatasetForm()
+                                }}
+                                dataAttrKey={RESOURCE_TYPE}
+                                optional
+                                isLoading={datasetLoading}
+                            />
+                        </ScenePanelMetaInfo>
                         <ScenePanelDivider />
-                        <ButtonPrimitive
-                            onClick={() => {
-                                LemonDialog.open({
-                                    title: 'Permanently delete dataset?',
-                                    description: 'This action cannot be undone.',
-                                    primaryButton: {
-                                        children: 'Delete',
-                                        type: 'primary',
-                                        status: 'danger',
-                                        'data-attr': 'confirm-delete-dataset',
-                                        onClick: deleteDataset,
-                                    },
-                                    secondaryButton: {
-                                        children: 'Close',
-                                        type: 'secondary',
-                                    },
-                                })
-                            }}
-                            variant="danger"
-                            menuItem
-                            data-attr={`${RESOURCE_TYPE}-delete`}
-                            disabledReasons={{
-                                'Dataset is loading': datasetLoading,
-                                'Dataset is being deleted': isDeletingDataset,
-                            }}
-                        >
-                            <IconTrash />
-                            Delete
-                        </ButtonPrimitive>
-                    </ScenePanelActions>
-                </ScenePanel>
-            )}
+                        <ScenePanelActions>
+                            <ScenePanelDivider />
+                            <ButtonPrimitive
+                                onClick={() => {
+                                    LemonDialog.open({
+                                        title: 'Permanently delete dataset?',
+                                        description: 'This action cannot be undone.',
+                                        primaryButton: {
+                                            children: 'Delete',
+                                            type: 'primary',
+                                            status: 'danger',
+                                            'data-attr': 'confirm-delete-dataset',
+                                            onClick: deleteDataset,
+                                        },
+                                        secondaryButton: {
+                                            children: 'Close',
+                                            type: 'secondary',
+                                        },
+                                    })
+                                }}
+                                variant="danger"
+                                menuItem
+                                data-attr={`${RESOURCE_TYPE}-delete`}
+                                disabledReasons={{
+                                    'Dataset is loading': datasetLoading,
+                                    'Dataset is being deleted': isDeletingDataset,
+                                }}
+                            >
+                                <IconTrash />
+                                Delete
+                            </ButtonPrimitive>
+                        </ScenePanelActions>
+                    </ScenePanel>
+                )}
 
-            {displayEditForm ? <EditDatasetForm /> : isDataset(dataset) ? <DatasetTabs dataset={dataset} /> : null}
+                {displayEditForm ? <EditDatasetForm /> : isDataset(dataset) ? <DatasetTabs dataset={dataset} /> : null}
+            </SceneContent>
         </Form>
     )
 }
@@ -227,8 +238,8 @@ function DatasetTabs({ dataset }: { dataset: Dataset }): JSX.Element {
 
     return (
         <>
-            <div className="mb-4">
-                <p>{dataset.description || <span className="italic">Description (optional)</span>}</p>
+            <div>
+                <p className="m-0">{dataset.description || <span className="italic">Description (optional)</span>}</p>
             </div>
 
             <LemonTabs activeKey={activeTab} data-attr="dataset-tabs" tabs={tabs} />

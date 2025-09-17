@@ -43,6 +43,7 @@ from ee.hogai.session_summaries.llm.consume import (
     get_llm_single_session_summary,
     stream_llm_single_session_summary,
 )
+from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import (
     ExtraSummaryContext,
     SingleSessionSummaryLlmInputs,
@@ -125,6 +126,30 @@ async def fetch_session_data_activity(inputs: SingleSessionSummaryInputs) -> Non
     return None
 
 
+def _store_final_summary_in_db_from_activity(
+    inputs: SingleSessionSummaryInputs, session_summary: SessionSummarySerializer
+) -> None:
+    """Store the final summary in the DB from the activity"""
+    exception_event_ids = get_exception_event_ids_from_summary(session_summary)
+    # Getting the user explicitly from the DB as we can't pass models between activities
+    user = User.objects.get(id=inputs.user_id)
+    if not user:
+        raise ValueError(f"User with id {inputs.user_id} not found, when trying to add session summary")
+    # Disable thread-sensitive as the summary could be pretty heavy and it's a write
+    SingleSessionSummary.objects.add_summary(
+        session_id=inputs.session_id,
+        team_id=inputs.team_id,
+        summary=session_summary,
+        exception_event_ids=exception_event_ids,
+        extra_summary_context=inputs.extra_summary_context,
+        run_metadata=SessionSummaryRunMeta(
+            model_used=inputs.model_to_use,
+            visual_confirmation=False,
+        ),
+        created_by=user,
+    )
+
+
 @temporalio.activity.defn
 async def get_llm_single_session_summary_activity(
     inputs: SingleSessionSummaryInputs,
@@ -183,24 +208,9 @@ async def get_llm_single_session_summary_activity(
         session_duration=llm_input.session_duration,
         trace_id=temporalio.activity.info().workflow_id,
     )
-    # Store the generated summary in the DB
-    exception_event_ids = get_exception_event_ids_from_summary(session_summary)
-    # Getting the user explicitly from the DB as we can't pass models between activities
-    user = await database_sync_to_async(User.objects.get)(id=inputs.user_id)
-    if not user:
-        raise ValueError(f"User with id {inputs.user_id} not found, when trying to add session summary")
-    # Disable thread-sensitive as the summary could be pretty heavy and it's a write
-    await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(
-        session_id=inputs.session_id,
-        team_id=inputs.team_id,
-        summary=session_summary,
-        exception_event_ids=exception_event_ids,
-        extra_summary_context=inputs.extra_summary_context,
-        run_metadata=SessionSummaryRunMeta(
-            model_used=inputs.model_to_use,
-            visual_confirmation=False,
-        ),
-        created_by=user,
+    # Store the final summary in the DB
+    await database_sync_to_async(_store_final_summary_in_db_from_activity, thread_sensitive=False)(
+        inputs, session_summary
     )
     # Returning nothing as the data is stored in Redis
     return None
@@ -289,6 +299,13 @@ async def stream_llm_single_session_summary_activity(inputs: SingleSessionSummar
         if time.time() - last_heartbeat_timestamp > 5:
             temporalio.activity.heartbeat()
             last_heartbeat_timestamp = time.time()
+    # As the stream is finished, store the final summary in the DB
+    session_summary = SessionSummarySerializer(data=json.loads(last_summary_state_str))
+    session_summary.is_valid(raise_exception=True)
+    await database_sync_to_async(_store_final_summary_in_db_from_activity, thread_sensitive=False)(
+        inputs, session_summary
+    )
+    # Return the last state as string to finish the function execution
     return last_summary_state_str
 
 

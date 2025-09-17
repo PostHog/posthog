@@ -256,6 +256,11 @@ class ExportedAssetViewSet(
             if context_path_filter:
                 queryset = queryset.filter(export_context__path__icontains=context_path_filter)
 
+            # Add export format filter
+            export_format_filter = self.request.query_params.get("export_format")
+            if export_format_filter and export_format_filter in ExportedAsset.get_supported_format_values():
+                queryset = queryset.filter(export_format=export_format_filter)
+
         return queryset
 
     # TODO: This should be removed as it is only used by frontend exporter and can instead use the api/sharing.py endpoint

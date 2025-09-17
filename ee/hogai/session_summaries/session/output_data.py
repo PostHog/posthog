@@ -7,6 +7,7 @@ from rest_framework import serializers
 from ee.hogai.session_summaries import SummaryValidationError
 from ee.hogai.session_summaries.constants import HALLUCINATED_EVENTS_MIN_RATIO
 from ee.hogai.session_summaries.utils import get_column_index, prepare_datetime, unpack_full_event_id
+from ee.hogai.utils.yaml import load_yaml_from_raw_llm_content
 
 logger = structlog.get_logger(__name__)
 

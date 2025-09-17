@@ -320,3 +320,9 @@ class TestS3Table(BaseTest):
             res
             == "azureBlobStorage(%(hogql_val_0_sensitive)s, %(hogql_val_1_sensitive)s, %(hogql_val_2_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_5)s, 'auto')"
         )
+
+    def test_s3_build_function_call_with_large_table(self):
+        res = build_function_call(
+            "http://url.com", DataWarehouseTable.TableFormat.Parquet, "key", "secret", "some structure", None, 4000.0
+        )
+        assert res == "s3Cluster('posthog', 'http://url.com', 'key', 'secret', 'Parquet', 'some structure')"

@@ -8,9 +8,8 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconCancel, IconRefresh } from 'lib/lemon-ui/icons'
-import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, BatchExportConfiguration, BatchExportRun, GroupedBatchExportRuns } from '~/types'
+import { BatchExportConfiguration, BatchExportRun, GroupedBatchExportRuns } from '~/types'
 
 import { BatchExportBackfillModal } from './BatchExportBackfillModal'
 import { BatchExportRunsLogicProps, batchExportRunsLogic } from './batchExportRunsLogic'
@@ -90,8 +89,6 @@ function BatchExportLatestRuns({ id }: BatchExportRunsLogicProps): JSX.Element {
 
     const { batchExportConfig, latestRuns, loading, hasMoreRunsToLoad } = useValues(logic)
     const { openBackfillModal, loadOlderRuns, retryRun, cancelRun } = useActions(logic)
-    const { hasAvailableFeature } = useValues(userLogic)
-    const canEnableNewDestinations = hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
 
     if (!batchExportConfig) {
         return <NotFound object="batch export" />
@@ -164,14 +161,12 @@ function BatchExportLatestRuns({ id }: BatchExportRunsLogicProps): JSX.Element {
                         key: 'actions',
                         width: 0,
                         render: function RenderActions(_, run) {
-                            if (canEnableNewDestinations) {
-                                return (
-                                    <div className="flex gap-1">
-                                        <RunRetryButton run={run} retryRun={retryRun} />
-                                        <RunCancelButton run={run} cancelRun={cancelRun} />
-                                    </div>
-                                )
-                            }
+                            return (
+                                <div className="flex gap-1">
+                                    <RunRetryButton run={run} retryRun={retryRun} />
+                                    <RunCancelButton run={run} cancelRun={cancelRun} />
+                                </div>
+                            )
                         },
                     },
                 ]}
@@ -180,11 +175,9 @@ function BatchExportLatestRuns({ id }: BatchExportRunsLogicProps): JSX.Element {
                         <div>
                             No runs in this time range. Your exporter runs every <b>{batchExportConfig.interval}</b>.
                         </div>
-                        {canEnableNewDestinations && (
-                            <LemonButton type="primary" onClick={() => openBackfillModal()}>
-                                Start backfill
-                            </LemonButton>
-                        )}
+                        <LemonButton type="primary" onClick={() => openBackfillModal()}>
+                            Start backfill
+                        </LemonButton>
                     </div>
                 }
             />
@@ -211,8 +204,6 @@ export function BatchExportRunsGrouped({
 }): JSX.Element {
     const logic = batchExportRunsLogic({ id })
 
-    const { hasAvailableFeature } = useValues(userLogic)
-    const canEnableNewDestinations = hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
     const { openBackfillModal } = useActions(logic)
 
     return (
@@ -311,7 +302,7 @@ export function BatchExportRunsGrouped({
                         key: 'actions',
                         width: 0,
                         render: function RenderActions(_, groupedRun) {
-                            if (!isRunInProgress(groupedRun.runs[0]) && canEnableNewDestinations) {
+                            if (!isRunInProgress(groupedRun.runs[0])) {
                                 return <RunRetryButton run={groupedRun.runs[0]} retryRun={retryRun} />
                             }
                         },
@@ -322,11 +313,9 @@ export function BatchExportRunsGrouped({
                         <div>
                             No runs in this time range. Your exporter runs every <b>{interval}</b>.
                         </div>
-                        {canEnableNewDestinations && (
-                            <LemonButton type="primary" onClick={() => openBackfillModal()}>
-                                Start backfill
-                            </LemonButton>
-                        )}
+                        <LemonButton type="primary" onClick={() => openBackfillModal()}>
+                            Start backfill
+                        </LemonButton>
                     </div>
                 }
             />

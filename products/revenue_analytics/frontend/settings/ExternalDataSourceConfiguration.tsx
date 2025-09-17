@@ -4,7 +4,6 @@ import { router } from 'kea-router'
 import { IconInfo, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonSwitch, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { cn } from 'lib/utils/css-classes'
 import { ViewLinkModal } from 'scenes/data-warehouse/ViewLinkModal'
@@ -28,7 +27,6 @@ export function ExternalDataSourceConfiguration({
     const { updateSourceRevenueAnalyticsConfig, deleteJoin } = useActions(revenueAnalyticsSettingsLogic)
     const { toggleEditJoinModal, toggleNewJoinModal } = useActions(viewLinkLogic)
 
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     const revenueSources =
         dataWarehouseSources?.results.filter((source) => VALID_REVENUE_SOURCES.includes(source.source_type)) ?? []
 
@@ -44,25 +42,10 @@ export function ExternalDataSourceConfiguration({
 
     return (
         <SceneSection
-            hideTitleAndDescription={!newSceneLayout}
-            className={cn(!newSceneLayout && 'gap-y-0')}
             title="Data warehouse sources configuration"
             description="PostHog can display revenue data in our Revenue Analytics product from the following data warehouse sources. You can enable/disable each source to stop it from being used for revenue data. You can also configure how we join your revenue data to the PostHog persons table - when this is set, we'll be able to properly display revenue for a person via the persons.$virt_revenue and persons.$virt_revenue_last_30_days virtual fields."
         >
-            {!newSceneLayout && (
-                <>
-                    <h3 className="mb-2">Data warehouse sources configuration</h3>
-                    <p className="mb-4">
-                        PostHog can display revenue data in our Revenue Analytics product from the following data
-                        warehouse sources. You can enable/disable each source to stop it from being used for revenue
-                        data. You can also configure how we join your revenue data to the PostHog <code>persons</code>{' '}
-                        table - when this is set, we'll be able to properly display revenue for a person via the{' '}
-                        <code>persons.$virt_revenue</code> and <code>persons.$virt_revenue_last_30_days</code> virtual
-                        fields.
-                    </p>
-                </>
-            )}
-            <div className={cn('flex flex-col items-end w-full', !newSceneLayout && 'mb-1')}>
+            <div className={cn('flex flex-col items-end w-full')}>
                 <LemonButton
                     className="my-1"
                     ref={buttonRef}
