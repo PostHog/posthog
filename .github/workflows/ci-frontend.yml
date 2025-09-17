@@ -166,6 +166,7 @@ jobs:
                   compression: 'none'
                   pattern: 'frontend/dist/toolbar.js'
                   # we only care if the toolbar will increase a lot
+                  omit-unchanged: true
                   minimum-change-threshold: 1000
 
             - name: Check toolbar for CSP eval violations
