@@ -88,22 +88,20 @@ export function IssueAIFix(): JSX.Element {
             </div>
             {/* Repository Selection and Fix Button on same line */}
             {integrationId ? (
-                <div className="flex gap-2">
+                <div className="flex gap-2 items-stretch">
                     {!showRepositoryPicker ? (
-                        <div className="flex gap-2 items-end w-full">
+                        <>
                             <ButtonPrimitive
                                 variant="outline"
-                                size="sm"
+                                size="fit"
                                 onClick={() => setShowRepositoryPicker(true)}
-                                className="flex items-center gap-2 px-3 truncate flex-1"
+                                className="flex items-center gap-2 px-3 py-2 h-full border border-border rounded-lg hover:bg-bg-3000 text-sm min-w-0 max-w-[200px] flex-shrink-0"
                                 tooltip="Click to change repository"
                             >
-                                <IconGitRepository className="text-muted-alt" />
-                                {repository ? (
-                                    <span className="font-medium truncate">{repository.split('/').pop()}</span>
-                                ) : (
-                                    <span className="text-muted-alt">Select repository...</span>
-                                )}
+                                <IconGitRepository className="text-muted-alt flex-shrink-0" />
+                                <span className="truncate font-medium">
+                                    {repository ? repository.split('/').pop() : 'Select repository...'}
+                                </span>
                             </ButtonPrimitive>
                             <LemonButton
                                 type="primary"
@@ -112,10 +110,11 @@ export function IssueAIFix(): JSX.Element {
                                 loading={isInProgress}
                                 disabled={isDone || !repository}
                                 disabledReason={!repository ? 'Select a repository first' : undefined}
+                                className="flex-1 min-w-0"
                             >
                                 {isInProgress ? 'Generating fix...' : isDone ? 'Fix generated' : 'Fix with AI'}
                             </LemonButton>
-                        </div>
+                        </>
                     ) : (
                         <div className="w-full space-y-2">
                             <label className="text-xs font-medium text-muted-alt">Select repository</label>
