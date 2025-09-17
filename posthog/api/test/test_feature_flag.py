@@ -6284,6 +6284,21 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         # Verify response changed from the original cached version
         self.assertNotEqual(data["cohorts"], updated_data.get("cohorts", {}))
 
+    @patch("posthog.api.feature_flag.report_user_action")
+    def test_create_feature_flag_without_usage_dashboard(self, mock_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {"key": "no-usage-dashboard", "_should_create_usage_dashboard": False},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["key"], "no-usage-dashboard")
+        self.assertEqual(response.json()["name"], "")
+        instance = FeatureFlag.objects.get(id=response.json()["id"])
+        self.assertEqual(instance.key, "no-usage-dashboard")
+        self.assertEqual(instance.name, "")
+        assert instance.usage_dashboard is None, "Usage dashboard should not be created"
+
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_creating_static_cohort_with_deleted_flag(self):
