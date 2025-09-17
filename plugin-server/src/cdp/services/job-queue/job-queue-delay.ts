@@ -94,6 +94,24 @@ export class CyclotronJobQueueDelay {
         return this.kafkaConsumer?.isHealthy() ?? false
     }
 
+    private async delayWithCancellation(delayMs: number): Promise<void> {
+        const checkInterval = 1000 // Check every second
+        const startTime = Date.now()
+
+        while (Date.now() - startTime < delayMs) {
+            if (this.kafkaConsumer?.isShuttingDown() || this.kafkaConsumer?.isRebalancing()) {
+                throw new Error('Delay cancelled due to consumer shutdown or rebalancing')
+            }
+
+            const remainingTime = delayMs - (Date.now() - startTime)
+            const currentDelay = Math.min(remainingTime, checkInterval)
+
+            if (currentDelay > 0) {
+                await new Promise((resolve) => setTimeout(resolve, currentDelay))
+            }
+        }
+    }
+
     private getKafkaProducer(): KafkaProducerWrapper {
         if (!this.kafkaProducer) {
             throw new Error('KafkaProducer not initialized')
@@ -156,7 +174,7 @@ export class CyclotronJobQueueDelay {
 
                 delayMs -= waitTime
 
-                await new Promise((resolve) => setTimeout(resolve, waitTime))
+                await this.delayWithCancellation(waitTime)
 
                 const producer = this.getKafkaProducer()
 
@@ -182,15 +200,8 @@ export class CyclotronJobQueueDelay {
                     result,
                 })
             } catch (error) {
-                const result = this.kafkaConsumer?.offsetsStore([
-                    {
-                        ...message,
-                        offset: message.offset + 1,
-                    },
-                ])
                 logger.info('🔁', `${this.name} - Error processing message ${message.key}`, {
                     offset: message.offset,
-                    result,
                     error,
                 })
                 throw error

@@ -1,7 +1,7 @@
 import { isDevEnv } from '~/utils/env-utils'
 import { logger } from '~/utils/logger'
 
-import { Hub } from '../../types'
+import { HealthCheckResult, Hub } from '../../types'
 import { CyclotronJobQueue } from '../services/job-queue/job-queue'
 import { CyclotronJobInvocation, CyclotronJobQueueKind } from '../types'
 import { CdpConsumerBase } from './cdp-base.consumer'
@@ -34,7 +34,7 @@ export class CdpCyclotronDelayConsumer extends CdpConsumerBase {
         return { backgroundTask: Promise.resolve() }
     }
 
-    public isHealthy() {
+    public isHealthy(): HealthCheckResult {
         return this.cyclotronJobQueue.isHealthy()
     }
 }
