@@ -495,7 +495,9 @@ class DashboardSerializer(DashboardBasicSerializer):
                 id=tile_data.get("id", None),
                 defaults={**tile_data, "text": text, "dashboard": instance},
             )
-        elif "deleted" in tile_data or "color" in tile_data or "layouts" in tile_data:
+        elif (
+            "deleted" in tile_data or "color" in tile_data or "layouts" in tile_data or "filters_overrides" in tile_data
+        ):
             tile_data.pop("insight", None)  # don't ever update insight tiles here
 
             DashboardTile.objects.update_or_create(
@@ -882,12 +884,12 @@ class LegacyInsightViewSet(InsightViewSet):
 
 @receiver(model_activity_signal, sender=Dashboard)
 def handle_dashboard_change(
-    sender, scope, before_update, after_update, activity, user=None, was_impersonated=False, **kwargs
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
     log_activity(
         organization_id=after_update.team.organization_id,
         team_id=after_update.team_id,
-        user=user if user else (after_update.created_by if activity == "created" else None),
+        user=user,
         was_impersonated=was_impersonated,
         item_id=after_update.id,
         scope=scope,

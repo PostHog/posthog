@@ -52,19 +52,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                 setCommonFilters(exportedData.heatmap_context.common_filters)
             }
         }
-    }, [
-        type,
-        setHref,
-        setHeatmapFilters,
-        setHeatmapColorPalette,
-        setHeatmapFixedPositionMode,
-        exportedData.heatmap_context.common_filters,
-        exportedData.heatmap_context.heatmap_color_palette,
-        exportedData.heatmap_context.heatmap_filters,
-        exportedData.heatmap_context.heatmap_fixed_position_mode,
-        exportedData.heatmap_url,
-        setCommonFilters,
-    ])
+    }, [type]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         // NOTE: For embedded views we emit an event to indicate the content width / height to allow the parent to correctly resize
