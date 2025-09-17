@@ -36,7 +36,6 @@ import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardSh
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
-import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
 import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
@@ -271,7 +270,6 @@ export function OutputPane(): JSX.Element {
         editingInsight,
         updateInsightButtonEnabled,
         showLegacyFilters,
-        localStorageResponse,
         queryInput,
     } = useValues(multitabEditorLogic)
     const { saveAsInsight, updateInsight, setSourceQuery, runQuery, shareTab } = useActions(multitabEditorLogic)
@@ -286,7 +284,7 @@ export function OutputPane(): JSX.Element {
     const { queryCancelled } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
 
-    const response = (dataNodeResponse ?? localStorageResponse) as HogQLQueryResponse | undefined
+    const response = dataNodeResponse as HogQLQueryResponse | undefined
 
     const [progressCache, setProgressCache] = useState<Record<string, number>>({})
 
@@ -620,9 +618,6 @@ export function OutputPane(): JSX.Element {
                 />
             </div>
             <div className="flex justify-between px-2 border-t">
-                <div>
-                    {response && !responseError ? <LoadPreviewText localResponse={localStorageResponse} /> : <></>}
-                </div>
                 <div className="flex items-center gap-4">
                     {featureFlags[FEATURE_FLAGS.QUERY_EXECUTION_DETAILS] ? <QueryExecutionDetails /> : <ElapsedTime />}
                 </div>

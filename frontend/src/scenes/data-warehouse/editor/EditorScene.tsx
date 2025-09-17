@@ -85,17 +85,6 @@ export function EditorScene(): JSX.Element {
         dataNodeCollectionId: dataLogicKey,
         variablesOverride: undefined,
         autoLoad: false,
-        onData: (data) => {
-            const mountedLogic = multitabEditorLogic.findMounted({
-                key: codeEditorKey,
-                monaco,
-                editor,
-            })
-
-            if (mountedLogic) {
-                mountedLogic.actions.setResponse(data ?? null)
-            }
-        },
         onError: (error) => {
             const mountedLogic = multitabEditorLogic.findMounted({
                 key: codeEditorKey,

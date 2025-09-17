@@ -298,7 +298,9 @@ export const QueryDatabase = (): JSX.Element => {
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    openUnsavedQuery(item.record)
+                                    if (item.record) {
+                                        openUnsavedQuery(item.record)
+                                    }
                                 }}
                             >
                                 <ButtonPrimitive menuItem>Open</ButtonPrimitive>

@@ -724,11 +724,12 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                 const states = queryTabState?.state?.editorModelsStateKey
                 const unsavedChildren: TreeDataItem[] = []
+                let i = 1
                 if (states) {
                     try {
                         for (const state of JSON.parse(states)) {
                             unsavedChildren.push({
-                                id: `unsaved-${state.tabId}`,
+                                id: `unsaved-${i++}`,
                                 name: state.name || 'Unsaved query',
                                 type: 'node',
                                 icon: <IconDocument />,

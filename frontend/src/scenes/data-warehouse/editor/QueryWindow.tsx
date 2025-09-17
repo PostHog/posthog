@@ -38,7 +38,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
 
     const {
         allTabs,
-        activeModelUri,
+        activeTab,
         queryInput,
         editingView,
         editingInsight,
@@ -49,26 +49,13 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
         currentDraft,
         changesToSave,
         inProgressViewEdits,
-        activeTab,
     } = useValues(multitabEditorLogic)
 
     const { activePanelIdentifier, isLayoutPanelVisible } = useValues(panelLayoutLogic)
     const { setActivePanelIdentifier } = useActions(panelLayoutLogic)
 
-    const {
-        renameTab,
-        selectTab,
-        deleteTab,
-        createTab,
-        setQueryInput,
-        runQuery,
-        setError,
-        setMetadata,
-        setMetadataLoading,
-        saveAsView,
-        saveDraft,
-        updateView,
-    } = useActions(multitabEditorLogic)
+    const { setQueryInput, runQuery, setError, setMetadata, setMetadataLoading, saveAsView, saveDraft, updateView } =
+        useActions(multitabEditorLogic)
     const { openHistoryModal } = useActions(multitabEditorLogic)
 
     const { saveOrUpdateDraft } = useActions(draftsLogic)
@@ -132,14 +119,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                 )}
             >
                 {renderSidebarButton()}
-                <QueryTabs
-                    models={allTabs}
-                    onClick={selectTab}
-                    onClear={deleteTab}
-                    onAdd={createTab}
-                    onRename={renameTab}
-                    activeModelUri={activeModelUri}
-                />
+                <QueryTabs models={allTabs} activeTab={activeTab} />
             </div>
             {(editingView || editingInsight) && (
                 <div className="h-5 bg-warning-highlight">
@@ -230,7 +210,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                         </LemonButton>
                     </>
                 )}
-                {editingView && !isDraft && activeModelUri && (
+                {editingView && !isDraft && activeTab && (
                     <>
                         {featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS] && (
                             <LemonButton
@@ -238,7 +218,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
                                 size="xsmall"
                                 id="sql-editor-query-window-save-draft"
                                 onClick={() => {
-                                    saveDraft(activeModelUri, queryInput, editingView.id)
+                                    saveDraft(activeTab, queryInput, editingView.id)
                                 }}
                             >
                                 Save draft
@@ -379,10 +359,10 @@ function RunButton(): JSX.Element {
 }
 
 function InternalQueryWindow(): JSX.Element | null {
-    const { cacheLoading } = useValues(multitabEditorLogic)
+    const { finishedLoading } = useValues(multitabEditorLogic)
 
     // NOTE: hacky way to avoid flicker loading
-    if (cacheLoading) {
+    if (finishedLoading) {
         return null
     }
 

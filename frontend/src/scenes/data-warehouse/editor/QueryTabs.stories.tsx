@@ -92,17 +92,17 @@ const mockModels: QueryTab[] = [
 export const Default: Story = Template.bind({})
 Default.args = {
     models: mockModels,
-    activeModelUri: mockModels[0],
+    activeTab: mockModels[0],
 }
 
 export const SingleTab: Story = Template.bind({})
 SingleTab.args = {
     models: [mockModels[0]],
-    activeModelUri: mockModels[0],
+    activeTab: mockModels[0],
 }
 
 export const NoActiveTabs: Story = Template.bind({})
 NoActiveTabs.args = {
     models: mockModels,
-    activeModelUri: null,
+    activeTab: null,
 }
