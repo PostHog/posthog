@@ -66,7 +66,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_action_filtering_with_cohort_poe_v2
@@ -126,7 +127,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events
@@ -177,7 +179,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events.1
@@ -243,7 +246,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_person_on_events.2
@@ -260,7 +264,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_breakdown_by_group_props_with_person_filter_person_on_events
@@ -311,7 +316,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format
@@ -354,7 +360,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.1
@@ -397,7 +404,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.2
@@ -440,7 +448,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_breakdown_filtering_with_properties_in_new_format.3
@@ -483,7 +492,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated
@@ -546,7 +556,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_aggregated_materialized
@@ -609,7 +620,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_breakdown_weekly_active_users_daily_based_on_action
@@ -699,7 +711,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events
@@ -750,7 +763,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_breakdown_with_filter_groups_person_on_events_v2
@@ -817,7 +831,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling
@@ -867,7 +882,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.1
@@ -917,7 +933,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.2
@@ -967,7 +984,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_dau_with_breakdown_filtering_with_sampling.3
@@ -1017,7 +1035,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort
@@ -1084,7 +1103,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_filter_events_by_precalculated_cohort_poe_v2
@@ -1134,7 +1154,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_filtering_by_multiple_groups_person_on_events
@@ -1179,7 +1200,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_filtering_by_multiple_groups_person_on_events.1
@@ -1258,7 +1280,8 @@
                     max_bytes_before_external_group_by=0,
                     transform_null_in=1,
                     optimize_min_equality_disjunction_chain_length=4294967295,
-                    allow_experimental_join_condition=1
+                    allow_experimental_join_condition=1,
+                    join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_filtering_by_multiple_groups_person_on_events.2
@@ -1275,7 +1298,8 @@
                      max_bytes_before_external_group_by=0,
                      transform_null_in=1,
                      optimize_min_equality_disjunction_chain_length=4294967295,
-                     allow_experimental_join_condition=1
+                     allow_experimental_join_condition=1,
+                     join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_filtering_with_group_props_person_on_events
@@ -1312,7 +1336,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter
@@ -1389,7 +1414,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter.1
@@ -1466,7 +1492,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter_poe_v2
@@ -1532,7 +1559,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_mau_with_breakdown_filtering_and_prop_filter_poe_v2.1
@@ -1598,7 +1626,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_non_deterministic_timezones
@@ -1627,7 +1656,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action
@@ -1691,7 +1721,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_person_filtering_in_cohort_in_action_poe_v2
@@ -1755,7 +1786,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_person_property_filtering
@@ -1801,7 +1833,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property
@@ -1847,7 +1880,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property.1
@@ -1876,7 +1910,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property_materialized
@@ -1922,7 +1957,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property_materialized.1
@@ -1951,7 +1987,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_person_property_filtering_materialized
@@ -1997,7 +2034,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2
@@ -2035,7 +2073,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2.2
@@ -2071,7 +2110,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override
@@ -2116,7 +2156,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.2
@@ -2161,7 +2202,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_same_day_with_person_on_events_v2_latest_override.4
@@ -2206,7 +2248,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_timezones_daily
@@ -2235,7 +2278,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_timezones_daily.1
@@ -2271,7 +2315,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_timezones_daily.2
@@ -2320,7 +2365,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_timezones_daily.3
@@ -2349,7 +2395,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_timezones_daily.4
@@ -2399,7 +2446,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_timezones_daily_minus_utc
@@ -2428,7 +2476,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_timezones_daily_minus_utc.1
@@ -2464,7 +2513,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_timezones_daily_minus_utc.2
@@ -2513,7 +2563,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_timezones_daily_minus_utc.3
@@ -2542,7 +2593,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_timezones_daily_minus_utc.4
@@ -2592,7 +2644,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_timezones_daily_plus_utc
@@ -2621,7 +2674,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_timezones_daily_plus_utc.1
@@ -2657,7 +2711,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_timezones_daily_plus_utc.2
@@ -2706,7 +2761,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_timezones_daily_plus_utc.3
@@ -2735,7 +2791,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_timezones_daily_plus_utc.4
@@ -2785,7 +2842,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from
@@ -2821,7 +2879,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from.1
@@ -2850,7 +2909,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from_minus_utc
@@ -2886,7 +2946,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from_minus_utc.1
@@ -2915,7 +2976,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from_plus_utc
@@ -2951,7 +3013,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_timezones_hourly_relative_from_plus_utc.1
@@ -2980,7 +3043,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_timezones_weekly
@@ -3009,7 +3073,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_timezones_weekly.1
@@ -3038,7 +3103,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_timezones_weekly_minus_utc
@@ -3067,7 +3133,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_timezones_weekly_minus_utc.1
@@ -3096,7 +3163,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_timezones_weekly_plus_utc
@@ -3125,7 +3193,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_timezones_weekly_plus_utc.1
@@ -3154,7 +3223,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns
@@ -3216,7 +3286,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trend_breakdown_user_props_with_filter_with_partial_property_pushdowns.1
@@ -3278,7 +3349,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id
@@ -3307,7 +3379,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.1
@@ -3353,7 +3426,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.2
@@ -3413,7 +3487,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.3
@@ -3473,7 +3548,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.4
@@ -3515,7 +3591,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.5
@@ -3557,7 +3634,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.6
@@ -3600,7 +3678,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_any_event_total_count
@@ -3629,7 +3708,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_any_event_total_count.1
@@ -3658,7 +3738,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_cumulative
@@ -3714,7 +3795,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_cumulative_poe_v2
@@ -3770,7 +3852,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_normalize_url
@@ -3828,7 +3911,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown
@@ -3877,7 +3961,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.1
@@ -3926,7 +4011,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.2
@@ -3975,7 +4061,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_breakdown_with_session_property_single_aggregate_math_and_breakdown.3
@@ -4024,7 +4111,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_compare_day_interval_relative_range
@@ -4053,7 +4141,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_compare_day_interval_relative_range.1
@@ -4082,7 +4171,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_compare_day_interval_relative_range.2
@@ -4111,7 +4201,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated
@@ -4140,7 +4231,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated_poe_v2
@@ -4169,7 +4261,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated_with_event_property_breakdown_with_sampling
@@ -4221,7 +4314,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_count_per_user_average_daily
@@ -4265,7 +4359,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_count_per_user_average_daily_poe_v2
@@ -4309,7 +4404,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_groups_per_day
@@ -4338,7 +4434,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_groups_per_day_cumulative
@@ -4372,7 +4469,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_per_day_cumulative
@@ -4406,7 +4504,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_per_day_dau_cumulative
@@ -4447,7 +4546,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown
@@ -4513,7 +4613,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown.1
@@ -4579,7 +4680,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_with_hogql_math
@@ -4608,7 +4710,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_single_aggregate_math
@@ -4636,7 +4739,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_single_aggregate_math.1
@@ -4664,7 +4768,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math
@@ -4706,7 +4811,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math.1
@@ -4748,7 +4854,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns
@@ -4806,7 +4913,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.1
@@ -4864,7 +4972,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.2
@@ -4922,7 +5031,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns.3
@@ -4980,7 +5090,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_weekly_active_groups_daily
@@ -5022,7 +5133,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_weekly_active_groups_daily_minus_utc
@@ -5064,7 +5176,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_weekly_active_groups_daily_plus_utc
@@ -5106,7 +5219,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_aggregated_range_narrower_than_week
@@ -5145,7 +5259,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_aggregated_range_wider_than_week
@@ -5184,7 +5299,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_aggregated_range_wider_than_week_with_sampling
@@ -5223,7 +5339,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_daily
@@ -5272,7 +5389,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_daily_minus_utc
@@ -5321,7 +5439,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_daily_plus_utc
@@ -5370,7 +5489,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_filtering
@@ -5429,7 +5549,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_filtering_materialized
@@ -5488,7 +5609,8 @@
                        max_bytes_before_external_group_by=0,
                        transform_null_in=1,
                        optimize_min_equality_disjunction_chain_length=4294967295,
-                       allow_experimental_join_condition=1
+                       allow_experimental_join_condition=1,
+                       join_use_nulls=1
   '''
 # ---
 # name: TestTrends.test_weekly_active_users_hourly
