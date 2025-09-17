@@ -12,9 +12,9 @@ from typing import Any
 
 import dagster
 
-from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentTimeseriesDataPoint
+from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQuery, ExperimentRatioMetric
 
-from posthog.hogql_queries.experiments.experiment_timeseries import ExperimentTimeseries
+from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
 from posthog.models.experiment import Experiment, ExperimentTimeseriesResult
 
 from dags.common import JobOwners
@@ -93,7 +93,7 @@ def experiment_timeseries(context: dagster.AssetExecutionContext) -> dict[str, A
 
     This is a single asset with dynamic partitions - one partition per experiment-metric
     combination. Each partition computes timeseries analysis for one metric from one
-    experiment (currently a placeholder - will be replaced with actual statistical analysis).
+    experiment using ExperimentQueryRunner.
 
     Returns:
         Dictionary containing experiment metadata, metric definition, and timeseries results.
@@ -122,22 +122,41 @@ def experiment_timeseries(context: dagster.AssetExecutionContext) -> dict[str, A
         metric_obj = ExperimentMeanMetric(**metric)
     elif metric_type == "funnel":
         metric_obj = ExperimentFunnelMetric(**metric)
+    elif metric_type == "ratio":
+        metric_obj = ExperimentRatioMetric(**metric)
     else:
         raise dagster.Failure(f"Unknown metric type: {metric_type}")
 
     try:
-        timeseries_calculator = ExperimentTimeseries(experiment, metric_obj)
-        timeseries_results: list[ExperimentTimeseriesDataPoint] = timeseries_calculator.get_result()
-        computed_at = datetime.now(UTC)
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment_id,
+            metric=metric_obj,
+        )
 
-        timeseries_dicts = [result.model_dump() for result in timeseries_results]
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=experiment.team)
+        result = query_runner._calculate()
+
+        computed_at = datetime.now(UTC)
+        today_key = computed_at.date().isoformat()  # Format: "2025-01-17"
+
+        existing_result = ExperimentTimeseriesResult.objects.filter(
+            experiment_id=experiment_id,
+            metric_uuid=metric_uuid,
+        ).first()
+
+        if existing_result and existing_result.timeseries:
+            timeseries_obj = existing_result.timeseries
+        else:
+            timeseries_obj = {}
+
+        timeseries_obj[today_key] = result.model_dump()
 
         ExperimentTimeseriesResult.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
             defaults={
                 "status": ExperimentTimeseriesResult.Status.COMPLETED,
-                "timeseries": timeseries_dicts,
+                "timeseries": timeseries_obj,
                 "computed_at": computed_at,
                 "error_message": None,
             },
@@ -153,9 +172,9 @@ def experiment_timeseries(context: dagster.AssetExecutionContext) -> dict[str, A
                 "experiment_name": experiment.name,
                 "metric_definition": str(metric),
                 "computed_at": computed_at.isoformat(),
+                "date_key": today_key,
                 "results_status": "success",
-                "results_count": len(timeseries_results),
-                "timeseries": timeseries_dicts,
+                "total_days_calculated": len(timeseries_obj),
             }
         )
 
@@ -163,7 +182,8 @@ def experiment_timeseries(context: dagster.AssetExecutionContext) -> dict[str, A
             "experiment_id": experiment_id,
             "metric_uuid": metric_uuid,
             "metric_definition": metric,
-            "timeseries": timeseries_dicts,
+            "date_key": today_key,
+            "result": timeseries_obj[today_key],
             "computed_at": computed_at.isoformat(),
         }
 

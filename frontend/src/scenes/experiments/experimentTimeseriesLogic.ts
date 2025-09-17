@@ -3,8 +3,6 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
-import { ExperimentTimeseriesDataPoint } from '~/queries/schema/schema-general'
-
 import { getVariantInterval } from './MetricsView/shared/utils'
 import type { experimentTimeseriesLogicType } from './experimentTimeseriesLogicType'
 
@@ -12,7 +10,7 @@ export interface ExperimentTimeseriesResult {
     experiment_id: number
     metric_uuid: string
     status: 'pending' | 'completed' | 'failed'
-    timeseries: ExperimentTimeseriesDataPoint[] | null
+    timeseries: { [date: string]: any } | null
     computed_at: string | null
     error_message: string | null
     created_at: string
@@ -85,28 +83,15 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                         return []
                     }
 
-                    let timeseriesData = timeseries.timeseries
-                    if (typeof timeseriesData === 'object' && !Array.isArray(timeseriesData)) {
-                        timeseriesData = (timeseriesData as any)[variantKey] || []
-                    }
-                    if (!Array.isArray(timeseriesData)) {
-                        return []
-                    }
+                    const timeseriesData = Object.entries(timeseries.timeseries).map(([date, data]) => ({
+                        date,
+                        ...(data as any),
+                    }))
+
+                    const sortedTimeseriesData = timeseriesData.sort((a, b) => a.date.localeCompare(b.date))
 
                     // Extract data for the specific variant
-                    const rawProcessedData = timeseriesData.map((d: any) => {
-                        // If it's already simple format (legacy), use as-is
-                        if ('value' in d && d.value !== undefined) {
-                            return {
-                                date: d.date,
-                                value: d.value,
-                                upper_bound: d.upper_bound,
-                                lower_bound: d.lower_bound,
-                                hasRealData: true,
-                            }
-                        }
-
-                        // Extract from complex experiment result structure
+                    const rawProcessedData = sortedTimeseriesData.map((d: any) => {
                         if ('variant_results' in d && 'baseline' in d && d.variant_results && d.baseline) {
                             const variant = d.variant_results.find((v: any) => v.key === variantKey)
                             const baseline = d.baseline
