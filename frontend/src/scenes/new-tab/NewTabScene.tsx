@@ -66,7 +66,6 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                             inputRef={inputRef}
                             value={search}
                             onChange={(value) => setSearch(value)}
-                            // onKeyDown={handleKeyDown}
                             prefix={<IconSearch />}
                             className="w-full"
                             placeholder="Search..."
