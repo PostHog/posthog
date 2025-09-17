@@ -120,8 +120,11 @@ const createGitHubIssueForm = (
     const posthogUrl = window.location.origin + window.location.pathname
     const body = issue.description + '\n<br/>\n<br/>\n' + `**PostHog issue:** ${posthogUrl}`
 
+    let isSubmitting = false
+
     LemonDialog.openForm({
         title: 'Create GitHub issue',
+        shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
             body: body,
@@ -144,8 +147,16 @@ const createGitHubIssueForm = (
             repositories: (repositories) =>
                 repositories && repositories.length === 0 ? 'You must choose a repository' : undefined,
         },
-        onSubmit: ({ title, body, repositories }) => {
-            onSubmit(integration.id, { repository: repositories[0], title, body })
+        onSubmit: async ({ title, body, repositories }) => {
+            if (isSubmitting) {
+                return // Prevent duplicate submissions
+            }
+            isSubmitting = true
+            try {
+                await onSubmit(integration.id, { repository: repositories[0], title, body })
+            } finally {
+                isSubmitting = false
+            }
         },
     })
 }
