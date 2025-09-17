@@ -2950,9 +2950,9 @@ class TestRetention(ClickhouseTestMixin, APIBaseTest):
 
         # Extract distinct_ids from results to check (order might vary)
         # Format is [[person_dict, intervals_list], ...]
-        distinct_ids = {tuple(actor[0]["distinct_ids"]) for actor in actors_day1_interval0}
-        self.assertIn(("alias1", "person1"), distinct_ids)
-        self.assertIn(("person2",), distinct_ids)
+        distinct_ids = {frozenset(actor[0]["distinct_ids"]) for actor in actors_day1_interval0}
+        self.assertIn(frozenset(["alias1", "person1"]), distinct_ids)
+        self.assertIn(frozenset(["person2"]), distinct_ids)
 
         # Test actors for day 1 interval 3 (people who signed up on day 1 and returned on day 4)
         actors_day1_interval3 = self.run_actors_query(interval=1, query=query)
@@ -4527,7 +4527,7 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
 
     @patch("posthog.hogql.query.sync_execute", wraps=sync_execute)
     def test_limit_is_context_aware(self, mock_sync_execute: MagicMock):
-        self.run_query(query={}, limit_context=LimitContext.QUERY_ASYNC)
+        self.run_query(query={}, limit_context=LimitContext.RETENTION)
 
         mock_sync_execute.assert_called_once()
         self.assertIn(f" max_execution_time={HOGQL_INCREASED_MAX_EXECUTION_TIME},", mock_sync_execute.call_args[0][0])
@@ -5021,3 +5021,273 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][0]["id"], person2.uuid)
         self.assertEqual(result[0][1], [0, 2])
+
+    def test_retention_breakdown_person_property_is_stable(self):
+        # This test reproduces the bug where a person's breakdown value splits between
+        # empty string and actual value, causing major countries to drop from top breakdown list
+
+        # Create person who will have country property added later
+        person_no_country = Person.objects.create(team=self.team, distinct_ids=["person_no_country"], properties={})
+
+        # Create person who always has country
+        # person_with_country
+        Person.objects.create(team=self.team, distinct_ids=["person_with_country"], properties={"country": "Taiwan"})
+
+        # Create events for both people
+        _create_events(
+            self.team,
+            [
+                ("person_no_country", _date(0)),  # Event when person has no country
+                ("person_no_country", _date(1)),  # Retention event when person has no country
+                ("person_with_country", _date(0)),  # Event for person with Taiwan
+                ("person_with_country", _date(1)),  # Retention event for person with Taiwan
+            ],
+        )
+
+        # Now update the person to have a country (simulating property being set later)
+        person_no_country.properties = {"country": "Taiwan"}
+        person_no_country.save()
+
+        # Create more events after the property is set
+        _create_events(
+            self.team,
+            [
+                ("person_no_country", _date(2)),  # Event when person now has Taiwan as country
+                ("person_with_country", _date(2)),  # Another event for consistent person
+            ],
+        )
+
+        # Create many other people with unique countries to fill up breakdown slots
+        # This simulates the real scenario where major countries get pushed out
+        for i in range(20):
+            Person.objects.create(team=self.team, distinct_ids=[f"person_{i}"], properties={"country": f"Country_{i}"})
+            _create_events(self.team, [(f"person_{i}", _date(0)), (f"person_{i}", _date(1))])
+
+        query = {
+            "dateRange": {"date_from": _date(0), "date_to": _date(10)},
+            "retentionFilter": {"period": "Day", "totalIntervals": 7},
+            "breakdownFilter": {
+                "breakdown": "country",
+                "breakdown_type": "person",
+            },
+        }
+
+        results = self.run_query(query)
+
+        # Extract breakdown values
+        breakdown_values = {r["breakdown_value"] for r in results}
+
+        # This test will FAIL with current logic because:
+        # 1. person_no_country's events will be split between "" (empty) and "Taiwan"
+        # 2. This makes Taiwan appear to have only 1 person instead of 2
+        # 3. Taiwan gets pushed out by the 20 other countries in the breakdown limit
+
+        # The test expects Taiwan to be in the results (it should have 2 people)
+        # but with the current bug, it might not be due to the splitting issue
+        self.assertIn(
+            "Taiwan",
+            breakdown_values,
+            "Taiwan should appear in breakdown results but got pushed out due to person property splitting bug",
+        )
+
+        # Taiwan should show 2 people in the cohort, not split between empty and Taiwan
+        taiwan_results = [r for r in results if r["breakdown_value"] == "Taiwan"]
+        if taiwan_results:
+            # Day 0 cohort should have 2 people (both person_no_country and person_with_country)
+            taiwan_day0_cohort = next((r for r in taiwan_results if r["label"] == "Day 0"), None)
+            if taiwan_day0_cohort:
+                self.assertEqual(
+                    taiwan_day0_cohort["values"][0]["count"],
+                    2,
+                    "Taiwan cohort should have 2 people, not split due to property timing",
+                )
+
+    def test_retention_breakdown_uses_most_recent_property_value(self):
+        # This test validates that when a user's breakdown property changes over time,
+        # they are counted using their most recent property value for ranking purposes.
+
+        # Create a user whose country changes from '' -> 'Canada' -> 'USA' over time
+        person_changing = Person.objects.create(
+            team=self.team,
+            distinct_ids=["person_changing"],
+            properties={},  # Initially no country
+        )
+
+        # Day 0: Event with no country (empty string)
+        _create_events(self.team, [("person_changing", _date(0))])
+
+        # Update person to have Canada as country
+        person_changing.properties = {"country": "Canada"}
+        person_changing.save()
+
+        # Day 1: Event with Canada
+        _create_events(self.team, [("person_changing", _date(1))])
+
+        # Update person to have USA as country (most recent)
+        person_changing.properties = {"country": "USA"}
+        person_changing.save()
+
+        # Day 2: Event with USA (this should be the canonical value)
+        _create_events(self.team, [("person_changing", _date(2))])
+
+        # Create a baseline USA user to ensure USA gets ranked properly
+        Person.objects.create(team=self.team, distinct_ids=["usa_baseline"], properties={"country": "USA"})
+        _create_events(self.team, [("usa_baseline", _date(0))])
+
+        # Create some other countries to fill up breakdown slots
+        for i in range(15):
+            Person.objects.create(team=self.team, distinct_ids=[f"other_{i}"], properties={"country": f"Other_{i}"})
+            _create_events(self.team, [(f"other_{i}", _date(0))])
+
+        query = {
+            "dateRange": {"date_from": _date(0), "date_to": _date(10)},
+            "retentionFilter": {"period": "Day", "totalIntervals": 7},
+            "breakdownFilter": {
+                "breakdown": "country",
+                "breakdown_type": "person",
+                "breakdown_limit": 5,  # Limit to top 5 to force ranking logic
+            },
+        }
+
+        results = self.run_query(query)
+        breakdown_values = {r["breakdown_value"] for r in results}
+
+        # USA should be in the top results because it has 2 users (person_changing + usa_baseline)
+        # based on the most recent property values
+        self.assertIn(
+            "USA", breakdown_values, "USA should be in top breakdown results based on most recent property values"
+        )
+
+        # Canada should NOT be in the top results because person_changing's final value is USA
+        self.assertNotIn(
+            "Canada",
+            breakdown_values,
+            "Canada should not be in top breakdown results as person_changing's final value is USA",
+        )
+
+        # Verify USA has 2 users in the Day 0 cohort
+        usa_results = [r for r in results if r["breakdown_value"] == "USA"]
+        usa_day0_cohort = next((r for r in usa_results if r["label"] == "Day 0"), None)
+        assert usa_day0_cohort is not None
+        self.assertEqual(
+            usa_day0_cohort["values"][0]["count"],
+            2,
+            "USA should have 2 users: person_changing (latest value) + usa_baseline",
+        )
+
+    def test_retention_breakdown_other_grouping_logic(self):
+        # This test validates that breakdown values are correctly sorted by frequency
+        # and that the least frequent ones are grouped into "Other"
+
+        # Create countries with different user counts to test ranking
+        # USA: 5 users (should be #1)
+        for i in range(5):
+            Person.objects.create(team=self.team, distinct_ids=[f"usa_user_{i}"], properties={"country": "USA"})
+            _create_events(self.team, [(f"usa_user_{i}", _date(0))])
+
+        # Canada: 3 users (should be #2)
+        for i in range(3):
+            Person.objects.create(team=self.team, distinct_ids=[f"can_user_{i}"], properties={"country": "Canada"})
+            _create_events(self.team, [(f"can_user_{i}", _date(0))])
+
+        # Germany: 2 users (should be #3)
+        for i in range(2):
+            Person.objects.create(team=self.team, distinct_ids=[f"ger_user_{i}"], properties={"country": "Germany"})
+            _create_events(self.team, [(f"ger_user_{i}", _date(0))])
+
+        # France: 1 user (should be grouped into "Other" with breakdown_limit=3)
+        Person.objects.create(team=self.team, distinct_ids=["fra_user"], properties={"country": "France"})
+        _create_events(self.team, [("fra_user", _date(0))])
+
+        # Spain: 1 user (should be grouped into "Other" with breakdown_limit=3)
+        Person.objects.create(team=self.team, distinct_ids=["spa_user"], properties={"country": "Spain"})
+        _create_events(self.team, [("spa_user", _date(0))])
+
+        query = {
+            "dateRange": {"date_from": _date(0), "date_to": _date(10)},
+            "retentionFilter": {"period": "Day", "totalIntervals": 7},
+            "breakdownFilter": {
+                "breakdown": "country",
+                "breakdown_type": "person",
+                "breakdown_limit": 3,  # Only top 3 should be shown individually
+            },
+        }
+
+        results = self.run_query(query)
+        breakdown_values = {r["breakdown_value"] for r in results}
+
+        # Top 3 countries should be present
+        self.assertIn("USA", breakdown_values, "USA should be in top 3 (5 users)")
+        self.assertIn("Canada", breakdown_values, "Canada should be in top 3 (3 users)")
+        self.assertIn("Germany", breakdown_values, "Germany should be in top 3 (2 users)")
+
+        # Bottom 2 countries should be grouped into "Other"
+        self.assertNotIn("France", breakdown_values, "France should be grouped into Other (1 user)")
+        self.assertNotIn("Spain", breakdown_values, "Spain should be grouped into Other (1 user)")
+        self.assertIn(BREAKDOWN_OTHER_STRING_LABEL, breakdown_values, "Other group should be present")
+
+        # Verify the "Other" group has the correct count (France + Spain = 2 users)
+        other_results = [r for r in results if r["breakdown_value"] == BREAKDOWN_OTHER_STRING_LABEL]
+        other_day0_cohort = next((r for r in other_results if r["label"] == "Day 0"), None)
+        assert other_day0_cohort is not None
+        self.assertEqual(
+            other_day0_cohort["values"][0]["count"],
+            2,
+            "Other group should contain 2 users (France + Spain)",
+        )
+
+        # Verify the top countries have correct counts
+        usa_results = [r for r in results if r["breakdown_value"] == "USA"]
+        usa_day0_cohort = next((r for r in usa_results if r["label"] == "Day 0"), None)
+        assert usa_day0_cohort is not None
+        self.assertEqual(usa_day0_cohort["values"][0]["count"], 5, "USA should have 5 users")
+
+        canada_results = [r for r in results if r["breakdown_value"] == "Canada"]
+        canada_day0_cohort = next((r for r in canada_results if r["label"] == "Day 0"), None)
+        assert canada_day0_cohort is not None
+        self.assertEqual(canada_day0_cohort["values"][0]["count"], 3, "Canada should have 3 users")
+
+    # TRICKY: for later if/when we want a different ranking logic for breakdowns
+    # def test_retention_breakdown_ranking_by_unique_users(self):
+    #     # This test validates that breakdown ranking is based on unique users, not sum of cohort sizes.
+    #     # It creates a scenario where one breakdown value has more unique users, but another has a higher
+    #     # sum of cohort sizes due to very active, recurring users.
+
+    #     # USA: 10 unique users, each starting a cohort once on Day 0
+    #     for i in range(10):
+    #         Person.objects.create(team=self.team, distinct_ids=[f"usa_user_{i}"], properties={"country": "USA"})
+    #         _create_events(self.team, [(f"usa_user_{i}", _date(0))])
+
+    #     # Canada: 3 unique users, but they are very active and start cohorts on 5 different days
+    #     for i in range(3):
+    #         Person.objects.create(team=self.team, distinct_ids=[f"can_user_{i}"], properties={"country": "Canada"})
+    #         for day in range(5):
+    #             _create_events(self.team, [(f"can_user_{i}", _date(day))])
+
+    #     # With the flawed logic (sum of cohorts):
+    #     # USA score = 10 (10 users on day 0)
+    #     # Canada score = 15 (3 users * 5 days)
+    #     # Canada will be ranked higher.
+
+    #     # With the correct logic (unique users):
+    #     # USA score = 10
+    #     # Canada score = 3
+    #     # USA will be ranked higher.
+
+    #     query = {
+    #         "dateRange": {"date_from": _date(0), "date_to": _date(10)},
+    #         "retentionFilter": {"period": "Day", "totalIntervals": 7},
+    #         "breakdownFilter": {
+    #             "breakdown": "country",
+    #             "breakdown_type": "person",
+    #             "breakdown_limit": 1,
+    #         },
+    #     }
+
+    #     results = self.run_query(query)
+    #     breakdown_values = {r["breakdown_value"] for r in results}
+
+    #     # The test asserts that USA is the top breakdown, which should fail with the current logic
+    #     self.assertIn("USA", breakdown_values)
+    #     self.assertNotIn("Canada", breakdown_values)
+    #     self.assertIn(BREAKDOWN_OTHER_STRING_LABEL, breakdown_values)  # Canada should be in "Other"

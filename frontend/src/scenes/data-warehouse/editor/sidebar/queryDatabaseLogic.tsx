@@ -691,6 +691,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     })
                 }
 
+                viewsChildren.sort((a, b) => a.name.localeCompare(b.name))
+                managedViewsChildren.sort((a, b) => a.name.localeCompare(b.name))
+
                 const draftsChildren: TreeDataItem[] = []
 
                 if (featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS]) {

@@ -652,6 +652,19 @@ class InsightSerializer(InsightBasicSerializer):
     def to_representation(self, instance: Insight):
         representation = super().to_representation(instance)
 
+        # Check if user has access to this insight when viewed in dashboard context
+        if self.context.get("dashboard"):
+            from posthog.rbac.user_access_control import access_level_satisfied_for_resource
+
+            user_access_level = representation.get("user_access_level")
+            if user_access_level and not access_level_satisfied_for_resource("insight", user_access_level, "viewer"):
+                # User doesn't have sufficient access - return minimal insight data
+                return {
+                    "id": instance.id,
+                    "short_id": instance.short_id,
+                    "user_access_level": user_access_level,
+                }
+
         # the ORM doesn't know about deleted dashboard tiles
         # when they have just been updated
         # we store them and can use that list to correct the response

@@ -21,6 +21,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'cohort', objectPlural: 'cohorts' },
     { key: 'dashboard', objectPlural: 'dashboards' },
     { key: 'dashboard_template', objectPlural: 'dashboard templates' },
+    { key: 'dataset', objectPlural: 'datasets' },
     { key: 'early_access_feature', objectPlural: 'early access features' },
     { key: 'event_definition', objectPlural: 'event definitions' },
     { key: 'error_tracking', objectPlural: 'error tracking' },

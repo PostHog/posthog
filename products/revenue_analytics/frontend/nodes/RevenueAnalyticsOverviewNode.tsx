@@ -1,8 +1,9 @@
-import { useValues } from 'kea'
+import { BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useState } from 'react'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { humanFriendlyNumber } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
@@ -39,6 +40,7 @@ export function RevenueAnalyticsOverviewNode(props: {
     query: RevenueAnalyticsOverviewQuery
     cachedResults?: AnyResponseType
     context: QueryContext
+    attachTo?: LogicWrapper | BuiltLogic
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `RevenueAnalyticsOverview.${uniqueNode++}`)
@@ -50,6 +52,8 @@ export function RevenueAnalyticsOverviewNode(props: {
         onData,
         dataNodeCollectionId: dataNodeCollectionId ?? key,
     })
+
+    useAttachedLogic(logic, props.attachTo)
 
     const { response, responseLoading } = useValues(logic)
     const queryResponse = response as RevenueAnalyticsOverviewQueryResponse | undefined
