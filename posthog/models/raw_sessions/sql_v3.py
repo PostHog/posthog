@@ -121,7 +121,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
     entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
 
     -- channel type properties tuple - to reduce redundant reading of the timestamp when loading all of these columns
-    -- utm_source, utm_campaign, utm_medium, referring domain, has_gclid, has_fbclid, gad_source
+    -- utm_source, utm_medium, utm_campaign, referring domain, has_gclid, has_fbclid, gad_source
     entry_channel_type_properties AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Boolean, Boolean, Nullable(String)), DateTime64(6, 'UTC')),
 
     -- Count pageview, autocapture, and screen events for providing totals.
@@ -165,9 +165,27 @@ ORDER BY (
     )
 
 
+SESSION_V3_LOWER_TIER_AD_IDS = [
+    "gclsrc",
+    "dclid",
+    "gbraid",
+    "wbraid",
+    "msclkid",
+    "twclid",
+    "li_fat_id",
+    "mc_cid",
+    "igshid",
+    "ttclid",
+    "epik",
+    "qclid",
+    "sccid",
+    "_kx",
+    "irclid",
+]
+
 # See https://kb.altinity.com/altinity-kb-queries-and-syntax/jsonextract-to-parse-many-attributes-at-a-time/
 # Or https://posthog.slack.com/archives/C02JQ320FV3/p1721406540313379?thread_ts=1721334861.073739&cid=C02JQ320FV3
-PROPERTIES = """
+PROPERTIES = f"""
 JSONExtract(properties, 'Tuple(
 `$current_url` Nullable(String),
 `$external_click_url` Nullable(String),
@@ -191,22 +209,8 @@ JSONExtract(properties, 'Tuple(
 `utm_content` Nullable(String),
 `gclid` Nullable(String),
 `gad_source` Nullable(String),
-`gclsrc` Nullable(String),
-`dclid` Nullable(String),
-`gbraid` Nullable(String),
-`wbraid` Nullable(String),
 `fbclid` Nullable(String),
-`msclkid` Nullable(String),
-`twclid` Nullable(String),
-`li_fat_id` Nullable(String),
-`mc_cid` Nullable(String),
-`igshid` Nullable(String),
-`ttclid` Nullable(String),
-`epik` Nullable(String),
-`qclid` Nullable(String),
-`sccid` Nullable(String),
-`_kx` Nullable(String),
-`irclid` Nullable(String)
+{','.join([f'`{ad_id}` Nullable(String)' for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
 )') as p,
 tupleElement(p, '$current_url') as current_url,
 tupleElement(p, '$external_click_url') as external_click_url,
@@ -230,61 +234,19 @@ tupleElement(p, 'utm_term') as utm_term,
 tupleElement(p, 'utm_content') as utm_content,
 tupleElement(p, 'gclid') as gclid,
 tupleElement(p, 'gad_source') as gad_source,
-tupleElement(p, 'gclsrc') as gclsrc,
-tupleElement(p, 'dclid') as dclid,
-tupleElement(p, 'gbraid') as gbraid,
-tupleElement(p, 'wbraid') as wbraid,
 tupleElement(p, 'fbclid') as fbclid,
-tupleElement(p, 'msclkid') as msclkid,
-tupleElement(p, 'twclid') as twclid,
-tupleElement(p, 'li_fat_id') as li_fat_id,
-tupleElement(p, 'mc_cid') as mc_cid,
-tupleElement(p, 'igshid') as igshid,
-tupleElement(p, 'ttclid') as ttclid,
-tupleElement(p, 'epik') as epik,
-tupleElement(p, 'qclid') as qclid,
-tupleElement(p, 'sccid') as sccid,
-tupleElement(p, '_kx') as _kx,
-tupleElement(p, 'irclid') as irclid
+{','.join([f"tupleElement(p, '{ad_id}') as {ad_id}" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
 """
 
-AD_IDS_MAP = """
+AD_IDS_MAP = f"""
 CAST(mapFilter((k, v) -> v IS NOT NULL, map(
-    'gclsrc', gclsrc,
-    'dclid', dclid,
-    'gbraid', gbraid,
-    'wbraid', wbraid,
-    'msclkid', msclkid,
-    'twclid', twclid,
-    'li_fat_id', li_fat_id,
-    'mc_cid', mc_cid,
-    'igshid', igshid,
-    'ttclid', ttclid,
-    'epik', epik,
-    'qclid', qclid,
-    'sccid', sccid,
-    '_kx', _kx,
-    'irclid', irclid
+{','.join([f"'{ad_id}', {ad_id}" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
 )) AS Map(String, String))
 """
 
-AD_IDS_SET = """
+AD_IDS_SET = f"""
 CAST(arrayFilter(x -> x IS NOT NULL, [
-    if(gclsrc IS NOT NULL, 'gclsrc', NULL),
-    if(dclid IS NOT NULL, 'dclid', NULL),
-    if(gbraid IS NOT NULL, 'gbraid', NULL),
-    if(wbraid IS NOT NULL, 'wbraid', NULL),
-    if(msclkid IS NOT NULL, 'msclkid', NULL),
-    if(twclid IS NOT NULL, 'twclid', NULL),
-    if(li_fat_id IS NOT NULL, 'li_fat_id', NULL),
-    if(mc_cid IS NOT NULL, 'mc_cid', NULL),
-    if(igshid IS NOT NULL, 'igshid', NULL),
-    if(ttclid IS NOT NULL, 'ttclid', NULL),
-    if(epik IS NOT NULL, 'epik', NULL),
-    if(qclid IS NOT NULL, 'qclid', NULL),
-    if(sccid IS NOT NULL, 'sccid', NULL),
-    if(_kx IS NOT NULL, '_kx', NULL),
-    if(irclid IS NOT NULL, 'irclid', NULL)
+{','.join([f"if({ad_id} IS NOT NULL, '{ad_id}', NULL)" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
 ]) AS Array(String))
 """
 
@@ -364,7 +326,7 @@ SELECT
     -- counts
     initializeAggregation('uniqState', if(event='$pageview', uuid, NULL)) as pageview_uniq,
     initializeAggregation('uniqState', if(event='$autocapture', uuid, NULL)) as autocapture_uniq,
-    initializeAggregation('uniqState', if(event='screen', uuid, NULL)) as screen_uniq,
+    initializeAggregation('uniqState', if(event='$screen', uuid, NULL)) as screen_uniq,
 
     -- perf
     initializeAggregation('uniqUpToState(1)', if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to
@@ -407,10 +369,10 @@ SELECT
     timestamp AS max_timestamp,
     inserted_at AS max_inserted_at,
 
-    -- urls
-    if(current_url IS NOT NULL, [current_url], []) AS urls,
-    initializeAggregation('argMinState', current_url, timestamp) as entry_url,
-    initializeAggregation('argMaxState', current_url, timestamp) as end_url,
+    -- urls - only update if the event is a pageview or screen
+    if(current_url IS NOT NULL AND (event = '$pageview' OR event = '$screen'), [current_url], []) AS urls,
+    initializeAggregation('argMinState', if(event = '$pageview' OR event = '$screen', current_url, NULL), timestamp) as entry_url,
+    initializeAggregation('argMaxState', if(event = '$pageview' OR event = '$screen', current_url, NULL), timestamp) as end_url,
     initializeAggregation('argMaxState', external_click_url, timestamp) as last_external_click_url,
 
     -- device
@@ -455,7 +417,7 @@ SELECT
     -- counts
     initializeAggregation('uniqState', if(event='$pageview', uuid, NULL)) as pageview_uniq,
     initializeAggregation('uniqState', if(event='$autocapture', uuid, NULL)) as autocapture_uniq,
-    initializeAggregation('uniqState', if(event='screen', uuid, NULL)) as screen_uniq,
+    initializeAggregation('uniqState', if(event='$screen', uuid, NULL)) as screen_uniq,
 
     -- perf
     initializeAggregation('uniqUpToState(1)', if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to
