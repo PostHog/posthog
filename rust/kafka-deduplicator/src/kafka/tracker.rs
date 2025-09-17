@@ -10,6 +10,7 @@ use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
 
+use crate::kafka::errors::TrackingError;
 use crate::kafka::message::{AckableMessage, MessageResult};
 use crate::kafka::metrics_consts::{
     COMPLETION_CHANNEL_FAILURES, KAFKA_CONSUMER_IN_FLIGHT_MEMORY_BYTES,
@@ -17,7 +18,7 @@ use crate::kafka::metrics_consts::{
     OUT_OF_ORDER_COMPLETIONS, PARTITION_LAST_COMMITTED_OFFSET, PARTITION_OFFSET_GAP_DETECTED,
     PARTITION_OFFSET_GAP_SIZE, PARTITION_PENDING_COMPLETIONS, PARTITION_SECONDS_SINCE_LAST_COMMIT,
 };
-use crate::kafka::types::{Partition, PartitionOffset, PartitionState};
+use crate::kafka::types::{Partition, PartitionAssignment, PartitionOffset, PartitionState};
 
 /// Global statistics shared between InFlightTracker and PartitionTrackers
 #[derive(Debug)]
@@ -79,8 +80,6 @@ struct PartitionTracker {
     completion_tx: mpsc::UnboundedSender<MessageCompletion>,
     /// Highest committed offset for this partition (shared with processing task)
     last_committed_offset: Arc<RwLock<i64>>,
-    /// Initial offset for this partition
-    initial_offset: Arc<RwLock<Option<i64>>>,
     /// Number of messages currently in-flight for this partition
     in_flight_count: Arc<AtomicU64>,
     /// Handle to the completion processing task
@@ -103,17 +102,24 @@ impl Drop for PartitionTracker {
 }
 
 impl PartitionTracker {
-    fn new(topic: String, partition: i32, global_stats: Arc<GlobalStats>) -> Self {
+    fn new(
+        topic: String,
+        partition: i32,
+        global_stats: Arc<GlobalStats>,
+        initial_offset: Option<i64>,
+    ) -> Self {
         let (completion_tx, mut completion_rx) = mpsc::unbounded_channel::<MessageCompletion>();
         let (shutdown_tx, mut shutdown_rx) = tokio::sync::oneshot::channel();
 
-        let last_committed_offset = Arc::new(RwLock::new(-1));
-        let initial_offset = Arc::new(RwLock::new(None));
+        // Initialize last_committed based on initial_offset
+        // If we have an initial_offset, we start from (initial_offset - 1) since last_committed
+        // represents the last offset that was successfully processed
+        let initial_last_committed = initial_offset.map(|o| o - 1).unwrap_or(-1);
+        let last_committed_offset = Arc::new(RwLock::new(initial_last_committed));
         let in_flight_count = Arc::new(AtomicU64::new(0));
 
         // Clone for the processing task
         let last_committed_clone = last_committed_offset.clone();
-        let initial_offset_clone = initial_offset.clone();
         let in_flight_clone = in_flight_count.clone();
 
         // Spawn dedicated task to process completions for this partition
@@ -122,8 +128,8 @@ impl PartitionTracker {
             let mut last_commit_time = Instant::now();
 
             info!(
-                "Started completion processor for partition {}-{}",
-                topic, partition
+                "Started completion processor for partition {}-{} with initial_offset: {:?}",
+                topic, partition, initial_offset
             );
 
             loop {
@@ -141,23 +147,8 @@ impl PartitionTracker {
 
                 // Process the completion
                 let mut last_committed = last_committed_clone.write().await;
-                let mut initial = initial_offset_clone.write().await;
 
-                // Set initial offset if this is the first message
-                if initial.is_none() && *last_committed == -1 {
-                    *initial = Some(completion.offset);
-                    info!(
-                        "Set initial offset for partition {}-{}: {}",
-                        topic, partition, completion.offset
-                    );
-                }
-
-                // Check if this offset can be committed
-                let is_next_sequential = completion.offset == *last_committed + 1;
-                let is_initial_offset =
-                    *last_committed == -1 && *initial == Some(completion.offset);
-
-                if is_next_sequential || is_initial_offset {
+                if completion.offset == *last_committed + 1 {
                     *last_committed = completion.offset;
                     last_commit_time = Instant::now();
 
@@ -182,9 +173,7 @@ impl PartitionTracker {
                         "Partition {}-{}: committed offset {}",
                         topic, partition, *last_committed
                     );
-                } else if completion.offset > *last_committed + 1
-                    || (*last_committed == -1 && *initial != Some(completion.offset))
-                {
+                } else if completion.offset > *last_committed + 1 {
                     // Out of order - store for later
                     let offset = completion.offset;
                     pending_completions.insert(offset, completion);
@@ -196,14 +185,7 @@ impl PartitionTracker {
                     )
                     .increment(1);
 
-                    // Log gap if significant
-                    let expected = if *last_committed == -1 {
-                        initial.unwrap_or(0)
-                    } else {
-                        *last_committed + 1
-                    };
-
-                    let gap_size = offset - expected;
+                    let gap_size = offset - (*last_committed + 1);
 
                     // Emit gap metrics
                     metrics::gauge!(PARTITION_OFFSET_GAP_SIZE,
@@ -217,8 +199,13 @@ impl PartitionTracker {
                         "partition" => partition.to_string()
                     )
                     .increment(1);
+                } else {
+                    // completion.offset <= *last_committed - duplicate, ignore
+                    warn!(
+                        "Ignoring duplicate completion for offset {} (last_committed: {})",
+                        completion.offset, *last_committed
+                    );
                 }
-                // If offset <= last_committed, it's a duplicate - ignore
 
                 // Emit metrics for pending completions and processing time
                 metrics::gauge!(PARTITION_PENDING_COMPLETIONS,
@@ -265,7 +252,6 @@ impl PartitionTracker {
         Self {
             completion_tx,
             last_committed_offset,
-            initial_offset,
             in_flight_count,
             _processor_handle: processor_handle,
             shutdown_tx: Some(shutdown_tx),
@@ -342,6 +328,7 @@ impl MessageHandle {
 struct PartitionTrackingInfo {
     state: PartitionState,
     tracker: Option<PartitionTracker>,
+    initial_offset: Option<i64>,
 }
 
 impl PartitionTrackingInfo {
@@ -429,48 +416,46 @@ impl InFlightTracker {
         message: OwnedMessage,
         memory_size: usize,
         permit: OwnedSemaphorePermit,
-    ) -> AckableMessage {
+    ) -> Result<AckableMessage, TrackingError> {
         let topic = message.topic().to_string();
         let partition = message.partition();
         let offset = message.offset();
         let message_id = format!("{topic}-{partition}-{offset}");
 
-        // Increment global counters
-        self.global_stats.message_tracked(memory_size);
-
         let completion_tx = {
-            let mut partitions = self.partitions.write().await;
+            let partitions = self.partitions.read().await;
             let partition_key = Partition::new(topic.clone(), partition);
 
-            let partition_info =
-                partitions
-                    .entry(partition_key)
-                    .or_insert_with(|| PartitionTrackingInfo {
-                        state: PartitionState::Active,
-                        tracker: None,
-                    });
+            // Get the partition info - it should exist from assignment
+            match partitions.get(&partition_key) {
+                Some(info) => {
+                    // Check if partition is active
+                    if info.state != PartitionState::Active {
+                        return Err(TrackingError::InactivePartition {
+                            topic,
+                            partition,
+                            state: info.state,
+                        });
+                    }
 
-            let tracker = partition_info.tracker.get_or_insert_with(|| {
-                PartitionTracker::new(topic.clone(), partition, self.global_stats.clone())
-            });
+                    let tracker = info
+                        .tracker
+                        .as_ref()
+                        .expect("Tracker should exist for active partition");
 
-            // Set initial offset if this is the first message for this partition
-            {
-                let mut initial = tracker.initial_offset.write().await;
-                if initial.is_none() {
-                    *initial = Some(offset);
-                    info!(
-                        "Set initial offset for partition {}-{}: {}",
-                        topic, partition, offset
-                    );
+                    // Increment partition's in-flight count
+                    tracker.in_flight_count.fetch_add(1, Ordering::SeqCst);
+
+                    tracker.completion_tx.clone()
+                }
+                None => {
+                    return Err(TrackingError::UnassignedPartition { topic, partition });
                 }
             }
-
-            // Increment partition's in-flight count
-            tracker.in_flight_count.fetch_add(1, Ordering::SeqCst);
-
-            tracker.completion_tx.clone()
         };
+
+        // Increment global counters only after validation
+        self.global_stats.message_tracked(memory_size);
 
         debug!(
             "Tracking message with permit: topic={}, partition={}, offset={}, memory={}, available_permits={}",
@@ -480,7 +465,7 @@ impl InFlightTracker {
         let handle = MessageHandle::new(message_id, partition, offset, memory_size, completion_tx);
 
         // Create and return the AckableMessage with ownership of both message and permit
-        AckableMessage::new(message, handle, permit)
+        Ok(AckableMessage::new(message, handle, permit))
     }
 
     /// Get current number of in-flight messages globally
@@ -632,6 +617,7 @@ impl InFlightTracker {
                     PartitionTrackingInfo {
                         state: PartitionState::Fenced,
                         tracker: None,
+                        initial_offset: None,
                     },
                 );
                 info!(
@@ -683,23 +669,35 @@ impl InFlightTracker {
     }
 
     /// Mark partitions as active (remove from revoked set and unfence)
-    pub async fn mark_partitions_active(&self, partitions_to_unfence: &[Partition]) {
+    pub async fn mark_partitions_active(&self, partitions_to_unfence: &[PartitionAssignment]) {
         let mut partitions = self.partitions.write().await;
 
         for partition in partitions_to_unfence {
             info!(
-                "Marking partition {}:{} as active",
+                "Marking partition {}:{} offset:{:?} as active",
                 partition.topic(),
-                partition.partition_number()
+                partition.partition_number(),
+                partition.offset()
             );
 
-            if let Some(partition_info) = partitions.get_mut(partition) {
+            if let Some(partition_info) = partitions.get_mut(partition.partition()) {
                 match partition_info.transition_to(PartitionState::Active) {
                     Ok(()) => {
+                        // Create a new tracker for this partition with the initial offset from Kafka
+                        let tracker = PartitionTracker::new(
+                            partition.topic().to_string(),
+                            partition.partition_number(),
+                            self.global_stats.clone(),
+                            partition.offset(),
+                        );
+                        partition_info.tracker = Some(tracker);
+                        partition_info.initial_offset = partition.offset();
+
                         info!(
-                            "Successfully activated partition {}:{}",
+                            "Successfully activated partition {}:{} with initial offset {:?}",
                             partition.topic(),
-                            partition.partition_number()
+                            partition.partition_number(),
+                            partition.offset()
                         );
                     }
                     Err(e) => {
@@ -712,18 +710,27 @@ impl InFlightTracker {
                     }
                 }
             } else {
-                // Create new entry for unknown partition
+                // Create new entry for unknown partition with tracker
+                let tracker = PartitionTracker::new(
+                    partition.topic().to_string(),
+                    partition.partition_number(),
+                    self.global_stats.clone(),
+                    partition.offset(),
+                );
+
                 partitions.insert(
-                    partition.clone(),
+                    partition.partition().clone(),
                     PartitionTrackingInfo {
                         state: PartitionState::Active,
-                        tracker: None,
+                        tracker: Some(tracker),
+                        initial_offset: partition.offset(),
                     },
                 );
                 info!(
-                    "Created new active entry for partition {}:{}",
+                    "Created new active entry for partition {}:{} with initial offset {:?}",
                     partition.topic(),
-                    partition.partition_number()
+                    partition.partition_number(),
+                    partition.offset()
                 );
             }
         }
@@ -837,6 +844,7 @@ impl std::fmt::Display for TrackerStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::test_utils::assign_test_partitions;
     use rdkafka::message::{OwnedHeaders, OwnedMessage, Timestamp};
 
     fn create_test_message(
@@ -859,6 +867,10 @@ mod tests {
     #[tokio::test]
     async fn test_track_message() {
         let tracker = InFlightTracker::new();
+
+        // Assign the partition first
+        assign_test_partitions(&tracker, "test-topic", vec![0]).await;
+
         let message = create_test_message("test-topic", 0, 100, "test-payload");
         let message2 = create_test_message("test-topic", 0, 101, "test-payload2");
 
@@ -868,7 +880,7 @@ mod tests {
             .acquire_owned()
             .await
             .unwrap();
-        let _ackable = tracker.track_message(message, 1024, permit).await;
+        let _ackable = tracker.track_message(message, 1024, permit).await.unwrap();
 
         assert_eq!(tracker.in_flight_count().await, 1);
         assert_eq!(tracker.memory_usage().await, 1024);
@@ -885,7 +897,7 @@ mod tests {
             .acquire_owned()
             .await
             .unwrap();
-        let _ackable2 = tracker.track_message(message2, 512, permit2).await;
+        let _ackable2 = tracker.track_message(message2, 512, permit2).await.unwrap();
 
         // Both messages should be tracked
         assert_eq!(tracker.in_flight_count().await, 2);
@@ -894,6 +906,10 @@ mod tests {
     #[tokio::test]
     async fn test_completion_flow() {
         let tracker = InFlightTracker::new();
+
+        // Assign the partition first
+        assign_test_partitions(&tracker, "test-topic", vec![0]).await;
+
         let message = create_test_message("test-topic", 0, 0, "payload");
 
         let permit = tracker
@@ -901,7 +917,7 @@ mod tests {
             .acquire_owned()
             .await
             .unwrap();
-        let ackable = tracker.track_message(message, 256, permit).await;
+        let ackable = tracker.track_message(message, 256, permit).await.unwrap();
 
         // Complete the message
         ackable.ack().await;
@@ -925,6 +941,9 @@ mod tests {
     async fn test_multiple_partitions() {
         let tracker = InFlightTracker::new();
 
+        // Assign the partitions first
+        assign_test_partitions(&tracker, "topic", vec![0, 1]).await;
+
         // Track messages on different partitions
         let msg1 = create_test_message("topic", 0, 0, "payload1");
         let msg2 = create_test_message("topic", 1, 0, "payload2");
@@ -946,9 +965,9 @@ mod tests {
             .await
             .unwrap();
 
-        let ackable1 = tracker.track_message(msg1, 100, permit1).await;
-        let ackable2 = tracker.track_message(msg2, 200, permit2).await;
-        let ackable3 = tracker.track_message(msg3, 150, permit3).await;
+        let ackable1 = tracker.track_message(msg1, 100, permit1).await.unwrap();
+        let ackable2 = tracker.track_message(msg2, 200, permit2).await.unwrap();
+        let ackable3 = tracker.track_message(msg3, 150, permit3).await.unwrap();
 
         assert_eq!(tracker.in_flight_count().await, 3);
         assert_eq!(tracker.memory_usage().await, 450);
@@ -979,6 +998,9 @@ mod tests {
     async fn test_out_of_order_completion() {
         let tracker = InFlightTracker::new();
 
+        // Assign the partition first
+        assign_test_partitions(&tracker, "topic", vec![0]).await;
+
         // Track messages in order
         let msg1 = create_test_message("topic", 0, 0, "payload1");
         let msg2 = create_test_message("topic", 0, 1, "payload2");
@@ -1000,9 +1022,9 @@ mod tests {
             .await
             .unwrap();
 
-        let ackable1 = tracker.track_message(msg1, 100, permit1).await;
-        let ackable2 = tracker.track_message(msg2, 100, permit2).await;
-        let ackable3 = tracker.track_message(msg3, 100, permit3).await;
+        let ackable1 = tracker.track_message(msg1, 100, permit1).await.unwrap();
+        let ackable2 = tracker.track_message(msg2, 100, permit2).await.unwrap();
+        let ackable3 = tracker.track_message(msg3, 100, permit3).await.unwrap();
 
         // Complete out of order: 3, 1, 2
         ackable3.ack().await; // offset 2
@@ -1024,6 +1046,9 @@ mod tests {
     async fn test_offset_gaps() {
         let tracker = InFlightTracker::new();
 
+        // Assign the partition first
+        assign_test_partitions(&tracker, "topic", vec![0]).await;
+
         // Track messages with a gap
         let msg1 = create_test_message("topic", 0, 0, "payload1");
         let msg2 = create_test_message("topic", 0, 2, "payload2"); // Gap at 1
@@ -1039,8 +1064,8 @@ mod tests {
             .await
             .unwrap();
 
-        let ackable1 = tracker.track_message(msg1, 100, permit1).await;
-        let ackable2 = tracker.track_message(msg2, 100, permit2).await;
+        let ackable1 = tracker.track_message(msg1, 100, permit1).await.unwrap();
+        let ackable2 = tracker.track_message(msg2, 100, permit2).await.unwrap();
 
         // Complete both messages
         ackable1.ack().await;
@@ -1060,6 +1085,10 @@ mod tests {
     #[tokio::test]
     async fn test_wait_for_completion() {
         let tracker = Arc::new(InFlightTracker::new());
+
+        // Assign the partition first
+        assign_test_partitions(&tracker, "test-topic", vec![0]).await;
+
         let message = create_test_message("test-topic", 0, 0, "payload");
 
         let permit = tracker
@@ -1068,7 +1097,7 @@ mod tests {
             .await
             .unwrap();
 
-        let ackable = tracker.track_message(message, 64, permit).await;
+        let ackable = tracker.track_message(message, 64, permit).await.unwrap();
 
         // Start a task that will complete the message after a delay
         tokio::spawn(async move {
@@ -1107,9 +1136,9 @@ mod tests {
 
         // Mark some partitions as active first
         let partitions_to_activate = vec![
-            Partition::new("topic1".to_string(), 0),
-            Partition::new("topic1".to_string(), 1),
-            Partition::new("topic2".to_string(), 0),
+            PartitionAssignment::new(Partition::new("topic1".to_string(), 0), None),
+            PartitionAssignment::new(Partition::new("topic1".to_string(), 1), None),
+            PartitionAssignment::new(Partition::new("topic2".to_string(), 0), None),
         ];
         tracker
             .mark_partitions_active(&partitions_to_activate)
@@ -1132,6 +1161,11 @@ mod tests {
             Partition::new("topic1".to_string(), 0),
             Partition::new("topic2".to_string(), 0),
         ];
+
+        let partition_assignments: Vec<PartitionAssignment> = partitions_to_fence
+            .iter()
+            .map(|p| PartitionAssignment::new(p.clone(), None))
+            .collect();
         tracker.fence_partitions(&partitions_to_fence).await;
 
         // Check partition states - fenced partitions should be inactive
@@ -1162,7 +1196,7 @@ mod tests {
         );
 
         // Mark partitions as active again
-        tracker.mark_partitions_active(&partitions_to_fence).await;
+        tracker.mark_partitions_active(&partition_assignments).await;
 
         // All should be active again
         assert!(
@@ -1180,6 +1214,10 @@ mod tests {
     #[tokio::test]
     async fn test_wait_for_partition_completion() {
         let tracker = InFlightTracker::new();
+
+        // Assign the partitions first
+        assign_test_partitions(&tracker, "topic", vec![0, 1]).await;
+        assign_test_partitions(&tracker, "other", vec![0]).await;
 
         // Track messages in different partitions
         let msg1 = create_test_message("topic", 0, 0, "payload1");
@@ -1208,10 +1246,10 @@ mod tests {
             .await
             .unwrap();
 
-        let ackable1 = tracker.track_message(msg1, 100, permit1).await;
-        let ackable2 = tracker.track_message(msg2, 100, permit2).await;
-        let ackable3 = tracker.track_message(msg3, 100, permit3).await;
-        let ackable4 = tracker.track_message(msg4, 100, permit4).await;
+        let ackable1 = tracker.track_message(msg1, 100, permit1).await.unwrap();
+        let ackable2 = tracker.track_message(msg2, 100, permit2).await.unwrap();
+        let ackable3 = tracker.track_message(msg3, 100, permit3).await.unwrap();
+        let ackable4 = tracker.track_message(msg4, 100, permit4).await.unwrap();
 
         // Verify in-flight counts
         assert_eq!(tracker.in_flight_count().await, 4);
@@ -1268,6 +1306,9 @@ mod tests {
     async fn test_partition_completion_multiple_partitions() {
         let tracker = InFlightTracker::new();
 
+        // Assign the partitions first
+        assign_test_partitions(&tracker, "topic", vec![0, 1, 2]).await;
+
         // Track messages in multiple partitions
         let msg1 = create_test_message("topic", 0, 0, "payload1");
         let msg2 = create_test_message("topic", 1, 0, "payload2");
@@ -1289,9 +1330,9 @@ mod tests {
             .await
             .unwrap();
 
-        let ackable1 = tracker.track_message(msg1, 100, permit1).await;
-        let ackable2 = tracker.track_message(msg2, 100, permit2).await;
-        let ackable3 = tracker.track_message(msg3, 100, permit3).await;
+        let ackable1 = tracker.track_message(msg1, 100, permit1).await.unwrap();
+        let ackable2 = tracker.track_message(msg2, 100, permit2).await.unwrap();
+        let ackable3 = tracker.track_message(msg3, 100, permit3).await.unwrap();
 
         // Complete messages in background with different timing
         tokio::spawn(async move {
@@ -1338,6 +1379,9 @@ mod tests {
     async fn test_partition_revocation_workflow() {
         let tracker = InFlightTracker::new();
 
+        // Assign the partitions first
+        assign_test_partitions(&tracker, "topic", vec![0, 1]).await;
+
         // Track messages in different partitions
         let msg1 = create_test_message("topic", 0, 0, "payload1");
         let msg2 = create_test_message("topic", 0, 1, "payload2");
@@ -1359,9 +1403,9 @@ mod tests {
             .await
             .unwrap();
 
-        let ackable1 = tracker.track_message(msg1, 100, permit1).await;
-        let ackable2 = tracker.track_message(msg2, 100, permit2).await;
-        let ackable3 = tracker.track_message(msg3, 100, permit3).await;
+        let ackable1 = tracker.track_message(msg1, 100, permit1).await.unwrap();
+        let ackable2 = tracker.track_message(msg2, 100, permit2).await.unwrap();
+        let ackable3 = tracker.track_message(msg3, 100, permit3).await.unwrap();
 
         // Simulate partition revocation workflow
         let revoked_partitions = vec![Partition::new("topic".to_string(), 0)];
@@ -1410,5 +1454,406 @@ mod tests {
         ackable3.ack().await;
         // Give PartitionTracker time to process
         sleep(Duration::from_millis(50)).await;
+    }
+
+    #[tokio::test]
+    async fn test_track_message_unassigned_partition() {
+        use crate::kafka::errors::TrackingError;
+
+        let tracker = InFlightTracker::new();
+
+        // Try to track a message for an unassigned partition
+        let message = create_test_message("unassigned-topic", 0, 100, "test-payload");
+        let permit = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+
+        let result = tracker.track_message(message, 100, permit).await;
+
+        // Should return an error for unassigned partition
+        assert!(result.is_err());
+        match result.err().unwrap() {
+            TrackingError::UnassignedPartition { topic, partition } => {
+                assert_eq!(topic, "unassigned-topic");
+                assert_eq!(partition, 0);
+            }
+            _ => panic!("Expected UnassignedPartition error"),
+        }
+
+        // No messages should be tracked
+        assert_eq!(tracker.in_flight_count().await, 0);
+        assert_eq!(tracker.memory_usage().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_track_message_fenced_partition() {
+        use crate::kafka::errors::TrackingError;
+
+        let tracker = InFlightTracker::new();
+
+        // Assign a partition
+        assign_test_partitions(&tracker, "test-topic", vec![0]).await;
+
+        // Track a message successfully
+        let msg1 = create_test_message("test-topic", 0, 100, "payload1");
+        let permit1 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+        let ackable1 = tracker.track_message(msg1, 100, permit1).await.unwrap();
+
+        // Fence the partition
+        tracker
+            .fence_partitions(&[Partition::new("test-topic".to_string(), 0)])
+            .await;
+
+        // Try to track another message for the fenced partition
+        let msg2 = create_test_message("test-topic", 0, 101, "payload2");
+        let permit2 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+        let result = tracker.track_message(msg2, 100, permit2).await;
+
+        // Should return an error for inactive partition
+        assert!(result.is_err());
+        match result.err().unwrap() {
+            TrackingError::InactivePartition {
+                topic,
+                partition,
+                state,
+            } => {
+                assert_eq!(topic, "test-topic");
+                assert_eq!(partition, 0);
+                assert_eq!(state, PartitionState::Fenced);
+            }
+            _ => panic!("Expected InactivePartition error"),
+        }
+
+        // Only the first message should be tracked
+        assert_eq!(tracker.in_flight_count().await, 1);
+
+        // Clean up
+        ackable1.ack().await;
+        sleep(Duration::from_millis(10)).await;
+    }
+
+    #[tokio::test]
+    async fn test_track_message_revoked_partition() {
+        use crate::kafka::errors::TrackingError;
+
+        let tracker = InFlightTracker::new();
+
+        // Assign a partition
+        assign_test_partitions(&tracker, "test-topic", vec![0]).await;
+
+        // Track a message successfully
+        let msg1 = create_test_message("test-topic", 0, 100, "payload1");
+        let permit1 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+        let ackable1 = tracker.track_message(msg1, 100, permit1).await.unwrap();
+
+        // Fence and then revoke the partition
+        let partition = Partition::new("test-topic".to_string(), 0);
+        tracker.fence_partitions(&[partition.clone()]).await;
+
+        // Complete the message
+        ackable1.ack().await;
+
+        // Wait for completion
+        tracker
+            .wait_for_partition_completion(&[partition.clone()])
+            .await;
+
+        // Finalize revocation (transitions from Fenced to Revoked)
+        tracker.finalize_revocation(&[partition.clone()]).await;
+
+        // Try to track another message for the revoked partition
+        let msg2 = create_test_message("test-topic", 0, 101, "payload2");
+        let permit2 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+        let result = tracker.track_message(msg2, 100, permit2).await;
+
+        // Should return an error for inactive partition
+        assert!(result.is_err());
+        match result.err().unwrap() {
+            TrackingError::InactivePartition {
+                topic,
+                partition,
+                state,
+            } => {
+                assert_eq!(topic, "test-topic");
+                assert_eq!(partition, 0);
+                assert_eq!(state, PartitionState::Revoked);
+            }
+            _ => panic!("Expected InactivePartition error with Revoked state"),
+        }
+
+        // No messages should be tracked
+        assert_eq!(tracker.in_flight_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_completion_with_initial_offset() {
+        let tracker = Arc::new(InFlightTracker::new());
+
+        // Assign a partition with initial offset 100
+        let assignments = vec![PartitionAssignment::new(
+            Partition::new("test-topic".to_string(), 0),
+            Some(100), // Start from offset 100
+        )];
+        tracker.mark_partitions_active(&assignments).await;
+
+        // Track messages starting from offset 100
+        let msg100 = create_test_message("test-topic", 0, 100, "payload100");
+        let msg101 = create_test_message("test-topic", 0, 101, "payload101");
+        let msg102 = create_test_message("test-topic", 0, 102, "payload102");
+
+        let permit100 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+        let permit101 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+        let permit102 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+
+        let ackable100 = tracker.track_message(msg100, 100, permit100).await.unwrap();
+        let ackable101 = tracker.track_message(msg101, 100, permit101).await.unwrap();
+        let ackable102 = tracker.track_message(msg102, 100, permit102).await.unwrap();
+
+        // Complete messages out of order: 101, 102, then 100
+        ackable101.ack().await;
+        ackable102.ack().await;
+
+        // Give time for processing
+        sleep(Duration::from_millis(10)).await;
+
+        // Should have no commits yet (waiting for 100)
+        let safe_offsets = tracker.get_safe_commit_offsets().await;
+        assert!(
+            safe_offsets.is_empty()
+                || safe_offsets.get(&Partition::new("test-topic".to_string(), 0)) == Some(&99)
+        );
+
+        // Now complete 100
+        ackable100.ack().await;
+        sleep(Duration::from_millis(10)).await;
+
+        // Should have committed through 102
+        let safe_offsets = tracker.get_safe_commit_offsets().await;
+        assert_eq!(
+            safe_offsets.get(&Partition::new("test-topic".to_string(), 0)),
+            Some(&102)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_duplicate_completion_ignored() {
+        let tracker = Arc::new(InFlightTracker::new());
+
+        // Assign a partition with initial offset 100
+        let assignments = vec![PartitionAssignment::new(
+            Partition::new("test-topic".to_string(), 0),
+            Some(100),
+        )];
+        tracker.mark_partitions_active(&assignments).await;
+
+        // Track and complete message 100
+        let msg100 = create_test_message("test-topic", 0, 100, "payload100");
+        let permit100 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+        let ackable100 = tracker.track_message(msg100, 100, permit100).await.unwrap();
+        ackable100.ack().await;
+        sleep(Duration::from_millis(10)).await;
+
+        // Try to track a message with offset 99 (before initial offset)
+        // This should still work at the tracking level, but completion should be ignored
+        let msg99 = create_test_message("test-topic", 0, 99, "payload99");
+        let permit99 = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+        let ackable99 = tracker.track_message(msg99, 100, permit99).await.unwrap();
+        ackable99.ack().await;
+        sleep(Duration::from_millis(10)).await;
+
+        // Safe offset should still be 100, not affected by the duplicate
+        let safe_offsets = tracker.get_safe_commit_offsets().await;
+        assert_eq!(
+            safe_offsets.get(&Partition::new("test-topic".to_string(), 0)),
+            Some(&100)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_high_concurrency_out_of_order_completions() {
+        use rand::seq::SliceRandom;
+        use rand::thread_rng;
+        use std::collections::HashSet;
+
+        const NUM_MESSAGES: i64 = 500; // Test with 500 messages for high concurrency
+
+        // Create tracker with capacity for all messages we'll track
+        let tracker = Arc::new(InFlightTracker::with_capacity(NUM_MESSAGES as usize));
+
+        // Assign partition starting from offset 1000
+        let assignments = vec![PartitionAssignment::new(
+            Partition::new("test-topic".to_string(), 0),
+            Some(1000),
+        )];
+        tracker.mark_partitions_active(&assignments).await;
+        let mut ackable_messages = Vec::new();
+
+        // Track all messages
+        for i in 0..NUM_MESSAGES {
+            let offset = 1000 + i;
+            let msg = create_test_message("test-topic", 0, offset, &format!("payload{offset}"));
+            let permit = tracker
+                .in_flight_semaphore_clone()
+                .acquire_owned()
+                .await
+                .unwrap();
+            let ackable = tracker.track_message(msg, 100, permit).await.unwrap();
+            ackable_messages.push((offset, ackable));
+        }
+
+        // Verify all messages are tracked
+        assert_eq!(tracker.in_flight_count().await, NUM_MESSAGES as usize);
+
+        // Create a random completion order
+        let mut rng = thread_rng();
+        ackable_messages.shuffle(&mut rng);
+
+        // Complete messages in random order, simulating high concurrency
+        let mut handles = Vec::new();
+        for (offset, ackable) in ackable_messages {
+            let handle = tokio::spawn(async move {
+                // Add random delay to simulate processing time
+                let delay = rand::random::<u64>() % 5;
+                sleep(Duration::from_millis(delay)).await;
+                ackable.ack().await;
+                offset
+            });
+            handles.push(handle);
+        }
+
+        // Wait for all completions
+        let mut completed_offsets = HashSet::new();
+        for handle in handles {
+            let offset = handle.await.unwrap();
+            completed_offsets.insert(offset);
+        }
+
+        // Verify all messages were completed
+        assert_eq!(completed_offsets.len(), NUM_MESSAGES as usize);
+
+        // Give PartitionTracker time to process all completions
+        sleep(Duration::from_millis(100)).await;
+
+        // Verify final state
+        assert_eq!(tracker.in_flight_count().await, 0);
+
+        // The safe commit offset should be the last message (1000 + NUM_MESSAGES - 1)
+        let safe_offsets = tracker.get_safe_commit_offsets().await;
+        assert_eq!(
+            safe_offsets.get(&Partition::new("test-topic".to_string(), 0)),
+            Some(&(1000 + NUM_MESSAGES - 1))
+        );
+
+        // Get partition health to verify the state
+        let health = tracker.get_partition_health().await;
+        assert_eq!(health.len(), 1);
+        assert_eq!(health[0].last_committed_offset, 1000 + NUM_MESSAGES - 1);
+        assert_eq!(health[0].in_flight_count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_concurrent_completions_with_gaps() {
+        let tracker = Arc::new(InFlightTracker::new());
+
+        // Assign partition starting from offset 2000
+        let assignments = vec![PartitionAssignment::new(
+            Partition::new("test-topic".to_string(), 0),
+            Some(2000),
+        )];
+        tracker.mark_partitions_active(&assignments).await;
+
+        // Track messages with some gaps (simulating lost messages)
+        let offsets_to_track = vec![
+            2000, 2001, 2002, 2003, 2004, // Sequential block
+            2006, 2007, 2008, // Gap at 2005
+            2010, 2011, 2012, // Gap at 2009
+            2015, 2016, 2017, // Gap at 2013, 2014
+        ];
+
+        let mut ackables = Vec::new();
+        for offset in &offsets_to_track {
+            let msg = create_test_message("test-topic", 0, *offset, &format!("payload{offset}"));
+            let permit = tracker
+                .in_flight_semaphore_clone()
+                .acquire_owned()
+                .await
+                .unwrap();
+            let ackable = tracker.track_message(msg, 100, permit).await.unwrap();
+            ackables.push((*offset, ackable));
+        }
+
+        // Complete in reverse order (worst case for pending_completions)
+        for (_, ackable) in ackables.into_iter().rev() {
+            ackable.ack().await;
+            sleep(Duration::from_millis(5)).await;
+        }
+
+        // Give time for processing
+        sleep(Duration::from_millis(50)).await;
+
+        // Should only commit up to 2004 (last sequential from start)
+        let safe_offsets = tracker.get_safe_commit_offsets().await;
+        assert_eq!(
+            safe_offsets.get(&Partition::new("test-topic".to_string(), 0)),
+            Some(&2004),
+            "Should only commit up to the last sequential offset before the first gap"
+        );
+
+        // Now simulate filling the gap at 2005
+        let msg2005 = create_test_message("test-topic", 0, 2005, "payload2005");
+        let permit = tracker
+            .in_flight_semaphore_clone()
+            .acquire_owned()
+            .await
+            .unwrap();
+        let ackable2005 = tracker.track_message(msg2005, 100, permit).await.unwrap();
+        ackable2005.ack().await;
+        sleep(Duration::from_millis(50)).await;
+
+        // Should now commit up to 2008
+        let safe_offsets = tracker.get_safe_commit_offsets().await;
+        assert_eq!(
+            safe_offsets.get(&Partition::new("test-topic".to_string(), 0)),
+            Some(&2008),
+            "After filling gap at 2005, should commit up to 2008"
+        );
     }
 }

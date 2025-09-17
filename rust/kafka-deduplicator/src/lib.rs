@@ -1,5 +1,6 @@
 pub mod checkpoint;
 pub mod checkpoint_manager;
+pub mod common;
 pub mod config;
 pub mod deduplication_processor;
 pub mod duplicate_metrics;

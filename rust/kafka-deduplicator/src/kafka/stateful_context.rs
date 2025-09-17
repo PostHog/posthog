@@ -5,7 +5,7 @@ use tokio::runtime::Handle;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
-use crate::kafka::types::Partition;
+use crate::kafka::types::{Partition, PartitionAssignment};
 
 use super::rebalance_handler::RebalanceHandler;
 use super::tracker::InFlightTracker;
@@ -16,7 +16,7 @@ enum RebalanceEvent {
     /// Partitions are being revoked
     Revoke(Vec<Partition>),
     /// Partitions have been assigned  
-    Assign(Vec<Partition>),
+    Assign(Vec<PartitionAssignment>),
 }
 
 /// Stateful Kafka consumer context that coordinates with external state systems
@@ -180,16 +180,19 @@ impl ConsumerContext for StatefulConsumerContext {
                 info!("Assigned {} partitions", partitions.count());
 
                 // Extract partition info
-                let partitions: Vec<Partition> = partitions
+                let partition_assignments: Vec<PartitionAssignment> = partitions
                     .elements()
                     .into_iter()
-                    .map(Partition::from)
+                    .map(PartitionAssignment::from)
                     .collect();
 
-                info!("📋 Total partitions assigned: {:?}", partitions);
+                info!("📋 Total partitions assigned: {:?}", partition_assignments);
 
                 // Send assignment event to async worker
-                if let Err(e) = self.rebalance_tx.send(RebalanceEvent::Assign(partitions)) {
+                if let Err(e) = self
+                    .rebalance_tx
+                    .send(RebalanceEvent::Assign(partition_assignments))
+                {
                     error!("Failed to send assign event to rebalance worker: {}", e);
                 }
             }
@@ -403,6 +406,10 @@ mod tests {
         let context = StatefulConsumerContext::new(handler.clone(), tracker.clone());
         let consumer = create_test_consumer(Arc::new(TestRebalanceHandler::default()));
 
+        // Assign partition first
+        use crate::common::test_utils::assign_test_partitions;
+        assign_test_partitions(&tracker, "test-topic-1", vec![0]).await;
+
         // Track some messages in different partitions
         let msg1 = rdkafka::message::OwnedMessage::new(
             Some("payload1".as_bytes().to_vec()),
@@ -435,8 +442,8 @@ mod tests {
             .await
             .unwrap();
 
-        let ackable1 = tracker.track_message(msg1, 100, permit1).await;
-        let ackable2 = tracker.track_message(msg2, 100, permit2).await;
+        let ackable1 = tracker.track_message(msg1, 100, permit1).await.unwrap();
+        let ackable2 = tracker.track_message(msg2, 100, permit2).await.unwrap();
 
         // Verify messages are tracked and partition is active
         assert_eq!(tracker.in_flight_count().await, 2);
