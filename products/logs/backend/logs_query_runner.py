@@ -187,19 +187,18 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
 
         # this query always parses the same so safe to ignore typing
         count_query.select_from.table.initial_select_query.ctes["cumulative_counts"].expr.where = self.where()  # type: ignore
-        query.ctes = {"time_bucket_cte": ast.CTE(name="time_buckets", cte_type="subquery", expr=count_query)}
+        query.ctes = {"time_bucket_cte": ast.CTE(name="time_buckets", cte_type="column", expr=count_query)}
 
         query.where = ast.And(
             exprs=[
                 self.where(),
-                parse_expr("timestamp >= time_bucket_cte.time_buckets[1]"),
-                parse_expr("timestamp < time_bucket_cte.time_buckets[2]"),
+                parse_expr("timestamp >= time_bucket_cte[1]"),
+                parse_expr("timestamp < time_bucket_cte[2]"),
             ]
         )
         query.order_by = [
             parse_order_expr(f"toUnixTimestamp(timestamp) {order_dir}"),
         ]
-
         return query
 
     def where(self):
