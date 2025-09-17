@@ -11,6 +11,8 @@ import {
     AnthropicToolResultMessage,
     CompatMessage,
     CompatToolCall,
+    LiteLLMChoice,
+    LiteLLMResponse,
     OpenAICompletionMessage,
     OpenAIToolCall,
     VercelSDKImageMessage,
@@ -214,6 +216,28 @@ export function isVercelSDKInputTextMessage(input: unknown): input is VercelSDKI
         typeof input.text === 'string'
     )
 }
+
+export function isLiteLLMChoice(input: unknown): input is LiteLLMChoice {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'finish_reason' in input &&
+        'index' in input &&
+        'message' in input &&
+        typeof input.message === 'object' &&
+        input.message !== null
+    )
+}
+
+export function isLiteLLMResponse(input: unknown): input is LiteLLMResponse {
+    return (
+        !!input &&
+        typeof input === 'object' &&
+        'choices' in input &&
+        Array.isArray(input.choices) &&
+        input.choices.every(isLiteLLMChoice)
+    )
+}
 /**
  * Normalizes a message from an LLM provider into a format that is compatible with the PostHog LLM Analytics schema.
  *
@@ -248,6 +272,10 @@ export function normalizeMessage(output: unknown, defaultRole?: string): CompatM
                 content: output.content,
             },
         ]
+    }
+
+    if (isLiteLLMChoice(output)) {
+        return normalizeMessage(output.message, defaultRole)
     }
 
     // Vercel SDK
@@ -403,6 +431,10 @@ export function normalizeMessages(messages: unknown, defaultRole?: string, tools
 
     if (Array.isArray(messages)) {
         normalizedMessages.push(...messages.map((message) => normalizeMessage(message, defaultRole)).flat())
+    } else if (isLiteLLMResponse(messages)) {
+        normalizedMessages.push(
+            ...(messages.choices || []).map((choice) => normalizeMessage(choice, defaultRole)).flat()
+        )
     } else if (typeof messages === 'object' && messages && 'choices' in messages && Array.isArray(messages.choices)) {
         normalizedMessages.push(...messages.choices.map((message) => normalizeMessage(message, defaultRole)).flat())
     } else if (typeof messages === 'string') {
