@@ -166,8 +166,11 @@ const createLinearIssueForm = (
     integration: IntegrationType,
     onSubmit: onSubmitFormType
 ): void => {
+    let isSubmitting = false
+
     LemonDialog.openForm({
         title: 'Create Linear issue',
+        shouldAwaitSubmit: true, // Add loading state
         initialValues: {
             title: issue.name,
             description: issue.description,
@@ -189,8 +192,16 @@ const createLinearIssueForm = (
             title: (title) => (!title ? 'You must enter a title' : undefined),
             teamIds: (teamIds) => (teamIds && teamIds.length === 0 ? 'You must choose a team' : undefined),
         },
-        onSubmit: ({ title, description, teamIds }) => {
-            onSubmit(integration.id, { team_id: teamIds[0], title, description })
+        onSubmit: async ({ title, description, teamIds }) => {
+            if (isSubmitting) {
+                return // Prevent duplicate submissions
+            }
+            isSubmitting = true
+            try {
+                await onSubmit(integration.id, { team_id: teamIds[0], title, description })
+            } finally {
+                isSubmitting = false
+            }
         },
     })
 }
