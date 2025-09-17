@@ -479,8 +479,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 data-attr="feature-flag-enabled-checkbox"
                                             />
                                             <div className="text-secondary text-sm pl-7">
-                                                Disabling this flag doesn’t remove it from your app; evaluations will
-                                                always return <code>false</code>.
+                                                When enabled, this flag evaluates according to your release conditions.
+                                                When disabled, all evaluations return <code>false</code> regardless of
+                                                conditions.
                                             </div>
                                         </div>
                                     )}
@@ -491,14 +492,15 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                             <div className="border rounded p-4">
                                                 <LemonCheckbox
                                                     id="create-usage-dashboard-checkbox"
-                                                    label="Create Usage Dashboard"
+                                                    label="Create usage dashboard"
                                                     onChange={() => onChange(!value)}
                                                     checked={value}
                                                     data-attr="create-usage-dashboard-checkbox"
                                                 />
                                                 <div className="text-secondary text-sm pl-7">
-                                                    Automatically creates two insights: feature flag call volume and
-                                                    response value breakdowns.
+                                                    Automatically track how often this flag is called and what values
+                                                    are returned. Creates a dashboard with call volume trends and
+                                                    variant distribution insights.
                                                 </div>
                                             </div>
                                         )}
