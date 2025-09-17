@@ -1,6 +1,7 @@
+from posthog.test.base import APIBaseTest
+
 from parameterized import parameterized
 
-from posthog.test.base import APIBaseTest
 from posthog.utils import PotentialSecurityProblemException, absolute_uri
 
 

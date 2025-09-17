@@ -1,16 +1,16 @@
-from unittest.mock import ANY, patch
-
 from freezegun import freeze_time
-from rest_framework import status
-
-from posthog.models import Action, Tag, User
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    FuzzyInt,
     QueryMatchingTest,
     snapshot_postgres_queries_context,
-    FuzzyInt,
 )
+from unittest.mock import ANY, patch
+
+from rest_framework import status
+
+from posthog.models import Action, Tag, User
 
 
 class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -54,7 +54,9 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             ],
             "created_at": ANY,
             "created_by": ANY,
+            "pinned_at": None,
             "deleted": False,
+            "creation_context": None,
             "is_calculating": False,
             "last_calculated_at": ANY,
             "team_id": self.team.id,
@@ -79,6 +81,9 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "match_url_count": 1,
                 "has_properties": False,
                 "deleted": False,
+                "pinned": False,
+                "pinned_at": None,
+                "creation_context": None,
             },
         )
 
@@ -128,6 +133,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(Action.objects.count(), count)
 
+    @freeze_time("2021-12-12")
     @patch("posthog.api.action.report_user_action")
     def test_update_action(self, patch_capture, *args):
         user = self._create_user("test_user_update")
@@ -159,6 +165,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                     "first_name": "person",
                     "email": "person@email.com",
                 },
+                "pinned_at": "2021-12-11T00:00:00Z",
             },
             headers={"origin": "http://testserver"},
         )
@@ -213,11 +220,13 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "has_properties": True,
                 "updated_by_creator": False,
                 "deleted": False,
+                "pinned": True,
+                "pinned_at": "2021-12-12T00:00:00+00:00",
             },
         )
 
         # test queries
-        with self.assertNumQueries(FuzzyInt(6, 8)):
+        with self.assertNumQueries(FuzzyInt(9, 11)):
             # Django session,  user,  team,  org membership, instance setting,  org,
             # count, action
             self.client.get(f"/api/projects/{self.team.id}/actions/")
@@ -316,7 +325,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Pre-query to cache things like instance settings
         self.client.get(f"/api/projects/{self.team.id}/actions/")
 
-        with self.assertNumQueries(6), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(9), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         Action.objects.create(
@@ -325,7 +334,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             created_by=User.objects.create_and_join(self.organization, "a", ""),
         )
 
-        with self.assertNumQueries(6), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(9), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         Action.objects.create(
@@ -334,7 +343,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             created_by=User.objects.create_and_join(self.organization, "b", ""),
         )
 
-        with self.assertNumQueries(6), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(9), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
     def test_get_tags_on_non_ee_returns_empty_list(self):
@@ -430,3 +439,31 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         deletion_response = self.client.delete(f"/api/projects/{self.team.id}/actions/{response.json()['id']}")
         self.assertEqual(deletion_response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def test_create_action_in_specific_folder(self):
+        """
+        Verify that creating an Action with '_create_in_folder' stores its FileSystem entry
+        under the specified folder.
+        """
+        # 1. Create an Action, passing `_create_in_folder`
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/actions/",
+            data={
+                "name": "user signed up in folder",
+                "_create_in_folder": "Special Folder/Actions",
+            },
+            HTTP_ORIGIN="http://testserver",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+        action_id = response.json()["id"]
+        assert action_id is not None
+
+        # 2. Verify the FileSystem entry
+        from posthog.models.file_system.file_system import FileSystem
+
+        fs_entry = FileSystem.objects.filter(team=self.team, ref=str(action_id), type="action").first()
+        assert fs_entry is not None, "A FileSystem entry was not created for this Action."
+        assert (
+            "Special Folder/Actions" in fs_entry.path
+        ), f"Expected folder to include 'Special Folder/Actions' but got '{fs_entry.path}'."

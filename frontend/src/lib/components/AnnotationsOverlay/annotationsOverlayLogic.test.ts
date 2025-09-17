@@ -1,5 +1,7 @@
-import { expectLogic } from 'kea-test-utils'
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
+import { expectLogic } from 'kea-test-utils'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -181,7 +183,7 @@ function useInsightMocks(interval: string = 'day', timezone: string = 'UTC'): vo
     }
     useMocks({
         get: {
-            '/api/projects/:team_id/insights/': () => {
+            '/api/environments/:team_id/insights/': () => {
                 return [
                     200,
                     {
@@ -189,7 +191,7 @@ function useInsightMocks(interval: string = 'day', timezone: string = 'UTC'): vo
                     },
                 ]
             },
-            [`/api/projects/:team_id/insights/${MOCK_INSIGHT_NUMERIC_ID}`]: () => {
+            [`/api/environments/:team_id/insights/${MOCK_INSIGHT_NUMERIC_ID}`]: () => {
                 return [200, insight]
             },
             '/api/users/@me/': [200, {}],

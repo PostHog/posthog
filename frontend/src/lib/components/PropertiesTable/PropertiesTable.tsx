@@ -1,23 +1,35 @@
 import './PropertiesTable.scss'
 
-import { IconPencil, IconTrash, IconWarning } from '@posthog/icons'
-import { LemonCheckbox, LemonDialog, LemonInput, LemonMenu, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
+import { useMemo, useState } from 'react'
+
+import { IconPencil, IconTrash, IconWarning } from '@posthog/icons'
+import { LemonCheckbox, LemonDialog, LemonInput, LemonMenu, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_KEYS } from 'lib/taxonomy'
-import { isURL } from 'lib/utils'
-import { useMemo, useState } from 'react'
+import { isObject, isURL } from 'lib/utils'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { NewProperty } from 'scenes/persons/NewProperty'
 import { urls } from 'scenes/urls'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
+import {
+    KNOWN_PROMOTED_PROPERTY_PARENTS,
+    POSTHOG_EVENT_PROMOTED_PROPERTIES,
+    isPostHogProperty,
+} from '~/taxonomy/taxonomy'
+import { CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import { PropertyDefinitionType, PropertyType } from '~/types'
 
 import { CopyToClipboardInline } from '../CopyToClipboard'
+import { JSONViewer } from '../JSONViewer'
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from '../PropertyFilters/utils'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
@@ -158,7 +170,7 @@ function ValueDisplay({
                             }
                         >
                             <LemonTag
-                                className="font-mono uppercase ml-1"
+                                className="ml-1 font-mono uppercase"
                                 type={isTypeMismatched ? 'danger' : 'muted'}
                                 icon={isTypeMismatched ? <IconWarning /> : undefined}
                             >
@@ -174,8 +186,9 @@ function ValueDisplay({
         </div>
     )
 }
+
 interface PropertiesTableType extends BasePropertyType {
-    properties?: Record<string, any>
+    properties?: Record<string, any> | Array<Record<string, any>>
     sortProperties?: boolean
     searchable?: boolean
     filterable?: boolean
@@ -188,13 +201,18 @@ interface PropertiesTableType extends BasePropertyType {
     tableProps?: Partial<LemonTableProps<Record<string, any>>>
     highlightedKeys?: string[]
     type: PropertyDefinitionType
+    /**
+     * The container for these properties e.g. the event name of the event the properties are on
+     * Can be used for e.g. to promote particular properties when sorting the properties
+     */
+    parent?: KNOWN_PROMOTED_PROPERTY_PARENTS
 }
 
 export function PropertiesTable({
     properties,
     rootKey,
     onEdit,
-    sortProperties = false,
+    sortProperties = true,
     searchable = false,
     filterable = false,
     embedded = true,
@@ -205,40 +223,64 @@ export function PropertiesTable({
     tableProps,
     highlightedKeys,
     type,
+    parent,
 }: PropertiesTableType): JSX.Element {
     const [searchTerm, setSearchTerm] = useState('')
-    const { hidePostHogPropertiesInTable } = useValues(userPreferencesLogic)
-    const { setHidePostHogPropertiesInTable } = useActions(userPreferencesLogic)
-
-    if (Array.isArray(properties)) {
-        return (
-            <div>
-                {properties.length ? (
-                    properties.map((item, index) => (
-                        <PropertiesTable
-                            key={index}
-                            type={type}
-                            properties={item}
-                            nestingLevel={nestingLevel + 1}
-                            useDetectedPropertyType={
-                                ['$set', '$set_once'].some((s) => s === rootKey) ? false : useDetectedPropertyType
-                            }
-                        />
-                    ))
-                ) : (
-                    <LemonTag type="muted" className="font-mono uppercase">
-                        Array (empty)
-                    </LemonTag>
-                )}
-            </div>
-        )
-    }
+    const { hidePostHogPropertiesInTable, hideNullValues } = useValues(userPreferencesLogic)
+    const { setHidePostHogPropertiesInTable, setHideNullValues } = useActions(userPreferencesLogic)
+    const { isCloudOrDev } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const objectProperties = useMemo(() => {
-        if (!properties || !(properties instanceof Object)) {
+        if (!properties || Array.isArray(properties) || !isObject(properties)) {
             return []
         }
+
         let entries = Object.entries(properties)
+        if (sortProperties) {
+            entries = entries.sort((a, b) => {
+                // if this is a posthog property we want to sort by its label
+                const propertyTypeMap: Record<PropertyDefinitionType, TaxonomicFilterGroupType> = {
+                    [PropertyDefinitionType.Event]: TaxonomicFilterGroupType.EventProperties,
+                    [PropertyDefinitionType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
+                    [PropertyDefinitionType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
+                    [PropertyDefinitionType.Person]: TaxonomicFilterGroupType.PersonProperties,
+                    [PropertyDefinitionType.Group]: TaxonomicFilterGroupType.GroupsPrefix,
+                    [PropertyDefinitionType.Session]: TaxonomicFilterGroupType.SessionProperties,
+                    [PropertyDefinitionType.LogEntry]: TaxonomicFilterGroupType.LogEntries,
+                    [PropertyDefinitionType.Meta]: TaxonomicFilterGroupType.Metadata,
+                    [PropertyDefinitionType.Resource]: TaxonomicFilterGroupType.Resources,
+                    [PropertyDefinitionType.Log]: TaxonomicFilterGroupType.LogAttributes,
+                    [PropertyDefinitionType.FlagValue]: TaxonomicFilterGroupType.FeatureFlags,
+                }
+
+                const propertyType = propertyTypeMap[type] || TaxonomicFilterGroupType.EventProperties
+
+                const left = getCoreFilterDefinition(a[0], propertyType)?.label || a[0]
+                const right = getCoreFilterDefinition(b[0], propertyType)?.label || b[0]
+
+                if (left < right) {
+                    return -1
+                }
+                if (left > right) {
+                    return 1
+                }
+                return 0
+            })
+            if (parent) {
+                const promotedProperties = POSTHOG_EVENT_PROMOTED_PROPERTIES[parent]
+                const promotedItems = promotedProperties?.length
+                    ? entries
+                          .filter(([key]) => promotedProperties.includes(key))
+                          .sort((a, b) => promotedProperties.indexOf(a[0]) - promotedProperties.indexOf(b[0]))
+                    : []
+                const nonPromotedItems = promotedProperties?.length
+                    ? entries.filter(([key]) => !promotedProperties.includes(key))
+                    : entries
+                entries = [...promotedItems, ...nonPromotedItems]
+            }
+        }
+
         if (searchTerm) {
             const normalizedSearchTerm = searchTerm.toLowerCase()
             entries = entries.filter(([key, value]) => {
@@ -251,28 +293,19 @@ export function PropertiesTable({
             })
         }
 
-        if (filterable && hidePostHogPropertiesInTable) {
-            entries = entries.filter(([key]) => !key.startsWith('$') && !PROPERTY_KEYS.includes(key))
+        if (filterable) {
+            entries = entries.filter(([key, value]) => {
+                if (hideNullValues && value === null) {
+                    return false
+                }
+                if (hidePostHogPropertiesInTable) {
+                    return !isPostHogProperty(key, isCloudOrDev)
+                }
+                return true
+            })
         }
 
-        if (sortProperties) {
-            entries.sort(([aKey], [bKey]) => {
-                if (highlightedKeys) {
-                    const aHighlightValue = highlightedKeys.includes(aKey) ? 0 : 1
-                    const bHighlightValue = highlightedKeys.includes(bKey) ? 0 : 1
-                    if (aHighlightValue !== bHighlightValue) {
-                        return aHighlightValue - bHighlightValue
-                    }
-                }
-
-                if (aKey.startsWith('$') && !bKey.startsWith('$')) {
-                    return 1
-                } else if (!aKey.startsWith('$') && bKey.startsWith('$')) {
-                    return -1
-                }
-                return aKey.localeCompare(bKey)
-            })
-        } else if (highlightedKeys) {
+        if (highlightedKeys) {
             entries.sort(([aKey], [bKey]) => {
                 const aHighlightValue = highlightedKeys.includes(aKey) ? 0 : 1
                 const bHighlightValue = highlightedKeys.includes(bKey) ? 0 : 1
@@ -280,13 +313,88 @@ export function PropertiesTable({
             })
         }
         return entries
-    }, [properties, sortProperties, searchTerm, hidePostHogPropertiesInTable])
+    }, [properties, sortProperties, searchTerm, hidePostHogPropertiesInTable, hideNullValues]) // oxlint-disable-line react-hooks/exhaustive-deps
+
+    if (Array.isArray(properties)) {
+        return (
+            <div>
+                {properties.length ? (
+                    <LemonTable
+                        columns={[
+                            {
+                                key: 'key',
+                                title: 'Index',
+                                render: function Key(_, item: any): JSX.Element {
+                                    return <div className="properties-table-key">{item[0]}</div>
+                                },
+                            },
+                            {
+                                key: 'value',
+                                title: (
+                                    <div className="flex justify-between w-full">
+                                        <div>Value</div>
+                                        <LemonTag type="muted" className="font-mono uppercase">
+                                            array
+                                        </LemonTag>
+                                    </div>
+                                ),
+                                fullWidth: true,
+                                render: function Value(_, item: any): JSX.Element {
+                                    const arrayItem = item[1]
+                                    const isComplexStructure =
+                                        Array.isArray(arrayItem) || (isObject(arrayItem) && arrayItem !== null)
+                                    if (!featureFlags[FEATURE_FLAGS.TOGGLE_PROPERTY_ARRAYS]) {
+                                        return (
+                                            <PropertiesTable
+                                                type={type}
+                                                properties={item[1]}
+                                                nestingLevel={nestingLevel + 1}
+                                                useDetectedPropertyType={
+                                                    ['$set', '$set_once'].some((s) => s === rootKey)
+                                                        ? false
+                                                        : useDetectedPropertyType
+                                                }
+                                            />
+                                        )
+                                    }
+
+                                    if (isComplexStructure) {
+                                        return <JSONViewer src={arrayItem} collapsed={true} />
+                                    }
+
+                                    return (
+                                        <ValueDisplay
+                                            type={type}
+                                            value={arrayItem}
+                                            nestingLevel={nestingLevel + 1}
+                                            useDetectedPropertyType={
+                                                ['$set', '$set_once'].some((s) => s === rootKey)
+                                                    ? false
+                                                    : useDetectedPropertyType
+                                            }
+                                        />
+                                    )
+                                },
+                            },
+                        ]}
+                        dataSource={properties.map((item, index) => [index, item])}
+                    />
+                ) : (
+                    <LemonTag type="muted" className="font-mono uppercase">
+                        Array (empty)
+                    </LemonTag>
+                )}
+            </div>
+        )
+    }
 
     if (properties instanceof Object) {
         const columns: LemonTableColumns<Record<string, any>> = [
             {
                 key: 'key',
                 title: 'Key',
+                // Minimize the width of the key column when nested
+                style: nestingLevel > 0 ? { width: '0px' } : undefined,
                 render: function Key(_, item: any): JSX.Element {
                     return (
                         <div className="properties-table-key">
@@ -307,6 +415,11 @@ export function PropertiesTable({
                 key: 'value',
                 title: 'Value',
                 render: function Value(_, item: any): JSX.Element {
+                    const isComplexStructure = Array.isArray(item[1]) || (isObject(item[1]) && item[1] !== null)
+
+                    if (isComplexStructure && featureFlags[FEATURE_FLAGS.TOGGLE_PROPERTY_ARRAYS]) {
+                        return <JSONViewer src={item[1]} collapsed={true} />
+                    }
                     return (
                         <PropertiesTable
                             type={type}
@@ -381,24 +494,34 @@ export function PropertiesTable({
         return (
             <>
                 {(searchable || filterable) && (
-                    <div className="flex justify-between items-center gap-2 mb-2">
+                    <div className="flex items-center justify-between gap-2 mb-2">
                         <span className="flex justify-between gap-2">
                             {searchable && (
                                 <LemonInput
                                     type="search"
-                                    placeholder="Search for property keys and values"
+                                    placeholder="Search property keys and values"
                                     value={searchTerm || ''}
                                     onChange={setSearchTerm}
+                                    className="w-64 max-w-full"
                                 />
                             )}
 
                             {filterable && (
-                                <LemonCheckbox
-                                    checked={hidePostHogPropertiesInTable}
-                                    label="Hide PostHog properties"
-                                    bordered
-                                    onChange={setHidePostHogPropertiesInTable}
-                                />
+                                <>
+                                    <LemonCheckbox
+                                        checked={hidePostHogPropertiesInTable}
+                                        label="Hide PostHog properties"
+                                        bordered
+                                        onChange={setHidePostHogPropertiesInTable}
+                                    />
+
+                                    <LemonCheckbox
+                                        checked={hideNullValues}
+                                        label="Hide null values"
+                                        bordered
+                                        onChange={setHideNullValues}
+                                    />
+                                </>
                             )}
                         </span>
 
@@ -423,6 +546,7 @@ export function PropertiesTable({
                                         onClick={() => {
                                             setSearchTerm('')
                                             setHidePostHogPropertiesInTable(false)
+                                            setHideNullValues(false)
                                         }}
                                     >
                                         Clear filters
@@ -446,6 +570,11 @@ export function PropertiesTable({
             </>
         )
     }
+
+    if (properties === undefined) {
+        return <div className="px-4 py-2">No defined properties</div>
+    }
+
     // if none of above, it's a value
     return (
         <ValueDisplay

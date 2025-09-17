@@ -1,46 +1,44 @@
-import datetime as dt
 import math
+import datetime as dt
 from dataclasses import dataclass, field
-from enum import auto, StrEnum
-from typing import (
-    TYPE_CHECKING,
-    Any,
-    Optional,
-    cast,
-)
+from enum import StrEnum, auto
+from typing import TYPE_CHECKING, Any, Optional, cast
 from urllib.parse import urlencode, urlparse, urlunparse
 from zoneinfo import ZoneInfo
 
 import pytz
 
-from posthog.demo.matrix.models import Effect, SimPerson, SimSessionIntent
+from posthog.demo.matrix.models import EVENT_AUTOCAPTURE, Effect, SimPerson, SimSessionIntent
+
 from .taxonomy import (
-    EVENT_SIGNED_UP,
-    EVENT_LOGGED_IN,
-    EVENT_UPLOADED_FILE,
-    EVENT_DOWNLOADED_FILE,
     EVENT_DELETED_FILE,
-    EVENT_SHARED_FILE_LINK,
-    EVENT_UPGRADED_PLAN,
-    EVENT_PAID_BILL,
     EVENT_DOWNGRADED_PLAN,
+    EVENT_DOWNLOADED_FILE,
     EVENT_INVITED_TEAM_MEMBER,
-    EVENT_REMOVED_TEAM_MEMBER,
+    EVENT_LOGGED_IN,
     EVENT_LOGGED_OUT,
+    EVENT_PAID_BILL,
+    EVENT_REMOVED_TEAM_MEMBER,
+    EVENT_SHARED_FILE_LINK,
+    EVENT_SIGNED_UP,
+    EVENT_UPGRADED_PLAN,
+    EVENT_UPLOADED_FILE,
+    GROUP_TYPE_ACCOUNT,
+    NEW_SIGNUP_PAGE_FLAG_KEY,
+    NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT,
+    SIGNUP_SUCCESS_RATE_CONTROL,
+    SIGNUP_SUCCESS_RATE_TEST,
+    URL_ACCOUNT_BILLING,
+    URL_ACCOUNT_SETTINGS,
+    URL_ACCOUNT_TEAM,
+    URL_FILES,
     URL_HOME,
-    URL_SIGNUP,
     URL_LOGIN,
     URL_MARIUS_TECH_TIPS,
     URL_PRICING,
-    URL_FILES,
-    URL_ACCOUNT_SETTINGS,
-    URL_ACCOUNT_BILLING,
-    URL_ACCOUNT_TEAM,
-    NEW_SIGNUP_PAGE_FLAG_KEY,
-    NEW_SIGNUP_PAGE_FLAG_ROLLOUT_PERCENT,
-    SIGNUP_SUCCESS_RATE_TEST,
-    SIGNUP_SUCCESS_RATE_CONTROL,
-    GROUP_TYPE_ACCOUNT,
+    URL_PRODUCT_AD_LINK_1,
+    URL_PRODUCT_AD_LINK_2,
+    URL_SIGNUP,
     dyn_url_file,
     dyn_url_invite,
 )
@@ -64,6 +62,7 @@ class HedgeboxSessionIntent(SimSessionIntent):
     JOIN_TEAM = auto()
     UPGRADE_PLAN = auto()
     DOWNGRADE_PLAN = auto()
+    CHECK_LINKED_PR = auto()
 
 
 class HedgeboxPlan(StrEnum):
@@ -198,6 +197,19 @@ class HedgeboxPerson(SimPerson):
             self.country_code = (
                 "US" if self.cluster.random.random() < 0.7132 else self.cluster.address_provider.country_code()
             )
+            # mimesis doesn't support choosing cities in a specific country, so these will be pretty odd until they fix this
+            self.region = (
+                "California"
+                if self.country_code == "US" and self.cluster.random.random() < 0.5
+                else self.cluster.address_provider.region()
+            )
+            self.city = (
+                "San Francisco"
+                if self.region == "California" and self.cluster.random.random() < 0.3
+                else self.cluster.address_provider.city()
+            )
+            self.language = "en-GB" if self.country_code == "GB" else "en-US"
+
             try:  # Some tiny regions aren't in pytz - we want to omit those
                 self.timezone = self.cluster.random.choice(pytz.country_timezones[self.country_code])
             except KeyError:
@@ -355,6 +367,10 @@ class HedgeboxPerson(SimPerson):
                 {"$referrer": "$direct" if entered_url_directly else "https://www.youtube.com/"}
             )
             self.go_to_marius_tech_tips(None if entered_url_directly else {"utm_source": "youtube"})
+            if self.cluster.random.random() < 0.2:
+                self.click_product_ad_1()
+            elif self.cluster.random.random() < 0.5:
+                self.click_product_ad_2()
         elif self.active_session_intent in (
             HedgeboxSessionIntent.UPLOAD_FILE_S,
             HedgeboxSessionIntent.DELETE_FILE_S,
@@ -809,6 +825,16 @@ class HedgeboxPerson(SimPerson):
             for neighbor in cast(list[HedgeboxPerson], self.cluster.list_neighbors(self))
             if neighbor.is_invitable
         ]
+
+    def click_product_ad_1(self):
+        self.active_client.capture(
+            EVENT_AUTOCAPTURE, {"$event_type": "click", "$external_click_url": URL_PRODUCT_AD_LINK_1}
+        )
+
+    def click_product_ad_2(self):
+        self.active_client.capture(
+            EVENT_AUTOCAPTURE, {"$event_type": "click", "$external_click_url": URL_PRODUCT_AD_LINK_2}
+        )
 
 
 def add_params_to_url(url, query_params):

@@ -1,9 +1,13 @@
-import urllib.parse
 import uuid
+import urllib.parse
 from abc import ABC
 from typing import Any, Optional, Union, cast
 
 from rest_framework.exceptions import ValidationError
+
+from posthog.schema import PersonsOnEventsMode
+
+from posthog.hogql.database.database import create_hogql_database
 
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.constants import (
@@ -32,8 +36,7 @@ from posthog.queries.breakdown_props import (
 from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.util import alias_poe_mode_for_legacy, correct_result_for_sampling, get_person_properties_mode
-from posthog.schema import PersonsOnEventsMode
-from posthog.utils import relative_date_parse, generate_short_id
+from posthog.utils import generate_short_id, relative_date_parse
 
 
 class ClickhouseFunnelBase(ABC):
@@ -68,7 +71,13 @@ class ClickhouseFunnelBase(ABC):
         self._include_preceding_timestamp = include_preceding_timestamp
         self._include_properties = include_properties or []
 
-        self._filter.hogql_context.person_on_events_mode = team.person_on_events_mode
+        # HACK: Because we're in a legacy query, we need to override hogql_context with the legacy-alised PoE mode
+        self._filter.hogql_context.modifiers.personsOnEventsMode = alias_poe_mode_for_legacy(team.person_on_events_mode)
+
+        # Recreate the database with the legacy-alised PoE mode
+        self._filter.hogql_context.database = create_hogql_database(
+            team=self._team, modifiers=self._filter.hogql_context.modifiers
+        )
 
         # handle default if window isn't provided
         if not self._filter.funnel_window_days and not self._filter.funnel_window_interval:
@@ -280,6 +289,7 @@ class ClickhouseFunnelBase(ABC):
             query_type=self.QUERY_TYPE,
             filter=self._filter,
             team_id=self._team.pk,
+            settings={"allow_experimental_analyzer": 0},
         )
 
     def _get_timestamp_outer_select(self) -> str:
@@ -435,7 +445,7 @@ class ClickhouseFunnelBase(ABC):
             team=self._team,
             extra_fields=[*self._extra_event_fields, *extra_fields],
             extra_event_properties=self._extra_event_properties,
-            person_on_events_mode=self._team.person_on_events_mode,
+            person_on_events_mode=alias_poe_mode_for_legacy(self._team.person_on_events_mode),
         ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
 
         self.params.update(params)
@@ -788,9 +798,9 @@ class ClickhouseFunnelBase(ABC):
                 prop_alias = f"prop_{index}"
                 select_columns.append(f"if(step_{index} = 1, prop_basic, {default_breakdown_selector}) as {prop_alias}")
                 prop_aliases.append(prop_alias)
-            final_select = f"prop_{self._filter.breakdown_attribution_value} as prop"
+            final_select = f"prop_{self._filter.breakdown_attribution_value} as prop_final"
 
-            prop_window = "groupUniqArray(prop) over (PARTITION by aggregation_target) as prop_vals"
+            prop_window = "groupUniqArray(prop_final) over (PARTITION by aggregation_target) as prop_vals"
 
             return ",".join([basic_prop_selector, *select_columns, final_select, prop_window]), basic_prop_params
         elif self._filter.breakdown_attribution_type in [

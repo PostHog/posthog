@@ -8,11 +8,7 @@ from posthog.models.filters.properties_timeline_filter import PropertiesTimeline
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.property import PropertyIdentifier
-from posthog.models.property.util import (
-    box_value,
-    count_hogql_properties,
-    extract_tables_and_properties,
-)
+from posthog.models.property.util import box_value, count_hogql_properties, extract_tables_and_properties
 from posthog.queries.column_optimizer.foss_column_optimizer import FOSSColumnOptimizer
 from posthog.queries.trends.util import is_series_group_based
 
@@ -84,6 +80,10 @@ class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
             # See posthog/queries/trends/util.py#process_math
             if entity.math_property:
                 counter[(entity.math_property, "event", None)] += 1
+
+            # Revenue currency properties are also implicitly used.
+            if entity.math_property_revenue_currency and entity.math_property_revenue_currency.property:
+                counter[(entity.math_property_revenue_currency.property, "event", None)] += 1
 
             # If groups are involved, they're also used
             #

@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -15,5 +16,5 @@ export function SettingsScene(): JSX.Element {
     const { location } = useValues(router)
     useAnchor(location.hash)
 
-    return <Settings logicKey="settingsScene" />
+    return <Settings logicKey="settingsScene" handleLocally />
 }

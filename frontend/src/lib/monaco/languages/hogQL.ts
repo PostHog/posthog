@@ -1,6 +1,11 @@
 // Adapted from https://raw.githubusercontent.com/microsoft/monaco-editor/main/src/basic-languages/mysql/mysql.ts
-
+import { Monaco } from '@monaco-editor/react'
 import { languages } from 'monaco-editor'
+
+import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
+import { hogQLMetadataProvider } from 'lib/monaco/hogQLMetadataProvider'
+
+import { HogLanguage } from '~/queries/schema/schema-general'
 
 export const conf: () => languages.LanguageConfiguration = () => ({
     comments: {
@@ -244,8 +249,10 @@ export const language: () => languages.IMonarchLanguage = () => ({
         '_toInt64',
         'toFloat',
         'toDecimal',
+        '_toDate',
         'toDate',
         'toDateTime',
+        'toDateTimeUS',
         'toUUID',
         'toString',
         'toJSONString',
@@ -559,6 +566,7 @@ export const language: () => languages.IMonarchLanguage = () => ({
         'JSONExtractArrayRaw',
         'JSONExtractKeysAndValues',
         'JSONExtractKeysAndValuesRaw',
+        'JSON_VALUE',
         'in',
         'notIn',
         'greatCircleDistance',
@@ -774,6 +782,9 @@ export const language: () => languages.IMonarchLanguage = () => ({
         'maxIntersectionsIf',
         'maxIntersectionsPosition',
         'maxIntersectionsPositionIf',
+        'getSurveyResponse',
+        'windowFunnel',
+        'languageCodeToName',
     ],
     builtinVariables: [],
     tokenizer: {
@@ -845,3 +856,24 @@ export const language: () => languages.IMonarchLanguage = () => ({
         ],
     },
 })
+
+export function initHogQLLanguage(monaco: Monaco, lang: HogLanguage = HogLanguage.hogQL): void {
+    if (!monaco.languages.getLanguages().some(({ id }) => id === lang)) {
+        monaco.languages.register(
+            lang === 'hogQL'
+                ? {
+                      id: lang,
+                      extensions: ['.sql', '.hogql'],
+                      mimetypes: ['application/hogql'],
+                  }
+                : {
+                      id: lang,
+                      mimetypes: ['application/hogql+expr'],
+                  }
+        )
+        monaco.languages.setLanguageConfiguration(lang, conf())
+        monaco.languages.setMonarchTokensProvider(lang, language())
+        monaco.languages.registerCompletionItemProvider(lang, hogQLAutocompleteProvider(lang))
+        monaco.languages.registerCodeActionProvider(lang, hogQLMetadataProvider())
+    }
+}

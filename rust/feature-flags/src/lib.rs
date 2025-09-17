@@ -1,17 +1,18 @@
 pub mod api;
+pub mod billing_limiters;
+pub mod cohorts;
 pub mod config;
 pub mod database;
-pub mod flag_definitions;
-pub mod flag_matching;
-pub mod flag_request;
-pub mod geoip;
-pub mod property_matching;
-pub mod redis;
-pub mod request_handler;
+pub mod database_pools;
+pub mod db_monitor;
+pub mod flags;
+pub mod handler;
+pub mod metrics;
+pub mod properties;
 pub mod router;
 pub mod server;
+pub mod site_apps;
 pub mod team;
-pub mod v0_endpoint;
 
 // Test modules don't need to be compiled with main binary
 // #[cfg(test)]
@@ -19,4 +20,4 @@ pub mod v0_endpoint;
 // or make it a separate feature using cfg(feature = "integration-tests")
 // and then use this feature only in tests.
 // For now, ok to just include in binary
-pub mod test_utils;
+pub mod utils;

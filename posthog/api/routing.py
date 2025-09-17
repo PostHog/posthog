@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
 
 from django.db.models.query import QuerySet
+
 from rest_framework.exceptions import AuthenticationFailed, NotFound, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.viewsets import GenericViewSet
@@ -15,18 +16,22 @@ from posthog.auth import (
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
     SharingAccessTokenAuthentication,
+    SharingPasswordProtectedAuthentication,
 )
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models.organization import Organization
-from posthog.models.personal_api_key import APIScopeObjectOrNotSupported
 from posthog.models.project import Project
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import (
+    AccessControlPermission,
     APIScopePermission,
     OrganizationMemberPermissions,
     SharingTokenPermission,
     TeamMemberAccessPermission,
 )
+from posthog.rbac.user_access_control import UserAccessControl
+from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
 
 if TYPE_CHECKING:
@@ -38,32 +43,6 @@ else:
 class DefaultRouterPlusPlus(ExtendedDefaultRouter):
     """DefaultRouter with optional trailing slash and drf-extensions nesting."""
 
-    # This is an override because of changes in djangorestframework 3.15, which is required for python 3.11
-    # changes taken from and explained here: https://github.com/nautobot/nautobot/pull/5546/files#diff-81850a2ccad5814aab4f477d447f85cc0a82e9c10fd88fd72327cda51a750471R30
-    def _register(self, prefix, viewset, basename=None):
-        """
-        Override DRF's BaseRouter.register() to bypass an unnecessary restriction added in version 3.15.0.
-        (Reference: https://github.com/encode/django-rest-framework/pull/8438)
-        """
-        if basename is None:
-            basename = self.get_default_basename(viewset)
-
-        # DRF:
-        # if self.is_already_registered(basename):
-        #     msg = (f'Router with basename "{basename}" is already registered. '
-        #            f'Please provide a unique basename for viewset "{viewset}"')
-        #     raise ImproperlyConfigured(msg)
-        #
-        # We bypass this because we have at least one use case (/api/extras/jobs/) where we are *intentionally*
-        # registering two viewsets with the same basename, but have carefully defined them so as not to conflict.
-
-        # resuming standard DRF code...
-        self.registry.append((prefix, viewset, basename))
-
-        # invalidate the urls cache
-        if hasattr(self, "_urls"):
-            del self._urls
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.trailing_slash = r"/?"
@@ -72,7 +51,7 @@ class DefaultRouterPlusPlus(ExtendedDefaultRouter):
 # NOTE: Previously known as the StructuredViewSetMixin
 # IMPORTANT: Almost all viewsets should inherit from this mixin. It should be the first thing it inherits from to ensure
 # that typing works as expected
-class TeamAndOrgViewSetMixin(_GenericViewSet):
+class TeamAndOrgViewSetMixin(_GenericViewSet):  # TODO: Rename to include "Env" in name
     # This flag disables nested routing handling, reverting to the old request.user.team behavior
     # Allows for a smoother transition from the old flat API structure to the newer nested one
     param_derived_from_user_current_team: Optional[Literal["team_id", "project_id"]] = None
@@ -121,12 +100,15 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         except NotImplementedError:
             pass
 
-        if isinstance(self.request.successful_authenticator, SharingAccessTokenAuthentication):
+        if isinstance(
+            self.request.successful_authenticator,
+            SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication,
+        ):
             return [SharingTokenPermission()]
 
         # NOTE: We define these here to make it hard _not_ to use them. If you want to override them, you have to
         # override the entire method.
-        permission_classes: list = [IsAuthenticated, APIScopePermission]
+        permission_classes: list = [IsAuthenticated, APIScopePermission, AccessControlPermission]
 
         if self._is_team_view or self._is_project_view:
             permission_classes.append(TeamMemberAccessPermission)
@@ -143,15 +125,10 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         ]
 
         if self.sharing_enabled_actions:
+            authentication_classes.append(SharingPasswordProtectedAuthentication)
             authentication_classes.append(SharingAccessTokenAuthentication)
 
-        authentication_classes.extend(
-            [
-                JwtAuthentication,
-                PersonalAPIKeyAuthentication,
-                SessionAuthentication,
-            ]
-        )
+        authentication_classes.extend([JwtAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication])
 
         return [auth() for auth in authentication_classes]
 
@@ -170,19 +147,54 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         raise NotImplementedError()
 
     def get_queryset(self) -> QuerySet:
-        try:
-            return self.dangerously_get_queryset()
-        except NotImplementedError:
-            pass
+        # Add a recursion guard
+        if getattr(self, "_in_get_queryset", False):
+            return super().get_queryset()
 
-        queryset = super().get_queryset()
-        # First of all make sure we do the custom filters before applying our own
         try:
-            queryset = self.safely_get_queryset(queryset)
-        except NotImplementedError:
-            pass
+            self._in_get_queryset = True
 
-        return self._filter_queryset_by_parents_lookups(queryset)
+            try:
+                return self.dangerously_get_queryset()
+            except NotImplementedError:
+                pass
+
+            queryset = super().get_queryset()
+            # First of all make sure we do the custom filters before applying our own
+            try:
+                queryset = self.safely_get_queryset(queryset)
+            except NotImplementedError:
+                pass
+
+            queryset = self._filter_queryset_by_parents_lookups(queryset)
+
+            queryset = self._filter_queryset_by_access_level(queryset)
+
+            return queryset
+        finally:
+            self._in_get_queryset = False
+
+    def _filter_queryset_by_access_level(self, queryset: QuerySet) -> QuerySet:
+        if self.action != "list":
+            # NOTE: If we are getting an individual object then we don't filter it out here - this is handled by the permission logic
+            # The reason being, that if we filter out here already, we can't load the object which is required for checking access controls for it
+            return queryset
+
+        # NOTE: Half implemented - for admins, they may want to include listing of results that are not accessible (like private resources)
+        include_all_if_admin = self.request.GET.get("admin_include_all") == "true"
+
+        # Additionally "projects" is a special one where we always want to include all projects if you're an org admin
+        if self.scope_object == "project":
+            include_all_if_admin = True
+
+        # "insights" are a special case where we want to use include_all_if_admin if listing with short_id because
+        # individual insights are retrieved
+        if self.scope_object == "insight" and self.request.GET.get("short_id") is not None:
+            include_all_if_admin = True
+
+        return self.user_access_control.filter_queryset_by_access_level(
+            queryset, include_all_if_admin=include_all_if_admin
+        )
 
     def dangerously_get_object(self) -> Any:
         """
@@ -229,58 +241,57 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     @cached_property
     def team_id(self) -> int:
         if self._is_project_view:
-            return self.project_id  # KLUDGE: This is just for the period of transition to project environments
-
-        team_from_token = self._get_team_from_request()
-        if team_from_token:
-            return team_from_token.id
-
-        if self.param_derived_from_user_current_team == "team_id":
+            team_id = self.project_id  # KLUDGE: This is just for the period of transition to project environments
+        elif team_from_token := self._get_team_from_request():
+            team_id = team_from_token.id
+        elif self.param_derived_from_user_current_team == "team_id":
             user = cast(User, self.request.user)
             team = user.team
             assert team is not None
-            return team.id
-
-        return self.parents_query_dict["team_id"]
+            team_id = team.id
+        else:
+            team_id = self.parents_query_dict["team_id"]
+        tag_queries(team_id=team_id)
+        return team_id
 
     @cached_property
     def team(self) -> Team:
-        team_from_token = self._get_team_from_request()
-        if team_from_token:
-            return team_from_token
-
-        if self._is_project_view:
-            return Team.objects.get(
+        if team_from_token := self._get_team_from_request():
+            team = team_from_token
+        elif self._is_project_view:
+            team = Team.objects.get(
                 id=self.project_id  # KLUDGE: This is just for the period of transition to project environments
             )
-
-        if self.param_derived_from_user_current_team == "team_id":
+        elif self.param_derived_from_user_current_team == "team_id":
             user = cast(User, self.request.user)
+            assert user.team is not None
             team = user.team
-            assert team is not None
-            return team
-        try:
-            return Team.objects.get(id=self.team_id)
-        except Team.DoesNotExist:
-            raise NotFound(
-                detail="Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
-            )
+        else:
+            try:
+                team = Team.objects.get(id=self.team_id)
+            except Team.DoesNotExist:
+                raise NotFound(
+                    detail="Project not found."  # TODO: "Environment" instead of "Project" when project environments are rolled out
+                )
+
+        tag_queries(team_id=team.pk)
+        return team
 
     @cached_property
     def project_id(self) -> int:
-        team_from_token = self._get_team_from_request()
-        if team_from_token:
-            assert team_from_token.project_id is not None
-            return team_from_token.project_id
+        if team_from_token := self._get_team_from_request():
+            project_id = team_from_token.project_id
 
-        if self.param_derived_from_user_current_team == "project_id":
+        elif self.param_derived_from_user_current_team == "project_id":
             user = cast(User, self.request.user)
             team = user.team
             assert team is not None
-            assert team.project_id is not None
-            return team.project_id
+            project_id = team.project_id
+        else:
+            project_id = self.parents_query_dict["project_id"]
 
-        return self.parents_query_dict["project_id"]
+        tag_queries(team_id=project_id)
+        return project_id
 
     @cached_property
     def project(self) -> Project:
@@ -288,6 +299,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             user = cast(User, self.request.user)
             team = user.team
             assert team is not None
+            assert team.project is not None
             return team.project
         try:
             return Project.objects.get(id=self.project_id)
@@ -306,7 +318,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
                 current_organization_id = self.team.organization_id
             if self._is_project_view:
                 current_organization_id = self.project.organization_id
-            else:
+            elif user:
                 current_organization_id = user.current_organization_id
 
             if not current_organization_id:
@@ -437,3 +449,13 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
     @cached_property
     def user_permissions(self) -> "UserPermissions":
         return UserPermissions(user=cast(User, self.request.user), team=self.team)
+
+    @cached_property
+    def user_access_control(self) -> "UserAccessControl":
+        team: Optional[Team] = None
+        try:
+            team = self.team
+        except (Team.DoesNotExist, KeyError):
+            pass
+
+        return UserAccessControl(user=cast(User, self.request.user), team=team, organization_id=self.organization_id)

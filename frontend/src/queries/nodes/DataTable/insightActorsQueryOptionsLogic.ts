@@ -7,8 +7,8 @@ import {
     InsightActorsQueryOptions,
     InsightActorsQueryOptionsResponse,
     NodeKind,
-} from '~/queries/schema'
-import { isInsightActorsQuery } from '~/queries/utils'
+} from '~/queries/schema/schema-general'
+import { isInsightActorsQuery, setLatestVersionsOnQuery } from '~/queries/utils'
 
 import type { insightActorsQueryOptionsLogicType } from './insightActorsQueryOptionsLogicType'
 
@@ -26,10 +26,13 @@ export const insightActorsQueryOptionsLogic = kea<insightActorsQueryOptionsLogic
                     if (!props.query || !isInsightActorsQuery(props.query)) {
                         return values.insightActorsQueryOptions || null
                     }
-                    const optionsQuery: InsightActorsQueryOptions = {
-                        kind: NodeKind.InsightActorsQueryOptions,
-                        source: props.query,
-                    }
+                    const optionsQuery: InsightActorsQueryOptions = setLatestVersionsOnQuery(
+                        {
+                            kind: NodeKind.InsightActorsQueryOptions,
+                            source: props.query,
+                        },
+                        { recursion: false }
+                    )
                     return await performQuery(optionsQuery)
                 },
             },

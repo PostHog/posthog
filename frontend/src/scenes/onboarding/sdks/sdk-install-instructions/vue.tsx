@@ -1,55 +1,67 @@
 import { useValues } from 'kea'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { SDK_DEFAULTS_DATE } from './constants'
 import { JSInstallSnippet } from './js-web'
 
-function VueCreatePluginsFileSnippet(): JSX.Element {
-    return (
-        <CodeSnippet language={Language.Bash}>
-            {`mkdir plugins #skip if you already have one
-cd plugins 
-touch posthog.js`}
-        </CodeSnippet>
-    )
-}
-
-function VuePluginsCodeSnippet(): JSX.Element {
+function VueCreateComposableFileSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const isPersonProfilesDisabled = featureFlags[FEATURE_FLAGS.PERSONLESS_EVENTS_NOT_SUPPORTED]
 
     return (
         <CodeSnippet language={Language.JavaScript}>
-            {`//./plugins/posthog.js
-import posthog from "posthog-js";
+            {`import posthog from 'posthog-js'
 
-export default {
-  install(app) {
-    app.config.globalProperties.$posthog = posthog.init(
-      '${currentTeam?.api_token}',
-      {
-        api_host: '${apiHostOrigin()}',
-      }
-    );
-  },
-};`}
+export function usePostHog() {
+  posthog.init('${currentTeam?.api_token}', {
+    api_host: '${apiHostOrigin()}',
+    defaults: '${SDK_DEFAULTS_DATE}',
+    ${
+        isPersonProfilesDisabled
+            ? ``
+            : `person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well`
+    }
+  })
+
+  return { posthog }
+}`}
         </CodeSnippet>
     )
 }
 
-function VueActivatePluginSnippet(): JSX.Element {
+function VueComposableCodeSnippet(): JSX.Element {
     return (
         <CodeSnippet language={Language.JavaScript}>
-            {`//main.js
-import { createApp } from 'vue'
-import App from './App.vue'
-import posthogPlugin from "./plugins/posthog"; //import the plugin. 
+            {`import { createRouter, createWebHistory } from 'vue-router'
+import HomeView from '../views/HomeView.vue'
+import { usePostHog } from '@/composables/usePostHog'
 
-const app = createApp(App);
+const router = createRouter({
+  history: createWebHistory(import.meta.env.BASE_URL),
+  routes: [
+    {
+      path: '/',
+      name: 'home',
+      component: HomeView,
+    },
+    {
+      path: '/about',
+      name: 'about',
+      component: () => import('../views/AboutView.vue'),
+    },
+  ],
+})
 
-app.use(posthogPlugin); //install the plugin
-app.mount('#app')`}
+const { posthog } = usePostHog()
+
+export default router`}
         </CodeSnippet>
     )
 }
@@ -64,15 +76,14 @@ export function SDKInstallVueInstructions(): JSX.Element {
             </p>
             <h3>Install posthog-js using your package manager</h3>
             <JSInstallSnippet />
-            <h3>Create a plugin</h3>
+            <h3>Add Posthog to your app</h3>
             <p>
-                Create a new file <code>posthog.js</code> in your plugins directory:
+                Create a new file <code>src/composables/usePostHog.js</code>:
             </p>
-            <VueCreatePluginsFileSnippet />
-            Add the following code to <code>posthog.js</code>:
-            <VuePluginsCodeSnippet />
-            <h3>Activate your plugin</h3>
-            <VueActivatePluginSnippet />
+            <VueCreateComposableFileSnippet />
+            <br />
+            Next, in <code>router/index.js</code>, import the <code>usePostHog</code> composable and call it:
+            <VueComposableCodeSnippet />
         </>
     )
 }

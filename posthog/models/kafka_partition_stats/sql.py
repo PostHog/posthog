@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+
 from posthog.clickhouse.kafka_engine import kafka_engine
 from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE

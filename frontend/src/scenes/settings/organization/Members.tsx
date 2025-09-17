@@ -1,12 +1,17 @@
-import { LemonInput, LemonModal, LemonSwitch } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+
+import { IconInfo } from '@posthog/icons'
+import { LemonBanner, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
+
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
@@ -17,19 +22,59 @@ import {
     membershipLevelToName,
     organizationMembershipLevelIntegers,
 } from 'lib/utils/permissioning'
-import { useEffect, useState } from 'react'
-import { Setup2FA } from 'scenes/authentication/Setup2FA'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { twoFactorLogic } from 'scenes/authentication/twoFactorLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, OrganizationMemberType } from '~/types'
 
+function RemoveMemberModal({ member }: { member: OrganizationMemberType }): JSX.Element {
+    const { user } = useValues(userLogic)
+    const { scopedApiKeys } = useValues(membersLogic)
+
+    return (
+        <div className="max-w-xl">
+            <p>
+                {member.user.uuid === user?.uuid
+                    ? 'Are you sure you want to leave this organization? This cannot be undone. If you leave, you will no longer have access to this organization.'
+                    : 'Are you sure you want to remove this member? This cannot be undone. They will no longer have access to this organization.'}
+            </p>
+            {scopedApiKeys?.keys && scopedApiKeys.keys.length > 0 && (
+                <div className="mt-4">
+                    <LemonBanner type="warning" className="mb-2">
+                        The following API keys which belong to {member.user.uuid == user?.uuid ? 'you' : 'this member'}{' '}
+                        will lose access to this organization and will stop working immediately. Please confirm they
+                        will not affect any services that depend on them before removing{' '}
+                        {member.user.uuid == user?.uuid ? 'yourself' : 'this member'}.
+                    </LemonBanner>
+                    <LemonTable
+                        dataSource={scopedApiKeys.keys}
+                        columns={[
+                            {
+                                title: 'Name',
+                                dataIndex: 'name',
+                                key: 'name',
+                            },
+                            {
+                                title: 'Last used',
+                                dataIndex: 'last_used_at',
+                                key: 'last_used_at',
+                                render: (last_used_at) => (last_used_at ? <TZLabel time={last_used_at} /> : 'Never'),
+                            },
+                        ]}
+                    />
+                </div>
+            )}
+        </div>
+    )
+}
+
 function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { removeMember, changeMemberAccessLevel } = useActions(membersLogic)
+    const { removeMember, changeMemberAccessLevel, loadMemberScopedApiKeys } = useActions(membersLogic)
 
     if (!user) {
         return null
@@ -51,13 +96,15 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
     )
     const disallowedReason = getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, allowedLevels)
 
+    if (disallowedReason && !allowDeletion) {
+        return null
+    }
+
     return (
         <More
             overlay={
                 <>
-                    {disallowedReason ? (
-                        <div>{disallowedReason}</div>
-                    ) : (
+                    {!disallowedReason &&
                         allowedLevels.map((listLevel) => (
                             <LemonButton
                                 fullWidth
@@ -96,11 +143,9 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                                     <>Downgrade to {membershipLevelToName.get(listLevel)}</>
                                 )}
                             </LemonButton>
-                        ))
-                    )}
-                    {allowDeletion ? (
+                        ))}
+                    {allowDeletion && (
                         <>
-                            <LemonDivider />
                             <LemonButton
                                 status="danger"
                                 data-attr="delete-org-membership"
@@ -108,6 +153,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                                     if (!user) {
                                         throw Error
                                     }
+                                    loadMemberScopedApiKeys(member)
                                     LemonDialog.open({
                                         title: `${
                                             member.user.uuid == user.uuid
@@ -122,6 +168,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                                         secondaryButton: {
                                             children: 'Cancel',
                                         },
+                                        content: <RemoveMemberModal member={member} />,
                                     })
                                 }}
                                 fullWidth
@@ -129,7 +176,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
                                 {member.user.uuid !== user.uuid ? 'Remove from organization' : 'Leave organization'}
                             </LemonButton>
                         </>
-                    ) : null}
+                    )}
                 </>
             }
         />
@@ -138,20 +185,26 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
 
 export function Members(): JSX.Element | null {
     const { filteredMembers, membersLoading, search } = useValues(membersLogic)
-    const { setSearch, ensureAllMembersLoaded, loadAllMembers } = useActions(membersLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { updateOrganization } = useActions(organizationLogic)
-    const [is2FAModalVisible, set2FAModalVisible] = useState(false)
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
+    const { setSearch, ensureAllMembersLoaded } = useActions(membersLogic)
+    const { updateOrganization } = useActions(organizationLogic)
+    const { openTwoFactorSetupModal } = useActions(twoFactorLogic)
+
+    const twoFactorRestrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
+    const membersCanInviteRestrictionReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+    })
+    const membersCanUsePersonalApiKeysRestrictionReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+    })
+
+    useOnMountEffect(ensureAllMembersLoaded)
 
     if (!user) {
         return null
     }
-
-    useEffect(() => {
-        ensureAllMembersLoaded()
-    }, [])
 
     const columns: LemonTableColumns<OrganizationMemberType> = [
         {
@@ -165,7 +218,7 @@ export function Members(): JSX.Element | null {
             title: 'Name',
             key: 'user_name',
             render: (_, member) =>
-                member.user.uuid == user.uuid ? `${fullName(member.user)} (me)` : fullName(member.user),
+                member.user.uuid == user.uuid ? `${fullName(member.user)} (you)` : fullName(member.user),
             sorter: (a, b) => fullName(a.user).localeCompare(fullName(b.user)),
         },
         {
@@ -210,17 +263,6 @@ export function Members(): JSX.Element | null {
             render: function LevelRender(_, member) {
                 return (
                     <>
-                        {member.user.uuid == user.uuid && is2FAModalVisible && (
-                            <LemonModal title="Set up or manage 2FA" onClose={() => set2FAModalVisible(false)}>
-                                <Setup2FA
-                                    onSuccess={() => {
-                                        set2FAModalVisible(false)
-                                        userLogic.actions.updateUser({})
-                                        loadAllMembers()
-                                    }}
-                                />
-                            </LemonModal>
-                        )}
                         <Tooltip
                             title={
                                 member.user.uuid == user.uuid && !member.is_2fa_enabled
@@ -231,7 +273,7 @@ export function Members(): JSX.Element | null {
                             <LemonTag
                                 onClick={
                                     member.user.uuid == user.uuid && !member.is_2fa_enabled
-                                        ? () => set2FAModalVisible(true)
+                                        ? () => openTwoFactorSetupModal()
                                         : undefined
                                 }
                                 data-attr="2fa-enabled"
@@ -257,6 +299,19 @@ export function Members(): JSX.Element | null {
                 )
             },
             sorter: (a, b) => a.joined_at.localeCompare(b.joined_at),
+        },
+        {
+            title: 'Last Logged In',
+            dataIndex: 'last_login',
+            key: 'last_login',
+            render: function RenderLastLogin(lastLogin) {
+                return (
+                    <div className="whitespace-nowrap">
+                        {lastLogin ? <TZLabel time={lastLogin as string} /> : 'Never'}
+                    </div>
+                )
+            },
+            sorter: (a, b) => new Date(a.last_login ?? 0).getTime() - new Date(b.last_login ?? 0).getTime(),
         },
         {
             key: 'actions',
@@ -287,8 +342,52 @@ export function Members(): JSX.Element | null {
                     bordered
                     checked={!!currentOrganization?.enforce_2fa}
                     onChange={(enforce_2fa) => updateOrganization({ enforce_2fa })}
+                    disabledReason={twoFactorRestrictionReason}
                 />
             </PayGateMini>
+
+            <h3 className="mt-4">Invite settings</h3>
+            <PayGateMini feature={AvailableFeature.ORGANIZATION_INVITE_SETTINGS}>
+                <p>Control who can send organization invites.</p>
+                <LemonSwitch
+                    label={
+                        <span>
+                            Members can invite others to join <i>{currentOrganization?.name}</i>
+                        </span>
+                    }
+                    bordered
+                    data-attr="org-members-can-invite-toggle"
+                    checked={!!currentOrganization?.members_can_invite}
+                    onChange={(members_can_invite) => updateOrganization({ members_can_invite })}
+                    disabledReason={membersCanInviteRestrictionReason}
+                />
+            </PayGateMini>
+
+            {posthog.isFeatureEnabled(FEATURE_FLAGS.MEMBERS_CAN_USE_PERSONAL_API_KEYS) && (
+                <>
+                    <h3 className="mt-4">Security settings</h3>
+                    <PayGateMini feature={AvailableFeature.ORGANIZATION_SECURITY_SETTINGS}>
+                        <p>Configure security permissions for organization members.</p>
+                        <LemonSwitch
+                            label={
+                                <span>
+                                    Members can use personal API keys{' '}
+                                    <Tooltip title="Organization admins and owners can always use personal API keys regardless of this setting.">
+                                        <IconInfo className="mr-1" />
+                                    </Tooltip>
+                                </span>
+                            }
+                            bordered
+                            data-attr="org-members-can-use-personal-api-keys-toggle"
+                            checked={!!currentOrganization?.members_can_use_personal_api_keys}
+                            onChange={(members_can_use_personal_api_keys) =>
+                                updateOrganization({ members_can_use_personal_api_keys })
+                            }
+                            disabledReason={membersCanUsePersonalApiKeysRestrictionReason}
+                        />
+                    </PayGateMini>
+                </>
+            )}
         </>
     )
 }

@@ -1,16 +1,18 @@
+from collections.abc import Callable
 from enum import StrEnum
 from functools import wraps
 from typing import Any, TypeVar, Union, cast
-from collections.abc import Callable
 
 from django.urls import resolve
 from django.utils.timezone import now
+
 from rest_framework.request import Request
 from statshog.defaults.django import statsd
+
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.caching.utils import is_stale_filter
-
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.hogql_queries.legacy_compatibility.feature_flag import get_query_method
 from posthog.models.filters.utils import get_filter
 from posthog.utils import refresh_requested_by_client
 
@@ -20,9 +22,7 @@ from .utils import generate_cache_key, get_safe_cache
 class CacheType(StrEnum):
     TRENDS = "Trends"
     FUNNEL = "Funnel"
-    RETENTION = "Retention"
     STICKINESS = "Stickiness"
-    PATHS = "Path"
 
 
 ResultPackage = Union[dict[str, Any], list[dict[str, Any]]]
@@ -52,7 +52,12 @@ def cached_by_filters(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]
             return f(self, request)
 
         filter = get_filter(request=request, team=team)
+        query_method = get_query_method(request=request, team=team)
         cache_key = f"{filter.toJSON()}_{team.pk}"
+
+        if query_method == "hogql":
+            cache_key += "_hogql"
+
         if request.data.get("cache_invalidation_key"):
             cache_key += f"_{request.data['cache_invalidation_key']}"
 
@@ -92,6 +97,7 @@ def cached_by_filters(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]
                 timestamp = now()
                 fresh_result_package["last_refresh"] = timestamp
                 fresh_result_package["is_cached"] = False
+                fresh_result_package["query_method"] = query_method
                 update_cached_state(team.pk, cache_key, timestamp, fresh_result_package)
 
         return fresh_result_package

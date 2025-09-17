@@ -1,24 +1,27 @@
+from collections import Counter
+
 from posthog.schema import (
     ActionsNode,
     CohortPropertyFilter,
+    DataWarehouseNode,
     EmptyPropertyFilter,
     EventsNode,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
     HogQLPropertyFilter,
 )
+
 from posthog.types import AnyPropertyFilter, EntityNode, ExclusionEntityNode
-from collections import Counter
-from rest_framework.exceptions import ValidationError
 
 
 def is_equal_type(a: EntityNode, b: EntityNode | ExclusionEntityNode) -> bool:
     if isinstance(a, EventsNode):
         return isinstance(b, EventsNode) or isinstance(b, FunnelExclusionEventsNode)
-    elif isinstance(a, ActionsNode):
+    if isinstance(a, ActionsNode):
         return isinstance(b, ActionsNode) or isinstance(b, FunnelExclusionActionsNode)
-    else:
-        raise ValidationError(detail=f"Type comparision for {type(a)} and {type(b)} not implemented.")
+    if isinstance(a, DataWarehouseNode):
+        return isinstance(b, DataWarehouseNode)
+    raise ValueError(detail=f"Type comparison for {type(a)} and {type(b)} not implemented.")
 
 
 def is_equal(a: EntityNode, b: EntityNode | ExclusionEntityNode, compare_properties=True) -> bool:
@@ -41,6 +44,14 @@ def is_equal(a: EntityNode, b: EntityNode | ExclusionEntityNode, compare_propert
         isinstance(a, EventsNode | FunnelExclusionEventsNode)
         and isinstance(b, EventsNode | FunnelExclusionEventsNode)
         and a.event != b.event
+    ):
+        return False
+
+    # different data source
+    if (
+        isinstance(a, DataWarehouseNode)
+        and isinstance(b, DataWarehouseNode)
+        and (a.id != b.id or a.id_field != b.id_field)
     ):
         return False
 

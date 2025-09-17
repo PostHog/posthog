@@ -1,6 +1,7 @@
 import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -11,10 +12,10 @@ import type { staffUsersLogicType } from './staffUsersLogicType'
 
 export const staffUsersLogic = kea<staffUsersLogicType>([
     path(['scenes', 'instance', 'SystemStatus', 'staffUsersLogic']),
-    connect({
+    connect(() => ({
         values: [userLogic, ['user']],
         actions: [userLogic, ['loadUser']],
-    }),
+    })),
     actions({
         setStaffUsersToBeAdded: (userUuids: string[]) => ({ userUuids }),
         addStaffUsers: true,
@@ -33,8 +34,7 @@ export const staffUsersLogic = kea<staffUsersLogicType>([
                     actions.setStaffUsersToBeAdded([])
                     const newStaffUsers = await Promise.all(
                         staffUsersToBeAdded.map(
-                            async (userUuid) =>
-                                (await api.update(`api/users/${userUuid}`, { is_staff: true })) as UserType
+                            async (userUuid) => await api.update<UserType>(`api/users/${userUuid}`, { is_staff: true })
                         )
                     )
                     const updatedAllUsers: UserType[] = [
@@ -45,7 +45,7 @@ export const staffUsersLogic = kea<staffUsersLogicType>([
                     return updatedAllUsers
                 },
                 deleteStaffUser: async ({ userUuid }) => {
-                    await api.update(`api/users/${userUuid}`, { is_staff: false })
+                    await api.update<UserType>(`api/users/${userUuid}`, { is_staff: false })
                     if (values.user?.uuid === userUuid) {
                         actions.loadUser() // Loads the main user object to properly reflect staff user changes
                         router.actions.push(urls.projectHomepage())

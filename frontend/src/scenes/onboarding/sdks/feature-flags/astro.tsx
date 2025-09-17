@@ -6,7 +6,7 @@ import { FlagImplementationSnippet } from './flagImplementationSnippet'
 export function FeatureFlagsAstroInstructions(): JSX.Element {
     return (
         <>
-            <SDKInstallAstroInstructions />
+            <SDKInstallAstroInstructions hideWizard />
             <FlagImplementationSnippet sdkKey={SDKKey.JS_WEB} />
         </>
     )

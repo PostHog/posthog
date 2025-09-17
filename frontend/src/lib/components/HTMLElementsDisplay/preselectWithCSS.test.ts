@@ -402,7 +402,7 @@ describe('can preselect selectors for editing', () => {
     })
 
     /**
-     * regression test for the case where if all selectors match the pre-selctor will run for eternity
+     * regression test for the case where if all selectors match the pre-selector will run for eternity
      * see: https://posthoghelp.zendesk.com/agent/tickets/2945
      * */
     test('it does not run for eternity when all selectors match', () => {

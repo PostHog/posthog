@@ -1,5 +1,7 @@
-import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
+
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -7,7 +9,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 
 export function FunnelStepsPicker(): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { series, isFunnelWithEnoughSteps, funnelsFilter } = useValues(insightVizDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
@@ -43,7 +45,7 @@ export function FunnelStepsPicker(): JSX.Element | null {
 
     return (
         <div className="flex items-center">
-            <span className="text-muted-alt">&nbsp;from</span>
+            <span className="text-secondary">&nbsp;from</span>
             <LemonSelect
                 size="small"
                 className="mx-1"
@@ -55,8 +57,9 @@ export function FunnelStepsPicker(): JSX.Element | null {
                 onChange={(fromStep: number | null) =>
                     fromStep != null && onChange(fromStep, funnelsFilter?.funnelToStep)
                 }
+                disabledReason={editingDisabledReason}
             />
-            <span className="text-muted-alt">to</span>
+            <span className="text-secondary">to</span>
             <LemonSelect
                 size="small"
                 className="mx-1"
@@ -66,6 +69,7 @@ export function FunnelStepsPicker(): JSX.Element | null {
                 options={optionsForRange(toRange)}
                 value={funnelsFilter?.funnelToStep || Math.max(numberOfSeries - 1, 1)}
                 onChange={(toStep: number | null) => toStep != null && onChange(funnelsFilter?.funnelFromStep, toStep)}
+                disabledReason={editingDisabledReason}
             />
         </div>
     )

@@ -1,10 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId } from '~/types'
 
@@ -20,7 +21,7 @@ describe('insightDataLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team_id/insights/trend': [],
+                '/api/environments/:team_id/insights/trend': [],
             },
         })
         initKeaTests()
@@ -96,6 +97,7 @@ describe('insightDataLogic', () => {
                                         {
                                             key: 'id',
                                             type: 'cohort',
+                                            operator: 'in',
                                             value: 2,
                                         },
                                     ],
@@ -104,6 +106,7 @@ describe('insightDataLogic', () => {
                             trendsFilter: {
                                 display: 'ActionsAreaGraph',
                             },
+                            version: 2,
                         },
                     },
                 })

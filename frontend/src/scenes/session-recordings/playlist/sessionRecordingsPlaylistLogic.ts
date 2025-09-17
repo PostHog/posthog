@@ -1,23 +1,33 @@
 import equal from 'fast-deep-equal'
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import { lazyLoaders, loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
-import { isAnyPropertyfilter } from 'lib/components/PropertyFilters/utils'
+import { isAnyPropertyfilter, isHogQLPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
 import {
     isActionFilter,
     isEventFilter,
+    isEventPropertyFilter,
     isLogEntryPropertyFilter,
     isRecordingPropertyFilter,
 } from 'lib/components/UniversalFilters/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { objectClean } from 'lib/utils'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import posthog from 'posthog-js'
+import { objectClean, objectsEqual } from 'lib/utils'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
+import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
+import { urls } from 'scenes/urls'
 
-import { NodeKind, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema'
+import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { groupsModel } from '~/models/groupsModel'
+import { NodeKind, RecordingOrder, RecordingsQuery, RecordingsQueryResponse } from '~/queries/schema/schema-general'
 import {
     EntityTypes,
     FilterLogicalOperator,
@@ -34,8 +44,10 @@ import {
 
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import { filtersFromUniversalFilterGroups } from '../utils'
+import { playlistLogic } from './playlistLogic'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlaylistLogicType'
+import { sessionRecordingsPlaylistSceneLogic } from './sessionRecordingsPlaylistSceneLogic'
 
 export type PersonUUID = string
 
@@ -44,6 +56,8 @@ interface Params {
     simpleFilters?: LegacyRecordingFilters
     advancedFilters?: LegacyRecordingFilters
     sessionRecordingId?: SessionRecordingId
+    order?: RecordingsQuery['order']
+    order_direction?: RecordingsQuery['order_direction']
 }
 
 interface NoEventsToMatch {
@@ -66,17 +80,20 @@ interface BackendEventsMatching {
 }
 
 export type MatchingEventsMatchType = NoEventsToMatch | EventNamesMatching | EventUUIDsMatching | BackendEventsMatching
-export type SimpleFiltersType = Pick<LegacyRecordingFilters, 'events' | 'properties'>
 
 export const RECORDINGS_LIMIT = 20
 export const PINNED_RECORDINGS_LIMIT = 100 // NOTE: This is high but avoids the need for pagination for now...
 
 export const defaultRecordingDurationFilter: RecordingDurationFilter = {
     type: PropertyFilterType.Recording,
-    key: 'duration',
-    value: 1,
+    key: 'active_seconds',
+    value: 5,
     operator: PropertyOperator.GreaterThan,
 }
+
+export const DEFAULT_RECORDING_FILTERS_ORDER_BY = 'start_time'
+export const MAX_SELECTED_RECORDINGS = 20
+export const DELETE_CONFIRMATION_TEXT = 'delete'
 
 export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     filter_test_accounts: false,
@@ -84,6 +101,8 @@ export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
     date_to: null,
     filter_group: { ...DEFAULT_UNIVERSAL_GROUP_FILTER },
     duration: [defaultRecordingDurationFilter],
+    order: DEFAULT_RECORDING_FILTERS_ORDER_BY,
+    order_direction: 'DESC',
 }
 
 const DEFAULT_PERSON_RECORDING_FILTERS: RecordingUniversalFilters = {
@@ -95,17 +114,77 @@ export const getDefaultFilters = (personUUID?: PersonUUID): RecordingUniversalFi
     return personUUID ? DEFAULT_PERSON_RECORDING_FILTERS : DEFAULT_RECORDING_FILTERS
 }
 
-const capturePartialFilters = (filters: Partial<RecordingUniversalFilters>): void => {
-    // capture only the partial filters applied (not the full filters object)
-    // take each key from the filter and change it to `partial_filter_chosen_${key}`
-    const partialFilters = Object.keys(filters).reduce((acc, key) => {
-        acc[`partial_filter_chosen_${key}`] = filters[key]
-        return acc
-    }, {})
+/**
+ * Loads the pinned recordings for a given shortId.
+ * @param shortId - The shortId of the playlist to load.
+ */
+const handleLoadCollectionRecordings = (shortId: string): void => {
+    let logic = sessionRecordingsPlaylistSceneLogic.findMounted({ shortId: shortId })
+    let unmount = null
+    if (!logic) {
+        logic = sessionRecordingsPlaylistSceneLogic({ shortId: shortId })
+        unmount = logic.mount()
+    }
+    logic.actions.loadPinnedRecordings()
+    // Unmount the logic if it was mounted by us
+    unmount?.()
+}
 
-    posthog.capture('recording list filters changed', {
-        ...partialFilters,
-    })
+/**
+ * Checks if the filters are valid.
+ * @param filters - The filters to check.
+ * @returns True if the filters are valid, false otherwise.
+ */
+export function isValidRecordingFilters(filters: Partial<RecordingUniversalFilters>): boolean {
+    if (!filters || typeof filters !== 'object') {
+        return false
+    }
+
+    if ('date_from' in filters && filters.date_from !== null && typeof filters.date_from !== 'string') {
+        return false
+    }
+    if ('date_to' in filters && filters.date_to !== null && typeof filters.date_to !== 'string') {
+        return false
+    }
+
+    if ('filter_test_accounts' in filters && typeof filters.filter_test_accounts !== 'boolean') {
+        return false
+    }
+
+    if ('duration' in filters) {
+        if (!Array.isArray(filters.duration)) {
+            return false
+        }
+        if (
+            filters.duration.length > 0 &&
+            (!filters.duration[0]?.type || !filters.duration[0]?.key || !filters.duration[0]?.operator)
+        ) {
+            return false
+        }
+    }
+
+    if ('filter_group' in filters) {
+        const group = filters.filter_group
+        if (!group || typeof group !== 'object') {
+            return false
+        }
+        if (!('type' in group) || !('values' in group) || !Array.isArray(group.values)) {
+            return false
+        }
+    }
+
+    if ('order' in filters && typeof filters.order !== 'string') {
+        return false
+    }
+
+    if (
+        'order_direction' in filters &&
+        (typeof filters.order_direction !== 'string' || !['ASC', 'DESC'].includes(filters.order_direction ?? 'DESC'))
+    ) {
+        return false
+    }
+
+    return true
 }
 
 export function convertUniversalFiltersToRecordingsQuery(universalFilters: RecordingUniversalFilters): RecordingsQuery {
@@ -116,6 +195,10 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
     const properties: RecordingsQuery['properties'] = []
     const console_log_filters: RecordingsQuery['console_log_filters'] = []
     const having_predicates: RecordingsQuery['having_predicates'] = []
+    let comment_text: RecordingsQuery['comment_text'] = undefined
+
+    const order: RecordingsQuery['order'] = universalFilters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY
+    const order_direction: RecordingsQuery['order_direction'] = universalFilters.order_direction || 'DESC'
 
     const durationFilter = universalFilters.duration[0]
 
@@ -130,6 +213,8 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
             actions.push(f)
         } else if (isLogEntryPropertyFilter(f)) {
             console_log_filters.push(f)
+        } else if (isHogQLPropertyFilter(f)) {
+            properties.push(f)
         } else if (isAnyPropertyfilter(f)) {
             if (isRecordingPropertyFilter(f)) {
                 if (f.key === 'visited_page') {
@@ -148,6 +233,8 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
                     })
                 } else if (f.key === 'snapshot_source' && f.value) {
                     having_predicates.push(f)
+                } else if (f.key === 'comment_text') {
+                    comment_text = f
                 }
             } else {
                 properties.push(f)
@@ -157,7 +244,8 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
 
     return {
         kind: NodeKind.RecordingsQuery,
-        order: 'start_time',
+        order: order,
+        order_direction: order_direction,
         date_from: universalFilters.date_from,
         date_to: universalFilters.date_to,
         properties,
@@ -165,6 +253,7 @@ export function convertUniversalFiltersToRecordingsQuery(universalFilters: Recor
         actions,
         console_log_filters,
         having_predicates,
+        comment_text,
         filter_test_accounts: universalFilters.filter_test_accounts,
         operand: universalFilters.filter_group.type,
     }
@@ -209,7 +298,12 @@ export function convertLegacyFiltersToUniversalFilters(
                 ? DEFAULT_RECORDING_FILTERS['filter_test_accounts']
                 : filters.filter_test_accounts,
         duration: filters.session_recording_duration
-            ? [{ ...filters.session_recording_duration, key: filters.duration_type_filter || 'duration' }]
+            ? [
+                  {
+                      ...filters.session_recording_duration,
+                      key: filters.duration_type_filter || filters.session_recording_duration.key || 'active_seconds',
+                  },
+              ]
             : DEFAULT_RECORDING_FILTERS['duration'],
         filter_group: {
             type: FilterLogicalOperator.And,
@@ -220,6 +314,8 @@ export function convertLegacyFiltersToUniversalFilters(
                 },
             ],
         },
+        order: DEFAULT_RECORDING_FILTERS.order,
+        order_direction: 'DESC',
     }
 }
 
@@ -234,9 +330,29 @@ function combineLegacyRecordingFilters(
     }
 }
 
+// TODO if we're just appending pages... can we avoid this in-memory sorting?
+// it's fast to sort an already sorted list but would be nice to avoid it
+function sortRecordings(
+    recordings: SessionRecordingType[],
+    order: RecordingsQuery['order'] | 'duration' = 'start_time',
+    order_direction: RecordingsQuery['order_direction']
+): SessionRecordingType[] {
+    const orderKey: RecordingOrder = order === 'duration' ? 'recording_duration' : order
+
+    return recordings.sort((a, b) => {
+        const orderA = a[orderKey]
+        const orderB = b[orderKey]
+        const incomparable = orderA === undefined || orderB === undefined
+        const left_greater = order_direction === 'DESC' ? -1 : 1
+        const right_greater = order_direction === 'DESC' ? 1 : -1
+        return incomparable ? 0 : orderA > orderB ? left_greater : right_greater
+    })
+}
+
 export interface SessionRecordingPlaylistLogicProps {
     logicKey?: string
     personUUID?: PersonUUID
+    distinctIds?: string[]
     updateSearchParams?: boolean
     autoPlay?: boolean
     filters?: RecordingUniversalFilters
@@ -245,10 +361,7 @@ export interface SessionRecordingPlaylistLogicProps {
     onPinnedChange?: (recording: SessionRecordingType, pinned: boolean) => void
 }
 
-export interface SessionSummaryResponse {
-    id: SessionRecordingType['id']
-    content: string
-}
+const isRelativeDate = (x: RecordingUniversalFilters['date_from']): boolean => !!x && x.startsWith('-')
 
 export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogicType>([
     path((key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsPlaylistLogic', key]),
@@ -257,60 +370,70 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         (props: SessionRecordingPlaylistLogicProps) =>
             `${props.logicKey}-${props.personUUID}-${props.updateSearchParams ? '-with-search' : ''}`
     ),
-
-    connect({
+    connect(() => ({
         actions: [
-            eventUsageLogic,
+            sessionRecordingEventUsageLogic,
             ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded'],
             sessionRecordingsListPropertiesLogic,
             ['maybeLoadPropertiesForSessions'],
+            playerSettingsLogic,
+            ['setHideViewedRecordings'],
+            playlistLogic,
+            ['setIsFiltersExpanded'],
         ],
         values: [
             featureFlagLogic,
             ['featureFlags'],
             playerSettingsLogic,
             ['autoplayDirection', 'hideViewedRecordings'],
+            groupsModel,
+            ['groupsTaxonomicTypes'],
         ],
-    }),
+    })),
 
     actions({
         setFilters: (filters: Partial<RecordingUniversalFilters>) => ({ filters }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
         setShowSettings: (showSettings: boolean) => ({ showSettings }),
-        setOrderBy: (orderBy: RecordingsQuery['order']) => ({ orderBy }),
         resetFilters: true,
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
             id,
         }),
         loadAllRecordings: true,
         loadPinnedRecordings: true,
-        loadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
+        loadSessionRecordings: (direction?: 'newer' | 'older', userModifiedFilters?: Record<string, any>) => ({
+            direction,
+            userModifiedFilters,
+        }),
         maybeLoadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
-        summarizeSession: (id: SessionRecordingType['id']) => ({ id }),
         loadNext: true,
         loadPrev: true,
-        toggleShowOtherRecordings: (show?: boolean) => ({ show }),
+        setSelectedRecordingsIds: (recordingsIds: string[]) => ({ recordingsIds }),
+        handleBulkAddToPlaylist: (short_id: string) => ({ short_id }),
+        handleBulkDeleteFromPlaylist: (short_id: string) => ({ short_id }),
+        handleSelectUnselectAll: (checked: boolean, type: 'filters' | 'collection') => ({ checked, type }),
+        setIsDeleteSelectedRecordingsDialogOpen: (isDeleteSelectedRecordingsDialogOpen: boolean) => ({
+            isDeleteSelectedRecordingsDialogOpen,
+        }),
+        setDeleteConfirmationText: (deleteConfirmationText: string) => ({ deleteConfirmationText }),
+        handleDeleteSelectedRecordings: (shortId?: string) => ({ shortId }),
+        setIsNewCollectionDialogOpen: (isNewCollectionDialogOpen: boolean) => ({ isNewCollectionDialogOpen }),
+        setNewCollectionName: (newCollectionName: string) => ({ newCollectionName }),
+        handleCreateNewCollectionBulkAdd: (onSuccess: () => void) => ({ onSuccess }),
+        handleBulkMarkAsViewed: (shortId?: string) => ({ shortId }),
+        handleBulkMarkAsNotViewed: (shortId?: string) => ({ shortId }),
     }),
     propsChanged(({ actions, props }, oldProps) => {
         // If the defined list changes, we need to call the loader to either load the new items or change the list
-        if (props.pinnedRecordings !== oldProps.pinnedRecordings) {
+        if (!objectsEqual(props.pinnedRecordings, oldProps.pinnedRecordings)) {
             actions.loadPinnedRecordings()
         }
-        if (props.filters && props.filters !== oldProps.filters) {
+        if (props.filters && !objectsEqual(props.filters, oldProps.filters)) {
             actions.setFilters(props.filters)
         }
     }),
 
     loaders(({ props, values, actions }) => ({
-        sessionSummary: {
-            summarizeSession: async ({ id }): Promise<SessionSummaryResponse | null> => {
-                if (!id) {
-                    return null
-                }
-                const response = await api.recordings.summarize(id)
-                return { content: response.content, id: id }
-            },
-        },
         eventsHaveSessionId: [
             {} as Record<string, boolean>,
             {
@@ -333,32 +456,37 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             {
                 results: [],
                 has_next: false,
-            } as RecordingsQueryResponse,
+                order: DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                order_direction: 'DESC',
+            } as RecordingsQueryResponse & {
+                order: RecordingsQuery['order']
+                order_direction: RecordingsQuery['order_direction']
+            },
             {
-                loadSessionRecordings: async ({ direction }, breakpoint) => {
+                loadSessionRecordings: async ({ direction, userModifiedFilters }, breakpoint) => {
                     const params: RecordingsQuery = {
                         ...convertUniversalFiltersToRecordingsQuery(values.filters),
                         person_uuid: props.personUUID ?? '',
-                        order: values.orderBy,
+                        // KLUDGE: some persons have >8MB of distinct_ids,
+                        // which wouldn't fit in the URL,
+                        // so we limit to 100 distinct_ids for now
+                        // if you have so many that it is an issue,
+                        // you probably want the person UUID PoE optimisation anyway
+                        // TODO: maybe we can slice this instead
+                        distinct_ids: (props.distinctIds?.length || 0) < 100 ? props.distinctIds : undefined,
                         limit: RECORDINGS_LIMIT,
                     }
 
-                    if (values.orderBy === 'start_time') {
-                        if (direction === 'older') {
-                            params.date_to = values.sessionRecordings[values.sessionRecordings.length - 1]?.start_time
-                        }
+                    if (userModifiedFilters) {
+                        params.user_modified_filters = userModifiedFilters
+                    }
 
-                        if (direction === 'newer') {
-                            params.date_from = values.sessionRecordings[0]?.start_time
-                        }
-                    } else {
-                        if (direction === 'older') {
-                            params.offset = values.sessionRecordings.length
-                        }
+                    if (direction === 'older') {
+                        params.offset = values.sessionRecordings.length
+                    }
 
-                        if (direction === 'newer') {
-                            params.offset = 0
-                        }
+                    if (direction === 'newer') {
+                        params.offset = 0
                     }
 
                     await breakpoint(400) // Debounce for lots of quick filter changes
@@ -374,14 +502,17 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     return {
                         has_next:
                             direction === 'newer'
-                                ? values.sessionRecordingsResponse?.has_next ?? true
+                                ? (values.sessionRecordingsResponse?.has_next ?? true)
                                 : response.has_next,
                         results: response.results,
+                        order: params.order,
+                        order_direction: params.order_direction,
                     }
                 },
             },
         ],
-
+    })),
+    lazyLoaders(({ props }) => ({
         pinnedRecordings: [
             [] as SessionRecordingType[],
             {
@@ -400,7 +531,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         const fetchedRecordings = await api.recordings.list({
                             kind: NodeKind.RecordingsQuery,
                             session_ids: recordingIds,
-                            order: 'start_time',
+                            // TODO... wait, do we not support sorting in collections 🤯
+                            order: DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                            order_direction: 'DESC',
                         })
 
                         recordings = [...recordings, ...fetchedRecordings.results]
@@ -412,31 +545,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         ],
     })),
-    reducers(({ props }) => ({
-        orderBy: [
-            'start_time' as RecordingsQuery['order'],
-            { persist: true },
-            {
-                setOrderBy: (_, { orderBy }) => orderBy,
-            },
-        ],
-        sessionBeingSummarized: [
-            null as null | SessionRecordingType['id'],
-            {
-                summarizeSession: (_, { id }) => id,
-                sessionSummarySuccess: () => null,
-            },
-        ],
-        // If we initialise with pinned recordings then we don't show others by default
-        // but if we go down to 0 pinned recordings then we show others
-        showOtherRecordings: [
-            !props.pinnedRecordings?.length,
-            {
-                loadPinnedRecordingsSuccess: (state, { pinnedRecordings }) =>
-                    pinnedRecordings.length === 0 ? true : state,
-                toggleShowOtherRecordings: (state, { show }) => (show === undefined ? !state : show),
-            },
-        ],
+    reducers(({ props, key }) => ({
         unusableEventsInFilter: [
             [] as string[],
             {
@@ -449,11 +558,26 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
         filters: [
             props.filters ?? getDefaultFilters(props.personUUID),
+            { persist: true, prefix: `${getCurrentTeamId()}__${key}` },
             {
                 setFilters: (state, { filters }) => {
-                    return {
-                        ...state,
-                        ...filters,
+                    try {
+                        if (!isValidRecordingFilters(filters)) {
+                            posthog.captureException(new Error('Invalid filters provided'), {
+                                filters,
+                            })
+                            return getDefaultFilters(props.personUUID)
+                        }
+
+                        return {
+                            ...state,
+                            // if we're setting a relative date_from, then we need to clear the existing date_to
+                            date_to: filters.date_from && isRelativeDate(filters.date_from) ? null : state.date_to,
+                            ...filters,
+                        }
+                    } catch (e) {
+                        posthog.captureException(e)
+                        return getDefaultFilters(props.personUUID)
                     }
                 },
                 resetFilters: () => getDefaultFilters(props.personUUID),
@@ -496,9 +620,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         }
                     })
 
-                    mergedResults.sort((a, b) => (a.start_time > b.start_time ? -1 : 1))
-
-                    return mergedResults
+                    return sortRecordings(
+                        mergedResults,
+                        sessionRecordingsResponse.order,
+                        sessionRecordingsResponse.order_direction
+                    )
                 },
 
                 setSelectedRecordingId: (state, { id }) =>
@@ -511,20 +637,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         }
                         return { ...s }
                     }),
-
-                summarizeSessionSuccess: (state, { sessionSummary }) => {
-                    return sessionSummary
-                        ? state.map((s) => {
-                              if (s.id === sessionSummary.id) {
-                                  return {
-                                      ...s,
-                                      summary: sessionSummary.content,
-                                  }
-                              }
-                              return s
-                          })
-                        : state
-                },
             },
         ],
         selectedRecordingId: [
@@ -544,6 +656,37 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 loadPrev: () => false,
             },
         ],
+        selectedRecordingsIds: [
+            [] as string[],
+            {
+                setSelectedRecordingsIds: (_, { recordingsIds }) => recordingsIds,
+            },
+        ],
+        isDeleteSelectedRecordingsDialogOpen: [
+            false,
+            {
+                setIsDeleteSelectedRecordingsDialogOpen: (_, { isDeleteSelectedRecordingsDialogOpen }) =>
+                    isDeleteSelectedRecordingsDialogOpen,
+            },
+        ],
+        deleteConfirmationText: [
+            '',
+            {
+                setDeleteConfirmationText: (_, { deleteConfirmationText }) => deleteConfirmationText,
+            },
+        ],
+        isNewCollectionDialogOpen: [
+            false,
+            {
+                setIsNewCollectionDialogOpen: (_, { isNewCollectionDialogOpen }) => isNewCollectionDialogOpen,
+            },
+        ],
+        newCollectionName: [
+            '',
+            {
+                setNewCollectionName: (_, { newCollectionName }) => newCollectionName,
+            },
+        ],
     })),
     listeners(({ props, actions, values }) => ({
         loadAllRecordings: () => {
@@ -551,14 +694,9 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             actions.loadPinnedRecordings()
         },
         setFilters: ({ filters }) => {
-            actions.loadSessionRecordings()
+            actions.loadSessionRecordings(undefined, filters)
             props.onFiltersChange?.(values.filters)
-            capturePartialFilters(filters)
             actions.loadEventsHaveSessionId()
-        },
-
-        setOrderBy: () => {
-            actions.loadSessionRecordings()
         },
 
         resetFilters: () => {
@@ -581,11 +719,182 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         },
 
         setSelectedRecordingId: () => {
+            // Close filters when selecting a recording
+            actions.setIsFiltersExpanded(false)
+
             // If we are at the end of the list then try to load more
             const recordingIndex = values.sessionRecordings.findIndex((s) => s.id === values.selectedRecordingId)
             if (recordingIndex === values.sessionRecordings.length - 1) {
                 actions.maybeLoadSessionRecordings('older')
             }
+
+            activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.WatchSessionRecording)
+        },
+
+        setHideViewedRecordings: () => {
+            actions.maybeLoadSessionRecordings('older')
+        },
+        handleBulkAddToPlaylist: async ({ short_id }: { short_id: string }) => {
+            await lemonToast.promise(
+                (async () => {
+                    try {
+                        await api.recordings.bulkAddRecordingsToPlaylist(short_id, values.selectedRecordingsIds)
+                        actions.setSelectedRecordingsIds([])
+
+                        // Reload the playlist to show the new recordings
+                        handleLoadCollectionRecordings(short_id)
+                    } catch (e) {
+                        posthog.captureException(e)
+                    }
+                })(),
+                {
+                    success: `${values.selectedRecordingsIds.length} recording${
+                        values.selectedRecordingsIds.length > 1 ? 's' : ''
+                    } added to collection!`,
+                    error: 'Failed to add to collection!',
+                    pending: `Adding ${values.selectedRecordingsIds.length} recording${
+                        values.selectedRecordingsIds.length > 1 ? 's' : ''
+                    } to the collection...`,
+                },
+                {},
+                {
+                    button: {
+                        label: 'View collection',
+                        action: () => router.actions.push(urls.replayPlaylist(short_id)),
+                    },
+                }
+            )
+        },
+        handleBulkDeleteFromPlaylist: async ({ short_id }: { short_id: string }) => {
+            await lemonToast.promise(
+                (async () => {
+                    try {
+                        await api.recordings.bulkDeleteRecordingsFromPlaylist(short_id, values.selectedRecordingsIds)
+                        actions.setSelectedRecordingsIds([])
+
+                        // Reload the playlist to see the recordings without the deleted ones
+                        handleLoadCollectionRecordings(short_id)
+                    } catch (e) {
+                        posthog.captureException(e)
+                    }
+                })(),
+                {
+                    success: `${values.selectedRecordingsIds.length} recording${
+                        values.selectedRecordingsIds.length > 1 ? 's' : ''
+                    } removed from collection!`,
+                    error: 'Failed to remove from collection!',
+                    pending: `Removing ${values.selectedRecordingsIds.length} recording${
+                        values.selectedRecordingsIds.length > 1 ? 's' : ''
+                    } to the collection...`,
+                }
+            )
+        },
+        handleSelectUnselectAll: ({ checked, type }: { checked: boolean; type: 'filters' | 'collection' }) => {
+            if (checked) {
+                const recordings = type === 'filters' ? values.sessionRecordings : values.pinnedRecordings
+                actions.setSelectedRecordingsIds(recordings.map((s) => s.id))
+            } else {
+                actions.setSelectedRecordingsIds([])
+            }
+        },
+        handleDeleteSelectedRecordings: async ({ shortId }: { shortId?: string }) => {
+            await lemonToast.promise(
+                (async () => {
+                    try {
+                        actions.setDeleteConfirmationText('')
+                        actions.setIsDeleteSelectedRecordingsDialogOpen(false)
+                        await api.recordings.bulkDeleteRecordings(values.selectedRecordingsIds)
+                        actions.setSelectedRecordingsIds([])
+
+                        // If it was a collection then we need to reload it, otherwise we need to reload the recordings
+                        if (shortId) {
+                            handleLoadCollectionRecordings(shortId)
+                        } else {
+                            actions.loadSessionRecordings()
+                        }
+                    } catch (e) {
+                        posthog.captureException(e)
+                    }
+                })(),
+                {
+                    success: `${values.selectedRecordingsIds.length} recording${
+                        values.selectedRecordingsIds.length > 1 ? 's' : ''
+                    } deleted!`,
+                    error: 'Failed to delete recordings!',
+                    pending: `Deleting ${values.selectedRecordingsIds.length} recording${
+                        values.selectedRecordingsIds.length > 1 ? 's' : ''
+                    }...`,
+                }
+            )
+        },
+        handleCreateNewCollectionBulkAdd: async ({ onSuccess }) => {
+            const newPlaylist = await createPlaylist({
+                name: values.newCollectionName,
+                type: 'collection',
+            })
+
+            if (newPlaylist) {
+                actions.handleBulkAddToPlaylist(newPlaylist.short_id)
+                actions.setIsNewCollectionDialogOpen(false)
+                actions.setNewCollectionName('')
+                onSuccess()
+            }
+        },
+        handleBulkMarkAsViewed: async ({ shortId }: { shortId?: string }) => {
+            await lemonToast.promise(
+                (async () => {
+                    try {
+                        await api.recordings.bulkViewedRecordings(values.selectedRecordingsIds)
+                        actions.setSelectedRecordingsIds([])
+
+                        // If it was a collection then we need to reload it, otherwise we need to reload the recordings
+                        if (shortId) {
+                            handleLoadCollectionRecordings(shortId)
+                        } else {
+                            actions.loadSessionRecordings()
+                        }
+                    } catch (e) {
+                        posthog.captureException(e)
+                    }
+                })(),
+                {
+                    success: `${values.selectedRecordingsIds.length} recording${
+                        values.selectedRecordingsIds.length > 1 ? 's' : ''
+                    } marked as viewed!`,
+                    error: 'Failed to mark as viewed!',
+                    pending: `Marking ${values.selectedRecordingsIds.length} recording${
+                        values.selectedRecordingsIds.length > 1 ? 's' : ''
+                    }...`,
+                }
+            )
+        },
+        handleBulkMarkAsNotViewed: async ({ shortId }: { shortId?: string }) => {
+            await lemonToast.promise(
+                (async () => {
+                    try {
+                        await api.recordings.bulkNotViewedRecordings(values.selectedRecordingsIds)
+                        actions.setSelectedRecordingsIds([])
+
+                        // If it was a collection then we need to reload it, otherwise we need to reload the recordings
+                        if (shortId) {
+                            handleLoadCollectionRecordings(shortId)
+                        } else {
+                            actions.loadSessionRecordings()
+                        }
+                    } catch (e) {
+                        posthog.captureException(e)
+                    }
+                })(),
+                {
+                    success: `${values.selectedRecordingsIds.length} recording${
+                        values.selectedRecordingsIds.length > 1 ? 's' : ''
+                    } marked as not viewed!`,
+                    error: 'Failed to mark as not viewed!',
+                    pending: `Marking ${values.selectedRecordingsIds.length} recording${
+                        values.selectedRecordingsIds.length > 1 ? 's' : ''
+                    }...`,
+                }
+            )
         },
     })),
     selectors({
@@ -601,12 +910,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 const filterValues = filtersFromUniversalFilterGroups(filters)
 
                 const eventFilters = filterValues.filter(isEventFilter)
+                const eventPropertyFilters = filterValues.filter(isEventPropertyFilter)
                 const actionFilters = filterValues.filter(isActionFilter)
                 const hasVisitedPageFilter = filterValues
                     .filter(isRecordingPropertyFilter)
                     .some((f) => f.key === 'visited_page')
 
                 const hasEvents = !!eventFilters.length
+                const hasEventsProperties = !!eventPropertyFilters.length
                 const hasActions = !!actionFilters.length
                 const simpleEventsFilters = (eventFilters || [])
                     .filter((e) => !e.properties || !e.properties.length)
@@ -617,7 +928,8 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 if (hasActions || hasVisitedPageFilter) {
                     return { matchType: 'backend', filters }
                 }
-                if (!hasEvents) {
+
+                if (!hasEvents && !hasEventsProperties) {
                     return { matchType: 'none' }
                 }
 
@@ -627,6 +939,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                         eventNames: simpleEventsFilters,
                     }
                 }
+
                 return {
                     matchType: 'backend',
                     filters,
@@ -682,28 +995,61 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         ],
 
+        hiddenRecordings: [
+            (s) => [s.sessionRecordings, s.hideViewedRecordings, s.selectedRecordingId],
+            (sessionRecordings, hideViewedRecordings, selectedRecordingId): SessionRecordingType[] => {
+                return sessionRecordings.filter((rec) => {
+                    if (hideViewedRecordings === 'current-user' && rec.viewed && rec.id !== selectedRecordingId) {
+                        return true
+                    }
+
+                    if (
+                        hideViewedRecordings === 'any-user' &&
+                        (rec.viewed || !!rec.viewers.length) &&
+                        rec.id !== selectedRecordingId
+                    ) {
+                        return true
+                    }
+
+                    return false
+                })
+            },
+        ],
+
         otherRecordings: [
-            (s) => [s.sessionRecordings, s.hideViewedRecordings, s.pinnedRecordings, s.selectedRecordingId, s.orderBy],
+            (s) => [s.sessionRecordings, s.hideViewedRecordings, s.pinnedRecordings, s.selectedRecordingId, s.filters],
             (
                 sessionRecordings,
                 hideViewedRecordings,
                 pinnedRecordings,
                 selectedRecordingId,
-                orderBy
+                filters
             ): SessionRecordingType[] => {
-                return sessionRecordings
-                    .filter((rec) => {
-                        if (pinnedRecordings.find((pinned) => pinned.id === rec.id)) {
-                            return false
-                        }
+                const filteredRecordings = sessionRecordings.filter((rec) => {
+                    if (pinnedRecordings.find((pinned) => pinned.id === rec.id)) {
+                        return false
+                    }
 
-                        if (hideViewedRecordings && rec.viewed && rec.id !== selectedRecordingId) {
-                            return false
-                        }
+                    if (hideViewedRecordings === 'current-user' && rec.viewed && rec.id !== selectedRecordingId) {
+                        return false
+                    }
 
-                        return true
-                    })
-                    .sort((a, b) => (a[orderBy] > b[orderBy] ? -1 : 1))
+                    if (
+                        hideViewedRecordings === 'any-user' &&
+                        (rec.viewed || !!rec.viewers.length) &&
+                        rec.id !== selectedRecordingId
+                    ) {
+                        return false
+                    }
+
+                    return true
+                })
+
+                return sortRecordings(
+                    filteredRecordings,
+                    filters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                    filters.order_direction || 'DESC'
+                )
             },
         ],
 
@@ -715,9 +1061,51 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
 
         recordingsCount: [
-            (s) => [s.pinnedRecordings, s.otherRecordings, s.showOtherRecordings],
-            (pinnedRecordings, otherRecordings, showOtherRecordings): number => {
-                return showOtherRecordings ? otherRecordings.length + pinnedRecordings.length : pinnedRecordings.length
+            (s) => [s.pinnedRecordings, s.otherRecordings],
+            (pinnedRecordings, otherRecordings): number => {
+                return otherRecordings.length + pinnedRecordings.length
+            },
+        ],
+
+        hiddenRecordingsCount: [
+            (s) => [s.hiddenRecordings],
+            (hiddenRecordings): number => {
+                return hiddenRecordings?.length ?? 0
+            },
+        ],
+
+        allowHogQLFilters: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.REPLAY_HOGQL_FILTERS],
+        ],
+
+        allowReplayGroupsFilters: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.REPLAY_GROUPS_FILTERS],
+        ],
+
+        taxonomicGroupTypes: [
+            (s) => [s.allowHogQLFilters, s.allowReplayGroupsFilters, s.groupsTaxonomicTypes],
+            (allowHogQLFilters, allowReplayGroupsFilters, groupsTaxonomicTypes) => {
+                const taxonomicGroupTypes = [
+                    TaxonomicFilterGroupType.Replay,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.Cohorts,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.SessionProperties,
+                    TaxonomicFilterGroupType.EventFeatureFlags,
+                ]
+
+                if (allowHogQLFilters) {
+                    taxonomicGroupTypes.push(TaxonomicFilterGroupType.HogQLExpression)
+                }
+
+                if (allowReplayGroupsFilters) {
+                    taxonomicGroupTypes.push(...groupsTaxonomicTypes)
+                }
+
+                return taxonomicGroupTypes
             },
         ],
     }),
@@ -734,15 +1122,23 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             Record<string, any>,
             {
                 replace: boolean
-            }
+            },
         ] => {
             const params: Params = objectClean({
                 ...router.values.searchParams,
-                filters: values.filters ?? undefined,
+                filters: objectsEqual(values.filters, getDefaultFilters(props.personUUID)) ? undefined : values.filters,
                 sessionRecordingId: values.selectedRecordingId ?? undefined,
             })
 
-            return [router.values.location.pathname, params, router.values.hashParams, { replace }]
+            if (!objectsEqual(params, router.values.searchParams)) {
+                return [router.values.location.pathname, params, router.values.hashParams, { replace }]
+            }
+            return [
+                router.values.location.pathname,
+                router.values.searchParams,
+                router.values.hashParams,
+                { replace: false },
+            ]
         }
 
         return {
@@ -775,25 +1171,17 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             if (params.filters && !equal(params.filters, values.filters)) {
                 actions.setFilters(params.filters)
             }
+            if (params.order && !equal(params.order, values.filters.order)) {
+                actions.setFilters({ ...values.filters, order: params.order })
+            }
         }
         return {
             '*': urlToAction,
         }
     }),
 
-    subscriptions(({ actions }) => ({
-        showOtherRecordings: (showOtherRecordings: boolean) => {
-            if (showOtherRecordings) {
-                actions.loadSessionRecordings()
-            }
-        },
-    })),
-
     // NOTE: It is important this comes after urlToAction, as it will override the default behavior
-    afterMount(({ actions, values }) => {
-        if (values.showOtherRecordings) {
-            actions.loadSessionRecordings()
-        }
-        actions.loadPinnedRecordings()
+    afterMount(({ actions }) => {
+        actions.loadSessionRecordings()
     }),
 ])

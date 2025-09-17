@@ -1,5 +1,7 @@
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { pluralize } from 'lib/utils'
 
@@ -24,7 +26,7 @@ function ChangeRow({ metricKey, oldValue, value, isSecret }: ChangeRowInterface)
             <div>
                 <code>{metricKey}</code>
             </div>
-            <div className="text-muted">
+            <div className="text-secondary">
                 Value will be changed
                 {!isSecret && (
                     <>
@@ -85,7 +87,7 @@ export function InstanceConfigSaveModal({ onClose, isOpen }: { onClose: () => vo
                 </>
             }
         >
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 {isChangingEnabledEmailSettings && (
                     <LemonBanner type="info">
                         As you are changing email settings and {isEnablingEmail ? 'enabling email' : 'email is enabled'}

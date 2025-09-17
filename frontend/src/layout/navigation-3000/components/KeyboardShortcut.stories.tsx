@@ -1,4 +1,7 @@
-import { Meta } from '@storybook/react'
+import { Meta, StoryFn } from '@storybook/react'
+
+import { IconInfo } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from './KeyboardShortcut'
 
@@ -17,11 +20,18 @@ export const Default = {
     },
 }
 
-export const Muted = {
-    args: {
-        muted: true,
-        cmd: true,
-        shift: true,
-        k: true,
-    },
+export const WithinTooltip: StoryFn = () => {
+    return (
+        <Tooltip
+            title={
+                <>
+                    Press <KeyboardShortcut command shift k /> to create a new feature flag
+                </>
+            }
+            placement="right"
+            visible
+        >
+            <IconInfo className="text-2xl" />
+        </Tooltip>
+    )
 }

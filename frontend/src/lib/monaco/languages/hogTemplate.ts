@@ -1,6 +1,11 @@
-// eslint-disable-next-line eslint-comments/disable-enable-pair
-/* eslint-disable no-useless-escape */
+/* oxlint-disable no-useless-escape */
+import { Monaco } from '@monaco-editor/react'
 import { languages } from 'monaco-editor'
+
+import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
+import { hogQLMetadataProvider } from 'lib/monaco/hogQLMetadataProvider'
+
+import { HogLanguage } from '~/queries/schema/schema-general'
 
 import { conf as _conf, language as _language } from './hog'
 
@@ -124,3 +129,20 @@ export const language: () => languages.IMonarchLanguage = () => ({
         ],
     },
 })
+
+export function initHogTemplateLanguage(monaco: Monaco): void {
+    if (!monaco.languages.getLanguages().some(({ id }) => id === 'hogTemplate')) {
+        monaco.languages.register({
+            id: 'hogTemplate',
+            mimetypes: ['application/hog+template'],
+        })
+        monaco.languages.setLanguageConfiguration('hogTemplate', conf())
+        monaco.languages.setMonarchTokensProvider('hogTemplate', language())
+        monaco.languages.registerCompletionItemProvider(
+            'hogTemplate',
+            hogQLAutocompleteProvider(HogLanguage.hogTemplate)
+        )
+        monaco.languages.registerCodeActionProvider('hogTemplate', hogQLMetadataProvider())
+    }
+}
+/* oxlint-enable no-useless-escape */

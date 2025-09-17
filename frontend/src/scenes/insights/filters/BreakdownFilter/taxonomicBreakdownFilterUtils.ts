@@ -1,4 +1,4 @@
-import { MultipleBreakdownType } from '~/queries/schema'
+import { MultipleBreakdownType } from '~/queries/schema/schema-general'
 import { BreakdownType } from '~/types'
 
 export const isAllCohort = (t: number | string): t is string => typeof t === 'string' && t == 'all'
@@ -12,6 +12,6 @@ export const isURLNormalizeable = (propertyName: string): boolean => {
 }
 
 export function isMultipleBreakdownType(breakdownType?: BreakdownType | null): breakdownType is MultipleBreakdownType {
-    const types: MultipleBreakdownType[] = ['person', 'event', 'group', 'session', 'hogql']
+    const types: MultipleBreakdownType[] = ['person', 'event', 'event_metadata', 'group', 'session', 'hogql']
     return !!breakdownType && (types as string[]).includes(breakdownType)
 }

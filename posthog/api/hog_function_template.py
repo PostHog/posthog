@@ -1,60 +1,101 @@
+from django.db.models import Count, QuerySet
+
 import structlog
-from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import viewsets
+from rest_framework import mixins, permissions, serializers, viewsets
 from rest_framework.request import Request
-from rest_framework.response import Response
-from rest_framework.exceptions import NotFound
 
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate, HogFunctionSubTemplate
-from posthog.models.hog_functions.hog_function import HogFunction
-from posthog.permissions import PostHogFeatureFlagPermission
-from rest_framework_dataclasses.serializers import DataclassSerializer
-
+from posthog.models.hog_function_template import HogFunctionTemplate
+from posthog.models.hog_functions import HogFunction
 
 logger = structlog.get_logger(__name__)
 
 
-class HogFunctionSubTemplateSerializer(DataclassSerializer):
+class HogFunctionMappingTemplateSerializer(serializers.Serializer):
+    name = serializers.CharField()
+    include_by_default = serializers.BooleanField(required=False, allow_null=True)
+    filters = serializers.JSONField(required=False, allow_null=True)
+    inputs = serializers.JSONField(required=False, allow_null=True)
+    inputs_schema = serializers.JSONField(required=False, allow_null=True)
+
+
+class HogFunctionTemplateSerializer(serializers.ModelSerializer):
+    mapping_templates = HogFunctionMappingTemplateSerializer(many=True, required=False, allow_null=True)
+    id = serializers.CharField(source="template_id")
+
     class Meta:
-        dataclass = HogFunctionSubTemplate
+        model = HogFunctionTemplate
+        fields = [
+            "id",
+            "name",
+            "description",
+            "code",
+            "code_language",
+            "inputs_schema",
+            "type",
+            "status",
+            "category",
+            "free",
+            "icon_url",
+            "filters",
+            "masking",
+            "mapping_templates",
+        ]
 
 
-class HogFunctionTemplateSerializer(DataclassSerializer):
-    sub_templates = HogFunctionSubTemplateSerializer(many=True, required=False)
-
-    class Meta:
-        dataclass = HogFunctionTemplate
-
-
-class HogFunctionTemplateViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
-    scope_object = "INTERNAL"  # Keep internal until we are happy to release this GA
-    queryset = HogFunction.objects.none()
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["id", "team", "created_by", "enabled"]
-
-    permission_classes = [PostHogFeatureFlagPermission]
-    posthog_feature_flag = {"hog-functions": ["create", "partial_update", "update"]}
-
+# NOTE: There is nothing currently private about these values
+class PublicHogFunctionTemplateViewSet(
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.UpdateModelMixin,
+    viewsets.GenericViewSet,
+):
+    permission_classes = [permissions.AllowAny]
     serializer_class = HogFunctionTemplateSerializer
+    queryset = HogFunctionTemplate.objects.all()
+    lookup_field = "template_id"
 
-    def _get_templates(self):
-        # TODO: Filtering for status?
-        data = HOG_FUNCTION_TEMPLATES
-        return data
+    # TODO
+
+    def filter_queryset(self, queryset: QuerySet) -> QuerySet:
+        if self.action == "list":
+            types = ["destination"]
+            if self.request.GET.get("type"):
+                types = [self.request.GET["type"]]
+            elif self.request.GET.get("types"):
+                types = self.request.GET["types"].split(",")
+
+            queryset = queryset.filter(type__in=types)
+
+            # Don't include deprecated templates when listing
+            queryset = queryset.exclude(status="deprecated")
+
+        if self.request.path.startswith("/api/public_hog_function_templates"):
+            queryset = queryset.exclude(status="hidden")
+
+        return queryset
 
     def list(self, request: Request, *args, **kwargs):
-        page = self.paginate_queryset(self._get_templates())
-        serializer = self.get_serializer(page, many=True)
-        return self.get_paginated_response(serializer.data)
+        response = super().list(request, *args, **kwargs)
 
-    def retrieve(self, request: Request, *args, **kwargs):
-        data = self._get_templates()
-        item = next((item for item in data if item.id == kwargs["pk"]), None)
+        # Load the counts of usage for these templates and re-order the results by usage
+        results = response.data["results"]
+        template_ids = [result["id"] for result in results]
 
-        if not item:
-            raise NotFound(f"Template with id {kwargs['pk']} not found.")
+        template_usage = (
+            HogFunction.objects.filter(deleted=False, enabled=True, template_id__in=template_ids)
+            .values("template_id")
+            .annotate(count=Count("template_id"))
+            .order_by("-count")[:500]
+        )
 
-        serializer = self.get_serializer(item)
-        return Response(serializer.data)
+        popularity_dict = {item["template_id"]: item["count"] for item in template_usage}
+
+        for result in results:
+            if result["id"] not in popularity_dict:
+                popularity_dict[result["id"]] = 0
+
+        results.sort(key=lambda template: (-popularity_dict[template["id"]], template["name"].lower()))
+
+        response.data["results"] = results
+
+        return response

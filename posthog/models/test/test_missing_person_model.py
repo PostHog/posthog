@@ -1,6 +1,8 @@
 from uuid import UUID
-from posthog.models.person.missing_person import MissingPerson
+
 from posthog.test.base import BaseTest
+
+from posthog.models.person.missing_person import MissingPerson
 
 
 class TestMissingPersonModel(BaseTest):

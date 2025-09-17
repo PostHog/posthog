@@ -89,6 +89,9 @@ export const FIELD_VALUES: Record<FieldOptionsType, FieldValues> = {
             [PropertyMathType.Median]: {
                 label: 'Median',
             },
+            [PropertyMathType.P75]: {
+                label: '75th percentile',
+            },
             [PropertyMathType.P90]: {
                 label: '90th percentile',
             },
@@ -1013,7 +1016,7 @@ export const NEW_COHORT: CohortType = {
     },
 }
 
-export const BEHAVIORAL_TYPE_TO_LABEL = {
+export const BEHAVIORAL_TYPE_TO_LABEL: Partial<Record<BehavioralFilterType, { label: string }>> = {
     ...FIELD_VALUES[FieldOptionsType.EventBehavioral].values,
     ...FIELD_VALUES[FieldOptionsType.PersonPropertyBehavioral].values,
     ...FIELD_VALUES[FieldOptionsType.CohortBehavioral].values,

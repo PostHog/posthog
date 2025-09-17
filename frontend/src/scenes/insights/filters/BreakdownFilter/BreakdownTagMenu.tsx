@@ -1,12 +1,14 @@
 import './BreakdownTagMenu.scss'
 
+import { useActions, useValues } from 'kea'
+
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import { breakdownTagLogic } from './breakdownTagLogic'
 import { GlobalBreakdownOptionsMenu } from './GlobalBreakdownOptionsMenu'
+import { breakdownTagLogic } from './breakdownTagLogic'
 import { taxonomicBreakdownFilterLogic } from './taxonomicBreakdownFilterLogic'
 
 export const BreakdownTagMenu = (): JSX.Element => {
@@ -46,7 +48,7 @@ export const BreakdownTagMenu = (): JSX.Element => {
                                     </>
                                 }
                             >
-                                <IconInfo className="text-xl text-muted-alt ml-1 shrink-0" />
+                                <IconInfo className="text-xl text-secondary ml-1 shrink-0" />
                             </Tooltip>
                         </div>
                     }

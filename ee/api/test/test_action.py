@@ -2,11 +2,14 @@ import datetime
 from typing import cast
 
 import pytest
+from posthog.test.base import APIBaseTest
+
+from django.utils import timezone
+
 from rest_framework import status
 
 from posthog.cloud_utils import is_cloud
 from posthog.models import Action, Tag
-from posthog.test.base import APIBaseTest
 
 # Testing enterprise properties of actions here (i.e., tagging).
 
@@ -79,7 +82,8 @@ class TestActionApi(APIBaseTest):
 
         # django_session + user + team  + look up if rate limit is enabled (cached after first lookup)
         # + organizationmembership + organization + action + taggeditem
-        with self.assertNumQueries(8):
+        # + access control queries
+        with self.assertNumQueries(14):
             response = self.client.get(f"/api/projects/{self.team.id}/actions")
         self.assertEqual(response.json()["results"][0]["tags"][0], "tag")
         self.assertEqual(response.status_code, status.HTTP_200_OK)

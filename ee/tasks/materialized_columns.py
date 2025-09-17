@@ -1,49 +1,22 @@
+from collections.abc import Iterator
+
 from celery.utils.log import get_task_logger
 
-from ee.clickhouse.materialized_columns.columns import (
-    TRIM_AND_EXTRACT_PROPERTY,
-    ColumnName,
-    get_materialized_columns,
-)
-from posthog.client import sync_execute
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.materialized_columns import ColumnName, TablesWithMaterializedColumns
+from posthog.settings import CLICKHOUSE_DATABASE
+
+from ee.clickhouse.materialized_columns.columns import MaterializedColumn
 
 logger = get_task_logger(__name__)
 
 
-def mark_all_materialized() -> None:
-    if any_ongoing_mutations():
-        logger.info("There are running mutations, skipping marking as materialized")
-        return
-
-    for (
-        table,
-        property_name,
-        table_column,
-        column_name,
-    ) in get_materialized_columns_with_default_expression():
-        updated_table = "sharded_events" if table == "events" else table
-
-        # :TRICKY: On cloud, we ON CLUSTER updates to events/sharded_events but not to persons. Why? ¯\_(ツ)_/¯
-        execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
-
-        sync_execute(
-            f"""
-            ALTER TABLE {updated_table}
-            {execute_on_cluster}
-            MODIFY COLUMN
-            {column_name} VARCHAR MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY.format(table_column=table_column)}
-            """,
-            {"property": property_name},
-        )
-
-
-def get_materialized_columns_with_default_expression():
-    for table in ["events", "person"]:
-        materialized_columns = get_materialized_columns(table, use_cache=False)
-        for (property_name, table_column), column_name in materialized_columns.items():
-            if is_default_expression(table, column_name):
-                yield table, property_name, table_column, column_name
+def get_materialized_columns_with_default_expression() -> Iterator[tuple[str, MaterializedColumn]]:
+    table_names: list[TablesWithMaterializedColumns] = ["events", "person"]
+    for table_name in table_names:
+        for column in MaterializedColumn.get_all(table_name):
+            if is_default_expression(table_name, column.name):
+                yield table_name, column
 
 
 def any_ongoing_mutations() -> bool:

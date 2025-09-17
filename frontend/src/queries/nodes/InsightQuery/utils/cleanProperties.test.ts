@@ -39,7 +39,7 @@ describe('cleanGlobalProperties', () => {
 
         expect(result).toEqual({
             type: 'AND',
-            values: [{ type: 'AND', values: [{ key: 'id', type: 'cohort', value: 636 }] }],
+            values: [{ type: 'AND', values: [{ key: 'id', type: 'cohort', value: 636, operator: null }] }],
         })
     })
 
@@ -67,7 +67,7 @@ describe('cleanGlobalProperties', () => {
             values: [
                 {
                     type: 'AND',
-                    values: [{ key: 'id', type: 'cohort', value: 850 }],
+                    values: [{ key: 'id', type: 'cohort', value: 850, operator: null }],
                 },
             ],
         })
@@ -131,5 +131,27 @@ describe('cleanEntityProperties', () => {
                 value: 'https://hedgebox.net/signup/',
             },
         ])
+    })
+
+    it('handles negation for cohorts', () => {
+        let properties: any = [
+            {
+                key: 'id',
+                type: 'cohort',
+                value: 1,
+                operator: 'exact',
+                negation: false,
+            },
+        ]
+        let result = cleanEntityProperties(properties)
+        expect(result).toEqual([{ key: 'id', type: 'cohort', value: 1, operator: 'exact' }])
+
+        properties = [{ key: 'id', type: 'cohort', value: 1, operator: 'exact', negation: true }]
+        result = cleanEntityProperties(properties)
+        expect(result).toEqual([{ key: 'id', type: 'cohort', value: 1, operator: 'not_in' }])
+
+        properties = [{ key: 'id', type: 'cohort', value: 1, negation: true }]
+        result = cleanEntityProperties(properties)
+        expect(result).toEqual([{ key: 'id', type: 'cohort', value: 1, operator: 'not_in' }])
     })
 })

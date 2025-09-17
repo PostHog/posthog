@@ -1,5 +1,6 @@
-from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties, clean_global_properties
 from posthog.test.base import BaseTest
+
+from posthog.hogql_queries.legacy_compatibility.clean_properties import clean_entity_properties, clean_global_properties
 
 
 class TestCleanGlobalProperties(BaseTest):
@@ -40,7 +41,7 @@ class TestCleanGlobalProperties(BaseTest):
                 "values": [
                     {
                         "type": "AND",
-                        "values": [{"key": "id", "type": "cohort", "value": 636}],
+                        "values": [{"key": "id", "type": "cohort", "operator": "in", "value": 636}],
                     }
                 ],
             },
@@ -61,7 +62,33 @@ class TestCleanGlobalProperties(BaseTest):
                 "values": [
                     {
                         "type": "AND",
-                        "values": [{"key": "id", "type": "cohort", "value": 850}],
+                        "values": [{"key": "id", "type": "cohort", "operator": "in", "value": 850}],
+                    }
+                ],
+            },
+        )
+
+    def test_handles_cohort_negation(self):
+        properties = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [{"key": "id", "type": "cohort", "value": 850, "operator": None, "negation": True}],
+                }
+            ],
+        }
+
+        result = clean_global_properties(properties)
+
+        self.assertEqual(
+            result,
+            {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [{"key": "id", "type": "cohort", "operator": "not_in", "value": 850}],
                     }
                 ],
             },
@@ -82,7 +109,7 @@ class TestCleanGlobalProperties(BaseTest):
                 "values": [
                     {
                         "type": "AND",
-                        "values": [{"key": "id", "type": "cohort", "value": 850}],
+                        "values": [{"key": "id", "type": "cohort", "operator": "in", "value": 850}],
                     }
                 ],
             },

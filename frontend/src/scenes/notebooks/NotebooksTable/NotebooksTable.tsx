@@ -1,21 +1,23 @@
+import { useActions, useValues } from 'kea'
+
 import { IconEllipsis, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Link } from 'lib/lemon-ui/Link'
-import { useEffect } from 'react'
 import { ContainsTypeFilters } from 'scenes/notebooks/NotebooksTable/ContainsTypeFilter'
 import { notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
 import { urls } from 'scenes/urls'
 
 import { notebooksModel } from '~/models/notebooksModel'
-import { NotebookListItemType } from '~/types'
 
 import { notebookPanelLogic } from '../NotebookPanel/notebookPanelLogic'
+import { NotebookListItemType } from '../types'
 
 function titleColumn(): LemonTableColumn<NotebookListItemType, 'title'> {
     return {
@@ -39,14 +41,12 @@ function titleColumn(): LemonTableColumn<NotebookListItemType, 'title'> {
 }
 
 export function NotebooksTable(): JSX.Element {
-    const { notebooksAndTemplates, filters, notebooksResponseLoading, notebookTemplates, sortValue, pagination } =
+    const { notebooksAndTemplates, filters, notebooksResponseLoading, notebookTemplates, tableSorting, pagination } =
         useValues(notebooksTableLogic)
-    const { loadNotebooks, setFilters, setSortValue } = useActions(notebooksTableLogic)
+    const { loadNotebooks, setFilters, tableSortingChanged } = useActions(notebooksTableLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
 
-    useEffect(() => {
-        loadNotebooks()
-    }, [])
+    useOnMountEffect(loadNotebooks)
 
     const columns: LemonTableColumns<NotebookListItemType> = [
         titleColumn() as LemonTableColumn<NotebookListItemType, keyof NotebookListItemType | undefined>,
@@ -90,7 +90,7 @@ export function NotebooksTable(): JSX.Element {
     ]
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <LemonBanner
                 type="info"
                 action={{
@@ -132,13 +132,10 @@ export function NotebooksTable(): JSX.Element {
                 rowKey="short_id"
                 columns={columns}
                 loading={notebooksResponseLoading}
-                defaultSorting={{ columnKey: '-created_at', order: 1 }}
+                defaultSorting={tableSorting}
                 emptyState="No notebooks matching your filters!"
                 nouns={['notebook', 'notebooks']}
-                sorting={sortValue ? { columnKey: sortValue, order: sortValue.startsWith('-') ? -1 : 1 } : undefined}
-                onSort={(newSorting) =>
-                    setSortValue(newSorting ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}` : null)
-                }
+                onSort={tableSortingChanged}
             />
         </div>
     )

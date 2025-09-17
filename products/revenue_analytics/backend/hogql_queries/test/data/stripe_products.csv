@@ -1,0 +1,10 @@
+id,name,type,active,images,object,created_at,updated_at,features,livemode,metadata,tax_code,attributes,description,default_price_id
+prod_1,Product A,service,1,[],product,2025-05-22 16:15:30-07:00,2025-05-23 14:58:35-07:00,,1,,txcd_1,[],,price_1
+prod_2,Product B,service,1,[],product,2025-05-22 16:15:30-07:00,2025-05-23 14:58:35-07:00,,1,,txcd_2,[],,price_2
+prod_3,Product C,service,1,[],product,2025-05-22 16:15:30-07:00,2025-05-23 14:58:35-07:00,,1,,txcd_3,[],,price_3
+prod_4,Product D,service,1,[],product,2025-05-22 16:15:30-07:00,2025-05-23 14:58:35-07:00,,1,,txcd_4,[],,price_4
+prod_5,Product E,service,1,[],product,2025-05-22 16:15:30-07:00,2025-05-23 14:58:35-07:00,,1,,txcd_5,[],,price_5
+prod_6,Product F,service,1,[],product,2025-05-22 16:15:30-07:00,2025-05-23 14:58:35-07:00,,1,,txcd_6,[],,price_6
+prod_7,Product G,service,1,[],product,2025-05-22 16:15:30-07:00,2025-05-23 14:58:35-07:00,,1,,txcd_7,[],,price_7
+prod_8,Product H,service,1,[],product,2025-05-22 16:15:30-07:00,2025-05-23 14:58:35-07:00,,1,,txcd_8,[],,price_8
+prod_9,Product I,service,1,[],product,2025-05-22 16:15:30-07:00,2025-05-23 14:58:35-07:00,,1,,txcd_9,[],,price_9

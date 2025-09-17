@@ -1,9 +1,10 @@
+from posthog.test.base import BaseTest
+
 from posthog.hogql import ast
-from posthog.hogql.ast import UUIDType, HogQLXTag, HogQLXAttribute
+from posthog.hogql.ast import HogQLXAttribute, HogQLXTag, UUIDType
 from posthog.hogql.errors import InternalHogQLError
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.visitor import CloningVisitor, Visitor, TraversingVisitor
-from posthog.test.base import BaseTest
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, Visitor
 
 
 class TestVisitor(BaseTest):
@@ -58,7 +59,7 @@ class TestVisitor(BaseTest):
                         args=[
                             ast.Alias(
                                 alias="d",
-                                expr=ast.Placeholder(chain=["e"]),
+                                expr=ast.Placeholder(expr=ast.Field(chain=["e"])),
                             ),
                             ast.OrderExpr(
                                 expr=ast.Field(chain=["c"]),
@@ -100,7 +101,7 @@ class TestVisitor(BaseTest):
                     group_by=[ast.Constant(value=True)],
                     order_by=[ast.OrderExpr(expr=ast.Constant(value=True), order="DESC")],
                     limit=ast.Constant(value=1),
-                    limit_by=[ast.Constant(value=True)],
+                    limit_by=ast.LimitByExpr(n=ast.Constant(value=1), exprs=[ast.Constant(value=True)]),
                     limit_with_ties=True,
                     offset=ast.Or(exprs=[ast.Constant(value=1)]),
                     distinct=True,
@@ -151,6 +152,14 @@ class TestVisitor(BaseTest):
             def visit_hogqlx_attribute(self, node: ast.Constant):
                 return "visit_hogqlx_attribute"
 
+            def visit_string_json_type(self, node: ast.Constant):
+                return "visit_string_json_type"
+
         assert NamingCheck().visit(UUIDType()) == "visit_uuid_type"
         assert NamingCheck().visit(HogQLXAttribute(name="a", value="a")) == "visit_hogqlx_attribute"
         assert NamingCheck().visit(HogQLXTag(kind="", attributes=[])) == "visit_hogqlx_tag"
+        assert NamingCheck().visit(ast.StringJSONType()) == "visit_string_json_type"
+
+    def test_visit_interval_type(self):
+        # Just ensure ``IntervalType`` can be visited without throwing ``NotImplementedError``
+        TraversingVisitor().visit(ast.IntervalType())

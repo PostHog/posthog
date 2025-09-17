@@ -1,11 +1,14 @@
-import { IconCheckCircle } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 import algoliasearch from 'algoliasearch/lite'
 import { useActions } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 import { InstantSearch, useHits, useRefinementList, useSearchBox } from 'react-instantsearch'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List } from 'react-virtualized/dist/es/List'
+
+import { IconCheckCircle } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
@@ -20,10 +23,10 @@ const rowRenderer = ({ key, index, style, hits, activeOption }: any): JSX.Elemen
             <LemonButton
                 active={activeOption === index}
                 to={`https://posthog.com/${slug}`}
-                className="[&_>span>span]:flex-col [&_>span>span]:items-start [&_>span>span]:space-y-1"
+                className="[&_>span>span]:flex-col [&_>span>span]:items-start [&_>span>span]:deprecated-space-y-1"
             >
                 <span>
-                    <span className="flex space-x-2 items-center">
+                    <span className="flex deprecated-space-x-2 items-center">
                         <p className="m-0 font-bold font-sans line-clamp-1">{title}</p>
                         {type === 'question' && resolved && (
                             <IconCheckCircle className="text-success size-4 flex-shrink-0" />
@@ -111,12 +114,10 @@ const SearchTag = ({ type, label, active, onClick }: SearchTagProps): JSX.Elemen
         onClick(type)
     }
 
-    useEffect(() => {
-        refine(type)
-    }, [])
+    useOnMountEffect(() => refine(type))
 
     return (
-        <button className="p-0 cursor-pointer bg-bg-light" onClick={handleClick}>
+        <button className="p-0 cursor-pointer bg-surface-primary" onClick={handleClick}>
             <LemonTag size="medium" type={active ? 'primary' : 'option'}>
                 <span>{label}</span>
                 {type !== 'all' && <span>({itemCount ?? 0})</span>}
@@ -137,7 +138,7 @@ const Tags = ({
     }
 
     return (
-        <ul className="list-none m-0 p-0 flex space-x-1 mt-1 mb-0.5 pb-1.5 border-b px-2">
+        <ul className="list-none m-0 p-0 flex deprecated-space-x-1 mt-1 mb-0.5 pb-1.5 border-b px-2">
             {tags.map((tag) => {
                 const { type } = tag
                 return (
@@ -230,9 +231,9 @@ const Search = (): JSX.Element => {
             })
             refine(activeTag)
         }
-    }, [activeTag])
+    }, [activeTag, items, refine])
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         const handleClick = (e: any): void => {
             if (!ref?.current?.contains(e.target)) {
                 setSearchOpen(false)
@@ -244,13 +245,13 @@ const Search = (): JSX.Element => {
         return () => {
             window.removeEventListener('click', handleClick)
         }
-    }, [])
+    })
 
     return (
         <div className="relative" ref={ref} onKeyDown={handleKeyDown}>
             <SearchInput value={searchValue} setValue={setSearchValue} />
             {searchOpen && (
-                <div className="absolute w-full bg-bg-light z-50 border rounded-lg shadow-xl mt-0.5">
+                <div className="absolute w-full bg-surface-primary z-50 border rounded-lg shadow-xl mt-0.5">
                     <Tags activeTag={activeTag} setActiveTag={setActiveTag} />
                     <Hits activeOption={activeOption} />
                 </div>

@@ -1,0 +1,747 @@
+[
+    {
+        "status": "beta",
+        "free": false,
+        "type": "destination",
+        "id": "template-webhook",
+        "name": "HTTP Webhook",
+        "description": "Sends a webhook templated by the incoming event data",
+        "icon_url": "/static/posthog-icon.svg",
+        "category": ["Custom"],
+        "code": "\nlet payload := {\n  'headers': inputs.headers,\n  'body': inputs.body,\n  'method': inputs.method\n}\n\nif (inputs.debug) {\n  print('Request', inputs.url, payload)\n}\n\nlet res := fetch(inputs.url, payload);\n\nif (inputs.debug) {\n  print('Response', res.status, res.body);\n}\n",
+        "code_language": "hog",
+        "inputs_schema": [
+            {
+                "key": "url",
+                "type": "string",
+                "label": "Webhook URL",
+                "secret": false,
+                "hidden": false,
+                "required": true
+            },
+            {
+                "key": "method",
+                "type": "choice",
+                "label": "Method",
+                "secret": false,
+                "hidden": false,
+                "choices": [
+                    {
+                        "label": "POST",
+                        "value": "POST"
+                    },
+                    {
+                        "label": "PUT",
+                        "value": "PUT"
+                    },
+                    {
+                        "label": "PATCH",
+                        "value": "PATCH"
+                    },
+                    {
+                        "label": "GET",
+                        "value": "GET"
+                    },
+                    {
+                        "label": "DELETE",
+                        "value": "DELETE"
+                    }
+                ],
+                "default": "POST",
+                "required": false
+            },
+            {
+                "key": "body",
+                "type": "json",
+                "label": "JSON Body",
+                "default": {
+                    "event": "{event}",
+                    "person": "{person}"
+                },
+                "secret": false,
+                "hidden": false,
+                "required": false
+            },
+            {
+                "key": "headers",
+                "type": "dictionary",
+                "label": "Headers",
+                "secret": false,
+                "hidden": false,
+                "required": false,
+                "default": {
+                    "Content-Type": "application/json"
+                }
+            },
+            {
+                "key": "debug",
+                "type": "boolean",
+                "label": "Log responses",
+                "description": "Logs the response of http calls for debugging.",
+                "secret": false,
+                "hidden": false,
+                "required": false,
+                "default": false
+            }
+        ]
+    },
+    {
+        "status": "alpha",
+        "free": false,
+        "type": "transformation",
+        "id": "template-blank-transformation",
+        "name": "Custom transformation",
+        "code": "// This is a blank template for custom transformations\n// The function receives 'event' as a global object and expects it to be returned\n// If you return null then the event will be discarded\nreturn event",
+        "code_language": "hog",
+        "inputs_schema": [],
+        "category": ["Custom"],
+        "description": "This is a starter template for custom transformations",
+        "filters": null,
+        "masking": null,
+        "icon_url": "/static/hedgehog/builder-hog-01.png"
+    },
+    {
+        "status": "alpha",
+        "free": true,
+        "type": "transformation",
+        "id": "template-geoip",
+        "name": "GeoIP",
+        "code": "// Define the properties to be added to the event\nlet geoipProperties := {\n    'city_name': null,\n    'city_confidence': null,\n    'subdivision_2_name': null,\n    'subdivision_2_code': null,\n    'subdivision_1_name': null,\n    'subdivision_1_code': null,\n    'country_name': null,\n    'country_code': null,\n    'continent_name': null,\n    'continent_code': null,\n    'postal_code': null,\n    'latitude': null,\n    'longitude': null,\n    'accuracy_radius': null,\n    'time_zone': null\n}\n// Check if the event has an IP address\nif (event.properties?.$geoip_disable or empty(event.properties?.$ip)) {\n    print('geoip disabled or no ip.')\n    return event\n}\nlet ip := event.properties.$ip\nif (ip == '127.0.0.1') {\n    print('spoofing ip for local development', ip)\n    ip := '89.160.20.129'\n}\nlet response := geoipLookup(ip)\nif (not response) {\n    print('geoip lookup failed for ip', ip)\n    return event\n}\nlet location := {}\nif (response.city) {\n    location['city_name'] := response.city.names?.en\n}\nif (response.country) {\n    location['country_name'] := response.country.names?.en\n    location['country_code'] := response.country.isoCode\n}\nif (response.continent) {\n    location['continent_name'] := response.continent.names?.en\n    location['continent_code'] := response.continent.code\n}\nif (response.postal) {\n    location['postal_code'] := response.postal.code\n}\nif (response.location) {\n    location['latitude'] := response.location?.latitude\n    location['longitude'] := response.location?.longitude\n    location['accuracy_radius'] := response.location?.accuracyRadius\n    location['time_zone'] := response.location?.timeZone\n}\nif (response.subdivisions) {\n    for (let index, subdivision in response.subdivisions) {\n        location[f'subdivision_{index + 1}_code'] := subdivision.isoCode\n        location[f'subdivision_{index + 1}_name'] := subdivision.names?.en\n    }\n}\nprint('geoip location data for ip:', location) \nlet returnEvent := event\nreturnEvent.properties := returnEvent.properties ?? {}\nreturnEvent.properties.$set := returnEvent.properties.$set ?? {}\nreturnEvent.properties.$set_once := returnEvent.properties.$set_once ?? {}\nfor (let key, value in geoipProperties) {\n    if (value != null) {\n        returnEvent.properties.$set[f'$geoip_{key}'] := value\n        returnEvent.properties.$set_once[f'$initial_geoip_{key}'] := value\n    }\n    returnEvent.properties.$set[f'$geoip_{key}'] := value\n    returnEvent.properties.$set_once[f'$initial_geoip_{key}'] := value\n}\nfor (let key, value in location) {\n    returnEvent.properties[f'$geoip_{key}'] := value\n    returnEvent.properties.$set[f'$geoip_{key}'] := value\n    returnEvent.properties.$set_once[f'$initial_geoip_{key}'] := value\n}\nreturn returnEvent",
+        "code_language": "hog",
+        "inputs_schema": [],
+        "category": ["Custom"],
+        "description": "Adds geoip data to the event",
+        "filters": null,
+        "masking": null,
+        "icon_url": "/static/transformations/geoip.png"
+    },
+    {
+        "status": "alpha",
+        "free": true,
+        "type": "transformation",
+        "code_language": "hog",
+        "id": "template-ip-anonymization",
+        "name": "IP Anonymization",
+        "code": "// Check if the event has an IP address\nif (empty(event.properties?.$ip)) {\n    print('No IP address found in event')\n    return event\n}\n\nlet ip := event.properties.$ip\nlet parts := splitByString('.', ip)\n\n// Check if we have exactly 4 parts for IPv4\nif (length(parts) != 4) {\n    print('Invalid IP address format: wrong number of octets')\n    return event\n}\n\n// Validate each octet is a number between 0 and 255\nfor (let i := 1; i \u003C= 4; i := i + 1) {\n    let octet := toInt(parts[i])\n    if (octet = null or octet \u003C 0 or octet \u003E 255) {\n        print('Invalid IP address: octets must be numbers between 0 and 255')\n        return event\n    }\n}\n\n// Replace the last octet with '0'\nlet anonymizedIp := concat(parts[1], '.', parts[2], '.', parts[3], '.0')\n    \nlet returnEvent := event\nreturnEvent.properties.$ip := anonymizedIp\nreturn returnEvent",
+        "inputs_schema": [],
+        "category": ["Custom"],
+        "description": "This transformation sets the last octet of an IP address to zero (e.g., 12.214.31.144 → 12.214.31.0), protecting user privacy and reducing disclosure risk.",
+        "filters": null,
+        "masking": null,
+        "icon_url": "/static/hedgehog/builder-hog-01.png"
+    },
+    {
+        "status": "alpha",
+        "free": true,
+        "type": "transformation",
+        "code_language": "hog",
+        "id": "template-remove-null-properties",
+        "name": "Remove Null Properties",
+        "code": "// Check if the event has properties\nif (empty(event.properties)) {\n    return event\n}\n\nlet returnEvent := event\nreturnEvent.properties := cleanNullValues(event.properties)\nreturn returnEvent",
+        "inputs_schema": [],
+        "category": ["Custom"],
+        "description": "This transformation removes null properties from the event properties object. If the object nesting exceeds 3 levels, deeper levels will be returned unchanged.",
+        "filters": null,
+        "masking": null,
+        "icon_url": "/static/hedgehog/builder-hog-01.png"
+    },
+    {
+        "status": "alpha",
+        "free": false,
+        "type": "transformation",
+        "id": "template-url-masking",
+        "code_language": "hog",
+        "name": "URL Parameter Masking",
+        "code": "// Function to check if parameter matches any mask pattern\nfun isParameterInList(paramName, paramsString) {\n    let paramsList := splitByString(',', paramsString)\n    for (let pattern in paramsList) {\n        if (lower(paramName) =~ lower(trim(pattern))) {\n            return true\n        }\n    }\n    return false\n}\n\n// Function to mask URL parameters\nfun maskURLParameters(url, paramsToMask, maskValue) {\n    // If URL is empty or not a string, return as is\n    if (empty(url) or typeof(url) != 'string') {\n        return url\n    }\n\n    try {\n        // Split URL into base and query string\n        let parts := splitByString('?', url, 2)\n        if (length(parts) \u003C 2) {\n            return url\n        }\n        \n        let baseUrl := parts[1]\n        let queryString := parts[2]\n        \n        // Handle malformed URLs that start with ?\n        if (empty(baseUrl)) {\n            return url\n        }\n        \n        // Split query string into parameters\n        let params := splitByString('&', queryString)\n        let maskedParams := []\n        \n        // Process each parameter\n        for (let param in params) {\n            if (not empty(param)) {\n                let keyValue := splitByString('=', param, 2)\n                let paramName := keyValue[1]\n                \n                // Handle parameters without values (e.g., ?key&foo=bar)\n                if (length(keyValue) \u003C 2) {\n                    if (isParameterInList(paramName, paramsToMask)) {\n                        maskedParams := arrayPushBack(maskedParams, concat(paramName, '=', maskValue))\n                    } else {\n                        maskedParams := arrayPushBack(maskedParams, paramName)\n                    }\n                } else {\n                    if (isParameterInList(paramName, paramsToMask)) {\n                        maskedParams := arrayPushBack(maskedParams, concat(paramName, '=', maskValue))\n                    } else {\n                        maskedParams := arrayPushBack(maskedParams, param)\n                    }\n                }\n            }\n        }\n        \n        // Reconstruct URL with masked parameters\n        return concat(baseUrl, '?', arrayStringConcat(maskedParams, '&'))\n    } catch (error) {\n        print('Error masking URL parameters:', error)\n        return url\n    }\n}\n\n// Create a copy of the event to modify\nlet maskedEvent := event\n\n// Process each URL property\nfor (let propName, paramsToMask in inputs.urlProperties) {\n    if (not empty(event.properties?.[propName])) {\n        maskedEvent.properties[propName] := maskURLParameters(\n            event.properties[propName],\n            paramsToMask,\n            inputs.maskWith\n        )\n    }\n}\n\nreturn maskedEvent",
+        "inputs_schema": [
+            {
+                "key": "urlProperties",
+                "type": "dictionary",
+                "label": "URL Properties to Mask",
+                "description": "Map of event properties containing URLs and their parameters to mask. Example: {'$current_url': 'email, password'}",
+                "default": {
+                    "$current_url": "email, password, token",
+                    "$referrer": "email, password, token"
+                },
+                "secret": false,
+                "required": true
+            },
+            {
+                "key": "maskWith",
+                "type": "string",
+                "label": "Mask Value",
+                "description": "The value to replace sensitive parameters with",
+                "default": "[REDACTED]",
+                "secret": false,
+                "required": true
+            }
+        ],
+        "category": ["Custom"],
+        "description": "Masks sensitive information in URL parameters (query strings) of specified properties",
+        "filters": null,
+        "masking": null,
+        "icon_url": "/static/hedgehog/builder-hog-01.png"
+    },
+    {
+        "status": "alpha",
+        "free": true,
+        "type": "transformation",
+        "id": "template-pii-hashing",
+        "code_language": "hog",
+        "name": "PII Data Hashing",
+        "code": "// Get the properties to hash from inputs and split by comma\nlet propertiesToHash := []\nif (notEmpty(inputs.propertiesToHash)) {\n    propertiesToHash := splitByString(',', inputs.propertiesToHash)\n}\nlet hashDistinctId := inputs.hashDistinctId\nlet salt := inputs.salt\n\nif (empty(propertiesToHash) and not hashDistinctId) {\n    return event\n}\n\n// Create a deep copy of the event to modify\nlet returnEvent := event\n\n// Helper function to get nested property value\nfun getNestedValue(obj, path) {\n    let parts := splitByString('.', path)\n    let current := obj\n    \n    for (let part in parts) {\n        if (current = null) {\n            return null\n        }\n        current := current[part]\n    }\n    return current\n}\n\n// Helper function to set nested property value\nfun setNestedValue(obj, path, value) {\n    let parts := splitByString('.', path)\n    let current := obj\n    \n    // Navigate to the parent object of the target property\n    for (let i := 1; i \u003C length(parts); i := i + 1) {\n        let part := parts[i]\n        if (current[part] = null) {\n            current[part] := {}\n        }\n        current := current[part]\n    }\n    \n    // Set the value on the last part\n    let lastPart := parts[length(parts)]\n    current[lastPart] := value\n}\n\n// Hash distinct_id if enabled also potentially using a salt\nif (hashDistinctId and notEmpty(event.distinct_id)) {\n    if(notEmpty(salt)) {\n        returnEvent.distinct_id := sha256Hex(concat(toString(event.distinct_id), salt))\n    } else {\n        returnEvent.distinct_id := sha256Hex(toString(event.distinct_id))\n    }\n}\n\n// Hash each property value potentially using a salt\nfor (let _, path in propertiesToHash) {\n    let value := getNestedValue(event.properties, trim(path))  // Trim to handle spaces after commas\n    if (notEmpty(value)) {\n        if(notEmpty(salt)) {\n            let hashedValue := sha256Hex(concat(toString(value), salt))\n            setNestedValue(returnEvent.properties, trim(path), hashedValue)\n        } else {\n            let hashedValue := sha256Hex(toString(value))\n            setNestedValue(returnEvent.properties, trim(path), hashedValue)\n        }\n    }\n}\n\nreturn returnEvent",
+        "inputs_schema": [
+            {
+                "key": "propertiesToHash",
+                "type": "string",
+                "label": "Properties to Hash",
+                "description": "Comma-separated list of property paths to hash (e.g. \"$ip,$email,$set.$phone\")",
+                "default": "$ip",
+                "secret": false,
+                "required": true
+            },
+            {
+                "key": "hashDistinctId",
+                "type": "boolean",
+                "label": "Hash Distinct ID",
+                "description": "Whether to hash the distinct_id field",
+                "default": false,
+                "secret": false,
+                "required": false
+            },
+            {
+                "key": "salt",
+                "type": "string",
+                "label": "Salt",
+                "description": "Optional salt to add to the hashed values for additional security",
+                "default": "",
+                "secret": true,
+                "required": false
+            }
+        ],
+        "category": ["Custom"],
+        "description": "This transformation hashes sensitive personal data (PII) like email, phone numbers, etc. using SHA-256 to protect user privacy.",
+        "filters": null,
+        "masking": null,
+        "icon_url": "/static/hedgehog/builder-hog-02.png"
+    },
+    {
+        "status": "alpha",
+        "free": false,
+        "type": "transformation",
+        "code_language": "hog",
+        "id": "template-bot-detection",
+        "name": "Filter Bot Events",
+        "code": "// List of known bot user agents\nlet known_bot_filter_list := ['bot', 'crawler', 'spider', 'feedfetcher-google',\n'mediapartners-google', 'apis-google', 'slurp', 'python-urllib',\n'python-requests', 'aiohttp', 'httpx', 'libwww-perl',\n'httpunit', 'nutch', 'go-http-client', 'biglotron', 'teoma',\n'convera', 'gigablast', 'ia_archiver', 'webmon ', 'httrack',\n'grub.org', 'netresearchserver', 'speedy', 'fluffy',\n'findlink', 'panscient', 'ips-agent', 'yanga', 'yandex',\n'yadirectfetcher', 'cyberpatrol', 'postrank', 'page2rss', \n'linkdex', 'ezooms', 'heritrix', 'findthatfile', 'europarchive.org', \n'mappydata', 'eright', 'apercite', 'aboundex', 'summify', 'ec2linkfinder', \n'facebookexternalhit', 'yeti', 'retrevopageanalyzer', 'sogou', 'wotbox', \n'ichiro', 'drupact', 'coccoc', 'integromedb', 'siteexplorer.info', \n'proximic', 'changedetection', 'cc metadata scaper', 'g00g1e.net', \n'binlar', 'a6-indexer', 'admantx', 'megaindex', 'ltx71', 'bubing', \n'qwantify', 'lipperhey', 'addthis', 'metauri', 'scrapy', 'capsulechecker', \n'sonic', 'sysomos', 'trove', 'deadlinkchecker', 'slack-imgproxy', 'embedly', \n'iskanie', 'skypeuripreview', 'google-adwords-instant', 'whatsapp', \n'electricmonk', 'yahoo link preview', 'xenu link sleuth', 'pcore-http', \n'appinsights', 'phantomjs', 'jetslide', 'newsharecounts', 'tineye', \n'linkarchiver', 'digg deeper', 'snacktory', 'okhttp', 'nuzzel', 'omgili', \n'pocketparser', 'um-ln', 'muckrack', 'netcraftsurveyagent', 'appengine-google', \n'jetty', 'upflow', 'thinklab', 'traackr.com', 'twurly', 'mastodon', 'http_get', \n'brandverity', 'check_http', 'ezid', 'genieo', 'meltwaternews', 'moreover', \n'scoutjet', 'seoscanners', 'hatena', 'google web preview', 'adscanner', \n'netvibes', 'baidu-yunguance', 'btwebclient', 'disqus', 'feedly', 'fever', \n'flamingo_searchengine', 'flipboardproxy', 'g2 web services', 'vkshare', \n'siteimprove.com', 'dareboost', 'feedspot', 'seokicks', 'tracemyfile', \n'zgrab', 'pr-cy.ru', 'datafeedwatch', 'zabbix', 'google-xrawler', 'axios', \n'amazon cloudfront', 'pulsepoint', 'cloudflare-alwaysonline', \n'google-structured-data-testing-tool', 'wordupinfosearch', 'webdatastats', \n'httpurlconnection', 'outbrain', 'w3c_validator', 'w3c-checklink', \n'w3c-mobileok', 'w3c_i18n-checker', 'feedvalidator', 'w3c_css_validator', \n'w3c_unicorn', 'google-physicalweb', 'blackboard', 'bazqux', 'twingly', \n'rivva', 'dataprovider.com', 'theoldreader.com', 'anyevent', \n'nmap scripting engine', '2ip.ru', 'clickagy', 'google favicon', \n'hubspot', 'chrome-lighthouse', 'headlesschrome', 'simplescraper', \n'fedoraplanet', 'friendica', 'nextcloud', 'tiny tiny rss', 'datanyze', \n'google-site-verification', 'trendsmapresolver', 'tweetedtimes', 'gwene', \n'simplepie', 'searchatlas', 'superfeedr', 'freewebmonitoring sitechecker', \n'pandalytics', 'seewithkids', 'cincraw', 'freshrss', 'google-certificates-bridge', \n'viber', 'evc-batch', 'virustotal', 'uptime-kuma', 'feedbin', \n'snap url preview service', 'ruxitsynthetic', 'google-read-aloud', \n'mediapartners', 'wget', 'wget', 'ahrefsgot', 'ahrefssiteaudit', \n'wesee:search', 'y!j', 'collection@infegy.com', 'deusu', 'bingpreview', \n'daum', 'pingdom', 'barkrowler', 'yak', 'ning', 'ahc', 'apache-httpclient', \n'buck', 'newspaper', 'sentry', 'fetch', 'miniflux', 'validator.nu', \n'grouphigh', 'checkmarknetwork', 'www.uptime.com', 'mixnodecache', \n'domains project', 'pagepeeker', 'vigil', 'php-curl-class', 'ptst',\n'seostar.co']\n\nlet userAgentProperty := inputs.userAgent\n\n// Check if user agent property exists in event\n// We treat missing user agent as bot traffic\nif (empty(event.properties[userAgentProperty])) {\n    return null\n}\n\n// Get the user agent value\nlet user_agent := event.properties[userAgentProperty]\n\n// Check for empty string\n// We treat empty user agent as bot traffic\nif (user_agent == '') {\n    return null\n}\n\n// Now that we know we have a valid user agent, convert to lower case\nuser_agent := lower(user_agent)\n\n// Handle custom bot patterns\nlet bot_list := known_bot_filter_list\nif (notEmpty(inputs.customBotPatterns)) {\n    let custom_patterns := splitByString(',', inputs.customBotPatterns)\n    // Add each custom pattern to the list\n    for (let pattern in custom_patterns) {\n        bot_list := arrayPushBack(bot_list, trim(pattern))\n    }\n}\n\n// Function to check if user agent contains any bot identifier\nfun isBot(ua) {\n    for (let bot_name in bot_list) {\n        if (ua =~* bot_name) {\n            return true\n        }\n    }\n    return false\n}\n\n// If bot is detected, return null to filter out the event\n// Otherwise return the original event\nif (isBot(user_agent)) {\n    return null\n}\n\nreturn event",
+        "inputs_schema": [
+            {
+                "key": "userAgent",
+                "type": "string",
+                "label": "User Agent Property",
+                "description": "The property that contains the user agent string (e.g. $raw_user_agent, $useragent)",
+                "default": "$raw_user_agent",
+                "secret": false,
+                "required": true
+            },
+            {
+                "key": "customBotPatterns",
+                "type": "string",
+                "label": "Custom Bot Patterns",
+                "description": "Additional bot patterns to detect, separated by commas (e.g. mybot,customcrawler)",
+                "default": "",
+                "secret": false,
+                "required": false
+            }
+        ],
+        "category": ["Custom"],
+        "description": "Filters out events from known bot user agents. This transformation will drop the event if a bot is detected.",
+        "filters": null,
+        "masking": null,
+        "icon_url": "/static/hedgehog/builder-hog-01.png"
+    },
+    {
+        "status": "stable",
+        "free": true,
+        "type": "transformation",
+        "id": "plugin-downsampling-plugin",
+        "name": "Downsample",
+        "code_language": "hog",
+        "code": "return event",
+        "inputs_schema": [
+            {
+                "type": "string",
+                "templating": false,
+                "key": "percentage",
+                "label": "% of events to keep",
+                "default": "100",
+                "required": false
+            },
+            {
+                "type": "choice",
+                "templating": false,
+                "key": "samplingMethod",
+                "label": "Sampling method",
+                "choices": [
+                    {
+                        "value": "Random sampling",
+                        "label": "Random sampling"
+                    },
+                    {
+                        "value": "Distinct ID aware sampling",
+                        "label": "Distinct ID aware sampling"
+                    }
+                ],
+                "default": "Distinct ID aware sampling",
+                "required": false
+            },
+            {
+                "type": "string",
+                "templating": false,
+                "key": "triggeringEvents",
+                "description": "A comma-separated list of PostHog events you want to downsample (e.g.: '$identify,mycustomevent'). If empty, all events will be downsampled.",
+                "label": "Triggering events",
+                "default": "",
+                "required": false
+            }
+        ],
+        "category": ["Custom"],
+        "description": "Reduces event volume coming into PostHog",
+        "filters": null,
+        "masking": null,
+        "icon_url": "https://raw.githubusercontent.com/posthog/downsampling-plugin/main/logo.png"
+    },
+    {
+        "status": "stable",
+        "free": true,
+        "type": "transformation",
+        "id": "plugin-language-url-splitter-app",
+        "name": "Language URL stripper",
+        "code_language": "hog",
+        "code": "return event",
+        "inputs_schema": [
+            {
+                "key": "pattern",
+                "label": "Pattern",
+                "type": "string",
+                "default": "^/([a-z]{2})(?=/|#|\\?|$)",
+                "description": "Ininitalized with `const regexp = new RegExp($pattern)`",
+                "required": true,
+                "templating": false
+            },
+            {
+                "key": "matchGroup",
+                "label": "Match group",
+                "type": "string",
+                "default": "1",
+                "description": "Used in: `const value = regexp.match($pathname)[$matchGroup]`",
+                "required": true,
+                "templating": false
+            },
+            {
+                "key": "property",
+                "label": "Property",
+                "type": "string",
+                "default": "locale",
+                "description": "Name of the event property we will store the matched value in",
+                "required": true,
+                "templating": false
+            },
+            {
+                "key": "replacePattern",
+                "label": "Replacement pattern",
+                "type": "string",
+                "default": "^(/[a-z]{2})(/|(?=/|#|\\?|$))",
+                "description": "Initialized with `new RegExp($pattern)`, leave empty to disable path cleanup.",
+                "required": true,
+                "templating": false
+            },
+            {
+                "key": "replaceKey",
+                "label": "Replacement key",
+                "type": "string",
+                "default": "$pathname",
+                "description": "Where to store the updated path. Keep as `$pathname` to override.",
+                "required": true,
+                "templating": false
+            },
+            {
+                "key": "replaceValue",
+                "label": "Replacement value",
+                "type": "string",
+                "default": "/",
+                "description": "`properties[key] = $pathname.replace(pattern, value)`",
+                "required": true,
+                "templating": false
+            }
+        ],
+        "category": ["Transformation"],
+        "description": "Replace the language from the URL with a custom value",
+        "filters": null,
+        "masking": null,
+        "icon_url": "/static/hedgehog/builder-hog-01.png"
+    },
+    {
+        "status": "stable",
+        "free": true,
+        "type": "transformation",
+        "id": "plugin-posthog-app-url-parameters-to-event-properties",
+        "name": "URL parameters to event properties",
+        "code_language": "hog",
+        "code": "return event",
+        "inputs_schema": [
+            {
+                "key": "parameters",
+                "templating": false,
+                "label": "URL query parameters to convert",
+                "type": "string",
+                "default": "",
+                "description": "Comma separated list of URL query parameters to capture. Leaving this blank will capture nothing."
+            },
+            {
+                "key": "prefix",
+                "templating": false,
+                "label": "Prefix",
+                "type": "string",
+                "default": "",
+                "description": "Add a prefix to the property name e.g. set it to 'prefix_' to get followerId -\u003E prefix_followerId"
+            },
+            {
+                "key": "suffix",
+                "templating": false,
+                "label": "Suffix",
+                "type": "string",
+                "default": "",
+                "description": "Add a suffix to the property name e.g. set it to '_suffix' to get followerId -\u003E followerId_suffix"
+            },
+            {
+                "key": "ignoreCase",
+                "templating": false,
+                "label": "Ignore the case of URL parameters",
+                "type": "choice",
+                "choices": [
+                    {
+                        "value": "true",
+                        "label": "true"
+                    },
+                    {
+                        "value": "false",
+                        "label": "false"
+                    }
+                ],
+                "default": "false",
+                "description": "Ignores the case of parameters e.g. when set to true than followerId would match FollowerId, followerID, FoLlOwErId and similar"
+            },
+            {
+                "key": "setAsUserProperties",
+                "templating": false,
+                "label": "Add to user properties",
+                "type": "choice",
+                "choices": [
+                    {
+                        "value": "true",
+                        "label": "true"
+                    },
+                    {
+                        "value": "false",
+                        "label": "false"
+                    }
+                ],
+                "default": "false",
+                "description": "Additionally adds the property to the user properties"
+            },
+            {
+                "key": "setAsInitialUserProperties",
+                "templating": false,
+                "label": "Add to user initial properties",
+                "type": "choice",
+                "choices": [
+                    {
+                        "value": "true",
+                        "label": "true"
+                    },
+                    {
+                        "value": "false",
+                        "label": "false"
+                    }
+                ],
+                "default": "false",
+                "description": "Additionally adds the property to the user initial properties. This will add a prefix of 'initial_' before the already fully composed property e.g. initial_prefix_followerId_suffix"
+            },
+            {
+                "key": "alwaysJson",
+                "templating": false,
+                "label": "Always JSON stringify the property data",
+                "type": "choice",
+                "choices": [
+                    {
+                        "value": "true",
+                        "label": "true"
+                    },
+                    {
+                        "value": "false",
+                        "label": "false"
+                    }
+                ],
+                "default": "false",
+                "description": "If set, always store the resulting data as a JSON array. (Otherwise, single parameters get stored as-is, and multi-value parameters get stored as a JSON array.)"
+            }
+        ],
+        "category": ["Transformation"],
+        "description": "Converts URL query parameters to event properties",
+        "filters": null,
+        "masking": null,
+        "icon_url": "https://raw.githubusercontent.com/posthog/posthog-app-url-parameters-to-event-properties/main/logo.png"
+    },
+    {
+        "status": "stable",
+        "free": true,
+        "type": "transformation",
+        "id": "plugin-posthog-filter-out-plugin",
+        "name": "Filter Out Plugin",
+        "code_language": "hog",
+        "code": "return event",
+        "inputs_schema": [
+            {
+                "key": "filters",
+                "templating": false,
+                "label": "Filters to apply",
+                "type": "json",
+                "description": "A JSON file containing an array of filters to apply. See the README for more information.",
+                "required": false
+            },
+            {
+                "key": "eventsToDrop",
+                "templating": false,
+                "label": "Events to filter out",
+                "type": "string",
+                "description": "A comma-separated list of event names to filter out (e.g. $pageview,$autocapture)",
+                "required": false
+            },
+            {
+                "key": "keepUndefinedProperties",
+                "templating": false,
+                "label": "Keep event if any of the filtered properties are undefined?",
+                "type": "choice",
+                "choices": [
+                    {
+                        "value": "Yes",
+                        "label": "Yes"
+                    },
+                    {
+                        "value": "No",
+                        "label": "No"
+                    }
+                ],
+                "default": "No"
+            }
+        ],
+        "category": ["Transformation"],
+        "description": "Filter out events where property values satisfy the given condition",
+        "filters": null,
+        "masking": null,
+        "icon_url": "https://raw.githubusercontent.com/posthog/posthog-filter-out-plugin/main/logo.png"
+    },
+    {
+        "status": "stable",
+        "free": true,
+        "type": "transformation",
+        "id": "plugin-posthog-plugin-geoip",
+        "name": "GeoIP",
+        "code_language": "hog",
+        "code": "return event",
+        "inputs_schema": [],
+        "category": ["Custom"],
+        "description": "Enrich events with GeoIP data",
+        "filters": null,
+        "masking": null,
+        "icon_url": "/static/transformations/geoip.png"
+    },
+    {
+        "status": "stable",
+        "free": true,
+        "type": "transformation",
+        "id": "plugin-posthog-url-normalizer-plugin",
+        "name": "URL Normalizer",
+        "code_language": "hog",
+        "code": "return event",
+        "inputs_schema": [],
+        "category": ["Transformation"],
+        "description": "Normalize the format of urls in your application allowing you to more easily compare them in insights.",
+        "filters": null,
+        "masking": null,
+        "icon_url": "https://raw.githubusercontent.com/posthog/posthog-url-normalizer-plugin/main/logo.png"
+    },
+    {
+        "status": "stable",
+        "free": true,
+        "type": "transformation",
+        "id": "plugin-property-filter-plugin",
+        "name": "Property Filter",
+        "code_language": "hog",
+        "code": "return event",
+        "inputs_schema": [
+            {
+                "templating": false,
+                "key": "properties",
+                "label": "Properties to filter out",
+                "type": "string",
+                "description": "A comma-separated list of properties to filter out (e.g. $ip, $current_url)",
+                "default": "",
+                "required": true
+            }
+        ],
+        "category": ["Transformation"],
+        "description": "This plugin will set all configured properties to null inside an ingested event.",
+        "filters": null,
+        "masking": null,
+        "icon_url": "https://raw.githubusercontent.com/posthog/property-filter-plugin/dev/logo.png"
+    },
+    {
+        "status": "stable",
+        "free": true,
+        "type": "transformation",
+        "id": "plugin-semver-flattener-plugin",
+        "name": "SemVer Flattener",
+        "code_language": "hog",
+        "code": "return event",
+        "inputs_schema": [
+            {
+                "key": "properties",
+                "templating": false,
+                "label": "comma separated properties to explode version number from",
+                "type": "string",
+                "description": "my_version_number,app_version",
+                "default": "",
+                "required": true
+            }
+        ],
+        "category": ["Transformation"],
+        "description": "This plugin will flatten semver versions in the specified properties.",
+        "filters": null,
+        "masking": null,
+        "icon_url": "/static/transformations/semver-flattener.png"
+    },
+    {
+        "status": "stable",
+        "free": true,
+        "type": "transformation",
+        "id": "plugin-taxonomy-plugin",
+        "code_language": "hog",
+        "name": "Taxonomy",
+        "code": "return event",
+        "inputs_schema": [
+            {
+                "key": "defaultNamingConvention",
+                "templating": false,
+                "label": "Select your default naming pattern",
+                "type": "choice",
+                "choices": [
+                    {
+                        "value": "camelCase",
+                        "label": "camelCase"
+                    },
+                    {
+                        "value": "PascalCase",
+                        "label": "PascalCase"
+                    },
+                    {
+                        "value": "snake_case",
+                        "label": "snake_case"
+                    },
+                    {
+                        "value": "kebab-case",
+                        "label": "kebab-case"
+                    },
+                    {
+                        "value": "spaces in between",
+                        "label": "spaces in between"
+                    }
+                ],
+                "default": "camelCase",
+                "required": true
+            }
+        ],
+        "category": ["Transformation"],
+        "description": "Standardize your event names into a single pattern.",
+        "filters": null,
+        "masking": null,
+        "icon_url": "https://raw.githubusercontent.com/posthog/taxonomy-plugin/main/logo.png"
+    },
+    {
+        "status": "stable",
+        "free": true,
+        "type": "transformation",
+        "id": "plugin-timestamp-parser-plugin",
+        "name": "Timestamp Parser",
+        "code_language": "hog",
+        "code": "return event",
+        "inputs_schema": [],
+        "category": ["Transformation"],
+        "description": "Parse your event timestamps into useful date properties.",
+        "filters": null,
+        "masking": null,
+        "icon_url": "https://raw.githubusercontent.com/posthog/timestamp-parser-plugin/main/logo.png"
+    },
+    {
+        "status": "stable",
+        "free": true,
+        "type": "transformation",
+        "id": "plugin-user-agent-plugin",
+        "code_language": "hog",
+        "name": "User Agent Populator",
+        "code": "return event",
+        "inputs_schema": [
+            {
+                "key": "overrideUserAgentDetails",
+                "templating": false,
+                "label": "Can override existing browser related properties of event?",
+                "type": "string",
+                "description": "If the ingested event already have $browser $browser_version properties in combination with $useragent the $browser, $browser_version properties will be re-populated with the value of $useragent",
+                "default": "false",
+                "required": false
+            },
+            {
+                "key": "enableSegmentAnalyticsJs",
+                "templating": false,
+                "label": "Automatically read segment_userAgent property, automatically sent by Segment via analytics.js?",
+                "type": "choice",
+                "description": "Segment's analytics.js library automatically sends a useragent property that Posthog sees as segment_userAgent. Enabling this causes this plugin to parse that property",
+                "choices": [
+                    {
+                        "value": "false",
+                        "label": "false"
+                    },
+                    {
+                        "value": "true",
+                        "label": "true"
+                    }
+                ],
+                "default": "false",
+                "required": false
+            },
+            {
+                "key": "debugMode",
+                "templating": false,
+                "type": "choice",
+                "description": "Enable debug mode to log when the plugin is unable to extract values from the user agent",
+                "choices": [
+                    {
+                        "value": "false",
+                        "label": "false"
+                    },
+                    {
+                        "value": "true",
+                        "label": "true"
+                    }
+                ],
+                "default": "false",
+                "required": false
+            }
+        ],
+        "category": ["Transformation"],
+        "description": "Enhances events with user agent details. User Agent plugin allows you to populate events with the $browser, $browser_version for PostHog Clients that don't  typically populate these properties",
+        "filters": null,
+        "masking": null,
+        "icon_url": "/static/transformations/user-agent.png"
+    }
+]

@@ -1,31 +1,34 @@
 import './FeatureFlagInstructions.scss'
 
+import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
 import { IconInfo } from '@posthog/icons'
 import { LemonCheckbox, LemonSelect, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { useEffect, useState } from 'react'
 
 import { groupsModel } from '~/models/groupsModel'
-import { FeatureFlagType, GroupTypeIndex } from '~/types'
+import { FeatureFlagType, GroupTypeIndex, SDKKey } from '~/types'
 
 import {
     BOOTSTRAPPING_OPTIONS,
     FF_ANCHOR,
     InstructionOption,
-    LibraryType,
-    LOCAL_EVAL_ANCHOR,
     LOCAL_EVALUATION_LIBRARIES,
+    LOCAL_EVAL_ANCHOR,
+    LibraryType,
     OPTIONS,
-    PAYLOAD_LIBRARIES,
     PAYLOADS_ANCHOR,
+    PAYLOAD_LIBRARIES,
+    REMOTE_CONFIGURATION_LIBRARIES,
 } from './FeatureFlagCodeOptions'
 
 function FeatureFlagInstructionsFooter({ documentationLink }: { documentationLink: string }): JSX.Element {
     return (
-        <div className="mt-4">
+        <div>
             Need more information?{' '}
             <Link data-attr="feature-flag-doc-link" target="_blank" to={documentationLink} targetBlankIcon>
                 Check the docs
@@ -39,6 +42,7 @@ export interface CodeInstructionsProps {
     selectedLanguage?: string
     featureFlag?: FeatureFlagType
     dataAttr?: string
+    showFlagValue?: boolean
     showLocalEval?: boolean
     showBootstrap?: boolean
     showAdvancedOptions?: boolean
@@ -55,12 +59,22 @@ export function CodeInstructions({
     showAdvancedOptions = true,
     showFooter = true,
 }: CodeInstructionsProps): JSX.Element {
-    const [defaultSelectedOption] = options
+    const encryptedPayload = featureFlag?.has_encrypted_payloads
+    const remoteConfiguration = featureFlag?.is_remote_configuration
+
+    const [defaultSelectedOption] = (remoteConfiguration
+        ? options.filter((option) => option.key === SDKKey.NODE_JS)
+        : options) || [options[0]]
+
     const [selectedOption, setSelectedOption] = useState(defaultSelectedOption)
     const [bootstrapOption, setBootstrapOption] = useState(BOOTSTRAPPING_OPTIONS[0])
-    const [showPayloadCode, setShowPayloadCode] = useState(Object.keys(featureFlag?.filters.payloads || {}).length > 0)
+    const [showPayloadCode, setShowPayloadCode] = useState(
+        featureFlag?.is_remote_configuration || Object.keys(featureFlag?.filters.payloads || {}).length > 0
+    )
     const [showLocalEvalCode, setShowLocalEvalCode] = useState(showLocalEval)
     const [showBootstrapCode, setShowBootstrapCode] = useState(showBootstrap)
+
+    const showFlagValueCode = !featureFlag?.is_remote_configuration
 
     const multivariantFlag = !!featureFlag?.filters.multivariate?.variants
 
@@ -115,17 +129,19 @@ export function CodeInstructions({
             setShowBootstrapCode(false)
         }
     }
+
     useEffect(() => {
         if (selectedLanguage) {
             selectOption(selectedLanguage)
         } else {
             // When flag definition changes, de-select any options that can't be selected anymore
-            selectOption(selectedOption.key)
+            selectOption(defaultSelectedOption.key)
         }
 
         if (
-            Object.keys(featureFlag?.filters.payloads || {}).length > 0 &&
-            Object.values(featureFlag?.filters.payloads || {}).some((value) => value)
+            featureFlag?.is_remote_configuration ||
+            (Object.keys(featureFlag?.filters.payloads || {}).length > 0 &&
+                Object.values(featureFlag?.filters.payloads || {}).some((value) => value))
         ) {
             setShowPayloadCode(true)
         } else {
@@ -135,7 +151,7 @@ export function CodeInstructions({
         if (featureFlag?.ensure_experience_continuity) {
             setShowLocalEvalCode(false)
         }
-    }, [selectedLanguage, featureFlag])
+    }, [selectedLanguage, featureFlag]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const groups = featureFlag?.filters?.groups || []
     // return first non-instant property in group
@@ -149,35 +165,62 @@ export function CodeInstructions({
 
     const randomProperty = groups.find((group) => group.properties?.length)?.properties?.[0]?.key
 
+    const allFlagLibraries = [
+        {
+            title: 'Client libraries',
+            options: OPTIONS.filter((option) => option.type == LibraryType.Client).map((option) => ({
+                value: option.key,
+                label: option.value,
+                'data-attr': `feature-flag-instructions-select-option-${option.key}`,
+                labelInMenu: (
+                    <div className="flex items-center deprecated-space-x-2">
+                        <option.Icon />
+                        <span>{option.value}</span>
+                    </div>
+                ),
+            })),
+        },
+        {
+            title: 'Server libraries',
+            options: OPTIONS.filter((option) => option.type == LibraryType.Server).map((option) => ({
+                value: option.key,
+                label: option.value,
+                'data-attr': `feature-flag-instructions-select-option-${option.key}`,
+                labelInMenu: (
+                    <div className="flex items-center deprecated-space-x-2">
+                        <option.Icon />
+                        <span>{option.value}</span>
+                    </div>
+                ),
+            })),
+        },
+    ]
+    const remoteConfigurationLibraries = [
+        {
+            title: 'Server libraries',
+            options: OPTIONS.filter((option) => REMOTE_CONFIGURATION_LIBRARIES.includes(option.key)).map((option) => ({
+                value: option.key,
+                label: option.value,
+                'data-attr': `feature-flag-instructions-select-option-${option.key}`,
+                labelInMenu: (
+                    <div className="flex items-center deprecated-space-x-2">
+                        <option.Icon />
+                        <span>{option.value}</span>
+                    </div>
+                ),
+            })),
+        },
+    ]
+    const supportedLibraries = remoteConfiguration ? remoteConfigurationLibraries : allFlagLibraries
+
     return (
-        <div>
+        <div className="flex flex-col gap-4">
             {showAdvancedOptions && (
                 <div className="flex items-center gap-6">
                     <div>
                         <LemonSelect
                             data-attr={'feature-flag-instructions-select' + (dataAttr ? `-${dataAttr}` : '')}
-                            options={[
-                                {
-                                    title: 'Client libraries',
-                                    options: OPTIONS.filter((option) => option.type == LibraryType.Client).map(
-                                        (option) => ({
-                                            value: option.key,
-                                            label: option.value,
-                                            'data-attr': `feature-flag-instructions-select-option-${option.key}`,
-                                        })
-                                    ),
-                                },
-                                {
-                                    title: 'Server libraries',
-                                    options: OPTIONS.filter((option) => option.type == LibraryType.Server).map(
-                                        (option) => ({
-                                            value: option.key,
-                                            label: option.value,
-                                            'data-attr': `feature-flag-instructions-select-option-${option.key}`,
-                                        })
-                                    ),
-                                },
-                            ]}
+                            options={supportedLibraries}
                             onChange={(val) => {
                                 if (val) {
                                     selectOption(val)
@@ -203,13 +246,13 @@ export function CodeInstructions({
                                 checked={showPayloadCode}
                                 disabled={!PAYLOAD_LIBRARIES.includes(selectedOption.key)}
                             />
-                            <IconInfo className="text-xl text-muted-alt shrink-0" />
+                            <IconInfo className="text-xl text-secondary shrink-0" />
                         </div>
                     </Tooltip>
                     <>
                         <Tooltip
                             title="Bootstrapping is only available client side in our JavaScript and React Native
-                                libraries."
+                                libraries and only works for flags that don't persist across authentication steps"
                         >
                             <div className="flex items-center gap-1">
                                 <LemonCheckbox
@@ -225,13 +268,10 @@ export function CodeInstructions({
                                         !!featureFlag?.ensure_experience_continuity
                                     }
                                 />
-                                <IconInfo className="text-xl text-muted-alt shrink-0" />
+                                <IconInfo className="text-xl text-secondary shrink-0" />
                             </div>
                         </Tooltip>
-                        <Tooltip
-                            title="Local evaluation is only available in server side libraries and without flag
-                                persistence."
-                        >
+                        <Tooltip title="Local evaluation is only available in server side libraries and only works for flags that don't persist across authentication steps">
                             <div className="flex items-center gap-1">
                                 <LemonCheckbox
                                     label="Show local evaluation option"
@@ -242,22 +282,23 @@ export function CodeInstructions({
                                         reportFlagsCodeExampleInteraction('local evaluation')
                                     }}
                                     disabled={
+                                        remoteConfiguration ||
                                         !LOCAL_EVALUATION_LIBRARIES.includes(selectedOption.key) ||
                                         !!featureFlag?.ensure_experience_continuity
                                     }
                                 />
-                                <IconInfo className="text-xl text-muted-alt shrink-0" />
+                                <IconInfo className="text-xl text-secondary shrink-0" />
                             </div>
                         </Tooltip>
                     </>
                 </div>
             )}
-            <div className="mt-4 mb">
-                {showLocalEvalCode && (
-                    <>
-                        <h4 className="l4">Local evaluation</h4>
-                    </>
-                )}
+            {showLocalEvalCode && (
+                <>
+                    <h4 className="l4">Local evaluation</h4>
+                </>
+            )}
+            {showFlagValueCode && (
                 <selectedOption.Snippet
                     data-attr="feature-flag-instructions-snippet"
                     flagKey={featureFlagKey}
@@ -267,27 +308,29 @@ export function CodeInstructions({
                     instantlyAvailableProperties={!firstNonInstantProperty}
                     samplePropertyName={firstNonInstantProperty || randomProperty}
                 />
-                {showPayloadCode && (
-                    <>
-                        <h4 className="l4">Payload</h4>
-                        <selectedOption.Snippet
-                            data-attr="feature-flag-instructions-payload-snippet"
-                            flagKey={featureFlagKey}
-                            multivariant={multivariantFlag}
-                            groupType={groupType}
-                            localEvaluation={showLocalEvalCode}
-                            payload={true}
-                        />
-                    </>
-                )}
-                {showBootstrapCode && (
-                    <>
-                        <h4 className="l4">Bootstrap</h4>
-                        <bootstrapOption.Snippet flagKey={featureFlagKey} />
-                    </>
-                )}
-                {showFooter && <FeatureFlagInstructionsFooter documentationLink={getDocumentationLink()} />}
-            </div>
+            )}
+            {showPayloadCode && (
+                <>
+                    <h4 className="l4">Payload</h4>
+                    <selectedOption.Snippet
+                        data-attr="feature-flag-instructions-payload-snippet"
+                        flagKey={featureFlagKey}
+                        multivariant={multivariantFlag}
+                        groupType={groupType}
+                        localEvaluation={showLocalEvalCode}
+                        payload={true}
+                        remoteConfiguration={remoteConfiguration}
+                        encryptedPayload={encryptedPayload}
+                    />
+                </>
+            )}
+            {showBootstrapCode && (
+                <>
+                    <h4 className="l4">Bootstrap</h4>
+                    <bootstrapOption.Snippet flagKey={featureFlagKey} />
+                </>
+            )}
+            {showFooter && <FeatureFlagInstructionsFooter documentationLink={getDocumentationLink()} />}
             <div />
         </div>
     )

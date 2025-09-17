@@ -1,18 +1,16 @@
+import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from string import ascii_lowercase
 from typing import Any, Literal, Optional, Union
+
+from posthog.test.base import APIBaseTest, also_test_with_materialized_columns, snapshot_clickhouse_queries
 
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
 from posthog.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
-from posthog.test.base import (
-    APIBaseTest,
-    also_test_with_materialized_columns,
-    snapshot_clickhouse_queries,
-)
 from posthog.test.test_journeys import journeys_for
 
 
@@ -2642,6 +2640,52 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             self.assertEqual(len(result), 2)
 
             self.assertCountEqual([res[0]["breakdown"] for res in result], [["Mac"], ["Safari"]])
+
+        def test_funnel_personless_events_are_supported_with_breakdown(self):
+            personless_user = uuid.uuid4()
+            _create_event(
+                event="user signed up",
+                distinct_id=personless_user,
+                person_id=personless_user,
+                properties={"cohort": "A"},
+                team=self.team,
+            )
+            _create_event(
+                event="added to cart",
+                distinct_id=personless_user,
+                person_id=personless_user,
+                properties={"cohort": "A"},
+                team=self.team,
+            )
+
+            filters = {
+                "events": [
+                    {
+                        "type": "events",
+                        "id": "user signed up",
+                        "order": 0,
+                        "name": "user signed up",
+                        "math": "total",
+                    },
+                    {
+                        "type": "events",
+                        "id": "added to cart",
+                        "order": 1,
+                        "name": "added to cart",
+                        "math": "total",
+                    },
+                ],
+                "funnel_window_days": 14,
+                "breakdown_value": ["cohort"],
+                "breakdown": "event",
+            }
+
+            filter = Filter(data=filters)
+            funnel = Funnel(filter, self.team)
+            result = funnel.run()
+            self.assertEqual(len(result), 1)
+            self.assertEqual(result[0][0]["count"], 1)
+            self.assertEqual(result[0][1]["count"], 1)
 
     return TestFunnelBreakdown
 

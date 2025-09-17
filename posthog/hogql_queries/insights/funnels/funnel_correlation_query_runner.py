@@ -1,46 +1,53 @@
 import dataclasses
-from typing import Literal, Optional, Any, TypedDict, cast
+from typing import Any, Literal, Optional, TypedDict, cast
 
-from posthog.constants import AUTOCAPTURE_EVENT
-from posthog.hogql.parser import parse_select
-from posthog.hogql.property import property_to_expr
-from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
-from posthog.hogql_queries.insights.funnels.funnel_persons import FunnelActors
-from posthog.hogql_queries.insights.funnels.funnel_strict_persons import FunnelStrictActors
-from posthog.hogql_queries.insights.funnels.funnel_unordered_persons import FunnelUnorderedActors
-from posthog.models.action.action import Action
-from posthog.models.element.element import chain_to_elements
-from posthog.models.event.util import ElementSerializer
 from rest_framework.exceptions import ValidationError
 
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.printer import to_printed_hogql
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
-from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql, get_funnel_actor_class
-from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.models import Team
-from posthog.models.property.util import get_property_string_expr
-from posthog.queries.util import correct_result_for_sampling
 from posthog.schema import (
     ActionsNode,
+    CachedFunnelCorrelationResponse,
     CorrelationType,
     EventDefinition,
+    EventOddsRatioSerialized,
     EventsNode,
     FunnelCorrelationActorsQuery,
     FunnelCorrelationQuery,
     FunnelCorrelationResponse,
-    CachedFunnelCorrelationResponse,
     FunnelCorrelationResult,
     FunnelCorrelationResultsType,
     FunnelsActorsQuery,
     FunnelsQuery,
     HogQLQueryModifiers,
     HogQLQueryResponse,
-    EventOddsRatioSerialized,
 )
+
+from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import to_printed_hogql
+from posthog.hogql.property import property_to_expr
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.timings import HogQLTimings
+
+from posthog.constants import AUTOCAPTURE_EVENT
+from posthog.hogql_queries.insights.funnels import FunnelUDF
+from posthog.hogql_queries.insights.funnels.funnel_event_query import FunnelEventQuery
+from posthog.hogql_queries.insights.funnels.funnel_persons import FunnelActors
+from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.hogql_queries.insights.funnels.funnel_strict_actors import FunnelStrictActors
+from posthog.hogql_queries.insights.funnels.funnel_unordered_actors import FunnelUnorderedActors
+from posthog.hogql_queries.insights.funnels.utils import (
+    funnel_window_interval_unit_to_sql,
+    get_funnel_actor_class,
+    use_udf,
+)
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.models import Team
+from posthog.models.action.action import Action
+from posthog.models.element.element import chain_to_elements
+from posthog.models.event.util import ElementSerializer
+from posthog.models.property.util import get_property_string_expr
+from posthog.queries.util import correct_result_for_sampling
 
 
 class EventOddsRatio(TypedDict):
@@ -78,7 +85,7 @@ class EventContingencyTable:
 PRIOR_COUNT = 1
 
 
-class FunnelCorrelationQueryRunner(QueryRunner):
+class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationResponse]):
     TOTAL_IDENTIFIER = "Total_Values_In_Query"
     ELEMENTS_DIVIDER = "__~~__"
     AUTOCAPTURE_EVENT_TYPE = "$event_type"
@@ -86,14 +93,13 @@ class FunnelCorrelationQueryRunner(QueryRunner):
     MIN_PERSON_PERCENTAGE = 0.02
 
     query: FunnelCorrelationQuery
-    response: FunnelCorrelationResponse
     cached_response: CachedFunnelCorrelationResponse
 
     funnels_query: FunnelsQuery
     actors_query: FunnelsActorsQuery
     correlation_actors_query: Optional[FunnelCorrelationActorsQuery]
 
-    _funnel_actors_generator: FunnelActors | FunnelStrictActors | FunnelUnorderedActors
+    _funnel_actors_generator: FunnelActors | FunnelStrictActors | FunnelUnorderedActors | FunnelUDF
 
     def __init__(
         self,
@@ -132,13 +138,15 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         self.context.actorsQuery = self.actors_query
 
         # Used for generating the funnel persons cte
-        funnel_order_actor_class = get_funnel_actor_class(self.context.funnelsFilter)(context=self.context)
+        funnel_order_actor_class = get_funnel_actor_class(
+            self.context.funnelsFilter, use_udf(self.context.funnelsFilter, self.team)
+        )(context=self.context)
         assert isinstance(
-            funnel_order_actor_class, FunnelActors | FunnelStrictActors | FunnelUnorderedActors
+            funnel_order_actor_class, FunnelActors | FunnelStrictActors | FunnelUnorderedActors | FunnelUDF
         )  # for typings
         self._funnel_actors_generator = funnel_order_actor_class
 
-    def calculate(self) -> FunnelCorrelationResponse:
+    def _calculate(self) -> FunnelCorrelationResponse:
         """
         Funnel Correlation queries take as input the same as the funnel query,
         and returns the correlation of person events with a person successfully
@@ -207,7 +215,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
                 results=FunnelCorrelationResult(events=[], skewed=False), modifiers=self.modifiers
             )
 
-        events, skewed_totals, hogql, response = self._calculate()
+        events, skewed_totals, hogql, response = self._calculate_internal()
 
         return FunnelCorrelationResponse(
             results=FunnelCorrelationResult(
@@ -224,7 +232,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
             modifiers=self.modifiers,
         )
 
-    def _calculate(self) -> tuple[list[EventOddsRatio], bool, str, HogQLQueryResponse]:
+    def _calculate_internal(self) -> tuple[list[EventOddsRatio], bool, str, HogQLQueryResponse]:
         query = self.to_query()
 
         hogql = to_printed_hogql(query, self.team)
@@ -325,7 +333,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
         return EventDefinition(event=event, properties={}, elements=[])
 
-    def to_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         """
         Returns a query string and params, which are used to generate the contingency table.
         The query returns success and failure count for event / property values, along with total success and failure counts.
@@ -338,7 +346,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
         return self.get_event_query()
 
-    def to_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def to_actors_query(self) -> ast.SelectQuery:
         assert self.correlation_actors_query is not None
 
         if self.query.funnelCorrelationType == FunnelCorrelationResultsType.PROPERTIES:
@@ -355,7 +363,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         else:
             return self.events_actor_query()
 
-    def events_actor_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def events_actor_query(self) -> ast.SelectQuery:
         assert self.correlation_actors_query is not None
 
         if not self.correlation_actors_query.funnelCorrelationPersonEntity:
@@ -414,9 +422,9 @@ class FunnelCorrelationQueryRunner(QueryRunner):
                 "date_to": date_to,
             },
         )
+        assert isinstance(query, ast.SelectQuery)
 
         if prop_query:
-            assert isinstance(query, ast.SelectQuery)
             assert isinstance(query.where, ast.And)
             query.where.exprs = [*query.where.exprs, prop_query]
 
@@ -424,7 +432,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
     def properties_actor_query(
         self,
-    ) -> ast.SelectQuery | ast.SelectUnionQuery:
+    ) -> ast.SelectQuery:
         assert self.correlation_actors_query is not None
 
         if not self.correlation_actors_query.funnelCorrelationPropertyValues:
@@ -460,10 +468,11 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         """,
             placeholders={"funnel_persons_query": funnel_persons_query},
         )
+        assert isinstance(query, ast.SelectQuery)
 
         return query
 
-    def get_event_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def get_event_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         funnel_persons_query = self.get_funnel_actors_cte()
         event_join_query = self._get_events_join_query()
         target_step = self.context.max_steps
@@ -541,7 +550,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
         return event_correlation_query
 
-    def get_event_property_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def get_event_property_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         if not self.query.funnelCorrelationEventNames:
             raise ValidationError("Event Property Correlation expects atleast one event name to run correlation on")
 
@@ -598,7 +607,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
                     {event_join_query}
                     AND event.event IN {event_names}
             )
-            GROUP BY name
+            GROUP BY name, prop
             -- Discard high cardinality / low hits properties
             -- This removes the long tail of random properties with empty, null, or very small values
             HAVING (success_count + failure_count) > 2
@@ -639,7 +648,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
 
         return query
 
-    def get_properties_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def get_properties_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         if not self.query.funnelCorrelationNames:
             raise ValidationError("Property Correlation expects atleast one Property to run correlation on")
 
@@ -823,7 +832,7 @@ class FunnelCorrelationQueryRunner(QueryRunner):
         events: set[str] = set()
         for entity in self.funnels_query.series:
             if isinstance(entity, ActionsNode):
-                action = Action.objects.get(pk=int(entity.id), team=self.context.team)
+                action = Action.objects.get(pk=int(entity.id), team__project_id=self.context.team.project_id)
                 events.update([x for x in action.get_step_events() if x])
             elif isinstance(entity, EventsNode):
                 if entity.event is not None:

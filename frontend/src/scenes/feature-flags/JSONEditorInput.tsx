@@ -1,7 +1,8 @@
 import './JSONEditorInput.scss'
 
-import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { useState } from 'react'
+
+import { CodeEditor } from 'lib/monaco/CodeEditor'
 
 import { JsonType } from '~/types'
 
@@ -71,7 +72,7 @@ export function JSONEditorInput({
                     lineDecorationsWidth: 0,
                     lineNumbersMinChars: 0,
                     renderLineHighlight: 'none',
-                    cursorStyle: 'block-outline',
+                    cursorStyle: 'line',
                     scrollBeyondLastLine: false,
                     quickSuggestions: false,
                     contextmenu: false,

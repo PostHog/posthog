@@ -1,4 +1,5 @@
 import { Link } from '@posthog/lemon-ui'
+
 import { isExternalLink } from 'lib/utils'
 
 export function Property({ value }: { value: any }): JSX.Element {

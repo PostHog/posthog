@@ -2,10 +2,12 @@ import { createRef, useEffect, useRef, useState } from 'react'
 
 export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I extends HTMLElement = HTMLElement>(
     itemCount: number,
-    activeItemIndex: number = -1
+    activeItemIndex: number = -1,
+    { enabled = true } = {}
 ): {
     referenceRef: React.RefObject<R>
     itemsRef: React.RefObject<React.RefObject<I>[]>
+    options?: { enabled: boolean }
 } {
     const [focusedItemIndex, setFocusedItemIndex] = useState(activeItemIndex)
     const referenceRef = useRef<R>(null)
@@ -24,6 +26,10 @@ export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I ext
     }
 
     useEffect(() => {
+        if (!enabled) {
+            return
+        }
+
         const handleKeyDown = (e: KeyboardEvent): void => {
             if (e.key === 'ArrowDown') {
                 if (focusedItemIndex < itemCount - 1) {
@@ -50,7 +56,7 @@ export function useKeyboardNavigation<R extends HTMLElement = HTMLElement, I ext
                 item?.current?.removeEventListener('keydown', handleKeyDown)
             }
         }
-    }, [focusedItemIndex, itemCount])
+    }, [focusedItemIndex, itemCount, enabled])
 
     return { referenceRef, itemsRef }
 }

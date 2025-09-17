@@ -1,7 +1,11 @@
-from typing import cast, Optional, Self
+from typing import Optional, Self, cast
+
 import posthoganalytics
 
-from posthog.hogql.ast import SelectQuery, And, CompareOperation, CompareOperationOp, Field, JoinExpr
+from posthog.schema import PersonsArgMaxVersion
+
+from posthog.hogql import ast
+from posthog.hogql.ast import And, CompareOperation, CompareOperationOp, Field, JoinExpr, SelectQuery
 from posthog.hogql.base import Expr
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
@@ -9,33 +13,43 @@ from posthog.hogql.database.argmax import argmax_select
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateTimeDatabaseField,
-    IntegerDatabaseField,
-    LazyTable,
-    LazyJoin,
     FieldOrTable,
-    LazyTableToAdd,
+    IntegerDatabaseField,
+    LazyJoin,
     LazyJoinToAdd,
+    LazyTable,
+    LazyTableToAdd,
     StringDatabaseField,
     StringJSONDatabaseField,
     Table,
 )
-from posthog.hogql.database.schema.util.where_clause_extractor import WhereClauseExtractor
 from posthog.hogql.database.schema.persons_pdi import PersonsPDITable, persons_pdi_join
+from posthog.hogql.database.schema.persons_revenue_analytics import (
+    PersonsRevenueAnalyticsTable,
+    join_with_persons_revenue_analytics_table,
+)
+from posthog.hogql.database.schema.util.where_clause_extractor import WhereClauseExtractor
 from posthog.hogql.errors import ResolutionError
-from posthog.hogql.visitor import clone_expr
+from posthog.hogql.parser import parse_select
+from posthog.hogql.visitor import CloningVisitor, clone_expr
+
 from posthog.models.organization import Organization
-from posthog.schema import PersonsArgMaxVersion
 
 PERSONS_FIELDS: dict[str, FieldOrTable] = {
-    "id": StringDatabaseField(name="id"),
-    "created_at": DateTimeDatabaseField(name="created_at"),
-    "team_id": IntegerDatabaseField(name="team_id"),
-    "properties": StringJSONDatabaseField(name="properties"),
-    "is_identified": BooleanDatabaseField(name="is_identified"),
+    "id": StringDatabaseField(name="id", nullable=False),
+    "created_at": DateTimeDatabaseField(name="created_at", nullable=False),
+    "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+    "properties": StringJSONDatabaseField(name="properties", nullable=False),
+    "is_identified": BooleanDatabaseField(name="is_identified", nullable=False),
     "pdi": LazyJoin(
         from_field=["id"],
         join_table=PersonsPDITable(),
         join_function=persons_pdi_join,
+    ),
+    "revenue_analytics": LazyJoin(
+        from_field=["id"],
+        join_table=PersonsRevenueAnalyticsTable(),
+        join_function=join_with_persons_revenue_analytics_table,
     ),
 }
 
@@ -56,10 +70,47 @@ def select_from_persons_table(
                 version = PersonsArgMaxVersion.V2
                 break
 
-    if version == PersonsArgMaxVersion.V2:
-        from posthog.hogql import ast
-        from posthog.hogql.parser import parse_select
+    and_conditions = []
 
+    if filter is not None:
+        and_conditions.append(filter)
+
+    # For now, only do this optimization for directly querying the persons table (without joins or as part of a subquery) to avoid knock-on effects to insight queries
+    if (
+        node.select_from
+        and node.select_from.type
+        and hasattr(node.select_from.type, "table")
+        and node.select_from.type.table
+        and isinstance(node.select_from.type.table, PersonsTable)
+    ):
+        extractor = WhereClauseExtractor(context)
+        extractor.add_local_tables(join_or_table)
+        where = extractor.get_inner_where(node)
+        if where:
+            select = argmax_select(
+                table_name="raw_persons",
+                select_fields=join_or_table.fields_accessed,
+                group_fields=["id"],
+                argmax_field="version",
+                deleted_field="is_deleted",
+                timestamp_field_to_clamp="created_at",
+            )
+            inner_select = cast(
+                ast.SelectQuery,
+                parse_select(
+                    """
+                SELECT id FROM raw_persons as where_optimization
+                """
+                ),
+            )
+
+            inner_select.where = where
+            select.where = ast.CompareOperation(
+                left=ast.Field(chain=["id"]), right=inner_select, op=ast.CompareOperationOp.In
+            )
+            return select
+
+    if version == PersonsArgMaxVersion.V2:
         select = cast(
             ast.SelectQuery,
             parse_select(
@@ -77,6 +128,36 @@ def select_from_persons_table(
         select.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
         if filter is not None:
             cast(ast.SelectQuery, cast(ast.CompareOperation, select.where).right).where = filter
+
+        # START order_by/limit optimization.
+        # only apply this to queries that directly select from the persons table
+        if (
+            node.select_from
+            and node.select_from.type
+            and hasattr(node.select_from.type, "table")
+            and node.select_from.type.table
+            and isinstance(node.select_from.type.table, PersonsTable)
+            and not node.group_by  # TODO: support group_by
+        ):
+            compare = cast(ast.CompareOperation, select.where)
+            right_select = cast(ast.SelectQuery, compare.right)
+            if node.order_by:
+                right_select.order_by = [CloningVisitor(clear_locations=True).visit(x) for x in node.order_by]
+                for order_by in right_select.order_by:
+                    order_by.expr = ast.Call(
+                        name="argMax", args=[order_by.expr, ast.Field(chain=["raw_persons", "version"])]
+                    )
+
+            # Patch: push limit+offset+1 to inner subquery for correct pagination, always set offset=0
+            if node.limit:
+                node_limit = cast(ast.Constant, node.limit)
+                node_offset = cast(ast.Constant, node.offset)
+                effective_limit = (
+                    (node_limit.value if node.limit else 100) + (node_offset.value if node.offset else 0) + 1
+                )
+                right_select.limit = ast.Constant(value=effective_limit)
+                right_select.offset = ast.Constant(value=0)
+                # Do NOT set node.limit/node.offset directly, outer paginator will slice results
 
         for field_name, field_chain in join_or_table.fields_accessed.items():
             # We need to always select the 'id' field for the join constraint. The field name here is likely to
@@ -127,7 +208,9 @@ def join_with_persons_table(
         raise ResolutionError("No fields requested from persons table")
     join_expr = ast.JoinExpr(table=select_from_persons_table(join_to_add, context, node))
 
-    organization: Organization = context.team.organization if context.team else None
+    organization: Organization | None = context.team.organization if context.team else None
+    if organization is None:
+        raise ResolutionError("Organization is required to join with persons table")
     # TODO: @raquelmsmith: Remove flag check and use left join for all once deletes are caught up
     use_inner_join = (
         posthoganalytics.feature_enabled(
@@ -166,8 +249,8 @@ def join_with_persons_table(
 class RawPersonsTable(Table):
     fields: dict[str, FieldOrTable] = {
         **PERSONS_FIELDS,
-        "is_deleted": BooleanDatabaseField(name="is_deleted"),
-        "version": IntegerDatabaseField(name="version"),
+        "is_deleted": BooleanDatabaseField(name="is_deleted", nullable=False),
+        "version": IntegerDatabaseField(name="version", nullable=False),
     }
 
     def to_printed_clickhouse(self, context):

@@ -1,0 +1,136 @@
+{
+    "cache_key": "cache_45966824ea3b544a71ffd2c42c0d1f13",
+    "cache_target_age": "2024-11-18T15:55:21.813741Z",
+    "calculation_trigger": null,
+    "clickhouse": "SELECT\n    events.properties AS properties,\n    events.uuid AS uuid\nFROM\n    events\nWHERE\n    and(equals(events.team_id, 1), greater(toTimeZone(events.timestamp, %(hogql_val_0)s), 1731662401.151), less(toTimeZone(events.timestamp, %(hogql_val_1)s), 1731662403.151), in(events.event, [%(hogql_val_2)s]), in(events.uuid, [%(hogql_val_3)s]))\nLIMIT 101\nOFFSET 0 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0",
+    "columns": ["properties", "uuid"],
+    "error": null,
+    "explain": null,
+    "hasMore": false,
+    "hogql": "SELECT\n    properties,\n    uuid\nFROM\n    events\nWHERE\n    and(greater(timestamp, 1731662401.151), less(timestamp, 1731662403.151), in(event, ['$web_vitals']), in(uuid, ['01932f1f-525d-7672-bccb-9630f4576422']))\nLIMIT 101\nOFFSET 0",
+    "is_cached": false,
+    "last_refresh": "2024-11-18T15:55:06.813741Z",
+    "limit": 100,
+    "metadata": null,
+    "modifiers": {
+        "bounceRatePageViewMode": "count_pageviews",
+        "customChannelTypeRules": null,
+        "dataWarehouseEventsModifiers": null,
+        "debug": null,
+        "inCohortVia": "subquery",
+        "materializationMode": "legacy_null_as_null",
+        "optimizeJoinedFilters": false,
+        "personsArgMaxVersion": "auto",
+        "personsJoinMode": null,
+        "personsOnEventsMode": "person_id_override_properties_joined",
+        "propertyGroupsMode": null,
+        "s3TableUseInvalidColumns": null,
+        "sessionTableVersion": "auto",
+        "useMaterializedViews": true
+    },
+    "next_allowed_client_refresh": "2024-11-18T15:56:06.813741Z",
+    "offset": 0,
+    "query": null,
+    "query_status": null,
+    "results": [
+        [
+            "{\"$os\":\"Mac OS X\",\"$os_version\":\"10.15.7\",\"$browser\":\"Chrome\",\"$device_type\":\"Desktop\",\"$timezone\":\"Europe/London\",\"$current_url\":\"http://localhost:8000/project/1/dashboard\",\"$host\":\"localhost:8000\",\"$pathname\":\"/project/1/dashboard\",\"$raw_user_agent\":\"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36\",\"$browser_version\":130,\"$browser_language\":\"en-GB\",\"$screen_height\":982,\"$screen_width\":1512,\"$viewport_height\":823,\"$viewport_width\":789,\"$lib\":\"web\",\"$lib_version\":\"1.184.1\",\"$insert_id\":\"gwx9pm5zilbjux1q\",\"$time\":1731662402.141,\"distinct_id\":\"MDl4qb3tG4yWMSwc5zKnMwuw3u0ZpHFMxt3ANLuujyq\",\"$device_id\":\"01928ce6-8fd0-771c-be21-b6ada50a1d74\",\"$initial_person_info\":{\"r\":\"$direct\",\"u\":\"http://localhost:8000/project/1\"},\"realm\":\"hosted-clickhouse\",\"email_service_available\":false,\"slack_service_available\":false,\"commit_sha\":\"7d94cb5f13\",\"$active_feature_flags\":[\"test-me-one\",\"funnels-cue-opt-out-7301\",\"kafka-inspector\",\"historical-exports-v2\",\"ingestion-warnings-enabled\",\"debug-react-renders\",\"auto-rollback-feature-flags\",\"onboarding-v2-demo\",\"query_running_time\",\"query-timings\",\"query-async\",\"hedgehog-mode\",\"hedgehog-mode-debug\",\"high-frequency-batch-exports\",\"person-batch-exports\",\"ff-dashboard-templates\",\"artificial-hog\",\"cs-dashboards\",\"product-specific-onboarding\",\"redirect-signups-to-instance\",\"apps-and-exports-ui\",\"hogql-dashboard-async\",\"webhooks-denylist\",\"pipeline-ui\",\"person-feed-canvas\",\"feature-flag-cohort-creation\",\"insight-horizontal-controls\",\"surveys-widgets\",\"surveys-events\",\"surveys-actions\",\"surveys-recurring\",\"year-in-hog\",\"session-replay-export-mobile-data\",\"discussions\",\"redirect-insight-creation-product-analytics-onboarding\",\"ai-session-summary\",\"ai-session-permissions\",\"product-intro-pages\",\"session-replay-doctor\",\"session-replay-similar-recordings\",\"saved-not-pinned\",\"new-experiments-ui\",\"session-replay-error-clustering\",\"audit-logs-access\",\"subscribe-from-paygate\",\"heatmaps-ui\",\"theme\",\"proxy-as-a-service\",\"settings-persons-join-mode\",\"settings-persons-on-events-hidden\",\"hog\",\"hog-functions-linked\",\"personless-events-not-supported\",\"alerts\",\"error-tracking\",\"error-tracking-group-actions\",\"settings-bounce-rate-page-view-mode\",\"onboarding-dashboard-templates\",\"multiple-breakdowns\",\"web-analytics-live-user-count\",\"settings-session-table-version\",\"insight-funnels-use-udf\",\"insight-funnels-use-udf-trends\",\"first-time-for-user-math\",\"multitab-editor\",\"web-analytics-replay\",\"posthog-http-batch-exports\",\"experiment-make-decision\",\"purchase-credits\",\"data-modeling\",\"web-analytics-conversion-goals\",\"web-analytics-last-click\",\"web-analytics-lcp-score\",\"hedgehog-skin-spiderhog\",\"insight_variables\",\"web-experiments\",\"bigquery-dwh\",\"replay-order-by-experiment\",\"environments\",\"billing-payment-entry-in-app\",\"legacy-action-webhooks\",\"session-replay-url-trigger\",\"replay-templates\",\"messaging\",\"role-based-access-control\",\"experiments-holdouts\",\"session-replay-url-blocklist\",\"dead-clicks-autocapture\",\"ai-survey-response-summary\",\"sql-editor\",\"experiments-hogql\",\"billing-trial-flow\",\"onboarding-product-multiselect\",\"edit_dwh_source_config\"],\"$feature/test-me-one\":true,\"$feature/test-me-two\":false,\"$feature/funnels-cue-opt-out-7301\":true,\"$feature/kafka-inspector\":true,\"$feature/historical-exports-v2\":true,\"$feature/ingestion-warnings-enabled\":true,\"$feature/debug-react-renders\":true,\"$feature/auto-rollback-feature-flags\":true,\"$feature/onboarding-v2-demo\":true,\"$feature/query_running_time\":true,\"$feature/query-timings\":true,\"$feature/query-async\":true,\"$feature/hedgehog-mode\":true,\"$feature/hedgehog-mode-debug\":true,\"$feature/high-frequency-batch-exports\":true,\"$feature/person-batch-exports\":true,\"$feature/ff-dashboard-templates\":true,\"$feature/artificial-hog\":true,\"$feature/cs-dashboards\":true,\"$feature/product-specific-onboarding\":true,\"$feature/redirect-signups-to-instance\":true,\"$feature/apps-and-exports-ui\":true,\"$feature/hogql-dashboard-async\":true,\"$feature/webhooks-denylist\":true,\"$feature/pipeline-ui\":true,\"$feature/person-feed-canvas\":true,\"$feature/feature-flag-cohort-creation\":true,\"$feature/insight-horizontal-controls\":true,\"$feature/surveys-widgets\":true,\"$feature/surveys-events\":true,\"$feature/surveys-actions\":true,\"$feature/surveys-recurring\":true,\"$feature/year-in-hog\":true,\"$feature/session-replay-export-mobile-data\":true,\"$feature/discussions\":true,\"$feature/redirect-insight-creation-product-analytics-onboarding\":true,\"$feature/ai-session-summary\":true,\"$feature/ai-session-permissions\":true,\"$feature/product-intro-pages\":true,\"$feature/session-replay-doctor\":true,\"$feature/session-replay-similar-recordings\":true,\"$feature/saved-not-pinned\":true,\"$feature/new-experiments-ui\":true,\"$feature/session-replay-error-clustering\":true,\"$feature/audit-logs-access\":true,\"$feature/subscribe-from-paygate\":true,\"$feature/heatmaps-ui\":true,\"$feature/theme\":true,\"$feature/proxy-as-a-service\":true,\"$feature/settings-persons-join-mode\":true,\"$feature/settings-persons-on-events-hidden\":true,\"$feature/hog\":true,\"$feature/hog-functions-linked\":true,\"$feature/personless-events-not-supported\":true,\"$feature/alerts\":true,\"$feature/error-tracking\":true,\"$feature/error-tracking-group-actions\":true,\"$feature/settings-bounce-rate-page-view-mode\":true,\"$feature/onboarding-dashboard-templates\":true,\"$feature/multiple-breakdowns\":true,\"$feature/web-analytics-live-user-count\":true,\"$feature/settings-session-table-version\":true,\"$feature/insight-funnels-use-udf\":true,\"$feature/insight-funnels-use-udf-trends\":true,\"$feature/first-time-for-user-math\":true,\"$feature/multitab-editor\":true,\"$feature/web-analytics-replay\":true,\"$feature/posthog-http-batch-exports\":true,\"$feature/experiment-make-decision\":true,\"$feature/purchase-credits\":true,\"$feature/data-modeling\":true,\"$feature/web-analytics-conversion-goals\":true,\"$feature/web-analytics-last-click\":true,\"$feature/web-analytics-lcp-score\":true,\"$feature/hedgehog-skin-spiderhog\":true,\"$feature/insight_variables\":true,\"$feature/web-experiments\":true,\"$feature/bigquery-dwh\":true,\"$feature/replay-order-by-experiment\":true,\"$feature/environments\":true,\"$feature/billing-payment-entry-in-app\":true,\"$feature/legacy-action-webhooks\":true,\"$feature/session-replay-url-trigger\":true,\"$feature/survey-targeting-400e7f9074-custom\":false,\"$feature/replay-templates\":true,\"$feature/messaging\":true,\"$feature/role-based-access-control\":true,\"$feature/experiments-holdouts\":true,\"$feature/session-replay-url-blocklist\":true,\"$feature/dead-clicks-autocapture\":true,\"$feature/ai-survey-response-summary\":true,\"$feature/survey-targeting-488ddb687f-custom\":false,\"$feature/sql-editor\":true,\"$feature/experiments-hogql\":true,\"$feature/billing-trial-flow\":true,\"$feature/onboarding-product-multiselect\":true,\"$feature/edit_dwh_source_config\":true,\"$feature/survey-targeting-4b0e9e88e7-custom\":false,\"$feature_flag_payloads\":{},\"$console_log_recording_enabled_server_side\":true,\"$session_recording_network_payload_capture\":{\"capturePerformance\":{\"network_timing\":true,\"web_vitals\":true,\"web_vitals_allowed_metrics\":[\"INP\"]}},\"$session_recording_canvas_recording\":{},\"$replay_sample_rate\":null,\"$replay_minimum_duration\":null,\"$autocapture_disabled_server_side\":false,\"$web_vitals_enabled_server_side\":true,\"$exception_capture_endpoint_suffix\":\"/e/\",\"$exception_capture_enabled_server_side\":true,\"$dead_clicks_enabled_server_side\":true,\"$user_id\":\"MDl4qb3tG4yWMSwc5zKnMwuw3u0ZpHFMxt3ANLuujyq\",\"is_demo_project\":false,\"$groups\":{\"project\":\"01928ce6-8a43-0000-1f02-d1916f05086c\",\"organization\":\"01928ce6-84d0-0000-19b3-4fe9812b33c5\",\"customer\":\"cus_R1zgb4PVmtDQ18\",\"instance\":\"http://localhost:8000\"},\"has_billing_plan\":true,\"customer_deactivated\":false,\"current_total_amount_usd\":\"0.00\",\"custom_limits_usd.data_warehouse\":500,\"percentage_usage.product_analytics\":0,\"current_amount_usd.product_analytics\":\"0.00\",\"unit_amount_usd.product_analytics\":null,\"usage_limit.product_analytics\":null,\"current_usage.product_analytics\":0,\"projected_usage.product_analytics\":0,\"free_allocation.product_analytics\":0,\"percentage_usage.session_replay\":0,\"current_amount_usd.session_replay\":\"0.00\",\"unit_amount_usd.session_replay\":null,\"usage_limit.session_replay\":null,\"current_usage.session_replay\":1,\"projected_usage.session_replay\":0,\"free_allocation.session_replay\":0,\"percentage_usage.feature_flags\":0,\"current_amount_usd.feature_flags\":\"0.00\",\"unit_amount_usd.feature_flags\":null,\"usage_limit.feature_flags\":null,\"current_usage.feature_flags\":0,\"projected_usage.feature_flags\":0,\"free_allocation.feature_flags\":0,\"percentage_usage.surveys\":0,\"current_amount_usd.surveys\":\"0.00\",\"unit_amount_usd.surveys\":null,\"usage_limit.surveys\":null,\"current_usage.surveys\":0,\"projected_usage.surveys\":0,\"free_allocation.surveys\":0,\"percentage_usage.data_warehouse\":0,\"current_amount_usd.data_warehouse\":\"0.00\",\"unit_amount_usd.data_warehouse\":null,\"usage_limit.data_warehouse\":46500000,\"current_usage.data_warehouse\":0,\"projected_usage.data_warehouse\":0,\"free_allocation.data_warehouse\":0,\"percentage_usage.integrations\":0,\"current_amount_usd.integrations\":null,\"unit_amount_usd.integrations\":null,\"usage_limit.integrations\":0,\"current_usage.integrations\":0,\"projected_usage.integrations\":0,\"free_allocation.integrations\":0,\"percentage_usage.platform_and_support\":0,\"current_amount_usd.platform_and_support\":null,\"unit_amount_usd.platform_and_support\":null,\"usage_limit.platform_and_support\":0,\"current_usage.platform_and_support\":0,\"projected_usage.platform_and_support\":0,\"free_allocation.platform_and_support\":0,\"billing_period_start\":{\"$L\":\"en\",\"$d\":{},\"$y\":2024,\"$M\":10,\"$D\":14,\"$W\":4,\"$H\":21,\"$m\":20,\"$s\":31,\"$ms\":0,\"$x\":{},\"$isDayjsObject\":true},\"billing_period_end\":{\"$L\":\"en\",\"$d\":{},\"$y\":2024,\"$M\":11,\"$D\":14,\"$W\":6,\"$H\":21,\"$m\":20,\"$s\":31,\"$ms\":0,\"$x\":{},\"$isDayjsObject\":true},\"$session_recording_event_trigger_activated_session\":\"01932f1e-cf6a-7e77-8837-23366207a24b\",\"$referrer\":\"http://localhost:8000/\",\"$referring_domain\":\"localhost:8000\",\"$session_recording_start_reason\":\"event_trigger_matched\",\"$web_vitals_INP_event\":{\"name\":\"INP\",\"value\":80,\"rating\":\"good\",\"delta\":80,\"entries\":[{},{}],\"id\":\"v4-1731662372955-7498550923575\",\"navigationType\":\"reload\",\"attribution\":{\"interactionTarget\":\"html>body.overflow-hidden\",\"interactionType\":\"keyboard\",\"interactionTime\":23945.90000000596,\"nextPaintTime\":24025.90000000596,\"processedEventEntries\":[null,null,{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{}],\"longAnimationFrameEntries\":[],\"inputDelay\":3.0999999940395355,\"processingDuration\":41.60000002384186,\"presentationDelay\":35.29999998211861,\"loadState\":\"complete\"},\"$current_url\":\"http://localhost:8000/project/1/dashboard\",\"$session_id\":\"01932f1e-cf6a-7e77-8837-23366207a24b\",\"$window_id\":\"01932f1e-cf6a-7e77-8837-2337cb916511\",\"timestamp\":1731662402140},\"$web_vitals_INP_value\":80,\"token\":\"phc_40vuS0D3uuaeDYSOK7xu81k07lXPEXSz6Bq07i6w20n\",\"$session_id\":\"01932f1e-cf6a-7e77-8837-23366207a24b\",\"$window_id\":\"01932f1e-cf6a-7e77-8837-2337cb916511\",\"$lib_custom_api_host\":\"http://localhost:8000\",\"$browser_type\":\"browser\",\"$is_identified\":true,\"$lib_rate_limit_remaining_tokens\":99,\"$set_once\":{\"$initial_os\":\"Mac OS X\",\"$initial_os_version\":\"10.15.7\",\"$initial_browser\":\"Chrome\",\"$initial_device_type\":\"Desktop\",\"$initial_current_url\":\"http://localhost:8000/project/1\",\"$initial_pathname\":\"/project/1\",\"$initial_browser_version\":130,\"$initial_referrer\":\"$direct\",\"$initial_referring_domain\":\"$direct\",\"$initial_host\":\"localhost:8000\",\"$initial_utm_source\":null,\"$initial_utm_medium\":null,\"$initial_utm_campaign\":null,\"$initial_utm_content\":null,\"$initial_utm_term\":null,\"$initial_gclid\":null,\"$initial_gad_source\":null,\"$initial_gclsrc\":null,\"$initial_dclid\":null,\"$initial_gbraid\":null,\"$initial_wbraid\":null,\"$initial_fbclid\":null,\"$initial_msclkid\":null,\"$initial_twclid\":null,\"$initial_li_fat_id\":null,\"$initial_mc_cid\":null,\"$initial_igshid\":null,\"$initial_ttclid\":null,\"$initial_rdt_cid\":null},\"$ip\":\"127.0.0.1\",\"$set\":{\"$os\":\"Mac OS X\",\"$os_version\":\"10.15.7\",\"$browser\":\"Chrome\",\"$device_type\":\"Desktop\",\"$current_url\":\"http://localhost:8000/project/1/dashboard\",\"$pathname\":\"/project/1/dashboard\",\"$browser_version\":130,\"$referrer\":\"http://localhost:8000/\",\"$referring_domain\":\"localhost:8000\"},\"$sent_at\":\"2024-11-15T09:20:03.509000+00:00\",\"$geoip_city_name\":\"Sydney\",\"$geoip_country_name\":\"Australia\",\"$geoip_country_code\":\"AU\",\"$geoip_continent_name\":\"Oceania\",\"$geoip_continent_code\":\"OC\",\"$geoip_postal_code\":\"2000\",\"$geoip_latitude\":-33.8715,\"$geoip_longitude\":151.2006,\"$geoip_time_zone\":\"Australia/Sydney\",\"$geoip_subdivision_1_code\":\"NSW\",\"$geoip_subdivision_1_name\":\"New South Wales\",\"$plugins_succeeded\":[\"GeoIP (1)\"],\"$plugins_failed\":[],\"$group_0\":\"01928ce6-8a43-0000-1f02-d1916f05086c\",\"$group_1\":\"01928ce6-84d0-0000-19b3-4fe9812b33c5\",\"$group_3\":\"cus_R1zgb4PVmtDQ18\",\"$group_2\":\"http://localhost:8000\"}",
+            "01932f1f-525d-7672-bccb-9630f4576422"
+        ]
+    ],
+    "timezone": "UTC",
+    "timings": [
+        {
+            "k": "./parse_select/parse_select_cpp",
+            "t": 0.0029351670018513687
+        },
+        {
+            "k": "./parse_select",
+            "t": 0.00443329200061271
+        },
+        {
+            "k": "./query",
+            "t": 0.0007296250041690655
+        },
+        {
+            "k": "./variables",
+            "t": 0.00006812499486841261
+        },
+        {
+            "k": "./replace_placeholders",
+            "t": 0.00013891699927626178
+        },
+        {
+            "k": "./max_limit",
+            "t": 0.0000746669975342229
+        },
+        {
+            "k": "./hogql/prepare_ast/clone",
+            "t": 0.00014845899568172172
+        },
+        {
+            "k": "./hogql/prepare_ast/create_hogql_database",
+            "t": 0.2407520829947316
+        },
+        {
+            "k": "./hogql/prepare_ast/resolve_types",
+            "t": 0.0024996659994940273
+        },
+        {
+            "k": "./hogql/prepare_ast",
+            "t": 0.2435827910012449
+        },
+        {
+            "k": "./hogql/print_ast/printer",
+            "t": 0.0008856670028762892
+        },
+        {
+            "k": "./hogql/print_ast",
+            "t": 0.001301750002312474
+        },
+        {
+            "k": "./hogql",
+            "t": 0.24495537499751663
+        },
+        {
+            "k": "./print_ast/create_hogql_database",
+            "t": 0.1387188340013381
+        },
+        {
+            "k": "./print_ast/resolve_types",
+            "t": 0.0010997080025845207
+        },
+        {
+            "k": "./print_ast/resolve_property_types",
+            "t": 0.00134908299514791
+        },
+        {
+            "k": "./print_ast/resolve_lazy_tables",
+            "t": 0.0004126670028199442
+        },
+        {
+            "k": "./print_ast/swap_properties",
+            "t": 0.00021037499391241
+        },
+        {
+            "k": "./print_ast/printer",
+            "t": 0.0015984999990905635
+        },
+        {
+            "k": "./print_ast",
+            "t": 0.14471987500292016
+        },
+        {
+            "k": "./clickhouse_execute",
+            "t": 0.07487254200532334
+        },
+        {
+            "k": ".",
+            "t": 0.501110624994908
+        }
+    ],
+    "types": [
+        ["properties", "String"],
+        ["uuid", "UUID"]
+    ]
+}

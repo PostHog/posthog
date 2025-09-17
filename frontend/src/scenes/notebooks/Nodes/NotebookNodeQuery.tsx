@@ -1,19 +1,23 @@
-import { Query } from '~/queries/Query/Query'
-import { DataTableNode, InsightQueryNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema'
-import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { InsightLogicProps, InsightShortId, NotebookNodeType } from '~/types'
-import { useActions, useMountedLogic, useValues } from 'kea'
+import { JSONContent } from '@tiptap/core'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
-import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
-import { containsHogQLQuery, isHogQLQuery, isInsightVizNode, isNodeWithSource } from '~/queries/utils'
+
 import { LemonButton } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
 
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { JSONContent } from '@tiptap/core'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { urls } from 'scenes/urls'
+
+import { Query } from '~/queries/Query/Query'
+import { DataTableNode, InsightQueryNode, InsightVizNode, NodeKind, QuerySchema } from '~/queries/schema/schema-general'
+import { containsHogQLQuery, isHogQLQuery, isInsightVizNode, isNodeWithSource } from '~/queries/utils'
+import { InsightLogicProps, InsightShortId } from '~/types'
+
+import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
+import { notebookNodeLogic } from './notebookNodeLogic'
+import { SHORT_CODE_REGEX_MATCH_GROUPS } from './utils'
 
 const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
@@ -35,9 +39,11 @@ const Component = ({
     const { expanded } = useValues(nodeLogic)
     const { setTitlePlaceholder } = useActions(nodeLogic)
     const summarizeInsight = useSummarizeInsight()
-    const { insightName } = useValues(
-        insightLogic({ dashboardItemId: query.kind === NodeKind.SavedInsightNode ? query.shortId : 'new' })
-    )
+
+    const insightLogicProps = {
+        dashboardItemId: query.kind === NodeKind.SavedInsightNode ? query.shortId : ('new' as const),
+    }
+    const { insightName } = useValues(insightLogic(insightLogicProps))
 
     useEffect(() => {
         let title = 'Query'
@@ -66,6 +72,7 @@ const Component = ({
         }
 
         setTitlePlaceholder(title)
+        // oxlint-disable-next-line exhaustive-deps
     }, [query, insightName])
 
     const modifiedQuery = useMemo(() => {
@@ -95,20 +102,24 @@ const Component = ({
     }
 
     return (
-        <div className="flex flex-1 flex-col h-full">
-            <Query
-                // use separate keys for the settings and visualization to avoid conflicts with insightProps
-                uniqueKey={nodeId + '-component'}
-                query={modifiedQuery}
-                setQuery={(t) => {
-                    updateAttributes({
-                        query: {
-                            ...attributes.query,
-                            source: (t as DataTableNode | InsightVizNode).source,
-                        } as QuerySchema,
-                    })
-                }}
-            />
+        <div className="flex flex-1 flex-col h-full" data-attr="notebook-node-query">
+            <BindLogic logic={insightLogic} props={insightLogicProps}>
+                <Query
+                    // use separate keys for the settings and visualization to avoid conflicts with insightProps
+                    uniqueKey={nodeId + '-component'}
+                    query={modifiedQuery}
+                    setQuery={(t) => {
+                        updateAttributes({
+                            query: {
+                                ...attributes.query,
+                                source: (t as DataTableNode | InsightVizNode).source,
+                            } as QuerySchema,
+                        })
+                    }}
+                    embedded
+                    readOnly
+                />
+            </BindLogic>
         </div>
     )
 }
@@ -132,6 +143,7 @@ export const Settings = ({
             modifiedQuery.showResultsTable = false
 
             modifiedQuery.showReload = true
+            modifiedQuery.showExport = true
             modifiedQuery.showElapsedTime = false
             modifiedQuery.showTimings = false
 
@@ -167,14 +179,14 @@ export const Settings = ({
     }
 
     return attributes.query.kind === NodeKind.SavedInsightNode ? (
-        <div className="p-3 space-y-2">
+        <div className="p-3 deprecated-space-y-2">
             <div className="text-lg font-semibold">Insight created outside of this notebook</div>
             <div>
                 Changes made to the original insight will be reflected in the notebook. Or you can detach from the
                 insight to make changes independently in the notebook.
             </div>
 
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <LemonButton
                     center={true}
                     type="secondary"
@@ -227,15 +239,15 @@ export const NotebookNodeQuery = createPostHogWidgetNode<NotebookNodeQueryAttrib
             default: DEFAULT_QUERY,
         },
     },
-    href: (attrs) =>
-        attrs.query.kind === NodeKind.SavedInsightNode
-            ? urls.insightView(attrs.query.shortId)
-            : isInsightVizNode(attrs.query)
-            ? urls.insightNew(undefined, undefined, attrs.query)
-            : undefined,
+    href: ({ query }) =>
+        query.kind === NodeKind.SavedInsightNode
+            ? urls.insightView(query.shortId)
+            : isInsightVizNode(query)
+              ? urls.insightNew({ query })
+              : undefined,
     Settings,
     pasteOptions: {
-        find: urls.insightView('(.+)' as InsightShortId),
+        find: urls.insightView(SHORT_CODE_REGEX_MATCH_GROUPS as InsightShortId),
         getAttributes: async (match) => {
             return {
                 query: {

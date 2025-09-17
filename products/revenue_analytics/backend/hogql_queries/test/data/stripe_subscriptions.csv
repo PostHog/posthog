@@ -1,0 +1,7 @@
+id,customer,plan,created,ended_at,status,metadata
+sub_1,cus_1,"{""id"":""plan_1"",""product"":""prod_1""}","2025-01-23 08:10:08","2026-01-23 10:22:13",active,""
+sub_2,cus_2,"{""id"":""plan_2"",""product"":""prod_2""}","2025-01-23 09:09:09","2026-01-23 11:23:14",active,""
+sub_3,cus_3,"{""id"":""plan_3"",""product"":""prod_3""}","2025-01-23 10:08:10","2025-06-23 12:24:15",active,""
+sub_4,cus_4,"{""id"":""plan_4"",""product"":""prod_4""}","2025-02-23 05:10:11","2025-05-23 12:24:16",active,""
+sub_5,cus_5,"{""id"":""plan_5"",""product"":""prod_5""}","2025-02-23 06:09:12","2025-05-23 11:23:17",active,""
+sub_6,cus_6,"{""id"":""plan_6"",""product"":""prod_6""}","2025-02-23 07:08:13","2025-05-23 10:22:18",active,""

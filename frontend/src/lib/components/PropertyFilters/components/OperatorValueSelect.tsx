@@ -1,17 +1,28 @@
-import { LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
+import { useEffect, useState } from 'react'
+
+import { LemonDropdownProps, LemonSelect, LemonSelectProps } from '@posthog/lemon-ui'
+
+import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
 import { dayjs } from 'lib/dayjs'
 import {
     allOperatorsMapping,
     chooseOperatorMap,
     isMobile,
+    isOperatorCohort,
     isOperatorFlag,
     isOperatorMulti,
     isOperatorRange,
     isOperatorRegex,
 } from 'lib/utils'
-import { useEffect, useState } from 'react'
 
-import { PropertyDefinition, PropertyFilterType, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
+import {
+    GroupTypeIndex,
+    PropertyDefinition,
+    PropertyFilterType,
+    PropertyFilterValue,
+    PropertyOperator,
+    PropertyType,
+} from '~/types'
 
 import { PropertyValue } from './PropertyValue'
 
@@ -19,22 +30,31 @@ export interface OperatorValueSelectProps {
     type?: PropertyFilterType
     propertyKey?: string
     operator?: PropertyOperator | null
-    value?: string | number | Array<string | number> | null
+    value?: PropertyFilterValue
+    editable: boolean
     placeholder?: string
     endpoint?: string
     onChange: (operator: PropertyOperator, value: PropertyFilterValue) => void
-    operatorSelectProps?: Omit<LemonSelectProps<any>, 'onChange'>
+    operatorSelectProps?: Partial<Omit<LemonSelectProps<any>, 'onChange'>>
     eventNames?: string[]
     propertyDefinitions: PropertyDefinition[]
-    defaultOpen?: boolean
     addRelativeDateTimeOptions?: boolean
+    groupTypeIndex?: GroupTypeIndex
+    size?: 'xsmall' | 'small' | 'medium'
+    startVisible?: LemonDropdownProps['startVisible']
+    /**
+     * in some contexts you want to externally limit the available operators
+     * this won't add an operator if it isn't valid
+     * i.e. it limits the options shown from the options that would have been shown
+     * **/
+    operatorAllowlist?: Array<PropertyOperator>
 }
 
 interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
     operator: PropertyOperator
     operators: Array<PropertyOperator>
     onChange: (operator: PropertyOperator) => void
-    defaultOpen?: boolean
+    startVisible?: LemonDropdownProps['startVisible']
 }
 
 function getValidationError(operator: PropertyOperator, value: any, property?: string): string | null {
@@ -67,77 +87,125 @@ export function OperatorValueSelect({
     operatorSelectProps,
     propertyDefinitions = [],
     eventNames = [],
-    defaultOpen,
     addRelativeDateTimeOptions,
+    groupTypeIndex = undefined,
+    size,
+    editable,
+    startVisible,
+    operatorAllowlist,
 }: OperatorValueSelectProps): JSX.Element {
-    const propertyDefinition = propertyDefinitions.find((pd) => pd.name === propertyKey)
+    const lookupKey = type === PropertyFilterType.DataWarehousePersonProperty ? 'id' : 'name'
+    const propertyDefinition = propertyDefinitions.find((pd) => pd[lookupKey] === propertyKey)
+
+    const isCohortProperty = propertyKey === 'id' && type === PropertyFilterType.Cohort
 
     // DateTime properties should not default to Exact
     const isDateTimeProperty = propertyDefinition?.property_type == PropertyType.DateTime
-    const startingOperator =
-        isDateTimeProperty && (!operator || operator == PropertyOperator.Exact)
-            ? PropertyOperator.IsDateExact
-            : operator || PropertyOperator.Exact
+
+    const isInitialOperator = !operator || operator == PropertyOperator.Exact
+
+    let startingOperator = operator || PropertyOperator.Exact
+    if (isInitialOperator) {
+        if (isDateTimeProperty) {
+            startingOperator = PropertyOperator.IsDateExact
+        } else if (isCohortProperty) {
+            startingOperator = PropertyOperator.In
+        }
+    }
+
     const [currentOperator, setCurrentOperator] = useState(startingOperator)
     const [validationError, setValidationError] = useState<string | null>(null)
 
     const [operators, setOperators] = useState([] as Array<PropertyOperator>)
     useEffect(() => {
-        const limitedElementProperty = propertyKey === 'selector' || propertyKey === 'tag_name'
-        const operatorMapping: Record<string, string> = chooseOperatorMap(
-            limitedElementProperty ? PropertyType.Selector : propertyDefinition?.property_type
-        )
-        const operators = Object.keys(operatorMapping) as Array<PropertyOperator>
+        let propertyType = propertyDefinition?.property_type
+        if (propertyKey === 'selector' || propertyKey === 'tag_name') {
+            propertyType = PropertyType.Selector
+        } else if (propertyKey === 'id' && type === PropertyFilterType.Cohort) {
+            propertyType = PropertyType.Cohort
+        } else if (type === PropertyFilterType.Flag) {
+            propertyType = PropertyType.Flag
+        } else if (propertyKey === 'assignee' && type === PropertyFilterType.ErrorTrackingIssue) {
+            propertyType = PropertyType.Assignee
+        } else if (propertyKey === 'first_seen' && type === PropertyFilterType.ErrorTrackingIssue) {
+            propertyType = PropertyType.DateTime
+        } else if (
+            type === PropertyFilterType.Event &&
+            propertyKey &&
+            ['$exception_types', '$exception_values', '$exception_sources', '$exception_functions'].includes(
+                propertyKey
+            )
+        ) {
+            propertyType = PropertyType.StringArray
+        }
+
+        const operatorMapping: Record<string, string> = chooseOperatorMap(propertyType)
+
+        const operators = (Object.keys(operatorMapping) as Array<PropertyOperator>).filter((op) => {
+            return !operatorAllowlist || operatorAllowlist.includes(op)
+        })
+
         setOperators(operators)
         if ((currentOperator !== operator && operators.includes(startingOperator)) || !propertyDefinition) {
             setCurrentOperator(startingOperator)
         } else if (!operators.includes(currentOperator) && propertyDefinition) {
             // Whenever the property type changes such that the operator is not compatible, we need to reset the operator
             // But, only if the propertyDefinition is available
-            setCurrentOperator(isDateTimeProperty ? PropertyOperator.IsDateExact : PropertyOperator.Exact)
+            let defaultProperty = PropertyOperator.Exact
+            if (isDateTimeProperty) {
+                defaultProperty = PropertyOperator.IsDateExact
+            } else if (propertyType === PropertyType.Cohort) {
+                defaultProperty = PropertyOperator.In
+            }
+            setCurrentOperator(defaultProperty)
         }
-    }, [propertyDefinition, propertyKey, operator])
+    }, [propertyDefinition, propertyKey, operator, operatorAllowlist]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <>
             <div data-attr="taxonomic-operator">
-                <OperatorSelect
-                    operator={currentOperator || PropertyOperator.Exact}
-                    operators={operators}
-                    onChange={(newOperator: PropertyOperator) => {
-                        const tentativeValidationError =
-                            newOperator && value ? getValidationError(newOperator, value, propertyKey) : null
-                        if (tentativeValidationError) {
-                            setValidationError(tentativeValidationError)
-                            return
-                        }
-                        setValidationError(null)
+                {editable ? (
+                    <OperatorSelect
+                        operator={currentOperator || PropertyOperator.Exact}
+                        operators={operators}
+                        onChange={(newOperator: PropertyOperator) => {
+                            const tentativeValidationError =
+                                newOperator && value ? getValidationError(newOperator, value, propertyKey) : null
+                            if (tentativeValidationError) {
+                                setValidationError(tentativeValidationError)
+                                return
+                            }
+                            setValidationError(null)
 
-                        setCurrentOperator(newOperator)
-                        if (isOperatorFlag(newOperator)) {
-                            onChange(newOperator, newOperator)
-                        } else if (isOperatorFlag(currentOperator || PropertyOperator.Exact)) {
-                            onChange(newOperator, null)
-                        } else if (
-                            isOperatorMulti(currentOperator || PropertyOperator.Exact) &&
-                            !isOperatorMulti(newOperator) &&
-                            Array.isArray(value)
-                        ) {
-                            onChange(newOperator, value[0])
-                        } else if (value) {
-                            onChange(newOperator, value)
-                        }
-                    }}
-                    {...operatorSelectProps}
-                    defaultOpen={defaultOpen}
-                />
+                            setCurrentOperator(newOperator)
+                            if (isOperatorCohort(newOperator)) {
+                                onChange(newOperator, value || null)
+                            } else if (isOperatorFlag(newOperator)) {
+                                onChange(newOperator, newOperator)
+                            } else if (isOperatorFlag(currentOperator || PropertyOperator.Exact)) {
+                                onChange(newOperator, null)
+                            } else if (
+                                isOperatorMulti(currentOperator || PropertyOperator.Exact) &&
+                                !isOperatorMulti(newOperator) &&
+                                Array.isArray(value)
+                            ) {
+                                onChange(newOperator, value[0])
+                            } else if (value) {
+                                onChange(newOperator, value)
+                            }
+                        }}
+                        {...operatorSelectProps}
+                        size={size}
+                        startVisible={startVisible}
+                    />
+                ) : (
+                    <span>{allOperatorsToHumanName(currentOperator)} </span>
+                )}
             </div>
             {!isOperatorFlag(currentOperator || PropertyOperator.Exact) && type && propertyKey && (
                 <div
-                    className={
-                        // High flex-grow for proper sizing within TaxonomicPropertyFilter
-                        'shrink grow-[1000] min-w-[10rem]'
-                    }
+                    // High flex-grow for proper sizing within TaxonomicPropertyFilter
+                    className="shrink grow-[1000] min-w-[10rem]"
                     data-attr="taxonomic-value-select"
                 >
                     <PropertyValue
@@ -165,6 +233,9 @@ export function OperatorValueSelect({
                         // open automatically only if new filter
                         autoFocus={!isMobile() && value === null}
                         addRelativeDateTimeOptions={addRelativeDateTimeOptions}
+                        groupTypeIndex={groupTypeIndex}
+                        editable={editable}
+                        size={size}
                     />
                 </div>
             )}
@@ -173,7 +244,14 @@ export function OperatorValueSelect({
     )
 }
 
-export function OperatorSelect({ operator, operators, onChange, ...props }: OperatorSelectProps): JSX.Element {
+export function OperatorSelect({
+    operator,
+    operators,
+    onChange,
+    className,
+    size,
+    startVisible,
+}: OperatorSelectProps): JSX.Element {
     const operatorOptions = operators.map((op) => ({
         label: <span className="operator-value-option">{allOperatorsMapping[op || PropertyOperator.Exact]}</span>,
         value: op || PropertyOperator.Exact,
@@ -188,10 +266,12 @@ export function OperatorSelect({ operator, operators, onChange, ...props }: Oper
             onChange={(op) => {
                 op && onChange(op)
             }}
-            className={props.className}
+            className={className}
+            size={size}
             menu={{
                 closeParentPopoverOnClickInside: false,
             }}
+            startVisible={startVisible}
         />
     )
 }

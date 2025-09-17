@@ -4,7 +4,7 @@ from typing import Optional, Union
 
 from django.utils.timezone import now
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.models import Team
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -41,7 +41,7 @@ class RelatedActorsQuery:
     def run(self) -> list[SerializedActor]:
         results: list[SerializedActor] = []
         results.extend(self._query_related_people())
-        for group_type_mapping in GroupTypeMapping.objects.filter(team_id=self.team.pk):
+        for group_type_mapping in GroupTypeMapping.objects.filter(project_id=self.team.project_id):
             results.extend(self._query_related_groups(group_type_mapping.group_type_index))
         return results
 
@@ -81,7 +81,7 @@ class RelatedActorsQuery:
                 f"""
             SELECT DISTINCT $group_{group_type_index} AS group_key
             FROM events e
-            {'' if self.is_aggregating_by_groups else self._distinct_ids_join}
+            {"" if self.is_aggregating_by_groups else self._distinct_ids_join}
             JOIN (
                 SELECT group_key
                 FROM groups

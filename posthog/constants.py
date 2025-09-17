@@ -12,11 +12,12 @@ INTERNAL_BOT_EMAIL_SUFFIX = "@posthogbot.user"
 class AvailableFeature(StrEnum):
     ZAPIER = "zapier"
     ORGANIZATIONS_PROJECTS = "organizations_projects"
-    PROJECT_BASED_PERMISSIONING = "project_based_permissioning"
+    ENVIRONMENTS = "environments"
     SOCIAL_SSO = "social_sso"
     SAML = "saml"
     SSO_ENFORCEMENT = "sso_enforcement"
-    ADVANCED_PERMISSIONS = "advanced_permissions"
+    ADVANCED_PERMISSIONS = "advanced_permissions"  # TODO: Remove this once access_control is propagated
+    ACCESS_CONTROL = "access_control"
     INGESTION_TAXONOMY = "ingestion_taxonomy"
     PATHS_ADVANCED = "paths_advanced"
     CORRELATION_ANALYSIS = "correlation_analysis"
@@ -37,13 +38,17 @@ class AvailableFeature(StrEnum):
     AUTOMATIC_PROVISIONING = "automatic_provisioning"
     MANAGED_REVERSE_PROXY = "managed_reverse_proxy"
     DATA_PIPELINES = "data_pipelines"
+    ALERTS = "alerts"
+    DATA_COLOR_THEMES = "data_color_themes"
+    API_QUERIES_CONCURRENCY = "api_queries_concurrency"
+    ORGANIZATION_INVITE_SETTINGS = "organization_invite_settings"
+    ORGANIZATION_SECURITY_SETTINGS = "organization_security_settings"
+    ORGANIZATION_APP_QUERY_CONCURRENCY_LIMIT = "organization_app_query_concurrency_limit"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
 TREND_FILTER_TYPE_EVENTS = "events"
 TREND_FILTER_TYPE_DATA_WAREHOUSE = "data_warehouse"
-
-SESSION_RECORDINGS_FILTER_IDS = "session_ids"
 
 TRENDS_CUMULATIVE = "ActionsLineGraphCumulative"
 TRENDS_LINEAR = "ActionsLineGraph"
@@ -55,6 +60,7 @@ TRENDS_BAR = "ActionsBar"
 TRENDS_BAR_VALUE = "ActionsBarValue"
 TRENDS_WORLD_MAP = "WorldMap"
 TRENDS_BOLD_NUMBER = "BoldNumber"
+TRENDS_CALENDAR_HEATMAP = "CalendarHeatmap"
 
 # Sync with frontend NON_TIME_SERIES_DISPLAY_TYPES
 NON_TIME_SERIES_DISPLAY_TYPES = [
@@ -63,9 +69,10 @@ NON_TIME_SERIES_DISPLAY_TYPES = [
     TRENDS_BAR_VALUE,
     TRENDS_WORLD_MAP,
     TRENDS_BOLD_NUMBER,
+    TRENDS_CALENDAR_HEATMAP,
 ]
 # Sync with frontend NON_BREAKDOWN_DISPLAY_TYPES
-NON_BREAKDOWN_DISPLAY_TYPES = [TRENDS_BOLD_NUMBER]
+NON_BREAKDOWN_DISPLAY_TYPES = [TRENDS_BOLD_NUMBER, TRENDS_CALENDAR_HEATMAP]
 
 # CONSTANTS
 INSIGHT_TRENDS = "TRENDS"
@@ -95,6 +102,7 @@ DISPLAY_TYPES = Literal[
     "ActionsBarValue",
     "WorldMap",
     "BoldNumber",
+    "CalendarHeatmap",
 ]
 
 DEPRECATED_DISPLAY_TYPES = Literal[
@@ -235,7 +243,8 @@ class FunnelCorrelationType(StrEnum):
 
 
 RETENTION_RECURRING = "retention_recurring"
-RETENTION_FIRST_TIME = "retention_first_time"
+RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS = "retention_first_time"
+RETENTION_FIRST_EVER_OCCURRENCE = "retention_first_ever_occurrence"
 
 DISTINCT_ID_FILTER = "distinct_id"
 PERSON_UUID_FILTER = "person_uuid"
@@ -252,26 +261,13 @@ WEEKLY_ACTIVE = "weekly_active"
 MONTHLY_ACTIVE = "monthly_active"
 
 
-class RetentionQueryType(StrEnum):
-    RETURNING = "returning"
-    TARGET = "target"
-    TARGET_FIRST_TIME = "target_first_time"
-
-
-class ExperimentSignificanceCode(StrEnum):
-    SIGNIFICANT = "significant"
-    NOT_ENOUGH_EXPOSURE = "not_enough_exposure"
-    LOW_WIN_PROBABILITY = "low_win_probability"
-    HIGH_LOSS = "high_loss"
-    HIGH_P_VALUE = "high_p_value"
-
-
 class ExperimentNoResultsErrorKeys(StrEnum):
     NO_EVENTS = "no-events"
     NO_FLAG_INFO = "no-flag-info"
     NO_CONTROL_VARIANT = "no-control-variant"
     NO_TEST_VARIANT = "no-test-variant"
     NO_RESULTS = "no-results"
+    NO_EXPOSURES = "no-exposures"
 
 
 class PropertyOperatorType(StrEnum):
@@ -307,13 +303,62 @@ class EventDefinitionType(StrEnum):
 class FlagRequestType(StrEnum):
     DECIDE = "decide"
     LOCAL_EVALUATION = "local-evaluation"
+    REMOTE_CONFIG = "remote-config"
 
+
+SURVEY_TARGETING_FLAG_PREFIX = "survey-targeting-"
+GENERATED_DASHBOARD_PREFIX = "Generated Dashboard"
 
 ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER = "Feature Viewed"
 DATA_WAREHOUSE_TASK_QUEUE = "data-warehouse-task-queue"
-BATCH_EXPORTS_TASK_QUEUE = "no-sandbox-python-django"
+MAX_AI_TASK_QUEUE = "max-ai-task-queue"
+DATA_WAREHOUSE_COMPACTION_TASK_QUEUE = "data-warehouse-compaction-task-queue"
+BATCH_EXPORTS_TASK_QUEUE = "batch-exports-task-queue"
+DATA_MODELING_TASK_QUEUE = "data-modeling-task-queue"
+SYNC_BATCH_EXPORTS_TASK_QUEUE = "no-sandbox-python-django"
 GENERAL_PURPOSE_TASK_QUEUE = "general-purpose-task-queue"
+TASKS_TASK_QUEUE = "tasks-task-queue"
+TEST_TASK_QUEUE = "test-task-queue"
+BILLING_TASK_QUEUE = "billing-task-queue"
+VIDEO_EXPORT_TASK_QUEUE = "video-export-task-queue"
 
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]
 
 INVITE_DAYS_VALIDITY = 3  # number of days for which team invites are valid
+
+# Sync with frontend/src/scenes/surveys/constants.tsx
+DEFAULT_SURVEY_APPEARANCE = {
+    "fontFamily": "inherit",
+    "backgroundColor": "#eeeded",
+    "submitButtonColor": "black",
+    "submitButtonTextColor": "white",
+    "ratingButtonColor": "white",
+    "ratingButtonActiveColor": "black",
+    "borderColor": "#c9c6c6",
+    "placeholder": "Start typing...",
+    "whiteLabel": False,
+    "displayThankYouMessage": True,
+    "thankYouMessageHeader": "Thank you for your feedback!",
+    "position": "bottom-right",
+    "widgetType": "tab",
+    "widgetLabel": "Feedback",
+    "widgetColor": "black",
+    "zIndex": "2147482647",
+    "disabledButtonOpacity": "0.6",
+    "maxWidth": "300px",
+    "textSubtleColor": "#939393",
+    "inputBackground": "white",
+    "boxPadding": "20px 24px",
+    "boxShadow": "0 4px 12px rgba(0, 0, 0, 0.15)",
+    "borderRadius": "10px",
+    "shuffleQuestions": False,
+    "surveyPopupDelaySeconds": None,
+}
+
+# Mapping of social_django backend names
+SOCIAL_AUTH_PROVIDER_DISPLAY_NAMES = {
+    "google-oauth2": "Google OAuth",
+    "github": "GitHub",
+    "gitlab": "GitLab",
+    "saml": "SAML",
+}

@@ -3,19 +3,12 @@ from unittest import mock
 from django.core.cache import cache
 from django.test import TestCase
 
-from posthog.models import (
-    Dashboard,
-    DashboardTile,
-    Organization,
-    PluginConfig,
-    Team,
-    User,
-)
+from posthog.schema import PersonsOnEventsMode
+
+from posthog.models import Dashboard, DashboardTile, Organization, Team, User
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.project import Project
 from posthog.models.team import get_team_in_cache, util
-from posthog.plugins.test.mock import mocked_plugin_requests_get
-from posthog.schema import PersonsOnEventsMode
 
 from .base import BaseTest
 
@@ -72,10 +65,11 @@ class TestTeam(BaseTest):
         self.assertEqual(team.data_attributes, ["data-attr"])
         self.assertEqual(team.autocapture_exceptions_opt_in, None)
         self.assertEqual(team.autocapture_web_vitals_opt_in, None)
+        self.assertEqual(team.autocapture_web_vitals_allowed_metrics, None)
         self.assertEqual(team.autocapture_exceptions_errors_to_ignore, None)
 
     def test_create_team_with_test_account_filters(self):
-        team = Team.objects.create_with_data(organization=self.organization)
+        team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
         self.assertEqual(
             team.test_account_filters,
             [
@@ -98,7 +92,7 @@ class TestTeam(BaseTest):
         user = User.objects.create(email="test@gmail.com")
         organization = Organization.objects.create()
         organization.members.set([user])
-        team = Team.objects.create_with_data(organization=organization)
+        team = Team.objects.create_with_data(initiating_user=self.user, organization=organization)
         self.assertEqual(
             team.test_account_filters,
             [
@@ -112,33 +106,17 @@ class TestTeam(BaseTest):
         )
 
     def test_create_team_sets_primary_dashboard(self):
-        team = Team.objects.create_with_data(organization=self.organization)
+        team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
         self.assertIsInstance(team.primary_dashboard, Dashboard)
 
         # Ensure insights are created and linked
         self.assertEqual(DashboardTile.objects.filter(dashboard=team.primary_dashboard).count(), 6)
 
-    @mock.patch("requests.get", side_effect=mocked_plugin_requests_get)
-    def test_preinstalled_are_autoenabled(self, mock_get):
-        with self.is_cloud(False):
-            with self.settings(PLUGINS_PREINSTALLED_URLS=["https://github.com/PostHog/helloworldplugin/"]):
-                _, _, new_team = Organization.objects.bootstrap(
-                    self.user,
-                    plugins_access_level=Organization.PluginsAccessLevel.INSTALL,
-                )
-
-        self.assertEqual(PluginConfig.objects.filter(team=new_team, enabled=True).count(), 1)
-        self.assertEqual(
-            PluginConfig.objects.filter(team=new_team, enabled=True).get().plugin.name,
-            "helloworldplugin",
-        )
-        self.assertEqual(mock_get.call_count, 2)
-
     @mock.patch("posthoganalytics.feature_enabled", return_value=True)
     def test_team_on_cloud_uses_feature_flag_to_determine_person_on_events(self, mock_feature_enabled):
         with self.is_cloud(True):
             with override_instance_config("PERSON_ON_EVENTS_ENABLED", False):
-                team = Team.objects.create_with_data(organization=self.organization)
+                team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
                 self.assertEqual(
                     team.person_on_events_mode, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
                 )
@@ -161,7 +139,7 @@ class TestTeam(BaseTest):
     def test_team_on_self_hosted_uses_instance_setting_to_determine_person_on_events(self, mock_feature_enabled):
         with self.is_cloud(False):
             with override_instance_config("PERSON_ON_EVENTS_V2_ENABLED", True):
-                team = Team.objects.create_with_data(organization=self.organization)
+                team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
                 self.assertEqual(
                     team.person_on_events_mode, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
                 )
@@ -170,15 +148,15 @@ class TestTeam(BaseTest):
                     assert args_list[0][0] != "persons-on-events-v2-reads-enabled"
 
             with override_instance_config("PERSON_ON_EVENTS_V2_ENABLED", False):
-                team = Team.objects.create_with_data(organization=self.organization)
-                self.assertEqual(team.person_on_events_mode, PersonsOnEventsMode.DISABLED)
+                team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+                self.assertEqual(team.person_on_events_mode, PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED)
                 for args_list in mock_feature_enabled.call_args_list:
                     # It is ok if we check other feature flags, just not `persons-on-events-v2-reads-enabled`
                     assert args_list[0][0] != "persons-on-events-v2-reads-enabled"
 
     def test_each_team_gets_project_with_default_name_and_same_id(self):
         # Can be removed once environments are fully rolled out
-        team = Team.objects.create_with_data(organization=self.organization)
+        team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 
         project = Project.objects.filter(id=team.id).first()
 
@@ -187,7 +165,7 @@ class TestTeam(BaseTest):
 
     def test_each_team_gets_project_with_custom_name_and_same_id(self):
         # Can be removed once environments are fully rolled out
-        team = Team.objects.create_with_data(organization=self.organization, name="Hogflix")
+        team = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user, name="Hogflix")
 
         project = Project.objects.filter(id=team.id).first()
 
@@ -202,7 +180,7 @@ class TestTeam(BaseTest):
         initial_project_count = Project.objects.count()
 
         with self.assertRaises(Exception):
-            Team.objects.create_with_data(organization=self.organization, name="Hogflix")
+            Team.objects.create_with_data(organization=self.organization, initiating_user=self.user, name="Hogflix")
 
         self.assertEqual(Team.objects.count(), initial_team_count)
         self.assertEqual(Project.objects.count(), initial_project_count)

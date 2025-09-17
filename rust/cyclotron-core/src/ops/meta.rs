@@ -1,25 +1,37 @@
 use sqlx::{postgres::PgQueryResult, PgPool};
 use uuid::Uuid;
 
-use crate::{error::QueueError, DEAD_LETTER_QUEUE};
+use crate::{
+    error::{JobError, QueueError},
+    DEAD_LETTER_QUEUE,
+};
 
-pub async fn count_total_waiting_jobs<'c, E>(executor: E) -> Result<u64, QueueError>
+pub async fn count_total_waiting_jobs<'c, E>(executor: E) -> Result<Vec<(u64, String)>, QueueError>
 where
     E: sqlx::Executor<'c, Database = sqlx::Postgres>,
 {
-    let res = sqlx::query!(
-        "SELECT COUNT(*) FROM cyclotron_jobs WHERE state = 'available' AND scheduled <= NOW()",
+    struct Count {
+        count: Option<i64>,
+        queue_name: String,
+    }
+
+    let res = sqlx::query_as!(
+        Count,
+        "SELECT COUNT(*), queue_name FROM cyclotron_jobs WHERE state = 'available' AND scheduled <= NOW() GROUP BY queue_name",
     )
-    .fetch_one(executor)
+    .fetch_all(executor)
     .await?;
 
-    let res = res.count.unwrap_or(0);
-    Ok(res as u64)
+    Ok(res
+        .into_iter()
+        .map(|r| (r.count.unwrap_or(0) as u64, r.queue_name))
+        .collect())
 }
 
-pub fn throw_if_no_rows(res: PgQueryResult, job: Uuid, lock: Uuid) -> Result<(), QueueError> {
+// Returns an InvalidLock error if the query run did not affect any rows.
+pub fn throw_if_no_rows(res: PgQueryResult, job: Uuid, lock: Uuid) -> Result<(), JobError> {
     if res.rows_affected() == 0 {
-        Err(QueueError::InvalidLock(lock, job))
+        Err(JobError::InvalidLock(lock, job))
     } else {
         Ok(())
     }
@@ -53,7 +65,7 @@ where
     .await?;
 
     let Some(original_queue_name) = original_queue_name else {
-        return Err(QueueError::UnknownJobId(job));
+        return Err(JobError::UnknownJobId(job).into());
     };
 
     // Now we add an entry to the dead metadata queue

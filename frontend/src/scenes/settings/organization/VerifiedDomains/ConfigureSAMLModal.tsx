@@ -1,6 +1,8 @@
-import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { Link } from '@posthog/lemon-ui'
+
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -31,7 +33,7 @@ export function ConfigureSAMLModal(): JSX.Element {
                 <LemonModal.Header>
                     <h3>Configure SAML authentication and provisioning</h3>
                 </LemonModal.Header>
-                <LemonModal.Content className="space-y-2">
+                <LemonModal.Content className="deprecated-space-y-2">
                     <p>
                         <Link to="https://posthog.com/docs/data/sso#setting-up-saml" target="_blank" targetBlankIcon>
                             Read the docs

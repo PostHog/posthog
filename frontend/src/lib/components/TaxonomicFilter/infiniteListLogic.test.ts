@@ -1,5 +1,7 @@
-import { expectLogic, partial } from 'kea-test-utils'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
+
+import { expectLogic, partial } from 'kea-test-utils'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { useMocks } from '~/mocks/jest'
@@ -9,7 +11,10 @@ import { AppContext, PropertyDefinition } from '~/types'
 
 import { infiniteListLogic } from './infiniteListLogic'
 
-window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
+window.POSTHOG_APP_CONTEXT = {
+    current_team: { id: MOCK_TEAM_ID },
+    current_project: { id: MOCK_TEAM_ID },
+} as unknown as AppContext
 
 describe('infiniteListLogic', () => {
     let logic: ReturnType<typeof infiniteListLogic.build>
@@ -63,6 +68,7 @@ describe('infiniteListLogic', () => {
             taxonomicFilterLogicKey: 'testList',
             listGroupType: TaxonomicFilterGroupType.Events,
             taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+            showNumericalPropsOnly: false,
         }
         const logicWithProps = infiniteListLogic({ ...defaultProps, ...props })
         logicWithProps.mount()
@@ -95,6 +101,7 @@ describe('infiniteListLogic', () => {
                 taxonomicFilterLogicKey: 'testList',
                 listGroupType: TaxonomicFilterGroupType.Events,
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+                showNumericalPropsOnly: false,
             })
             logic.mount()
         })
@@ -234,6 +241,7 @@ describe('infiniteListLogic', () => {
                 taxonomicFilterLogicKey: 'testList',
                 listGroupType: TaxonomicFilterGroupType.Wildcards,
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+                showNumericalPropsOnly: false,
                 optionsFromProp: {
                     wildcard: [{ name: 'first' }, { name: 'second' }],
                 },
@@ -257,6 +265,7 @@ describe('infiniteListLogic', () => {
                 listGroupType: TaxonomicFilterGroupType.EventProperties,
                 eventNames: ['$pageview'],
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+                showNumericalPropsOnly: false,
             })
             logic.mount()
         })
@@ -386,11 +395,44 @@ describe('infiniteListLogic', () => {
             taxonomicFilterLogicKey: 'test-element-list',
             listGroupType: TaxonomicFilterGroupType.Elements,
             taxonomicGroupTypes: [TaxonomicFilterGroupType.Elements],
+            showNumericalPropsOnly: false,
         })
         logicWithProps.mount()
 
         await expectLogic(logicWithProps, () => logicWithProps.actions.setSearchQuery('css')).toMatchValues({
-            localItems: { count: 1, results: [{ name: 'selector' }], searchQuery: 'css' },
+            localItems: { count: 1, results: [{ name: 'selector' }], searchQuery: 'css', originalQuery: undefined },
+        })
+    })
+
+    it('swaps in query when url is sent', async () => {
+        const logicWithProps = infiniteListLogic({
+            taxonomicFilterLogicKey: 'test-e-prop',
+            listGroupType: TaxonomicFilterGroupType.EventProperties,
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+            showNumericalPropsOnly: false,
+        })
+        logicWithProps.mount()
+
+        await expectLogic(logicWithProps, () =>
+            logicWithProps.actions.setSearchQuery('http://localhost:8010/project/1/replay/playlists')
+        ).toMatchValues({
+            swappedInQuery: '$current_url',
+        })
+    })
+
+    it('swaps in query when email is sent', async () => {
+        const logicWithProps = infiniteListLogic({
+            taxonomicFilterLogicKey: 'test-e-prop',
+            listGroupType: TaxonomicFilterGroupType.PersonProperties,
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.PersonProperties],
+            showNumericalPropsOnly: false,
+        })
+        logicWithProps.mount()
+
+        await expectLogic(logicWithProps, () =>
+            logicWithProps.actions.setSearchQuery('test@example.com')
+        ).toMatchValues({
+            swappedInQuery: 'email',
         })
     })
 })

@@ -1,8 +1,10 @@
 import time
 from typing import Optional
-from django.db import connections
-import structlog
+
 from django.conf import settings
+from django.db import connections
+
+import structlog
 
 DATABASE_FOR_FLAG_MATCHING = (
     "default" if ("decide" not in settings.READ_REPLICA_OPT_IN or "replica" not in settings.DATABASES) else "replica"
@@ -19,7 +21,7 @@ class DatabaseHealthcheck:
     """
 
     def __init__(self, time_interval: int = 20) -> None:
-        self.connected: bool = False
+        self.connected: bool = True
         self.last_check: Optional[int] = None
         self.time_interval = time_interval
         self.hits = 0
@@ -53,9 +55,11 @@ class DatabaseHealthcheck:
             with connections[DATABASE_FOR_FLAG_MATCHING].cursor() as cursor:
                 cursor.execute("SELECT 1")
             return True
-        except Exception:
-            logger.exception("postgres_connection_failure")
+        except Exception as e:
+            logger.exception(
+                "postgres_connection_failure", error=str(e), database=DATABASE_FOR_FLAG_MATCHING, exc_info=True
+            )
             return False
 
 
-postgres_healthcheck = DatabaseHealthcheck(time_interval=10)
+postgres_healthcheck = DatabaseHealthcheck(time_interval=30)

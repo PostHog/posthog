@@ -1,8 +1,8 @@
 import './ActionsPie.scss'
 
 import { useValues } from 'kea'
-import { getSeriesColor } from 'lib/colors'
 import { useEffect, useState } from 'react'
+
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
@@ -11,7 +11,7 @@ import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { ChartDisplayType, ChartParams, GraphDataset, GraphType } from '~/types'
+import { ChartParams, GraphDataset, GraphPointPayload, GraphType } from '~/types'
 
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { trendsDataLogic } from '../trendsDataLogic'
@@ -20,7 +20,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
     const [data, setData] = useState<GraphDataset[] | null>(null)
     const [total, setTotal] = useState(0)
 
-    const { cohorts } = useValues(cohortsModel)
+    const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const { insightProps } = useValues(insightLogic)
@@ -34,75 +34,85 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
         supportsPercentStackView,
         showPercentStackView,
         pieChartVizOptions,
-        isDataWarehouseSeries,
+        hasDataWarehouseSeries,
         querySource,
         breakdownFilter,
-        hiddenLegendIndexes,
+        getTrendsColor,
+        getTrendsHidden,
     } = useValues(trendsDataLogic(insightProps))
 
-    const renderingMetadata = context?.chartRenderingMetadata?.[ChartDisplayType.ActionsPie]
+    const onDataPointClick = context?.onDataPointClick
 
     const showAggregation = !pieChartVizOptions?.hideAggregation
 
-    function updateData(): void {
-        const days = indexedResults.length > 0 ? indexedResults[0].days : []
-        const colorList = indexedResults.map(({ seriesIndex }) => getSeriesColor(seriesIndex))
-
-        setData([
-            {
-                id: 0,
-                labels: indexedResults.map((item) => item.label),
-                data: indexedResults.map((item) => item.aggregated_value),
-                actions: indexedResults.map((item) => item.action),
-                breakdownValues: indexedResults.map((item) => item.breakdown_value),
-                breakdownLabels: indexedResults.map((item) => {
-                    return formatBreakdownLabel(
-                        item.breakdown_value,
-                        breakdownFilter,
-                        cohorts,
-                        formatPropertyValueForDisplay
-                    )
-                }),
-                compareLabels: indexedResults.map((item) => item.compare_label),
-                personsValues: indexedResults.map((item) => item.persons),
-                days,
-                backgroundColor: colorList,
-                borderColor: colorList, // For colors to display in the tooltip
-            },
-        ])
-        setTotal(
-            indexedResults.reduce(
-                (prev, item, i) => prev + (!hiddenLegendIndexes?.includes(i) ? item.aggregated_value : 0),
-                0
-            )
-        )
-    }
-
     useEffect(() => {
         if (indexedResults) {
-            updateData()
+            const visibleResults = indexedResults.filter((item) => !getTrendsHidden(item))
+            const days = visibleResults.length > 0 ? visibleResults[0].days : []
+            const colorList = visibleResults.map(getTrendsColor)
+
+            setData([
+                {
+                    id: 0,
+                    labels: visibleResults.map((item) => item.label),
+                    data: visibleResults.map((item) => item.aggregated_value),
+                    actions: visibleResults.map((item) => item.action),
+                    breakdownValues: visibleResults.map((item) => item.breakdown_value),
+                    breakdownLabels: visibleResults.map((item) => {
+                        return formatBreakdownLabel(
+                            item.breakdown_value,
+                            breakdownFilter,
+                            allCohorts.results,
+                            formatPropertyValueForDisplay
+                        )
+                    }),
+                    compareLabels: visibleResults.map((item) => item.compare_label),
+                    personsValues: visibleResults.map((item) => item.persons),
+                    days,
+                    backgroundColor: colorList,
+                    borderColor: colorList, // For colors to display in the tooltip
+                },
+            ])
+            setTotal(visibleResults.reduce((prev, item) => prev + item.aggregated_value, 0))
         }
-    }, [indexedResults, hiddenLegendIndexes])
+    }, [
+        indexedResults,
+        breakdownFilter,
+        getTrendsColor,
+        getTrendsHidden,
+        allCohorts.results,
+        formatPropertyValueForDisplay,
+    ])
 
-    const onClick =
-        renderingMetadata?.onSegmentClick ||
-        (!showPersonsModal || formula
-            ? undefined
-            : (payload) => {
-                  const { points, index } = payload
-                  const dataset = points.referencePoint.dataset
-                  const label = dataset.labels?.[index]
-
-                  openPersonsModal({
-                      title: label || '',
-                      query: datasetToActorsQuery({ dataset, query: querySource!, index }),
-                      additionalSelect: {
-                          value_at_data_point: 'event_count',
-                          matched_recordings: 'matched_recordings',
-                      },
-                      orderBy: ['event_count DESC, actor_id DESC'],
-                  })
-              })
+    let onClick: ((payload: GraphPointPayload) => void) | undefined = undefined
+    if (onDataPointClick) {
+        onClick = (payload) => {
+            const { points, index } = payload
+            const dataset = points.referencePoint.dataset
+            onDataPointClick(
+                {
+                    breakdown: dataset.breakdownValues?.[index],
+                    compare: dataset.compareLabels?.[index] || undefined,
+                },
+                indexedResults[0]
+            )
+        }
+    } else if (showPersonsModal && !formula) {
+        onClick = (payload: GraphPointPayload) => {
+            const { points, index } = payload
+            const dataset = points.referencePoint.dataset
+            const label = dataset.labels?.[index]
+            openPersonsModal({
+                title: label || '',
+                query: datasetToActorsQuery({ dataset, query: querySource!, index }),
+                additionalSelect: {
+                    value_at_data_point: 'event_count',
+                    matched_recordings: 'matched_recordings',
+                },
+                orderBy: ['event_count DESC, actor_id DESC'],
+            })
+        }
+    }
 
     return data ? (
         data[0] && data[0].labels ? (
@@ -111,7 +121,6 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
                     <div className="ActionsPie__chart">
                         <PieChart
                             data-attr="trend-pie-graph"
-                            hiddenLegendIndexes={hiddenLegendIndexes}
                             type={GraphType.Pie}
                             datasets={data}
                             labels={data[0].labels}
@@ -124,7 +133,7 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true, context }: C
                             showLabelOnSeries={showLabelOnSeries}
                             supportsPercentStackView={supportsPercentStackView}
                             showPercentStackView={showPercentStackView}
-                            onClick={isDataWarehouseSeries ? undefined : onClick}
+                            onClick={hasDataWarehouseSeries ? undefined : onClick}
                             disableHoverOffset={pieChartVizOptions?.disableHoverOffset}
                         />
                     </div>

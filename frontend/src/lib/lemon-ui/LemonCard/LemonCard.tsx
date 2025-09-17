@@ -1,5 +1,11 @@
 import './LemonCard.scss'
 
+import { IconX } from '@posthog/icons'
+
+import { cn } from 'lib/utils/css-classes'
+
+import { LemonButton } from '../LemonButton'
+
 export interface LemonCardProps {
     hoverEffect?: boolean
     className?: string
@@ -7,6 +13,8 @@ export interface LemonCardProps {
     onClick?: () => void
     focused?: boolean
     'data-attr'?: string
+    closeable?: boolean
+    onClose?: () => void
 }
 
 export function LemonCard({
@@ -15,16 +23,38 @@ export function LemonCard({
     children,
     onClick,
     focused,
+    closeable,
+    onClose,
     ...props
 }: LemonCardProps): JSX.Element {
     return (
         <div
-            className={`LemonCard ${hoverEffect && 'LemonCard--hoverEffect'} border ${
-                focused ? 'border-2 border-primary' : 'border-border'
-            } rounded p-6 bg-bg-light ${className}`}
+            className={cn(
+                'LemonCard border rounded p-6 bg-surface-primary relative',
+                {
+                    'LemonCard--hoverEffect': hoverEffect,
+                    'border-2 border-accent': focused,
+                    'border-primary': !focused,
+                    'cursor-pointer': !!onClick && !focused,
+                },
+                className
+            )}
             onClick={onClick}
             {...props}
         >
+            {closeable ? (
+                <div className="absolute top-2 right-2">
+                    <LemonButton
+                        icon={<IconX />}
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            onClose?.()
+                        }}
+                        type="tertiary"
+                        size="xsmall"
+                    />
+                </div>
+            ) : null}
             {children}
         </div>
     )

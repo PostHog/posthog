@@ -2,6 +2,7 @@ import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
+
 import api from 'lib/api'
 import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
 
@@ -81,9 +82,12 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
     forms(({ actions, values }) => ({
         signup: {
             defaults: { role_at_organization: '' } as AcceptInvitePayloadInterface,
-            errors: ({ password, first_name }) => ({
-                password: !password ? 'Please enter your password to continue' : values.validatedPassword.feedback,
+            errors: ({ password, first_name, role_at_organization }) => ({
+                password: !password
+                    ? 'Please enter your password to continue'
+                    : values.validatedPassword.feedback || undefined,
                 first_name: !first_name ? 'Please enter your name' : undefined,
+                role_at_organization: !role_at_organization ? 'Please select your role to continue' : undefined,
             }),
             submit: async (payload, breakpoint) => {
                 breakpoint()

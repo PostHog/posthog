@@ -1,13 +1,14 @@
-import 'maplibre-gl/dist/maplibre-gl.css'
 import './Maplibre.scss'
+import 'maplibre-gl/dist/maplibre-gl.css'
 
 import { useValues } from 'kea'
-import maplibregl, { Map as RawMap, Marker } from 'maplibre-gl'
+import maplibregl, { Marker, Map as RawMap } from 'maplibre-gl'
 import { Protocol } from 'pmtiles'
 import layers from 'protomaps-themes-base'
 import { useEffect, useRef } from 'react'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import useResizeObserver from 'use-resize-observer'
+
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
@@ -34,7 +35,7 @@ export function Map({ className, ...rest }: MapProps): JSX.Element {
 
     if (!isCloudOrDev) {
         return (
-            <div className={`w-full h-full flex flex-col items-center justify-center text-muted p-3 ${className}`}>
+            <div className={`w-full h-full flex flex-col items-center justify-center text-secondary p-3 ${className}`}>
                 <h1>Map unavailable</h1>
                 <p>The map is currently only available in cloud deployments.</p>
             </div>
@@ -75,7 +76,7 @@ export function MapComponent({ center, markers, className }: MapProps): JSX.Elem
                 marker.addTo(map.current)
             }
         }
-    }, [isDarkModeOn])
+    }, [isDarkModeOn]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useResizeObserver({
         ref: mapContainer,

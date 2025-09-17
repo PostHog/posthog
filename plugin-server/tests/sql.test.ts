@@ -1,24 +1,23 @@
 import { Hub } from '../src/types'
-import { createHub } from '../src/utils/db/hub'
+import { closeHub, createHub } from '../src/utils/db/hub'
 import { PostgresUse } from '../src/utils/db/postgres'
 import { disablePlugin, getActivePluginRows, getPluginAttachmentRows, getPluginConfigRows } from '../src/utils/db/sql'
 import { commonOrganizationId } from './helpers/plugins'
 import { resetTestDatabase } from './helpers/sql'
 
 jest.setTimeout(20_000)
-jest.mock('../src/utils/status')
+jest.mock('../src/utils/logger')
 
 describe('sql', () => {
     let hub: Hub
-    let closeHub: () => Promise<void>
 
     beforeEach(async () => {
-        ;[hub, closeHub] = await createHub()
+        hub = await createHub()
         await resetTestDatabase(`const processEvent = event => event`)
     })
 
     afterEach(async () => {
-        await closeHub()
+        await closeHub(hub)
     })
 
     test('getPluginAttachmentRows', async () => {
@@ -79,7 +78,6 @@ describe('sql', () => {
                 log_level: null,
                 name: 'test-maxmind-plugin',
                 plugin_type: 'custom',
-                public_jobs: null,
                 source__plugin_json:
                     '{"name":"posthog-maxmind-plugin","description":"just for testing","url":"http://example.com/plugin","config":{},"main":"index.js"}',
                 source__index_ts: 'const processEvent = event => event',
@@ -123,7 +121,7 @@ describe('sql', () => {
             expect(rowsBefore[0].plugin_id).toEqual(60)
             expect(rowsBefore[0].enabled).toEqual(true)
 
-            const receivedMessage = redis.subscribe(hub.PLUGINS_RELOAD_PUBSUB_CHANNEL)
+            const receivedMessage = redis.subscribe('reload-plugins')
             await disablePlugin(hub, 39)
 
             const rowsAfter = await getPluginConfigRows(hub)

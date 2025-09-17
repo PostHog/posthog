@@ -1,6 +1,8 @@
-import { LemonInput, LemonLabel, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useState } from 'react'
+
+import { LemonInput, LemonLabel, LemonModal, LemonSegmentedButton } from '@posthog/lemon-ui'
+
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 interface NewPropertyInterface {
     creating: boolean
@@ -47,7 +49,7 @@ export function NewProperty({ onSave }: NewPropertyProps): JSX.Element {
                     </LemonButton>
                 }
             >
-                <div className="space-y-2">
+                <div className="deprecated-space-y-2">
                     <div>
                         <LemonLabel>Key</LemonLabel>
                         <LemonInput

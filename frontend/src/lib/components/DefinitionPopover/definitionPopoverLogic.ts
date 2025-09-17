@@ -1,6 +1,7 @@
 import equal from 'fast-deep-equal'
 import { actions, connect, events, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { getSingularType } from 'lib/components/DefinitionPopover/utils'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -40,9 +41,9 @@ export interface DefinitionPopoverLogicProps {
 export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
     props({} as DefinitionPopoverLogicProps),
     path(['lib', 'components', 'DefinitionPanel', 'definitionPopoverLogic']),
-    connect({
+    connect(() => ({
         values: [userLogic, ['hasAvailableFeature']],
-    }),
+    })),
     actions(({ values }) => ({
         setDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item, isDataWarehouse: values.isDataWarehouse }),
         setLocalDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item }),
@@ -134,9 +135,11 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                         }
 
                         if (!('distinct_id_field' in item)) {
-                            const idField = Object.values(warehouseItem.fields).find((n) => n.name === 'id')
-                            if (idField) {
-                                warehouseItem['distinct_id_field'] = idField.name
+                            const distinctIdField =
+                                Object.values(warehouseItem.fields).find((n) => n.name === 'distinct_id') ??
+                                Object.values(warehouseItem.fields).find((n) => n.name === 'id')
+                            if (distinctIdField) {
+                                warehouseItem['distinct_id_field'] = distinctIdField.name
                             }
                         }
 
@@ -165,7 +168,11 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
 
                     return item
                 },
-                setLocalDefinition: (state, { item }) => ({ ...state, ...item } as Partial<TaxonomicDefinitionTypes>),
+                setLocalDefinition: (state, { item }) =>
+                    ({
+                        ...state,
+                        ...item,
+                    }) as Partial<TaxonomicDefinitionTypes>,
             },
         ],
     }),
@@ -225,12 +232,20 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                     TaxonomicFilterGroupType.NumericalEventProperties,
                     TaxonomicFilterGroupType.Metadata,
                     TaxonomicFilterGroupType.DataWarehousePersonProperties,
+                    TaxonomicFilterGroupType.RevenueAnalyticsProperties,
+                    TaxonomicFilterGroupType.ErrorTrackingProperties,
                 ].includes(type) || type.startsWith(TaxonomicFilterGroupType.GroupsPrefix),
         ],
+        isVirtual: [
+            (s) => [s.definition],
+            (definition) => {
+                return 'virtual' in definition && definition.virtual
+            },
+        ],
         hasSentAs: [
-            (s) => [s.type, s.isProperty, s.isEvent],
-            (type, isProperty, isEvent) =>
-                isEvent || (isProperty && type !== TaxonomicFilterGroupType.SessionProperties),
+            (s) => [s.type, s.isProperty, s.isEvent, s.isVirtual],
+            (type, isProperty, isEvent, isVirtual) =>
+                isEvent || (isProperty && !isVirtual && type !== TaxonomicFilterGroupType.SessionProperties),
         ],
         isCohort: [(s) => [s.type], (type) => type === TaxonomicFilterGroupType.Cohorts],
         isDataWarehouse: [(s) => [s.type], (type) => type === TaxonomicFilterGroupType.DataWarehouse],

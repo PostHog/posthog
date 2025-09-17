@@ -1,4 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+
 import {
     createDefaultPropertyFilter,
     taxonomicFilterTypeToPropertyFilterType,
@@ -6,10 +7,17 @@ import {
 import { taxonomicFilterGroupTypeToEntityType } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { ActionFilter, FilterLogicalOperator, PropertyFilterType } from '~/types'
+import {
+    ActionFilter,
+    FeaturePropertyFilter,
+    FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyOperator,
+    UniversalFiltersGroup,
+    UniversalFiltersGroupValue,
+} from '~/types'
 
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType, TaxonomicFilterValue } from '../TaxonomicFilter/types'
-import { UniversalFiltersGroup, UniversalFiltersGroupValue } from './UniversalFilters'
 import type { universalFiltersLogicType } from './universalFiltersLogicType'
 
 export const DEFAULT_UNIVERSAL_GROUP_FILTER: UniversalFiltersGroup = {
@@ -32,7 +40,9 @@ export type UniversalFiltersLogicProps = {
 export const universalFiltersLogic = kea<universalFiltersLogicType>([
     path((key) => ['lib', 'components', 'UniversalFilters', 'universalFiltersLogic', key]),
     props({} as UniversalFiltersLogicProps),
-    key((props) => props.rootKey),
+    key((props) => {
+        return `${props.rootKey}-${JSON.stringify(props.group)}`
+    }),
 
     connect(() => ({
         values: [propertyDefinitionsModel, ['describeProperty']],
@@ -52,11 +62,13 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
         addGroupFilter: (
             taxonomicGroup: TaxonomicFilterGroup,
             propertyKey: TaxonomicFilterValue,
-            item: { propertyFilterType?: PropertyFilterType; name?: string }
+            item: { propertyFilterType?: PropertyFilterType; name?: string; key?: string },
+            originalQuery?: string
         ) => ({
             taxonomicGroup,
             propertyKey,
             item,
+            originalQuery,
         }),
     }),
 
@@ -98,6 +110,8 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                         TaxonomicFilterGroupType.Cohorts,
                         TaxonomicFilterGroupType.Elements,
                         TaxonomicFilterGroupType.HogQLExpression,
+                        TaxonomicFilterGroupType.FeatureFlags,
+                        TaxonomicFilterGroupType.LogAttributes,
                     ].includes(t)
                 ),
         ],
@@ -109,29 +123,43 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
         replaceGroupValue: () => props.onChange(values.filterGroup),
         removeGroupValue: () => props.onChange(values.filterGroup),
 
-        addGroupFilter: ({ taxonomicGroup, propertyKey, item }) => {
+        addGroupFilter: ({ taxonomicGroup, propertyKey, item, originalQuery }) => {
             const newValues = [...values.filterGroup.values]
 
-            const propertyType = item.propertyFilterType ?? taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
-            if (propertyKey && propertyType) {
-                const newPropertyFilter = createDefaultPropertyFilter(
-                    {},
-                    propertyKey,
-                    propertyType,
-                    taxonomicGroup,
-                    values.describeProperty
-                )
-                newValues.push(newPropertyFilter)
+            if (taxonomicGroup.type === TaxonomicFilterGroupType.FeatureFlags) {
+                if (!item.key) {
+                    return
+                }
+                const newFeatureFlagFilter: FeaturePropertyFilter = {
+                    type: PropertyFilterType.Feature,
+                    key: item.key,
+                    operator: PropertyOperator.Exact,
+                }
+                newValues.push(newFeatureFlagFilter)
             } else {
-                const entityType = taxonomicFilterGroupTypeToEntityType(taxonomicGroup.type)
-                if (entityType) {
-                    const newEntityFilter: ActionFilter = {
-                        id: propertyKey,
-                        name: item?.name ?? '',
-                        type: entityType,
-                    }
+                const propertyType =
+                    item?.propertyFilterType ?? taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
+                if (propertyKey && propertyType) {
+                    const newPropertyFilter = createDefaultPropertyFilter(
+                        {},
+                        propertyKey,
+                        propertyType,
+                        taxonomicGroup,
+                        values.describeProperty,
+                        originalQuery
+                    )
+                    newValues.push(newPropertyFilter)
+                } else {
+                    const entityType = taxonomicFilterGroupTypeToEntityType(taxonomicGroup.type)
+                    if (entityType) {
+                        const newEntityFilter: ActionFilter = {
+                            id: propertyKey,
+                            name: item?.name ?? '',
+                            type: entityType,
+                        }
 
-                    newValues.push(newEntityFilter)
+                        newValues.push(newEntityFilter)
+                    }
                 }
             }
             actions.setGroupValues(newValues)

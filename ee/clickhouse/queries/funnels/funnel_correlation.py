@@ -1,24 +1,13 @@
 import dataclasses
 import urllib.parse
-from typing import (
-    Any,
-    Literal,
-    Optional,
-    TypedDict,
-    Union,
-    cast,
-)
+from typing import Any, Literal, Optional, TypedDict, Union, cast
 
 from rest_framework.exceptions import ValidationError
 
-from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
-from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
-from posthog.clickhouse.materialized_columns import get_materialized_columns
-from posthog.constants import (
-    AUTOCAPTURE_EVENT,
-    TREND_FILTER_TYPE_ACTIONS,
-    FunnelCorrelationType,
-)
+from posthog.schema import PersonsOnEventsMode
+
+from posthog.clickhouse.materialized_columns import get_materialized_column_for_property
+from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
 from posthog.models.element.element import chain_to_elements
 from posthog.models.event.util import ElementSerializer
 from posthog.models.filters import Filter
@@ -29,8 +18,10 @@ from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.util import alias_poe_mode_for_legacy, correct_result_for_sampling
-from posthog.schema import PersonsOnEventsMode
 from posthog.utils import generate_short_id
+
+from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
+from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 
 
 class EventDefinition(TypedDict):
@@ -156,8 +147,6 @@ class FunnelCorrelation:
         ):
             # When dealing with properties, make sure funnel response comes with properties
             # so we don't have to join on persons/groups to get these properties again
-            mat_event_cols = get_materialized_columns("events")
-
             for property_name in cast(list, self._filter.correlation_property_names):
                 if self._filter.aggregation_group_type_index is not None:
                     continue  # We don't support group properties on events at this time
@@ -165,10 +154,11 @@ class FunnelCorrelation:
                     if "$all" == property_name:
                         return [f"person_properties"]
 
-                    possible_mat_col = mat_event_cols.get((property_name, "person_properties"))
-
-                    if possible_mat_col is not None:
-                        props_to_include.append(possible_mat_col)
+                    possible_mat_col = get_materialized_column_for_property(
+                        "events", "person_properties", property_name
+                    )
+                    if possible_mat_col is not None and not possible_mat_col.is_nullable:
+                        props_to_include.append(possible_mat_col.name)
                     else:
                         props_to_include.append(f"person_properties")
 
@@ -305,7 +295,7 @@ class FunnelCorrelation:
                     {event_join_query}
                     AND event.event IN %(event_names)s
             )
-            GROUP BY name
+            GROUP BY name, prop
             -- Discard high cardinality / low hits properties
             -- This removes the long tail of random properties with empty, null, or very small values
             HAVING (success_count + failure_count) > 2

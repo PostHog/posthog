@@ -1,7 +1,9 @@
-import { LemonTable } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+
+import { LemonTable } from '@posthog/lemon-ui'
+
 import { Link } from 'lib/lemon-ui/Link'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 
 import { SystemStatusRow, SystemStatusSubrows } from '~/types'
 

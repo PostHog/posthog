@@ -1,5 +1,11 @@
 import pytest
+from posthog.test.base import APIBaseTest, ClickhouseDestroyTablesMixin, ClickhouseTestMixin, _create_event
+
+from django.db.utils import IntegrityError
+
 from parameterized import parameterized
+
+from posthog.schema import BounceRatePageViewMode, HogQLQueryModifiers, SessionTableVersion
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.sessions_v1 import (
@@ -8,18 +14,28 @@ from posthog.hogql.database.schema.sessions_v1 import (
 )
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
+
+from posthog.models import Organization, Team
 from posthog.models.property_definition import PropertyType
+from posthog.models.sessions.sql import ALLOWED_TEAM_IDS
 from posthog.models.utils import uuid7
-from posthog.schema import HogQLQueryModifiers, BounceRatePageViewMode, SessionTableVersion
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-)
 
 
-class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
+class TestSessionsV1(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseTest):
+    def setUp(self):
+        super().setUp()
+
+        # only certain team ids can insert events into this legacy sessions table, see sessions/sql.py for more info
+        team_id = 2
+        assert team_id in ALLOWED_TEAM_IDS
+
+        self.organization = Organization.objects.create(name="Test Organization")
+        try:
+            self.team = Team.objects.create(organization=self.organization, id=team_id, pk=team_id)
+        except IntegrityError:
+            # For some reasons, in CI, the team is already created, so let's just get it from the database
+            self.team = Team.objects.get(id=team_id)
+
     def __execute(self, query):
         modifiers = HogQLQueryModifiers(sessionTableVersion=SessionTableVersion.V1)
         return execute_hogql_query(
@@ -157,37 +173,6 @@ class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
             "Paid Search",
         )
 
-    def test_persons_and_sessions_on_events(self):
-        p1 = _create_person(distinct_ids=["d1"], team=self.team)
-        p2 = _create_person(distinct_ids=["d2"], team=self.team)
-
-        s1 = "session_test_persons_and_sessions_on_events_1"
-        s2 = "session_test_persons_and_sessions_on_events_2"
-
-        _create_event(
-            event="$pageview",
-            team=self.team,
-            distinct_id="d1",
-            properties={"$session_id": s1, "utm_source": "source1"},
-        )
-        _create_event(
-            event="$pageview",
-            team=self.team,
-            distinct_id="d2",
-            properties={"$session_id": s2, "utm_source": "source2"},
-        )
-
-        response = self.__execute(
-            parse_select(
-                "select events.person_id, session.$entry_utm_source from events where $session_id = {session_id} or $session_id = {session_id2} order by 2 asc",
-                placeholders={"session_id": ast.Constant(value=s1), "session_id2": ast.Constant(value=s2)},
-            ),
-        )
-
-        [row1, row2] = response.results or []
-        self.assertEqual(row1, (p1.uuid, "source1"))
-        self.assertEqual(row2, (p2.uuid, "source2"))
-
     @parameterized.expand([(BounceRatePageViewMode.UNIQ_URLS,), (BounceRatePageViewMode.COUNT_PAGEVIEWS,)])
     def test_bounce_rate(self, bounceRatePageViewMode):
         # person with 2 different sessions
@@ -286,11 +271,46 @@ class TestSessionsV1(ClickhouseTestMixin, APIBaseTest):
             response.results or [],
         )
 
+    def test_can_use_v1_and_v2_fields(self):
+        session_id = "session_test_can_use_v1_and_v2_fields"
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="d1",
+            properties={
+                "$current_url": "https://example.com/pathname",
+                "$pathname": "/pathname",
+                "$session_id": session_id,
+            },
+        )
+
+        response = self.__execute(
+            parse_select(
+                """
+                select
+                    $session_duration,
+                    duration,
+                    $end_current_url,
+                    $exit_current_url,
+                    $end_pathname,
+                    $exit_pathname
+                from sessions
+                where session_id = {session_id}
+                """,
+                placeholders={"session_id": ast.Constant(value=session_id)},
+            ),
+        )
+
+        assert response.results == [
+            (0, 0, "https://example.com/pathname", "https://example.com/pathname", "/pathname", "/pathname")
+        ]
+
 
 class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
     def test_all(self):
         results = get_lazy_session_table_properties_v1(None)
-        self.assertEqual(len(results), 19)
+        assert len(results) == 32
         self.assertEqual(
             results[0],
             {
@@ -338,3 +358,28 @@ class TestGetLazySessionProperties(ClickhouseTestMixin, APIBaseTest):
         results = get_lazy_session_table_properties_v1(None)
         for prop in results:
             get_lazy_session_table_values_v1(key=prop["id"], team=self.team, search_term=None)
+
+    def test_custom_channel_types(self):
+        results = get_lazy_session_table_values_v1(key="$channel_type", team=self.team, search_term=None)
+        # the custom channel types should be first, there's should be no duplicates, and any custom rules for existing
+        # channel types should be bumped to the top
+        assert results == [
+            ["Cross Network"],
+            ["Paid Search"],
+            ["Paid Social"],
+            ["Paid Video"],
+            ["Paid Shopping"],
+            ["Paid Unknown"],
+            ["Direct"],
+            ["Organic Search"],
+            ["Organic Social"],
+            ["Organic Video"],
+            ["Organic Shopping"],
+            ["Push"],
+            ["SMS"],
+            ["Audio"],
+            ["Email"],
+            ["Referral"],
+            ["Affiliate"],
+            ["Unknown"],
+        ]

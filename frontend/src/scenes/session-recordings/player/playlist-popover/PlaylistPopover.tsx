@@ -1,21 +1,31 @@
-import { IconPin, IconPlus } from '@posthog/icons'
-import { LemonCheckbox, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { IconOpenInNew, IconWithCount } from 'lib/lemon-ui/icons'
+
+import { IconPin, IconPlus } from '@posthog/icons'
+import { LemonCheckbox, LemonDivider } from '@posthog/lemon-ui'
+
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { IconOpenInNew, IconWithCount } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
+import { sessionRecordingsPlaylistLogic } from '../../playlist/sessionRecordingsPlaylistLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { playlistPopoverLogic } from './playlistPopoverLogic'
 
-export function PlaylistPopoverButton(props: LemonButtonProps): JSX.Element {
+export function PlaylistPopoverButton({
+    setPinnedInCurrentPlaylist,
+    ...buttonProps
+}: { setPinnedInCurrentPlaylist?: (pinned: boolean) => void } & LemonButtonProps): JSX.Element {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const {
+        logicProps: { logicKey: currentPlaylistId },
+    } = useValues(sessionRecordingsPlaylistLogic)
+
     const logic = playlistPopoverLogic(logicProps)
     const {
         playlistsLoading,
@@ -29,7 +39,6 @@ export function PlaylistPopoverButton(props: LemonButtonProps): JSX.Element {
     } = useValues(logic)
     const { setSearchQuery, setNewFormShowing, setShowPlaylistPopover, addToPlaylist, removeFromPlaylist } =
         useActions(logic)
-
     return (
         <IconWithCount showZero={false} count={pinnedCount}>
             <Popover
@@ -37,18 +46,18 @@ export function PlaylistPopoverButton(props: LemonButtonProps): JSX.Element {
                 onClickOutside={() => setShowPlaylistPopover(false)}
                 actionable
                 overlay={
-                    <div className="space-y-1 w-100">
-                        <div className="shrink-0 space-y-1">
+                    <div className="deprecated-space-y-1 w-100">
+                        <div className="shrink-0 deprecated-space-y-1">
                             {newFormShowing ? (
                                 <Form
                                     formKey="newPlaylist"
                                     logic={playlistPopoverLogic}
-                                    props={{ sessionRecordingId }}
+                                    props={{ sessionRecordingId, playerKey: logicProps.playerKey }}
                                     enableFormOnSubmit
-                                    className="space-y-1"
+                                    className="deprecated-space-y-1"
                                 >
                                     <LemonField name="name">
-                                        <LemonInput placeholder="Playlist name" fullWidth />
+                                        <LemonInput placeholder="Collection name" fullWidth />
                                     </LemonField>
                                     <div className="flex items-center gap-2 justify-end">
                                         <LemonButton
@@ -67,13 +76,13 @@ export function PlaylistPopoverButton(props: LemonButtonProps): JSX.Element {
                                 <>
                                     <LemonInput
                                         type="search"
-                                        placeholder="Search playlists..."
+                                        placeholder="Search collections..."
                                         value={searchQuery}
                                         onChange={setSearchQuery}
                                         fullWidth
                                     />
                                     <LemonButton fullWidth icon={<IconPlus />} onClick={() => setNewFormShowing(true)}>
-                                        New list
+                                        New collection
                                     </LemonButton>
                                 </>
                             )}
@@ -95,9 +104,16 @@ export function PlaylistPopoverButton(props: LemonButtonProps): JSX.Element {
                                                     <LemonCheckbox className="pointer-events-none" checked={selected} />
                                                 )
                                             }
-                                            onClick={() =>
+                                            onClick={() => {
+                                                if (
+                                                    setPinnedInCurrentPlaylist &&
+                                                    playlist.short_id === currentPlaylistId
+                                                ) {
+                                                    return setPinnedInCurrentPlaylist(!selected)
+                                                }
+
                                                 !selected ? addToPlaylist(playlist) : removeFromPlaylist(playlist)
-                                            }
+                                            }}
                                         >
                                             {playlist.name || playlist.derived_name}
                                         </LemonButton>
@@ -113,7 +129,7 @@ export function PlaylistPopoverButton(props: LemonButtonProps): JSX.Element {
                         ) : playlistsLoading ? (
                             <LemonSkeleton className="my-2 h-4" repeat={3} />
                         ) : (
-                            <div className="p-2 text-center text-muted">No playlists found</div>
+                            <div className="p-2 text-center text-secondary">No collections found</div>
                         )}
                     </div>
                 }
@@ -123,7 +139,7 @@ export function PlaylistPopoverButton(props: LemonButtonProps): JSX.Element {
                     active={showPlaylistPopover}
                     onClick={() => setShowPlaylistPopover(!showPlaylistPopover)}
                     sideIcon={null}
-                    {...props}
+                    {...buttonProps}
                 />
             </Popover>
         </IconWithCount>

@@ -1,0 +1,16 @@
+id,ds,userid,usage,plan,region
+1,"2023-01-01",user_control_0,250,premium,us-west
+2,"2023-01-02",user_test_0,375,premium,us-west
+3,"2023-01-03",user_test_1,50,basic,us-east
+4,"2023-01-04",internal_test_1,100000,enterprise,eu-west
+5,"2023-01-04",user_test_2,50,basic,us-east
+6,"2023-01-07",user_extra,900,basic,us-east
+7,"2023-01-03",user_control_1,50,basic,us-east
+8,"2023-01-05",user_test_3,0,premium,us-east
+9,"2023-01-04",user_control_2,250,premium,us-east
+10,"2023-01-05",user_control_3,0,basic,us-east
+11,"2023-01-06",user_test_4,250,basic,us-east
+12,"2023-01-06",user_control_4,50,basic,us-east
+13,"2023-01-07",user_test_5,50,basic,us-east
+14,"2023-01-07",user_control_5,50,basic,us-east
+15,"2023-01-07",user_test_6,375,premium,us-east

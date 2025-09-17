@@ -1,0 +1,59 @@
+# serializer version: 1
+# name: TestEventTaxonomyQueryRunner.test_event_taxonomy_query_runner
+  '''
+  SELECT key,
+         arraySlice(arrayDistinct(groupArray(value)), 1, 5) AS
+  values,
+         count(DISTINCT value) AS total_count
+  FROM
+    (SELECT JSONExtractKeysAndValues(events.properties, 'String') AS kv
+     FROM events
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(now64(6, 'UTC'), toIntervalDay(30))), equals(events.event, 'event1'))
+     ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
+     LIMIT 100) ARRAY
+  JOIN (kv).1 AS key,
+       (kv).2 AS value
+  WHERE not(match(key, '(\\$set|\\$time|\\$set_once|\\$sent_at|distinct_id|\\$ip|\\$feature\\/|__|phjs|survey_dismissed|survey_responded|partial_filter_chosen|changed_action|window-id|changed_event|partial_filter|distinct_id)'))
+  GROUP BY key
+  ORDER BY total_count DESC
+  LIMIT 500 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestEventTaxonomyQueryRunner.test_retrieves_action_properties
+  '''
+  SELECT key,
+         arraySlice(arrayDistinct(groupArray(value)), 1, 5) AS
+  values,
+         count(DISTINCT value) AS total_count
+  FROM
+    (SELECT JSONExtractKeysAndValues(events.properties, 'String') AS kv
+     FROM events
+     WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), minus(now64(6, 'UTC'), toIntervalDay(30))), equals(events.event, '$pageview'))
+     ORDER BY toTimeZone(events.timestamp, 'UTC') DESC
+     LIMIT 100) ARRAY
+  JOIN (kv).1 AS key,
+       (kv).2 AS value
+  WHERE not(match(key, '(\\$set|\\$time|\\$set_once|\\$sent_at|distinct_id|\\$ip|\\$feature\\/|__|phjs|survey_dismissed|survey_responded|partial_filter_chosen|changed_action|window-id|changed_event|partial_filter|distinct_id)'))
+  GROUP BY key
+  ORDER BY total_count DESC
+  LIMIT 500 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     format_csv_allow_double_quotes=0,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1
+  '''
+# ---

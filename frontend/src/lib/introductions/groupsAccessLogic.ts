@@ -1,4 +1,5 @@
 import { connect, kea, path, selectors } from 'kea'
+
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -6,6 +7,7 @@ import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature } from '~/types'
 
 import type { groupsAccessLogicType } from './groupsAccessLogicType'
+
 export enum GroupsAccessStatus {
     AlreadyUsing,
     HasAccess,
@@ -16,9 +18,9 @@ export enum GroupsAccessStatus {
 
 export const groupsAccessLogic = kea<groupsAccessLogicType>([
     path(['lib', 'introductions', 'groupsAccessLogic']),
-    connect({
+    connect(() => ({
         values: [teamLogic, ['currentTeam'], preflightLogic, ['preflight'], userLogic, ['hasAvailableFeature']],
-    }),
+    })),
     selectors({
         groupsEnabled: [
             (s) => [s.hasAvailableFeature],

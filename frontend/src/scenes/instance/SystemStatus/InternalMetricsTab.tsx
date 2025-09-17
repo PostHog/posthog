@@ -1,8 +1,10 @@
-import { LemonButton, LemonCheckbox, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconRefresh } from 'lib/lemon-ui/icons'
-import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
 import { useMemo, useState } from 'react'
+
+import { LemonButton, LemonCheckbox, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+
+import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
+import { IconRefresh } from 'lib/lemon-ui/icons'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 
 import { QuerySummary } from '~/types'
@@ -26,7 +28,7 @@ export function InternalMetricsTab(): JSX.Element {
         <>
             <LemonCollapse
                 activeKeys={openSections}
-                className="bg-bg-light"
+                className="bg-surface-primary"
                 onChange={(keys) => setOpenSections(keys)}
                 multiple
                 panels={[
@@ -35,7 +37,7 @@ export function InternalMetricsTab(): JSX.Element {
                         header: 'PostgreSQL - currently running queries',
                         content: (
                             <>
-                                <div className="flex mb-4 float-right space-x-2">
+                                <div className="flex mb-4 float-right deprecated-space-x-2">
                                     <LemonCheckbox
                                         checked={showIdle}
                                         onChange={setShowIdle}

@@ -1,13 +1,15 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { AccessLevel, OrganizationResourcePermissionType, Resource, RoleType } from '~/types'
 
-import type { permissionsLogicType } from './permissionsLogicType'
 import { rolesLogic } from './Roles/rolesLogic'
+import type { permissionsLogicType } from './permissionsLogicType'
 
 const ResourceDisplayMapping: Record<Resource, string> = {
     [Resource.FEATURE_FLAGS]: 'Feature Flags',
@@ -31,10 +33,10 @@ const ResourceAccessLevelMapping: Record<Resource, string> = {
 
 export const permissionsLogic = kea<permissionsLogicType>([
     path(['scenes', 'organization', 'Settings', 'Permissions', 'permissionsLogic']),
-    connect({
+    connect(() => ({
         values: [rolesLogic, ['roles']],
         actions: [rolesLogic, ['updateRole']],
-    }),
+    })),
     actions({
         updatePermission: (
             checked: boolean,
@@ -57,13 +59,12 @@ export const permissionsLogic = kea<permissionsLogicType>([
                         return values.organizationResourcePermissions.map((permission) =>
                             permission.id == response.id ? response : permission
                         )
-                    } else {
-                        const response = await api.resourcePermissions.create({
-                            resource: resource,
-                            access_level: access_level,
-                        })
-                        return [...values.organizationResourcePermissions, response]
                     }
+                    const response = await api.resourcePermissions.create({
+                        resource: resource,
+                        access_level: access_level,
+                    })
+                    return [...values.organizationResourcePermissions, response]
                 },
             },
         ],
@@ -97,11 +98,9 @@ export const permissionsLogic = kea<permissionsLogicType>([
             (s) => [s.organizationResourcePermissions],
             (organizationResourcePermissions: OrganizationResourcePermissionType[]) => {
                 return organizationResourcePermissions.reduce(
-                    (obj, resourcePermission: OrganizationResourcePermissionType) => ({
-                        ...obj,
-                        [resourcePermission.resource]: resourcePermission,
-                    }),
-                    {}
+                    (obj, resourcePermission: OrganizationResourcePermissionType) =>
+                        Object.assign(obj, { [resourcePermission.resource]: resourcePermission }),
+                    {} as Record<Resource, OrganizationResourcePermissionType>
                 )
             },
         ],
@@ -117,7 +116,7 @@ export const permissionsLogic = kea<permissionsLogicType>([
                             resource: key,
                             name: ResourceDisplayMapping[key],
                             access_level: organizationResourcePermissionsMap[key]?.access_level || AccessLevel.WRITE,
-                        } as FormattedResourceLevel)
+                        }) as FormattedResourceLevel
                 )
             },
         ],

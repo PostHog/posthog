@@ -1,5 +1,7 @@
-import { expectLogic } from 'kea-test-utils'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
+
+import { expectLogic } from 'kea-test-utils'
+
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
 
@@ -12,7 +14,10 @@ import { AppContext } from '~/types'
 
 import { infiniteListLogic } from './infiniteListLogic'
 
-window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
+window.POSTHOG_APP_CONTEXT = {
+    current_team: { id: MOCK_TEAM_ID },
+    current_project: { id: MOCK_TEAM_ID },
+} as unknown as AppContext
 
 describe('taxonomicFilterLogic', () => {
     let logic: ReturnType<typeof taxonomicFilterLogic.build>
@@ -33,7 +38,7 @@ describe('taxonomicFilterLogic', () => {
                         },
                     ]
                 },
-                '/api/projects/:team/sessions/property_definitions': (res) => {
+                '/api/environments/:team/sessions/property_definitions': (res) => {
                     const search = res.url.searchParams.get('search')
                     const results = search
                         ? mockSessionPropertyDefinitions.filter((e) => e.name.includes(search))
@@ -217,5 +222,47 @@ describe('taxonomicFilterLogic', () => {
                     [TaxonomicFilterGroupType.SessionProperties]: 0,
                 },
             })
+    })
+
+    describe('maxContextOptions prop', () => {
+        let maxLogic: ReturnType<typeof taxonomicFilterLogic.build>
+
+        beforeEach(() => {
+            const maxContextOptions = [
+                { id: 'context1', name: 'Test Context 1', value: 'context1', icon: null },
+                { id: 'context2', name: 'Test Context 2', value: 'context2', icon: null },
+                { id: 'context3', name: 'Another Context', value: 'context3', icon: null },
+            ]
+
+            const logicProps: TaxonomicFilterLogicProps = {
+                taxonomicFilterLogicKey: 'testMaxContext',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.MaxAIContext],
+                maxContextOptions,
+            }
+            maxLogic = taxonomicFilterLogic(logicProps)
+            maxLogic.mount()
+
+            for (const listGroupType of logicProps.taxonomicGroupTypes) {
+                infiniteListLogic({ ...logicProps, listGroupType }).mount()
+            }
+        })
+
+        afterEach(() => {
+            maxLogic.unmount()
+        })
+
+        it('includes MaxAI taxonomic group when maxContextOptions provided', () => {
+            const taxonomicGroups = maxLogic.values.taxonomicGroups
+            const maxAIGroup = taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.MaxAIContext)
+
+            expect(maxAIGroup).toBeDefined() // oxlint-disable-line jest/no-restricted-matchers
+            expect(maxAIGroup?.name).toBe('On this page')
+            expect(maxAIGroup?.searchPlaceholder).toBe('elements from this page')
+            expect(maxAIGroup?.options).toEqual([
+                { id: 'context1', name: 'Test Context 1', value: 'context1', icon: null },
+                { id: 'context2', name: 'Test Context 2', value: 'context2', icon: null },
+                { id: 'context3', name: 'Another Context', value: 'context3', icon: null },
+            ])
+        })
     })
 })

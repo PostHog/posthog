@@ -1,12 +1,14 @@
-import { PaginationManual } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
+import { PaginationManual, Sorting } from '@posthog/lemon-ui'
+
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { objectClean, objectsEqual } from 'lib/utils'
 
 import { notebooksModel } from '~/models/notebooksModel'
-import { NotebookListItemType, NotebookNodeType } from '~/types'
 
+import { NotebookListItemType, NotebookNodeType } from '../types'
 import type { notebooksTableLogicType } from './notebooksTableLogicType'
 
 export interface NotebooksListFilters {
@@ -23,26 +25,29 @@ export const DEFAULT_FILTERS: NotebooksListFilters = {
 }
 
 const RESULTS_PER_PAGE = 50
+const DEFAULT_SORTING: Sorting = { columnKey: '-created_at', order: 1 }
 
 export const notebooksTableLogic = kea<notebooksTableLogicType>([
     path(['scenes', 'notebooks', 'NotebooksTable', 'notebooksTableLogic']),
     actions({
         loadNotebooks: true,
         setFilters: (filters: Partial<NotebooksListFilters>) => ({ filters }),
-        setSortValue: (sortValue: string | null) => ({ sortValue }),
+        tableSortingChanged: (sorting: Sorting | null) => ({
+            sorting,
+        }),
         setPage: (page: number) => ({ page }),
     }),
-    connect({
+    connect(() => ({
         values: [notebooksModel, ['notebookTemplates']],
         actions: [notebooksModel, ['deleteNotebookSuccess']],
-    }),
+    })),
     reducers({
         filters: [
             DEFAULT_FILTERS,
             {
                 setFilters: (state, { filters }) =>
                     objectClean({
-                        ...(state || {}),
+                        ...state,
                         ...filters,
                     }),
             },
@@ -59,6 +64,13 @@ export const notebooksTableLogic = kea<notebooksTableLogicType>([
                 setPage: (_, { page }) => page,
                 setFilters: () => 1,
                 setSortValue: () => 1,
+            },
+        ],
+        tableSorting: [
+            DEFAULT_SORTING,
+            { persist: true },
+            {
+                tableSortingChanged: (_, { sorting }) => sorting || DEFAULT_SORTING,
             },
         ],
     }),

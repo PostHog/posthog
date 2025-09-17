@@ -1,0 +1,490 @@
+{
+    "cache_key": "cache_1c8fec99704fa4258dee014aae86657d",
+    "cache_target_age": "2024-11-18T15:55:20.644358Z",
+    "calculation_trigger": null,
+    "columns": [
+        "uuid",
+        "event",
+        "timestamp",
+        "elements_chain",
+        "properties.$window_id",
+        "properties.$current_url",
+        "properties.$event_type"
+    ],
+    "error": null,
+    "hasMore": false,
+    "hogql": "SELECT\n    uuid,\n    event,\n    timestamp,\n    elements_chain,\n    properties.$window_id,\n    properties.$current_url,\n    properties.$event_type\nFROM\n    events\nWHERE\n    and(equals(properties.$session_id, '01932f1e-cf6a-7e77-8837-23366207a24b'), less(timestamp, toDateTime('2024-11-15 09:26:01.000000')), greater(timestamp, toDateTime('2024-11-15 09:18:28.000000')))\nORDER BY\n    timestamp ASC\nLIMIT 50000\nOFFSET 0",
+    "is_cached": false,
+    "last_refresh": "2024-11-18T15:55:05.644358Z",
+    "limit": 50000,
+    "modifiers": {
+        "bounceRatePageViewMode": "count_pageviews",
+        "customChannelTypeRules": null,
+        "dataWarehouseEventsModifiers": null,
+        "debug": null,
+        "inCohortVia": "auto",
+        "materializationMode": "legacy_null_as_null",
+        "optimizeJoinedFilters": false,
+        "personsArgMaxVersion": "auto",
+        "personsJoinMode": null,
+        "personsOnEventsMode": "person_id_override_properties_joined",
+        "propertyGroupsMode": null,
+        "s3TableUseInvalidColumns": null,
+        "sessionTableVersion": "auto",
+        "useMaterializedViews": true
+    },
+    "next_allowed_client_refresh": "2024-11-18T15:56:05.644358Z",
+    "offset": 0,
+    "query_status": null,
+    "results": [
+        [
+            "01932f1e-dd30-7ff4-951d-e8eede5444ef",
+            "$pageleave",
+            "2024-11-15T09:19:32.149000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-dfe6-7e71-b89d-92a5faa0ac9b",
+            "$opt_in",
+            "2024-11-15T09:19:32.861000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-dfeb-7448-95ba-1eae8b23992a",
+            "$pageview",
+            "2024-11-15T09:19:32.871000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-dffa-797b-82e0-d5fa24a558fd",
+            "$set",
+            "2024-11-15T09:19:32.876000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-dffd-7c3b-8df2-2be5213171f3",
+            "$groupidentify",
+            "2024-11-15T09:19:32.879000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-dfff-770a-967d-1a3a76edcf75",
+            "$groupidentify",
+            "2024-11-15T09:19:32.881000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-e057-7be8-9c69-fa4b4e7c26d9",
+            "$pageview",
+            "2024-11-15T09:19:32.969000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-e068-7373-a33a-75b895e586dc",
+            "$groupidentify",
+            "2024-11-15T09:19:32.986000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-e172-7829-879c-b51c9f80b7f0",
+            "$feature_flag_called",
+            "2024-11-15T09:19:33.252000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-e176-7d4d-bb3a-478d0c7f3b70",
+            "$feature_flag_called",
+            "2024-11-15T09:19:33.256000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-e17b-7d9a-a79c-51d367c77797",
+            "$feature_flag_called",
+            "2024-11-15T09:19:33.261000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-e17d-7fe9-82cd-94e267bd2a93",
+            "$feature_flag_called",
+            "2024-11-15T09:19:33.263000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-e17d-7fe9-82cd-94e1c0eb96e4",
+            "$feature_flag_called",
+            "2024-11-15T09:19:33.263000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-e17e-716e-9756-40053c7e0291",
+            "$feature_flag_called",
+            "2024-11-15T09:19:33.264000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-e17f-744c-bbe0-15e364b61c60",
+            "$feature_flag_called",
+            "2024-11-15T09:19:33.265000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-e180-741f-99ad-b39813521345",
+            "$feature_flag_called",
+            "2024-11-15T09:19:33.266000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-e180-741f-99ad-b397dc90f72a",
+            "$feature_flag_called",
+            "2024-11-15T09:19:33.266000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-e181-76ea-a1d2-9e48b3bd1ca5",
+            "$feature_flag_called",
+            "2024-11-15T09:19:33.267000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-e188-71de-b7ab-1dbb643922df",
+            "$feature_flag_called",
+            "2024-11-15T09:19:33.274000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-e189-7b6b-af45-b4be29b97765",
+            "$feature_flag_called",
+            "2024-11-15T09:19:33.275000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-e194-70de-b3e0-b0c3608eebed",
+            "$feature_flag_called",
+            "2024-11-15T09:19:33.286000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-e1a3-7a0d-a463-b51ecf1a63d8",
+            "$feature_flag_called",
+            "2024-11-15T09:19:33.301000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-e1e6-78dc-ad38-4e2dc10747b2",
+            "query completed",
+            "2024-11-15T09:19:33.368000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-e6d0-7c6e-915c-5cb7734446d1",
+            "$feature_flag_called",
+            "2024-11-15T09:19:34.626000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1e-e7e0-75a6-afc5-6dccde5419f0",
+            "client_request_failure",
+            "2024-11-15T09:19:34.898000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1f-1f89-77d3-a8b9-eb93fd25d7d0",
+            "command bar status changed",
+            "2024-11-15T09:19:49.138000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1f-1f92-7dab-b6ee-a808229c0224",
+            "palette shown",
+            "2024-11-15T09:19:49.147000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/settings/environment-replay",
+            null
+        ],
+        [
+            "01932f1f-3998-788b-ae71-93dd2aef3207",
+            "command bar status changed",
+            "2024-11-15T09:19:55.808000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/dashboard",
+            null
+        ],
+        [
+            "01932f1f-399a-789e-98ad-d74da0ad5ca6",
+            "palette command executed",
+            "2024-11-15T09:19:55.810000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/dashboard",
+            null
+        ],
+        [
+            "01932f1f-399d-74d4-a254-5b4463d25a6a",
+            "command bar search result executed",
+            "2024-11-15T09:19:55.813000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/dashboard",
+            null
+        ],
+        [
+            "01932f1f-39e3-7d64-94df-12c5ba3fc347",
+            "$pageview",
+            "2024-11-15T09:19:55.884000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/dashboard",
+            null
+        ],
+        [
+            "01932f1f-3a06-7441-9863-2acac1fe3e62",
+            "$exception",
+            "2024-11-15T09:19:55.918000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/dashboard",
+            null
+        ],
+        [
+            "01932f1f-525d-7672-bccb-9630f4576422",
+            "$web_vitals",
+            "2024-11-15T09:20:02.151000Z",
+            "",
+            "01932f1e-cf6a-7e77-8837-2337cb916511",
+            "http://localhost:8000/project/1/dashboard",
+            null
+        ]
+    ],
+    "timezone": "UTC",
+    "timings": [
+        {
+            "k": "./build_ast/columns/parse_expr_cpp",
+            "t": 0.0010820409952430055
+        },
+        {
+            "k": "./build_ast/columns",
+            "t": 0.0011979579940089025
+        },
+        {
+            "k": "./build_ast/aggregations",
+            "t": 0.0004660420017899014
+        },
+        {
+            "k": "./build_ast/filters/where",
+            "t": 0.0000359579935320653
+        },
+        {
+            "k": "./build_ast/filters/properties",
+            "t": 0.00018483300664229318
+        },
+        {
+            "k": "./build_ast/filters",
+            "t": 0.000295000005280599
+        },
+        {
+            "k": "./build_ast/timestamps/parse_expr_cpp/replace_placeholders",
+            "t": 0.00021462500444613397
+        },
+        {
+            "k": "./build_ast/timestamps/parse_expr_cpp",
+            "t": 0.006467084000178147
+        },
+        {
+            "k": "./build_ast/timestamps",
+            "t": 0.011939292002352886
+        },
+        {
+            "k": "./build_ast/where",
+            "t": 0.006279791996348649
+        },
+        {
+            "k": "./build_ast/order/parse_order_expr_cpp",
+            "t": 0.0009526250069029629
+        },
+        {
+            "k": "./build_ast/order",
+            "t": 0.0010012079947046004
+        },
+        {
+            "k": "./build_ast/select",
+            "t": 0.0001021249991026707
+        },
+        {
+            "k": "./build_ast",
+            "t": 0.021405540996056516
+        },
+        {
+            "k": "./query",
+            "t": 0.00019283300207462162
+        },
+        {
+            "k": "./variables",
+            "t": 0.00003975000436184928
+        },
+        {
+            "k": "./replace_placeholders",
+            "t": 0.006989917004830204
+        },
+        {
+            "k": "./max_limit",
+            "t": 0.00007029200060060248
+        },
+        {
+            "k": "./hogql/prepare_ast/clone",
+            "t": 0.000481041002785787
+        },
+        {
+            "k": "./hogql/prepare_ast/create_hogql_database",
+            "t": 0.14176429100189125
+        },
+        {
+            "k": "./hogql/prepare_ast/resolve_types",
+            "t": 0.0010933330049738288
+        },
+        {
+            "k": "./hogql/prepare_ast",
+            "t": 0.14348054199945182
+        },
+        {
+            "k": "./hogql/print_ast/printer",
+            "t": 0.0016133750032167882
+        },
+        {
+            "k": "./hogql/print_ast",
+            "t": 0.0016721670035622083
+        },
+        {
+            "k": "./hogql",
+            "t": 0.2308277080010157
+        },
+        {
+            "k": "./print_ast/create_hogql_database",
+            "t": 0.2334512080051354
+        },
+        {
+            "k": "./print_ast/resolve_types",
+            "t": 0.001193624993902631
+        },
+        {
+            "k": "./print_ast/resolve_property_types",
+            "t": 0.007970916994963773
+        },
+        {
+            "k": "./print_ast/resolve_lazy_tables",
+            "t": 0.003332209002110176
+        },
+        {
+            "k": "./print_ast/swap_properties",
+            "t": 0.0006330420001177117
+        },
+        {
+            "k": "./print_ast/printer",
+            "t": 0.002056582998193335
+        },
+        {
+            "k": "./print_ast",
+            "t": 0.24880249999841908
+        },
+        {
+            "k": "./clickhouse_execute",
+            "t": 0.24669937499857042
+        },
+        {
+            "k": "./parse_expr_cpp",
+            "t": 0.0013694569934159517
+        },
+        {
+            "k": ".",
+            "t": 0.8226239580035326
+        }
+    ],
+    "types": [
+        "UUID",
+        "String",
+        "DateTime64(6, 'UTC')",
+        "String",
+        "Nullable(String)",
+        "Nullable(String)",
+        "Nullable(String)"
+    ]
+}

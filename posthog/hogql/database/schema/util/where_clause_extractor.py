@@ -3,12 +3,13 @@ import string
 from typing import Optional, cast
 
 from posthog.hogql import ast
-from posthog.hogql.ast import CompareOperationOp, ArithmeticOperationOp
+from posthog.hogql.ast import CompareOperationOp
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, LazyJoinToAdd, LazyTableToAdd
-from posthog.hogql.errors import NotImplementedError
-
-from posthog.hogql.visitor import clone_expr, CloningVisitor, Visitor, TraversingVisitor
+from posthog.hogql.errors import NotImplementedError, QueryError
+from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
+from posthog.hogql.helpers.timestamp_visitor import is_simple_timestamp_field_expression, is_time_or_interval_constant
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 SESSION_BUFFER_DAYS = 3
 
@@ -43,6 +44,7 @@ class WhereClauseExtractor(CloningVisitor):
     clear_types: bool = False
     clear_locations: bool = False
     capture_timestamp_comparisons: bool = False  # implement handle_timestamp_comparison if setting this to True
+    is_join: bool = False
     tracked_tables: list[ast.LazyTable | ast.LazyJoin]
     tombstone_string: str
 
@@ -75,6 +77,9 @@ class WhereClauseExtractor(CloningVisitor):
         """Return the where clause that should be applied to the inner table. If None is returned, no pre-filtering is possible."""
         if not select_query.where and not select_query.prewhere:
             return None
+
+        if select_query.select_from and select_query.select_from.next_join:
+            self.is_join = True
 
         # visit the where clause
         wheres = []
@@ -110,18 +115,25 @@ class WhereClauseExtractor(CloningVisitor):
             if result:
                 return result
 
+        # if it's a join, and if the comparison is negative, we don't want to filter down as the outer join might end up doing other comparisons that clash
+        if self.is_join and node.op in ast.NEGATED_COMPARE_OPS:
+            return ast.Constant(value=True)
+
         # Check if any of the fields are a field on our requested table
         if len(self.tracked_tables) > 0:
             left = self.visit(node.left)
-            right = self.visit(node.right)
+
+            if isinstance(node.right, ast.SelectQuery):
+                right = clone_expr(
+                    node.right, clear_types=False, clear_locations=False, inline_subquery_field_names=True
+                )
+            else:
+                right = self.visit(node.right)
+
             if has_tombstone(left, self.tombstone_string) or has_tombstone(right, self.tombstone_string):
                 return ast.Constant(value=self.tombstone_string)
             return ast.CompareOperation(op=node.op, left=left, right=right)
 
-        return ast.Constant(value=True)
-
-    def visit_select_query(self, node: ast.SelectQuery) -> ast.Expr:
-        # going too deep, bail
         return ast.Constant(value=True)
 
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> ast.Expr:
@@ -129,6 +141,8 @@ class WhereClauseExtractor(CloningVisitor):
         return ast.Constant(value=True)
 
     def visit_not(self, node: ast.Not) -> ast.Expr:
+        if self.is_join:
+            return ast.Constant(value=True)
         response = self.visit(node.expr)
         if has_tombstone(response, self.tombstone_string):
             return ast.Constant(value=self.tombstone_string)
@@ -139,41 +153,21 @@ class WhereClauseExtractor(CloningVisitor):
             return self.visit_and(ast.And(exprs=node.args))
         elif node.name == "or":
             return self.visit_or(ast.Or(exprs=node.args))
-        elif node.name == "greaterOrEquals":
+        elif node.name == "not":
+            if self.is_join:
+                return ast.Constant(value=True)
+
+        elif node.name in HOGQL_COMPARISON_MAPPING:
+            op = HOGQL_COMPARISON_MAPPING[node.name]
+            if len(node.args) != 2:
+                raise QueryError(f"Comparison '{node.name}' requires exactly two arguments")
+            # We do "cleverer" logic with nullable types in visit_compare_operation
             return self.visit_compare_operation(
-                ast.CompareOperation(op=CompareOperationOp.GtEq, left=node.args[0], right=node.args[1])
-            )
-        elif node.name == "greater":
-            return self.visit_compare_operation(
-                ast.CompareOperation(op=CompareOperationOp.Gt, left=node.args[0], right=node.args[1])
-            )
-        elif node.name == "lessOrEquals":
-            return self.visit_compare_operation(
-                ast.CompareOperation(op=CompareOperationOp.LtEq, left=node.args[0], right=node.args[1])
-            )
-        elif node.name == "less":
-            return self.visit_compare_operation(
-                ast.CompareOperation(op=CompareOperationOp.Lt, left=node.args[0], right=node.args[1])
-            )
-        elif node.name == "equals":
-            return self.visit_compare_operation(
-                ast.CompareOperation(op=CompareOperationOp.Eq, left=node.args[0], right=node.args[1])
-            )
-        elif node.name == "like":
-            return self.visit_compare_operation(
-                ast.CompareOperation(op=CompareOperationOp.Like, left=node.args[0], right=node.args[1])
-            )
-        elif node.name == "notLike":
-            return self.visit_compare_operation(
-                ast.CompareOperation(op=CompareOperationOp.NotLike, left=node.args[0], right=node.args[1])
-            )
-        elif node.name == "ilike":
-            return self.visit_compare_operation(
-                ast.CompareOperation(op=CompareOperationOp.ILike, left=node.args[0], right=node.args[1])
-            )
-        elif node.name == "notIlike":
-            return self.visit_compare_operation(
-                ast.CompareOperation(op=CompareOperationOp.NotILike, left=node.args[0], right=node.args[1])
+                ast.CompareOperation(
+                    left=node.args[0],
+                    right=node.args[1],
+                    op=op,
+                )
             )
         args = [self.visit(arg) for arg in node.args]
         if any(has_tombstone(arg, self.tombstone_string) for arg in args):
@@ -272,44 +266,44 @@ class SessionMinTimestampWhereClauseExtractor(WhereClauseExtractor):
                 return ast.And(
                     exprs=[
                         ast.CompareOperation(
-                            op=ast.CompareOperationOp.LtEq,
-                            left=ast.ArithmeticOperation(
+                            op=ast.CompareOperationOp.GtEq,
+                            left=rewrite_timestamp_field(node.left, self.timestamp_field, self.context),
+                            right=ast.ArithmeticOperation(
                                 op=ast.ArithmeticOperationOp.Sub,
-                                left=rewrite_timestamp_field(node.left, self.timestamp_field, self.context),
+                                left=node.right,
                                 right=self.time_buffer,
                             ),
-                            right=node.right,
                         ),
                         ast.CompareOperation(
-                            op=ast.CompareOperationOp.GtEq,
-                            left=ast.ArithmeticOperation(
+                            op=ast.CompareOperationOp.LtEq,
+                            left=rewrite_timestamp_field(node.left, self.timestamp_field, self.context),
+                            right=ast.ArithmeticOperation(
                                 op=ast.ArithmeticOperationOp.Add,
-                                left=rewrite_timestamp_field(node.left, self.timestamp_field, self.context),
+                                left=node.right,
                                 right=self.time_buffer,
                             ),
-                            right=node.right,
                         ),
                     ]
                 )
             elif node.op == CompareOperationOp.Gt or node.op == CompareOperationOp.GtEq:
                 return ast.CompareOperation(
                     op=ast.CompareOperationOp.GtEq,
-                    left=ast.ArithmeticOperation(
-                        op=ast.ArithmeticOperationOp.Add,
-                        left=rewrite_timestamp_field(node.left, self.timestamp_field, self.context),
+                    left=rewrite_timestamp_field(node.left, self.timestamp_field, self.context),
+                    right=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Sub,
+                        left=node.right,
                         right=self.time_buffer,
                     ),
-                    right=node.right,
                 )
             elif node.op == CompareOperationOp.Lt or node.op == CompareOperationOp.LtEq:
                 return ast.CompareOperation(
                     op=ast.CompareOperationOp.LtEq,
-                    left=ast.ArithmeticOperation(
-                        op=ast.ArithmeticOperationOp.Sub,
-                        left=rewrite_timestamp_field(node.left, self.timestamp_field, self.context),
+                    left=rewrite_timestamp_field(node.left, self.timestamp_field, self.context),
+                    right=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Add,
+                        left=node.right,
                         right=self.time_buffer,
                     ),
-                    right=node.right,
                 )
         elif is_right_timestamp_field and is_left_constant:
             # let's not duplicate the logic above, instead just flip and it and recurse
@@ -385,196 +379,6 @@ class HasTombstoneVisitor(TraversingVisitor):
             self.has_tombstone = True
 
 
-def is_time_or_interval_constant(expr: ast.Expr, tombstone_string: str) -> bool:
-    return IsTimeOrIntervalConstantVisitor(tombstone_string).visit(expr)
-
-
-class IsTimeOrIntervalConstantVisitor(Visitor[bool]):
-    def __init__(self, tombstone_string: str):
-        self.tombstone_string = tombstone_string
-
-    def visit_constant(self, node: ast.Constant) -> bool:
-        if node.value == self.tombstone_string:
-            return False
-        return True
-
-    def visit_select_query(self, node: ast.SelectQuery) -> bool:
-        return False
-
-    def visit_compare_operation(self, node: ast.CompareOperation) -> bool:
-        return self.visit(node.left) and self.visit(node.right)
-
-    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> bool:
-        return self.visit(node.left) and self.visit(node.right)
-
-    def visit_call(self, node: ast.Call) -> bool:
-        # some functions just return a constant
-        if node.name in ["today", "now"]:
-            return True
-        # some functions return a constant if the first argument is a constant
-        if node.name in [
-            "parseDateTime64BestEffortOrNull",
-            "toDateTime",
-            "toTimeZone",
-            "assumeNotNull",
-            "toIntervalYear",
-            "toIntervalMonth",
-            "toIntervalWeek",
-            "toIntervalDay",
-            "toIntervalHour",
-            "toIntervalMinute",
-            "toIntervalSecond",
-            "toStartOfDay",
-            "toStartOfWeek",
-            "toStartOfMonth",
-            "toStartOfQuarter",
-            "toStartOfYear",
-        ]:
-            return self.visit(node.args[0])
-
-        if node.name in ["minus", "add"]:
-            return all(self.visit(arg) for arg in node.args)
-
-        # otherwise we don't know, so return False
-        return False
-
-    def visit_field(self, node: ast.Field) -> bool:
-        return False
-
-    def visit_and(self, node: ast.And) -> bool:
-        return False
-
-    def visit_or(self, node: ast.Or) -> bool:
-        return False
-
-    def visit_not(self, node: ast.Not) -> bool:
-        return False
-
-    def visit_placeholder(self, node: ast.Placeholder) -> bool:
-        raise Exception()
-
-    def visit_alias(self, node: ast.Alias) -> bool:
-        return self.visit(node.expr)
-
-    def visit_tuple(self, node: ast.Tuple) -> bool:
-        return all(self.visit(arg) for arg in node.exprs)
-
-
-def is_simple_timestamp_field_expression(expr: ast.Expr, context: HogQLContext, tombstone_string: str) -> bool:
-    return IsSimpleTimestampFieldExpressionVisitor(context, tombstone_string).visit(expr)
-
-
-class IsSimpleTimestampFieldExpressionVisitor(Visitor[bool]):
-    context: HogQLContext
-
-    def __init__(self, context: HogQLContext, tombstone_string: str):
-        self.context = context
-        self.tombstone_string = tombstone_string
-
-    def visit_constant(self, node: ast.Constant) -> bool:
-        return False
-
-    def visit_select_query(self, node: ast.SelectQuery) -> bool:
-        return False
-
-    def visit_field(self, node: ast.Field) -> bool:
-        if node.type and isinstance(node.type, ast.FieldType):
-            resolved_field = node.type.resolve_database_field(self.context)
-            if resolved_field and isinstance(resolved_field, DatabaseField) and resolved_field:
-                return resolved_field.name in ["$start_timestamp", "min_timestamp", "timestamp", "min_first_timestamp"]
-        # no type information, so just use the name of the field
-        return node.chain[-1] in ["$start_timestamp", "min_timestamp", "timestamp", "min_first_timestamp"]
-
-    def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> bool:
-        # only allow the min_timestamp field to be used on one side of the arithmetic operation
-        return (
-            self.visit(node.left)
-            and is_time_or_interval_constant(node.right, self.tombstone_string)
-            or (self.visit(node.right) and is_time_or_interval_constant(node.left, self.tombstone_string))
-        )
-
-    def visit_call(self, node: ast.Call) -> bool:
-        # some functions count as a timestamp field expression if their first argument is
-        if node.name in [
-            "parseDateTime64BestEffortOrNull",
-            "toDateTime",
-            "toTimeZone",
-            "assumeNotNull",
-            "toStartOfDay",
-            "toStartOfWeek",
-            "toStartOfMonth",
-            "toStartOfQuarter",
-            "toStartOfYear",
-        ]:
-            return self.visit(node.args[0])
-
-        if node.name in ["minus", "add"]:
-            return self.visit_arithmetic_operation(
-                ast.ArithmeticOperation(
-                    op=ArithmeticOperationOp.Sub if node.name == "minus" else ArithmeticOperationOp.Add,
-                    left=node.args[0],
-                    right=node.args[1],
-                )
-            )
-
-        # otherwise we don't know, so return False
-        return False
-
-    def visit_compare_operation(self, node: ast.CompareOperation) -> bool:
-        return False
-
-    def visit_and(self, node: ast.And) -> bool:
-        return False
-
-    def visit_or(self, node: ast.Or) -> bool:
-        return False
-
-    def visit_not(self, node: ast.Not) -> bool:
-        return False
-
-    def visit_placeholder(self, node: ast.Placeholder) -> bool:
-        raise Exception()
-
-    def visit_alias(self, node: ast.Alias) -> bool:
-        from posthog.hogql.database.schema.events import EventsTable
-        from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
-        from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable
-
-        if node.type and isinstance(node.type, ast.FieldAliasType):
-            try:
-                resolved_field = node.type.resolve_database_field(self.context)
-            except NotImplementedError:
-                return False
-
-            table_type = node.type.resolve_table_type(self.context)
-            if not table_type:
-                return False
-            if isinstance(table_type, ast.TableAliasType):
-                table_type = table_type.table_type
-            return (
-                (
-                    isinstance(table_type, ast.TableType)
-                    and isinstance(table_type.table, EventsTable)
-                    and resolved_field.name == "timestamp"
-                )
-                or (
-                    isinstance(table_type, ast.LazyTableType)
-                    and isinstance(table_type.table, SessionsTableV1)
-                    and resolved_field.name == "$start_timestamp"
-                )
-                or (
-                    isinstance(table_type, ast.TableType)
-                    and isinstance(table_type.table, RawSessionReplayEventsTable)
-                    and resolved_field.name == "min_first_timestamp"
-                )
-            )
-
-        return self.visit(node.expr)
-
-    def visit_tuple(self, node: ast.Tuple) -> bool:
-        return all(self.visit(arg) for arg in node.exprs)
-
-
 def rewrite_timestamp_field(expr: ast.Expr, timestamp_field: ast.Expr, context: HogQLContext) -> ast.Expr:
     return RewriteTimestampFieldVisitor(context, timestamp_field).visit(expr)
 
@@ -590,8 +394,9 @@ class RewriteTimestampFieldVisitor(CloningVisitor):
 
     def visit_field(self, node: ast.Field) -> ast.Expr:
         from posthog.hogql.database.schema.events import EventsTable
-        from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
         from posthog.hogql.database.schema.session_replay_events import RawSessionReplayEventsTable
+        from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
+        from posthog.hogql.database.schema.sessions_v2 import SessionsTableV2
 
         if node.type and isinstance(node.type, ast.FieldType):
             resolved_field = node.type.resolve_database_field(self.context)
@@ -602,12 +407,25 @@ class RewriteTimestampFieldVisitor(CloningVisitor):
             if resolved_field and isinstance(resolved_field, DatabaseField):
                 if (
                     (isinstance(table, EventsTable) and resolved_field.name == "timestamp")
-                    or (isinstance(table, SessionsTableV1) and resolved_field.name == "$start_timestamp")
+                    or (
+                        isinstance(table, SessionsTableV1)
+                        and resolved_field.name in ("$start_timestamp", "$end_timestamp")
+                    )
+                    or (
+                        isinstance(table, SessionsTableV2)
+                        and resolved_field.name in ("$start_timestamp", "$end_timestamp")
+                    )
                     or (isinstance(table, RawSessionReplayEventsTable) and resolved_field.name == "min_first_timestamp")
                 ):
                     return self.timestamp_field
         # no type information, so just use the name of the field
-        if node.chain[-1] in ["$start_timestamp", "min_timestamp", "timestamp", "min_first_timestamp"]:
+        if node.chain[-1] in [
+            "$start_timestamp",
+            "$end_timestamp",
+            "min_timestamp",
+            "timestamp",
+            "min_first_timestamp",
+        ]:
             return self.timestamp_field
         return node
 

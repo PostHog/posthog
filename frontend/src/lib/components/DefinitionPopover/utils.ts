@@ -23,6 +23,10 @@ export function genericOperatorToHumanName(property?: AnyPropertyFilter | null):
 
 export function allOperatorsToHumanName(operator?: PropertyOperator | null): string {
     if (operator && allOperatorsMapping[operator]) {
+        // for the case of cohort matching, we want to return the operator name without the "In" prefix
+        if (operator === PropertyOperator.In) {
+            return 'in'
+        }
         return allOperatorsMapping[operator].slice(2)
     }
     return 'equals'
@@ -50,6 +54,8 @@ export function getSingularType(type: TaxonomicFilterGroupType): string {
         case TaxonomicFilterGroupType.GroupsPrefix: // Group properties
         case TaxonomicFilterGroupType.SessionProperties:
             return 'property'
+        case TaxonomicFilterGroupType.LogAttributes:
+            return 'attribute'
         case TaxonomicFilterGroupType.EventFeatureFlags:
             return 'feature'
         case TaxonomicFilterGroupType.PageviewUrls:

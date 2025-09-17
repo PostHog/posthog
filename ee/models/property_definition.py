@@ -11,6 +11,7 @@ class EnterprisePropertyDefinition(PropertyDefinition):
 
     verified = models.BooleanField(default=False, blank=True)
     verified_at = models.DateTimeField(null=True, blank=True)
+
     verified_by = models.ForeignKey(
         "posthog.User",
         null=True,
@@ -18,6 +19,7 @@ class EnterprisePropertyDefinition(PropertyDefinition):
         blank=True,
         related_name="property_verifying_user",
     )
+    hidden = models.BooleanField(blank=True, null=True, default=False)
 
     # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
     deprecated_tags: ArrayField = ArrayField(models.CharField(max_length=32), null=True, blank=True, default=list)

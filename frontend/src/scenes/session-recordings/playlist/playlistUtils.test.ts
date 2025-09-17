@@ -81,7 +81,7 @@ describe('summarizePlaylistFilters()', () => {
                 ],
                 cohortIdsMapped
             )
-        ).toEqual('Pageview, on Initial Browser = Chrome & custom_property ∋ blah')
+        ).toEqual('Pageview, on Initial browser = Chrome & custom_property ∋ blah')
     })
 
     it('summarizes a playlist with one event and one cohort', () => {
@@ -99,6 +99,7 @@ describe('summarizePlaylistFilters()', () => {
                     {
                         key: 'id',
                         type: PropertyFilterType.Cohort,
+                        operator: PropertyOperator.In,
                         value: 1,
                     },
                 ],
@@ -114,6 +115,7 @@ describe('summarizePlaylistFilters()', () => {
                     {
                         key: 'id',
                         type: PropertyFilterType.Cohort,
+                        operator: PropertyOperator.In,
                         value: 1,
                     },
                 ],
@@ -156,13 +158,14 @@ describe('summarizePlaylistFilters()', () => {
                     {
                         key: 'id',
                         type: PropertyFilterType.Cohort,
+                        operator: PropertyOperator.In,
                         value: 1,
                     },
                 ],
                 cohortIdsMapped
             )
         ).toEqual(
-            'Pageview & Random action, on Initial Browser = Chrome & custom_property ∋ blah & cohorts: New Yorkers'
+            'Pageview & Random action, on Initial browser = Chrome & custom_property ∋ blah & cohorts: New Yorkers'
         )
     })
 })

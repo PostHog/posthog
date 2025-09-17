@@ -1,17 +1,19 @@
-from posthog.hogql.ast import SelectQuery, JoinExpr
+from datetime import datetime
+
+from posthog.hogql.ast import JoinExpr, SelectQuery
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
-    Table,
-    StringDatabaseField,
+    DatabaseField,
     DateTimeDatabaseField,
+    FieldOrTable,
+    FieldTraverser,
     IntegerDatabaseField,
     LazyJoin,
-    FieldTraverser,
-    DatabaseField,
-    LazyTable,
-    FieldOrTable,
-    LazyTableToAdd,
     LazyJoinToAdd,
+    LazyTable,
+    LazyTableToAdd,
+    StringDatabaseField,
+    Table,
 )
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.log_entries import ReplayConsoleLogsLogEntriesTable
@@ -19,11 +21,8 @@ from posthog.hogql.database.schema.person_distinct_ids import (
     PersonDistinctIdsTable,
     join_with_person_distinct_ids_table,
 )
-from datetime import datetime
-
 from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1, select_from_sessions_table_v1
 from posthog.hogql.database.schema.sessions_v2 import select_from_sessions_table_v2, session_id_to_session_id_v7_expr
-
 from posthog.hogql.errors import ResolutionError
 
 
@@ -163,23 +162,25 @@ def join_with_console_logs_log_entries_table(
 RAW_ONLY_FIELDS = ["min_first_timestamp", "max_last_timestamp"]
 
 SESSION_REPLAY_EVENTS_COMMON_FIELDS: dict[str, FieldOrTable] = {
-    "session_id": StringDatabaseField(name="session_id"),
-    "team_id": IntegerDatabaseField(name="team_id"),
-    "distinct_id": StringDatabaseField(name="distinct_id"),
-    "min_first_timestamp": DateTimeDatabaseField(name="min_first_timestamp"),
-    "max_last_timestamp": DateTimeDatabaseField(name="max_last_timestamp"),
-    "first_url": DatabaseField(name="first_url"),
-    "click_count": IntegerDatabaseField(name="click_count"),
-    "keypress_count": IntegerDatabaseField(name="keypress_count"),
-    "mouse_activity_count": IntegerDatabaseField(name="mouse_activity_count"),
-    "active_milliseconds": IntegerDatabaseField(name="active_milliseconds"),
-    "console_log_count": IntegerDatabaseField(name="console_log_count"),
-    "console_warn_count": IntegerDatabaseField(name="console_warn_count"),
-    "console_error_count": IntegerDatabaseField(name="console_error_count"),
-    "size": IntegerDatabaseField(name="size"),
-    "event_count": IntegerDatabaseField(name="event_count"),
-    "message_count": IntegerDatabaseField(name="message_count"),
-    "snapshot_source": StringDatabaseField(name="snapshot_source"),
+    "session_id": StringDatabaseField(name="session_id", nullable=False),
+    "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+    "distinct_id": StringDatabaseField(name="distinct_id", nullable=False),
+    "min_first_timestamp": DateTimeDatabaseField(name="min_first_timestamp", nullable=False),
+    "max_last_timestamp": DateTimeDatabaseField(name="max_last_timestamp", nullable=False),
+    "first_url": DatabaseField(name="first_url", nullable=True),
+    "all_urls": DatabaseField(name="all_urls", nullable=True),
+    "click_count": IntegerDatabaseField(name="click_count", nullable=False),
+    "keypress_count": IntegerDatabaseField(name="keypress_count", nullable=False),
+    "mouse_activity_count": IntegerDatabaseField(name="mouse_activity_count", nullable=False),
+    "active_milliseconds": IntegerDatabaseField(name="active_milliseconds", nullable=False),
+    "console_log_count": IntegerDatabaseField(name="console_log_count", nullable=False),
+    "console_warn_count": IntegerDatabaseField(name="console_warn_count", nullable=False),
+    "console_error_count": IntegerDatabaseField(name="console_error_count", nullable=False),
+    "size": IntegerDatabaseField(name="size", nullable=False),
+    "event_count": IntegerDatabaseField(name="event_count", nullable=False),
+    "message_count": IntegerDatabaseField(name="message_count", nullable=False),
+    "snapshot_source": StringDatabaseField(name="snapshot_source", nullable=True),
+    "retention_period_days": IntegerDatabaseField(name="retention_period_days", nullable=True),
     "events": LazyJoin(
         from_field=["session_id"],
         join_table=EventsTable(),
@@ -210,9 +211,10 @@ SESSION_REPLAY_EVENTS_COMMON_FIELDS: dict[str, FieldOrTable] = {
 class RawSessionReplayEventsTable(Table):
     fields: dict[str, FieldOrTable] = {
         **SESSION_REPLAY_EVENTS_COMMON_FIELDS,
-        "min_first_timestamp": DateTimeDatabaseField(name="min_first_timestamp"),
-        "max_last_timestamp": DateTimeDatabaseField(name="max_last_timestamp"),
-        "first_url": DatabaseField(name="first_url"),
+        "min_first_timestamp": DateTimeDatabaseField(name="min_first_timestamp", nullable=False),
+        "max_last_timestamp": DateTimeDatabaseField(name="max_last_timestamp", nullable=False),
+        "first_url": DatabaseField(name="first_url", nullable=True),
+        "_timestamp": DateTimeDatabaseField(name="_timestamp", nullable=False),
     }
 
     def avoid_asterisk_fields(self) -> list[str]:
@@ -234,6 +236,7 @@ def select_from_session_replay_events_table(requested_fields: dict[str, list[str
         "start_time": ast.Call(name="min", args=[ast.Field(chain=[table_name, "min_first_timestamp"])]),
         "end_time": ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_last_timestamp"])]),
         "first_url": ast.Call(name="argMinMerge", args=[ast.Field(chain=[table_name, "first_url"])]),
+        "all_urls": ast.Call(name="groupUniqArrayArray", args=[ast.Field(chain=[table_name, "all_urls"])]),
         "click_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "click_count"])]),
         "keypress_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "keypress_count"])]),
         "mouse_activity_count": ast.Call(name="sum", args=[ast.Field(chain=[table_name, "mouse_activity_count"])]),
@@ -271,9 +274,9 @@ def select_from_session_replay_events_table(requested_fields: dict[str, list[str
 class SessionReplayEventsTable(LazyTable):
     fields: dict[str, FieldOrTable] = {
         **{k: v for k, v in SESSION_REPLAY_EVENTS_COMMON_FIELDS.items() if k not in RAW_ONLY_FIELDS},
-        "start_time": DateTimeDatabaseField(name="start_time"),
-        "end_time": DateTimeDatabaseField(name="end_time"),
-        "first_url": StringDatabaseField(name="first_url"),
+        "start_time": DateTimeDatabaseField(name="start_time", nullable=False),
+        "end_time": DateTimeDatabaseField(name="end_time", nullable=False),
+        "first_url": StringDatabaseField(name="first_url", nullable=True),
     }
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context, node):

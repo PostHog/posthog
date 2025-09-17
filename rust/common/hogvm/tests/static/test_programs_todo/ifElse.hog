@@ -1,0 +1,15 @@
+print('-- test if else --')
+{
+    if (true) print(1) else print(2)
+    if (true) print(1) else print(2)
+    if (false) print(1) else print(2)
+    if (true) { print(1) } else { print(2) }
+
+    let a := true
+    if (a) {
+        let a := 3
+        print(a + 2)
+    } else {
+        print(2)
+    }
+}

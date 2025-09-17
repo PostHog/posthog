@@ -1,27 +1,25 @@
 import { Hub } from '../../src/types'
-import { createHub } from '../../src/utils/db/hub'
-import { PostgresUse } from '../../src/utils/db/postgres'
+import { closeHub, createHub } from '../../src/utils/db/hub'
 import { PluginsApiKeyManager } from '../../src/worker/vm/extensions/helpers/api-key-manager'
-import { createUserTeamAndOrganization, POSTGRES_DELETE_TABLES_QUERY } from '../helpers/sql'
+import { clearDatabase, createUserTeamAndOrganization } from '../helpers/sql'
 
 const ORG_ID_1 = '0174f81e-36f5-0000-7ef8-cc26c1fbab1c'
 const ORG_ID_2 = '4dc8564d-bd82-1065-2f40-97f7c50f67cf'
 
 describe('PluginsApiKeyManager', () => {
     let hub: Hub
-    let closeHub: () => Promise<void>
 
     beforeEach(async () => {
-        ;[hub, closeHub] = await createHub({
+        hub = await createHub({
             TASK_TIMEOUT: 1,
         })
-        await hub.db.postgres.query(PostgresUse.COMMON_WRITE, POSTGRES_DELETE_TABLES_QUERY, [], 'truncateTablesTest')
+        await clearDatabase(hub.db.postgres)
         await hub.db.redisExpire(`plugins-api-key-manager/${ORG_ID_1}`, 0)
         await hub.db.redisExpire(`plugins-api-key-manager/${ORG_ID_2}`, 0)
     })
 
     afterEach(async () => {
-        await closeHub()
+        await closeHub(hub)
     })
 
     test('fetchOrCreatePersonalApiKey', async () => {

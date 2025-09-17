@@ -1,12 +1,11 @@
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any, Optional, Union
 
-from dateutil.parser import parser, isoparse
-
 import posthoganalytics
+from dateutil.parser import isoparse, parser
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.cloud_utils import is_cloud
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
@@ -125,24 +124,28 @@ class ThresholdMode(Enum):
     LEGACY = "legacy"
     DEFAULT = "default"
     LAZY = "lazy"
+    AI = "ai"
 
 
-staleness_threshold_map = {
+staleness_threshold_map: dict[ThresholdMode, dict[Optional[str], timedelta]] = {
     ThresholdMode.DEFAULT: {
-        None: timedelta(minutes=1),
-        "minute": timedelta(seconds=15),
-        "hour": timedelta(minutes=15),
-        "day": timedelta(hours=2),
-        "week": timedelta(hours=12),
-        "month": timedelta(days=1),
-    },
-    ThresholdMode.LAZY: {
-        None: timedelta(hours=1),
-        "minute": timedelta(hours=1),
+        None: timedelta(hours=6),
+        "minute": timedelta(minutes=5),
         "hour": timedelta(hours=1),
         "day": timedelta(hours=6),
         "week": timedelta(days=1),
-        "month": timedelta(days=2),
+        "month": timedelta(days=1),
+    },
+    ThresholdMode.LAZY: {
+        None: timedelta(hours=12),
+        "minute": timedelta(minutes=15),
+        "hour": timedelta(hours=2),
+        "day": timedelta(hours=12),
+        "week": timedelta(days=1),
+        "month": timedelta(days=1),
+    },
+    ThresholdMode.AI: {
+        None: timedelta(hours=1),
     },
 }
 

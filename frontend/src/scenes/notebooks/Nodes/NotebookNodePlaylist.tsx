@@ -1,21 +1,28 @@
+import { BuiltLogic, useActions, useValues } from 'kea'
+import { PostHogErrorBoundary } from 'posthog-js/react'
+import { useEffect, useMemo } from 'react'
+
+import { IconComment } from '@posthog/icons'
+
+import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { FilterType, NotebookNodeType, RecordingUniversalFilters, ReplayTabs } from '~/types'
+import { RecordingsUniversalFiltersEmbed } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
+import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogicType } from 'scenes/session-recordings/player/sessionRecordingPlayerLogicType'
+import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import {
+    DEFAULT_RECORDING_FILTERS,
     SessionRecordingPlaylistLogicProps,
     convertLegacyFiltersToUniversalFilters,
     sessionRecordingsPlaylistLogic,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
-import { BuiltLogic, useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
 import { urls } from 'scenes/urls'
+
+import { FilterType, RecordingUniversalFilters, ReplayTabs } from '~/types'
+
+import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import { JSONContent, NotebookNodeProps, NotebookNodeAttributeProperties } from '../Notebook/utils'
-import { ErrorBoundary } from '@sentry/react'
-import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { IconComment } from 'lib/lemon-ui/icons'
-import { sessionRecordingPlayerLogicType } from 'scenes/session-recordings/player/sessionRecordingPlayerLogicType'
-import { RecordingsUniversalFilters } from 'scenes/session-recordings/filters/RecordingsUniversalFilters'
 
 const Component = ({
     attributes,
@@ -40,6 +47,7 @@ const Component = ({
                 })
             },
         }),
+        // oxlint-disable-next-line exhaustive-deps
         [playerKey, universalFilters, pinned]
     )
 
@@ -88,9 +96,10 @@ const Component = ({
                   ]
                 : []
         )
+        // oxlint-disable-next-line exhaustive-deps
     }, [activeSessionRecording])
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         setMessageListeners({
             'play-replay': ({ sessionRecordingId, time }) => {
                 // IDEA: We could add the desired start time here as a param, which is picked up by the player...
@@ -103,7 +112,7 @@ const Component = ({
                 }, 100)
             },
         })
-    }, [])
+    })
 
     return <SessionRecordingsPlaylist {...recordingPlaylistLogicProps} />
 }
@@ -119,9 +128,9 @@ export const Settings = ({
     }
 
     return (
-        <ErrorBoundary>
-            <RecordingsUniversalFilters filters={filters} setFilters={setFilters} />
-        </ErrorBoundary>
+        <PostHogErrorBoundary>
+            <RecordingsUniversalFiltersEmbed filters={filters} setFilters={setFilters} />
+        </PostHogErrorBoundary>
     )
 }
 
@@ -143,14 +152,14 @@ export const NotebookNodePlaylist = createPostHogWidgetNode<NotebookNodePlaylist
     expandable: false,
     attributes: {
         universalFilters: {
-            default: undefined,
+            default: DEFAULT_RECORDING_FILTERS,
         },
         pinned: {
             default: undefined,
         },
     },
     pasteOptions: {
-        find: urls.replay(ReplayTabs.Recent) + '(.*)',
+        find: urls.replay(ReplayTabs.Home) + '(.*)',
         getAttributes: async (match) => {
             const url = new URL(match[0])
             const stringifiedFilters = url.searchParams.get('filters')

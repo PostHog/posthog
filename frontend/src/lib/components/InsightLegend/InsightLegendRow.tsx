@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
-import { getSeriesBackgroundColor, getTrendLikeSeriesColor } from 'lib/colors'
+import { useEffect, useRef } from 'react'
+
+import { getSeriesBackgroundColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { useEffect, useRef } from 'react'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { formatBreakdownLabel, getTrendResultCustomizationKey } from 'scenes/insights/utils'
 import { formatCompareLabel } from 'scenes/insights/views/InsightsTable/columns/SeriesColumn'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
@@ -14,25 +15,32 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { ChartDisplayType } from '~/types'
 
-import { shouldHighlightThisRow } from './utils'
-
 type InsightLegendRowProps = {
-    rowIndex: number
     item: IndexedTrendResult
-    totalItems: number
 }
 
-export function InsightLegendRow({ rowIndex, item, totalItems }: InsightLegendRowProps): JSX.Element {
-    const { cohorts } = useValues(cohortsModel)
+export function InsightLegendRow({ item }: InsightLegendRowProps): JSX.Element {
+    const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
-    const { insightProps, highlightedSeries } = useValues(insightLogic)
-    const { display, trendsFilter, breakdownFilter, isSingleSeries, hiddenLegendIndexes } = useValues(
-        trendsDataLogic(insightProps)
-    )
-    const { toggleHiddenLegendIndex } = useActions(trendsDataLogic(insightProps))
+    const { insightProps, highlightedSeries, editingDisabledReason } = useValues(insightLogic)
+    const {
+        display,
+        trendsFilter,
+        breakdownFilter,
+        isSingleSeries,
+        getTrendsColor,
+        getTrendsHidden,
+        resultCustomizationBy,
+    } = useValues(trendsDataLogic(insightProps))
+    const { toggleResultHidden } = useActions(trendsDataLogic(insightProps))
 
-    const highlighted = shouldHighlightThisRow(rowIndex, highlightedSeries, hiddenLegendIndexes)
+    let highlighted = false
+    if (highlightedSeries) {
+        const currentKey = getTrendResultCustomizationKey(resultCustomizationBy, item)
+        const highlightedKey = getTrendResultCustomizationKey(resultCustomizationBy, highlightedSeries)
+        highlighted = currentKey === highlightedKey
+    }
     const highlightStyle: Record<string, any> = highlighted
         ? {
               style: { backgroundColor: getSeriesBackgroundColor(item.seriesIndex) },
@@ -49,26 +57,29 @@ export function InsightLegendRow({ rowIndex, item, totalItems }: InsightLegendRo
     const formattedBreakdownValue = formatBreakdownLabel(
         item.breakdown_value,
         breakdownFilter,
-        cohorts,
+        allCohorts.results,
         formatPropertyValueForDisplay
     )
 
     const isPrevious = !!item.compare && item.compare_label === 'previous'
-    const adjustedIndex = isPrevious ? item.seriesIndex - totalItems / 2 : item.seriesIndex
+
+    const themeColor = getTrendsColor(item)
+    const isHidden = getTrendsHidden(item)
+    const mainColor = isPrevious ? `${themeColor}80` : themeColor
 
     return (
         <div key={item.id} className="InsightLegendMenu-item p-2 flex flex-row" ref={rowRef} {...highlightStyle}>
             <div className="grow">
                 <LemonCheckbox
                     className="text-xs mr-4"
-                    color={getTrendLikeSeriesColor(adjustedIndex, isPrevious)}
-                    checked={!hiddenLegendIndexes.includes(rowIndex)}
-                    onChange={() => toggleHiddenLegendIndex(rowIndex)}
+                    color={mainColor}
+                    checked={!isHidden}
+                    onChange={() => toggleResultHidden(item)}
                     fullWidth
                     label={
                         <InsightLabel
                             key={item.id}
-                            seriesColor={getTrendLikeSeriesColor(adjustedIndex, isPrevious)}
+                            seriesColor={mainColor}
                             action={item.action}
                             fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                             hasMultipleSeries={!isSingleSeries}
@@ -78,10 +89,11 @@ export function InsightLegendRow({ rowIndex, item, totalItems }: InsightLegendRo
                             hideIcon
                         />
                     }
+                    disabledReason={editingDisabledReason}
                 />
             </div>
             {display === ChartDisplayType.ActionsPie && (
-                <div className="text-muted grow-0">
+                <div className="text-secondary grow-0">
                     {formatAggregationAxisValue(trendsFilter, item.aggregated_value)}
                 </div>
             )}

@@ -1,25 +1,22 @@
 import { afterMount, connect, kea, path } from 'kea'
+
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 
-import { activityForSceneLogic } from '../activity/activityForSceneLogic'
 import type { sidePanelExportsLogicType } from './sidePanelExportsLogicType'
 
 export const sidePanelExportsLogic = kea<sidePanelExportsLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelExportsLogic']),
-    connect({
-        values: [
-            featureFlagLogic,
-            ['featureFlags'],
-            activityForSceneLogic,
-            ['sceneActivityFilters'],
+    connect(() => ({
+        values: [exportsLogic, ['exports', 'freshUndownloadedExports', 'assetFormat']],
+        actions: [
+            sidePanelStateLogic,
+            ['openSidePanel'],
             exportsLogic,
-            ['exports', 'freshUndownloadedExports'],
+            ['loadExports', 'removeFresh', 'setAssetFormat'],
         ],
-        actions: [sidePanelStateLogic, ['openSidePanel'], exportsLogic, ['loadExports', 'removeFresh']],
-    }),
+    })),
     afterMount(({ actions }) => {
         actions.loadExports()
     }),

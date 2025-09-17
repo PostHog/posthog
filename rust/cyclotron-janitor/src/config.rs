@@ -4,6 +4,8 @@ use cyclotron_core::PoolConfig;
 use envconfig::Envconfig;
 use uuid::Uuid;
 
+use common_kafka::config::KafkaConfig;
+
 #[derive(Envconfig)]
 pub struct Config {
     #[envconfig(from = "BIND_HOST", default = "::")]
@@ -46,6 +48,12 @@ pub struct Config {
 
     #[envconfig(default = "60")]
     pub janitor_stall_timeout_seconds: u16,
+
+    #[envconfig(nested = true)]
+    pub kafka: KafkaConfig,
+
+    #[envconfig(default = "false")]
+    pub should_compress_vm_state: bool, // Defaults to "false" (for now!)
 }
 
 #[allow(dead_code)]
@@ -73,6 +81,7 @@ impl Config {
 
         JanitorConfig {
             pool: pool_config,
+            kafka: self.kafka.clone(),
             settings,
         }
     }
@@ -80,6 +89,7 @@ impl Config {
 
 pub struct JanitorConfig {
     pub pool: PoolConfig,
+    pub kafka: KafkaConfig,
     pub settings: JanitorSettings,
 }
 

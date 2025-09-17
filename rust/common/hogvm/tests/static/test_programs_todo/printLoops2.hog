@@ -1,0 +1,11 @@
+// Printing recursive objects.
+let root := {'key': 'value', 'key2': 'value2'}
+let leaf := {'key': 'value', 'key2': 'value2'}
+for (let i := 0; i < 30; i := i + 1) {
+  root[f'key_{i}'] := {
+    'something': leaf,
+  }
+}
+// Should NOT replace all leaves with nulls.
+print(root)
+print(jsonParse(jsonStringify(root)))

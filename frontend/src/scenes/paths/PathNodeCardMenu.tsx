@@ -1,8 +1,10 @@
+import { MouseEventHandler } from 'react'
+
 import { IconClock } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+
 import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration } from 'lib/utils'
-import { MouseEventHandler } from 'react'
 
 import { PATH_NODE_CARD_WIDTH } from './constants'
 import { pathsDataLogicType } from './pathsDataLogicType'
@@ -68,7 +70,7 @@ export function PathNodeCardMenu({
             )}
             {!isPathStart && (
                 <CardItem
-                    icon={<IconClock className="text-xl shrink-0 text-muted" />}
+                    icon={<IconClock className="text-xl shrink-0 text-secondary" />}
                     text="Average time from previous step"
                     count={<b className="pr-2">{humanFriendlyDuration(averageConversionTime)}</b>}
                 />
@@ -88,7 +90,7 @@ function CountButton({ count, percentage, onClick }: CountButtonProps): JSX.Elem
         <LemonButton size="small" onClick={onClick}>
             <span className="text-xs">
                 {count}
-                <span className="text-muted-alt ml-2">({percentage}%)</span>
+                <span className="text-secondary ml-2">({percentage}%)</span>
             </span>
         </LemonButton>
     )

@@ -1,7 +1,9 @@
 import json
 from typing import Optional
 
-from posthog.client import query_with_columns, sync_execute
+from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person
+
+from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.constants import FILTER_TEST_ACCOUNTS
 from posthog.models import Element, Organization, Person, Team
 from posthog.models.cohort import Cohort
@@ -9,11 +11,12 @@ from posthog.models.event.sql import GET_EVENTS_WITH_PROPERTIES
 from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.filters import Filter
 from posthog.models.filters.retention_filter import RetentionFilter
-from posthog.models.filters.test.test_filter import TestFilter as PGTestFilters
-from posthog.models.filters.test.test_filter import property_to_Q_test_factory
+from posthog.models.filters.test.test_filter import (
+    TestFilter as PGTestFilters,
+    property_to_Q_test_factory,
+)
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.queries.util import PersonPropertiesMode
-from posthog.test.base import ClickhouseTestMixin, _create_event, _create_person
 from posthog.test.test_journeys import journeys_for
 
 
@@ -126,6 +129,7 @@ class TestFilters(PGTestFilters):
                             {
                                 "key": "id",
                                 "value": cohort.pk,
+                                "negation": False,
                                 "type": "precalculated-cohort",
                             }
                         ],
@@ -141,6 +145,7 @@ class TestFilters(PGTestFilters):
                         "values": [
                             {
                                 "key": "id",
+                                "negation": False,
                                 "value": cohort.pk,
                                 "type": "precalculated-cohort",
                             }
@@ -158,7 +163,7 @@ class TestFilters(PGTestFilters):
             {
                 "properties": {
                     "type": "AND",
-                    "values": [{"type": "static-cohort", "key": "id", "value": cohort.pk}],
+                    "values": [{"type": "static-cohort", "negation": False, "key": "id", "value": cohort.pk}],
                 }
             },
         )
@@ -172,7 +177,7 @@ class TestFilters(PGTestFilters):
             {
                 "properties": {
                     "type": "AND",
-                    "values": [{"type": "cohort", "key": "id", "value": cohort.pk}],
+                    "values": [{"type": "cohort", "negation": False, "key": "id", "value": cohort.pk}],
                 }
             },
         )
@@ -422,6 +427,7 @@ class TestFilters(PGTestFilters):
                         "math": None,
                         "math_hogql": None,
                         "math_property": None,
+                        "math_property_revenue_currency": None,
                         "math_group_type_index": None,
                         "custom_name": None,
                         "order": None,
@@ -469,6 +475,7 @@ class TestFilters(PGTestFilters):
                         "math": "unique_group",
                         "math_hogql": None,
                         "math_property": None,
+                        "math_property_revenue_currency": None,
                         "math_group_type_index": 2,
                         "custom_name": None,
                         "order": None,

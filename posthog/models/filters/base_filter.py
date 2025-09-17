@@ -1,16 +1,17 @@
-import inspect
 import json
+import inspect
 from typing import TYPE_CHECKING, Any, Optional
 
 from rest_framework import request
-
-from posthog.hogql.context import HogQLContext
-from .mixins.common import BaseParamMixin
-from posthog.models.utils import sane_repr
-from posthog.utils import encode_get_request_params
 from rest_framework.exceptions import ValidationError
 
+from posthog.hogql.context import HogQLContext
+
 from posthog.constants import PROPERTIES
+from posthog.models.utils import sane_repr
+from posthog.utils import encode_get_request_params
+
+from .mixins.common import BaseParamMixin
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
@@ -63,7 +64,7 @@ class BaseFilter(BaseParamMixin):
             ),
         )
         if self.team:
-            self.hogql_context.person_on_events_mode = self.team.person_on_events_mode
+            self.hogql_context.modifiers.personsOnEventsMode = self.team.person_on_events_mode
 
         if self.team and hasattr(self, "simplify") and not getattr(self, "is_simplified", False):
             simplified_filter = self.simplify(self.team)

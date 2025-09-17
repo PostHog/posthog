@@ -1,4 +1,5 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
 import { range } from 'lib/utils'
 
 import { Lettermark, LettermarkColor, LettermarkProps } from './Lettermark'
@@ -31,7 +32,7 @@ Base.args = { name: 'Athena' }
 
 export const Overview = (): JSX.Element => {
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             <div>
                 <Lettermark name="Ben" /> Text
             </div>
@@ -44,7 +45,7 @@ export const Overview = (): JSX.Element => {
 
             <div>
                 <p>Color based on index</p>
-                <div className="space-x-1">
+                <div className="deprecated-space-x-1">
                     {range(20).map((x) => (
                         <Lettermark key={x} index={x} name={x + 1} />
                     ))}

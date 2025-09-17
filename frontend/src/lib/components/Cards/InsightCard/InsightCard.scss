@@ -6,22 +6,14 @@
     min-width: 0;
     max-width: 100%;
     height: 30rem;
-    background: var(--bg-light);
-    border: 1px solid var(--border);
+    background: var(--color-bg-surface-primary);
+    border: 1px solid var(--color-border-primary);
     border-radius: var(--radius);
     transition: border 200ms ease;
 
     &--highlighted {
-        border-color: var(--primary-3000);
-        outline: 1px solid var(--primary-3000);
-    }
-
-    &.react-draggable::after {
-        // During dashboard layout editing, we need an overlay to prevent accidental interaction with card content
-        position: absolute;
-        inset: 0;
-        z-index: var(--z-content-overlay);
-        content: '';
+        border-color: var(--color-accent);
+        outline: 1px solid var(--color-accent);
     }
 
     .ErrorBoundary {
@@ -43,13 +35,6 @@
     .LineGraph,
     .AnnotationsOverlay {
         padding: 0.5rem;
-    }
-
-    .insight-empty-state {
-        height: 100%; // Fix wonkiness when SpinnerOverlay is shown
-        padding-top: 0;
-        padding-bottom: 0;
-        font-size: 0.875rem; // Reduce font size
     }
 
     .LemonTable {
@@ -116,10 +101,6 @@
     }
 }
 
-.InsightDetails__breakdown {
-    margin-bottom: 0.5rem;
-}
-
 .InsightDetails__footer {
     display: flex;
     flex-wrap: wrap;
@@ -151,8 +132,9 @@
     font-size: 0.6875rem;
     font-weight: 600;
     line-height: 1rem;
-    color: var(--text-3000);
-    background: var(--primary-highlight);
+    color: var(--color-text-secondary);
+    vertical-align: middle;
+    background: var(--color-accent-highlight-secondary);
     border-radius: var(--radius);
 
     &.SeriesDisplay__raw-name--action,
@@ -167,9 +149,9 @@
             font-size: 0.625rem;
             font-weight: 700;
             line-height: 1rem;
-            color: var(--bg-light);
+            color: var(--color-bg-surface-primary);
             text-align: center;
-            background: var(--primary-3000);
+            background: var(--color-accent);
             border-radius: var(--radius);
         }
     }
@@ -185,15 +167,11 @@
 
 .SeriesDisplay__condition {
     display: flex;
-
-    .SeriesDisplay__raw-name {
-        vertical-align: middle;
-    }
 }
 
 .SeriesDisplay__arrow {
     flex-shrink: 0;
     margin-right: 0.25rem;
     font-size: 1.25rem;
-    color: var(--border-bold);
+    color: var(--color-text-secondary);
 }

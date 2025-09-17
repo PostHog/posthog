@@ -1,23 +1,28 @@
-import base64
 import json
+import base64
 from datetime import timedelta
-from unittest.mock import ANY, call, patch
 from urllib.parse import quote
 
-from django.core.cache import cache
-from django.utils.timezone import now
 from freezegun.api import freeze_time
-from rest_framework import status
-from django.test.client import Client
+from posthog.test.base import APIBaseTest
+from unittest.mock import ANY, Mock, call, patch
 
+from django.core.cache import cache
+from django.test.client import Client
+from django.utils.timezone import now
+
+from parameterized import parameterized
+from rest_framework import status
 
 from posthog import models, rate_limit
+from posthog.api.feature_flag import LocalEvaluationThrottle, RemoteConfigThrottle
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
+from posthog.models import Team
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
-from posthog.test.base import APIBaseTest
+from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle, HogQLQueryThrottle, get_route_from_path
 
 
 class TestUserAPI(APIBaseTest):
@@ -40,6 +45,77 @@ class TestUserAPI(APIBaseTest):
 
         # ensure the rate limit is reset for any subsequent non-rate-limit tests
         cache.clear()
+
+    def test_load_team_rate_limit_from_cache(self):
+        throttle = HogQLQueryThrottle()
+
+        # Set up cache with test data
+        cache_key = f"team_ratelimit_query_{self.team.id}"
+        cache.set(cache_key, "100/hour")
+
+        # Test loading from cache
+        throttle.load_team_rate_limit(self.team.pk)
+
+        self.assertEqual(throttle.rate, "100/hour")
+        self.assertEqual(throttle.num_requests, 100)
+        self.assertEqual(throttle.duration, 3600)  # 1 hour in seconds
+
+    def test_load_team_rate_limit_from_db(self):
+        throttle = HogQLQueryThrottle()
+
+        # Clear cache to ensure DB lookup
+        cache_key = f"team_ratelimit_query_{self.team.id}"
+        cache.delete(cache_key)
+
+        # Set custom rate limit on team
+        self.team.api_query_rate_limit = "200/day"
+        self.team.save()
+
+        # Test loading from DB
+        throttle.load_team_rate_limit(self.team.id)
+
+        self.assertEqual(throttle.rate, "200/day")
+        self.assertEqual(throttle.num_requests, 200)
+        self.assertEqual(throttle.duration, 86400)  # 24 hours in seconds
+
+        # Verify it was cached
+        cache_key = f"team_ratelimit_query_{self.team.pk}"
+        self.assertEqual(cache.get(cache_key), "200/day")
+
+    def test_load_team_rate_limit_no_custom_limit(self):
+        throttle = HogQLQueryThrottle()
+
+        # Clear cache to ensure DB lookup
+        cache_key = f"team_ratelimit_query_{self.team.id}"
+        cache.delete(cache_key)
+
+        # no custom rate limit
+        self.team.api_query_rate_limit = None
+        self.team.save()
+
+        # Test loading with no custom limit
+        throttle.load_team_rate_limit(self.team.pk)
+
+        # Should not set rate when no custom limit exists
+        self.assertEqual(throttle.rate, HogQLQueryThrottle.rate)
+
+        # Verify nothing was cached
+        self.assertIsNone(cache.get(cache_key))
+
+    @patch("posthog.models.Team.objects.get")
+    def test_load_team_rate_limit_team_does_not_exist(self, mock_team_get):
+        throttle = HogQLQueryThrottle()
+
+        # Simulate team not found
+        mock_team_get.side_effect = Team.DoesNotExist
+
+        # Test loading with non-existent team
+        with self.assertRaises(Team.DoesNotExist):
+            throttle.load_team_rate_limit(999999)
+
+        # Verify nothing was cached
+        cache_key = f"team_ratelimit_test_999999"
+        self.assertIsNone(cache.get(cache_key))
 
     @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.statsd.incr")
@@ -69,7 +145,7 @@ class TestUserAPI(APIBaseTest):
                 "team_id": self.team.pk,
                 "scope": "burst",
                 "rate": "5/minute",
-                "path": "/api/projects/TEAM_ID/feature_flags",
+                "route": "/api/projects/TEAM_ID/feature_flags/",
                 "hashed_personal_api_key": self.hashed_personal_api_key,
             },
         )
@@ -105,7 +181,7 @@ class TestUserAPI(APIBaseTest):
                     "team_id": self.team.pk,
                     "scope": "sustained",
                     "rate": "5/hour",
-                    "path": "/api/projects/TEAM_ID/feature_flags",
+                    "route": "/api/projects/TEAM_ID/feature_flags/",
                     "hashed_personal_api_key": self.hashed_personal_api_key,
                 },
             )
@@ -145,7 +221,7 @@ class TestUserAPI(APIBaseTest):
                 "team_id": self.team.pk,
                 "scope": "clickhouse_burst",
                 "rate": "5/minute",
-                "path": "/api/projects/TEAM_ID/events",
+                "route": "/api/projects/TEAM_ID/events/",
                 "hashed_personal_api_key": self.hashed_personal_api_key,
             },
         )
@@ -177,7 +253,7 @@ class TestUserAPI(APIBaseTest):
                 "team_id": self.team.pk,
                 "scope": "burst",
                 "rate": "5/minute",
-                "path": f"/api/projects/TEAM_ID/feature_flags",
+                "route": "/api/projects/TEAM_ID/feature_flags/",
                 "hashed_personal_api_key": self.hashed_personal_api_key,
             },
         )
@@ -254,7 +330,7 @@ class TestUserAPI(APIBaseTest):
                 "team_id": None,
                 "scope": "burst",
                 "rate": "5/minute",
-                "path": f"/api/organizations/ORG_ID/plugins",
+                "route": "/api/organizations/ORG_ID/plugins/",
                 "hashed_personal_api_key": self.hashed_personal_api_key,
             },
         )
@@ -315,7 +391,7 @@ class TestUserAPI(APIBaseTest):
                 "team_id": None,
                 "scope": "burst",
                 "rate": "5/minute",
-                "path": "/api/login",
+                "route": "/api/login/",
                 "hashed_personal_api_key": None,
             },
         )
@@ -404,3 +480,253 @@ class TestUserAPI(APIBaseTest):
                     )
                     self.assertEqual(response.status_code, status.HTTP_200_OK)
                 assert call("rate_limit_exceeded", tags=ANY) not in incr_mock.mock_calls
+
+    @patch("posthog.rate_limit.report_user_action")
+    def test_ai_burst_rate_throttle_calls_report_user_action(self, mock_report_user_action):
+        """Test that AIBurstRateThrottle calls report_user_action when rate limit is exceeded"""
+        throttle = AIBurstRateThrottle()
+
+        mock_request = Mock()
+        mock_request.user = self.user
+        mock_view = Mock()
+
+        # Mock the parent allow_request to return False (rate limited)
+        with patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=False):
+            result = throttle.allow_request(mock_request, mock_view)
+
+            # Should return False (rate limited)
+            self.assertFalse(result)
+
+            # Should call report_user_action with correct parameters
+            mock_report_user_action.assert_called_once_with(self.user, "ai burst rate limited")
+
+    @patch("posthog.rate_limit.report_user_action")
+    def test_ai_sustained_rate_throttle_calls_report_user_action(self, mock_report_user_action):
+        """Test that AISustainedRateThrottle calls report_user_action when rate limit is exceeded"""
+        throttle = AISustainedRateThrottle()
+
+        mock_request = Mock()
+        mock_request.user = self.user
+        mock_view = Mock()
+
+        # Mock the parent allow_request to return False (rate limited)
+        with patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=False):
+            result = throttle.allow_request(mock_request, mock_view)
+
+            # Should return False (rate limited)
+            self.assertFalse(result)
+
+            # Should call report_user_action with correct parameters
+            mock_report_user_action.assert_called_once_with(self.user, "ai sustained rate limited")
+
+    def test_local_evaluation_throttle_uses_default_rate_when_no_custom_limit(self):
+        throttle = LocalEvaluationThrottle()
+
+        # Mock view and request
+        mock_view = Mock()
+        mock_request = Mock()
+
+        with (
+            patch("posthog.api.feature_flag.LOCAL_EVAL_RATE_LIMITS", {}),
+            patch.object(throttle, "safely_get_team_id_from_view", return_value=123),
+            patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=True),
+        ):
+            result = throttle.allow_request(mock_request, mock_view)
+
+            self.assertTrue(result)
+            # Rate should remain default
+            self.assertEqual(throttle.rate, "600/minute")
+
+    def test_local_evaluation_throttle_handles_empty_settings(self):
+        throttle = LocalEvaluationThrottle()
+
+        # Mock view and request
+        mock_view = Mock()
+        mock_request = Mock()
+
+        with (
+            patch("posthog.api.feature_flag.LOCAL_EVAL_RATE_LIMITS", {}),
+            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
+            patch.object(throttle, "safely_get_team_id_from_view", return_value=123),
+            patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=True),
+        ):
+            result = throttle.allow_request(mock_request, mock_view)
+
+            self.assertTrue(result)
+            # Should use default rate
+            self.assertEqual(throttle.rate, "600/minute")
+
+    def test_local_evaluation_throttle_handles_missing_team_gracefully(self):
+        throttle = LocalEvaluationThrottle()
+
+        # Mock view without team_id
+        mock_view = Mock()
+        mock_view.team_id = None
+
+        # Test with missing team
+        with patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True):
+            with patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=True):
+                result = throttle.allow_request(Mock(), mock_view)
+
+                self.assertTrue(result)
+                # Should keep default rate
+                self.assertEqual(throttle.rate, "600/minute")
+
+    def test_local_evaluation_throttle_uses_custom_rate_for_team(self):
+        throttle = LocalEvaluationThrottle()
+
+        # Mock view and request
+        mock_view = Mock()
+        mock_request = Mock()
+
+        with (
+            patch("posthog.api.feature_flag.LOCAL_EVAL_RATE_LIMITS", {123: "1200/minute"}),
+            patch.object(throttle, "safely_get_team_id_from_view", return_value=123),
+            patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=True),
+        ):
+            result = throttle.allow_request(mock_request, mock_view)
+
+            self.assertTrue(result)
+            # Should use custom rate
+            self.assertEqual(throttle.rate, "1200/minute")
+            self.assertEqual(throttle.num_requests, 1200)
+            self.assertEqual(throttle.duration, 60)  # 1 minute in seconds
+
+    def test_remote_config_throttle_uses_default_rate_when_no_custom_limit(self):
+        throttle = RemoteConfigThrottle()
+
+        # Mock view and request
+        mock_view = Mock()
+        mock_request = Mock()
+
+        with (
+            patch("posthog.api.feature_flag.REMOTE_CONFIG_RATE_LIMITS", {}),
+            patch.object(throttle, "safely_get_team_id_from_view", return_value=123),
+            patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=True),
+        ):
+            result = throttle.allow_request(mock_request, mock_view)
+
+            self.assertTrue(result)
+            # Rate should remain default
+            self.assertEqual(throttle.rate, "600/minute")
+
+    def test_remote_config_throttle_handles_empty_settings(self):
+        throttle = RemoteConfigThrottle()
+
+        # Mock view and request
+        mock_view = Mock()
+        mock_request = Mock()
+
+        with (
+            patch("posthog.api.feature_flag.REMOTE_CONFIG_RATE_LIMITS", {}),
+            patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True),
+            patch.object(throttle, "safely_get_team_id_from_view", return_value=123),
+            patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=True),
+        ):
+            result = throttle.allow_request(mock_request, mock_view)
+
+            self.assertTrue(result)
+            # Should use default rate
+            self.assertEqual(throttle.rate, "600/minute")
+
+    def test_remote_config_throttle_handles_missing_team_gracefully(self):
+        throttle = RemoteConfigThrottle()
+
+        # Mock view without team_id
+        mock_view = Mock()
+        mock_view.team_id = None
+
+        # Test with missing team
+        with patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True):
+            with patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=True):
+                result = throttle.allow_request(Mock(), mock_view)
+
+                self.assertTrue(result)
+                # Should keep default rate
+                self.assertEqual(throttle.rate, "600/minute")
+
+    def test_remote_config_throttle_uses_custom_rate_for_team(self):
+        throttle = RemoteConfigThrottle()
+
+        # Mock view and request
+        mock_view = Mock()
+        mock_request = Mock()
+
+        with (
+            patch("posthog.api.feature_flag.REMOTE_CONFIG_RATE_LIMITS", {123: "1200/minute"}),
+            patch.object(throttle, "safely_get_team_id_from_view", return_value=123),
+            patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=True),
+        ):
+            result = throttle.allow_request(mock_request, mock_view)
+
+            self.assertTrue(result)
+            # Should use custom rate
+            self.assertEqual(throttle.rate, "1200/minute")
+            self.assertEqual(throttle.num_requests, 1200)
+            self.assertEqual(throttle.duration, 60)  # 1 minute in seconds
+
+    @parameterized.expand(
+        [
+            # Test Django route pattern normalization
+            (
+                "/api/environments/123/query/abc-123-def/progress/",
+                "api/environments/<int:team_id>/query/<str:query_uuid>/progress/",
+                "/api/environments/TEAM_ID/query/QUERY_UUID/progress/",
+                "Django route pattern with int and str parameters",
+            ),
+            (
+                "/api/projects/123/feature_flags/",
+                "^api/projects/(?P<parent_lookup_project_id>[^/.]+)/feature_flags/?$",
+                "/api/projects/TEAM_ID/feature_flags/",
+                "Django route pattern with named regexp parameters",
+            ),
+            (
+                "/api/projects/123/recordings/session-recordings-id-1234",
+                "/api/projects/<team_id>/recordings/(?P<session_recording_id>[^/.]+)",
+                "/api/projects/TEAM_ID/recordings/SESSION_RECORDING_ID/",
+                "session recordings",
+            ),
+            # # Test fallback pattern for projects
+            (
+                "/api/projects/123/some/endpoint",
+                None,  # resolve will raise exception
+                "/api/projects/TEAM_ID/some/endpoint",
+                "Fallback pattern for team/project IDs",
+            ),
+            # Test fallback pattern for organizations
+            (
+                "/api/organizations/org-123/plugins",
+                None,  # resolve will raise exception
+                "/api/organizations/ORG_ID/plugins",
+                "Fallback pattern for organization IDs",
+            ),
+            # Test empty/None paths
+            ("", None, "", "Empty path"),
+            (None, None, "", "None path"),
+            # Test when resolve returns no route
+            (
+                "/some/path",
+                None,  # resolve returns object with route=None
+                "/some/path",
+                "No route pattern found",
+            ),
+        ]
+    )
+    @patch("posthog.rate_limit.statsd.incr")
+    def test_get_route_from_path(self, test_path, mock_route, expected_result, description, incr_mock):
+        """Test that get_route_from_path correctly extracts and normalizes route patterns"""
+        if test_path in ("", None):
+            # Direct test for empty/None paths
+            result = get_route_from_path(test_path)
+            self.assertEqual(result, expected_result, description)
+        else:
+            # Test Django route pattern normalization
+            with patch("posthog.rate_limit.patchable_resolve") as mock_resolve:
+                mock_resolved = Mock()
+                mock_resolved.route = mock_route
+                mock_resolve.return_value = mock_resolved
+                if mock_route is None and test_path == "/some/path":
+                    mock_resolve.side_effect = Exception("Route not found")
+
+                result = get_route_from_path(test_path)
+                self.assertEqual(expected_result, result, description)

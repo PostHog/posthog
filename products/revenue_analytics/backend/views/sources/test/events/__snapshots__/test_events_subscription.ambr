@@ -1,0 +1,65 @@
+# serializer version: 1
+# name: TestSubscriptionEventsBuilder.test_build_subscription_queries_even_for_events_without_subscription_property
+  '''
+  SELECT subscription_id AS id,
+         'revenue_analytics.events.subscription_charge' AS source_label,
+         NULL AS plan_id,
+         product_id AS product_id,
+         toString(person_id) AS customer_id,
+         NULL AS status,
+         min_timestamp AS started_at,
+         if(greater(max_timestamp_plus_dropoff_days, today()), NULL, max_timestamp) AS ended_at,
+         NULL AS metadata
+  FROM
+    (SELECT person.id AS person_id,
+            properties.subscription_id AS subscription_id,
+            min(properties.product_id) AS product_id,
+            min(timestamp) AS min_timestamp,
+            max(timestamp) AS max_timestamp,
+            addDays(max_timestamp, 45.0) AS max_timestamp_plus_dropoff_days
+     FROM events
+     WHERE true
+     GROUP BY subscription_id,
+              person_id)
+  ORDER BY started_at DESC
+  '''
+# ---
+# name: TestSubscriptionEventsBuilder.test_build_subscription_queries_even_for_events_without_subscription_property.1
+  '''
+  SELECT NULL AS id,
+         NULL AS source_label,
+         NULL AS plan_id,
+         NULL AS product_id,
+         NULL AS customer_id,
+         NULL AS status,
+         NULL AS started_at,
+         NULL AS ended_at,
+         NULL AS metadata
+  WHERE false
+  '''
+# ---
+# name: TestSubscriptionEventsBuilder.test_query_structure_contains_required_fields
+  '''
+  SELECT subscription_id AS id,
+         'revenue_analytics.events.subscription_charge' AS source_label,
+         NULL AS plan_id,
+         product_id AS product_id,
+         toString(person_id) AS customer_id,
+         NULL AS status,
+         min_timestamp AS started_at,
+         if(greater(max_timestamp_plus_dropoff_days, today()), NULL, max_timestamp) AS ended_at,
+         NULL AS metadata
+  FROM
+    (SELECT person.id AS person_id,
+            properties.subscription_id AS subscription_id,
+            min(properties.product_id) AS product_id,
+            min(timestamp) AS min_timestamp,
+            max(timestamp) AS max_timestamp,
+            addDays(max_timestamp, 45.0) AS max_timestamp_plus_dropoff_days
+     FROM events
+     WHERE true
+     GROUP BY subscription_id,
+              person_id)
+  ORDER BY started_at DESC
+  '''
+# ---

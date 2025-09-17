@@ -1,12 +1,13 @@
+import { useActions, useValues } from 'kea'
+import { Dispatch, SetStateAction, useState } from 'react'
+
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { Dispatch, SetStateAction, useState } from 'react'
-import { teamLogic } from 'scenes/teamLogic'
-
-import { TeamType } from '~/types'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { projectLogic } from 'scenes/projectLogic'
 
 export function DeleteProjectModal({
     isOpen,
@@ -15,11 +16,17 @@ export function DeleteProjectModal({
     isOpen: boolean
     setIsOpen: Dispatch<SetStateAction<boolean>>
 }): JSX.Element {
-    const { currentTeam, teamBeingDeleted } = useValues(teamLogic)
-    const { deleteTeam } = useActions(teamLogic)
+    const { currentProject, projectBeingDeleted } = useValues(projectLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const { deleteProject } = useActions(projectLogic)
 
     const [isDeletionConfirmed, setIsDeletionConfirmed] = useState(false)
-    const isDeletionInProgress = !!currentTeam && teamBeingDeleted?.id === currentTeam.id
+    const isDeletionInProgress = !!currentProject && projectBeingDeleted?.id === currentProject.id
+
+    const allTeamsOfProject =
+        currentProject && currentOrganization
+            ? currentOrganization.teams.filter((team) => team.project_id === currentProject.id)
+            : []
 
     return (
         <LemonModal
@@ -40,24 +47,29 @@ export function DeleteProjectModal({
                         loading={isDeletionInProgress}
                         data-attr="delete-project-ok"
                         status="danger"
-                        onClick={currentTeam ? () => deleteTeam(currentTeam as TeamType) : undefined}
-                    >{`Delete ${currentTeam ? currentTeam.name : 'the current project'}`}</LemonButton>
+                        onClick={currentProject ? () => deleteProject(currentProject) : undefined}
+                    >{`Delete ${currentProject ? currentProject.name : 'the current project'}`}</LemonButton>
                 </>
             }
             isOpen={isOpen}
         >
             <p>
-                Project deletion <b>cannot be undone</b>. You will lose all data, <b>including events</b>, related to
-                the project.
+                Project deletion <b>cannot be undone</b>. You will lose all environments and their data (
+                <b>including events</b>):
+                <ul className="list-disc list-inside ml-4 mt-1">
+                    {allTeamsOfProject.map((team) => (
+                        <li key={team.id}>{team.name}</li>
+                    ))}
+                </ul>
             </p>
             <p>
-                Please type <strong>{currentTeam ? currentTeam.name : "this project's name"}</strong> to confirm.
+                Please type <strong>{currentProject ? currentProject.name : "this project's name"}</strong> to confirm.
             </p>
             <LemonInput
                 type="text"
                 onChange={(value) => {
-                    if (currentTeam) {
-                        setIsDeletionConfirmed(value.toLowerCase() === currentTeam.name.toLowerCase())
+                    if (currentProject) {
+                        setIsDeletionConfirmed(value.toLowerCase() === currentProject.name.toLowerCase())
                     }
                 }}
             />
@@ -66,7 +78,7 @@ export function DeleteProjectModal({
 }
 
 export function ProjectDangerZone(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
+    const { currentProject } = useValues(projectLogic)
     const [isModalVisible, setIsModalVisible] = useState(false)
 
     const restrictedReason = useRestrictedArea({
@@ -91,7 +103,7 @@ export function ProjectDangerZone(): JSX.Element {
                         icon={<IconTrash />}
                         disabledReason={restrictedReason}
                     >
-                        Delete {currentTeam?.name || 'the current project'}
+                        Delete {currentProject?.name || 'the current project'}
                     </LemonButton>
                 </div>
             </div>

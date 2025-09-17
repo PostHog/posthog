@@ -8,11 +8,13 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         import json
         from typing import cast
+
         from posthog.schema import HogQLQueryModifiers, HogQLQueryResponse, MaterializationMode
-        from posthog.models import Insight, Filter
-        from posthog.queries.trends.trends import Trends
+
         from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
         from posthog.hogql_queries.query_runner import get_query_runner
+        from posthog.models import Filter, Insight
+        from posthog.queries.trends.trends import Trends
 
         insights = list(
             Insight.objects.filter(filters__contains={"insight": "TRENDS"}, saved=True, deleted=False, team_id=2)
@@ -32,10 +34,10 @@ class Command(BaseCommand):
         # len(insights)
         for insight in insights[0:500]:
             for event in insight.filters.get("events", []):
-                if event.get("math") in ("median", "p90", "p95", "p99"):
+                if event.get("math") in ("median", "p75", "p90", "p95", "p99"):
                     event["math"] = "sum"
             for event in insight.filters.get("actions", []):
-                if event.get("math") in ("median", "p90", "p95", "p99"):
+                if event.get("math") in ("median", "p75", "p90", "p95", "p99"):
                     event["math"] = "sum"
             try:
                 print(  # noqa: T201

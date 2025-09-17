@@ -1,12 +1,13 @@
 import logging
-from datetime import datetime, timedelta, UTC
-from unittest import mock
+from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest import mock
 
 import posthog.management.commands.sync_persons_to_clickhouse
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.management.commands.sync_persons_to_clickhouse import (
     run,
     run_distinct_id_sync,
@@ -19,7 +20,6 @@ from posthog.models.person.person import Person, PersonDistinctId
 from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE
 from posthog.models.person.util import create_person, create_person_distinct_id
 from posthog.models.signals import mute_selected_signals
-from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 
 @pytest.mark.ee

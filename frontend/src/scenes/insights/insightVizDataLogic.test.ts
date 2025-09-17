@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { FunnelLayout } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { funnelInvalidExclusionError, funnelResult } from 'scenes/funnels/__mocks__/funnelDataLogicMocks'
@@ -6,7 +7,14 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { funnelsQueryDefault, trendsQueryDefault } from '~/queries/nodes/InsightQuery/defaults'
-import { ActionsNode, EventsNode, FunnelsQuery, InsightQueryNode, NodeKind, TrendsQuery } from '~/queries/schema'
+import {
+    ActionsNode,
+    EventsNode,
+    FunnelsQuery,
+    InsightQueryNode,
+    NodeKind,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { BaseMathType, ChartDisplayType, InsightModel, InsightShortId, InsightType } from '~/types'
 
@@ -22,8 +30,8 @@ describe('insightVizDataLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team_id/insights/trend': [],
-                '/api/projects/:team_id/insights/': { results: [{}] },
+                '/api/environments/:team_id/insights/trend': [],
+                '/api/environments/:team_id/insights/': { results: [{}] },
             },
         })
         initKeaTests()
@@ -51,6 +59,7 @@ describe('insightVizDataLogic', () => {
                     source: {
                         ...trendsQueryDefault,
                         filterTestAccounts: true,
+                        version: 2,
                     },
                 },
             })
@@ -67,6 +76,7 @@ describe('insightVizDataLogic', () => {
                         ...trendsQueryDefault,
                         filterTestAccounts: true,
                         samplingFactor: 0.1,
+                        version: 2,
                     },
                 },
             })
@@ -75,6 +85,42 @@ describe('insightVizDataLogic', () => {
                 ...trendsQueryDefault,
                 filterTestAccounts: true,
                 samplingFactor: 0.1,
+                version: 2,
+            })
+        })
+
+        it('handles funnel step range side effects', () => {
+            const querySource = {
+                ...funnelsQueryDefault,
+                series: [funnelsQueryDefault.series[0], funnelsQueryDefault.series[0], funnelsQueryDefault.series[0]],
+                funnelsFilter: {
+                    funnelVizType: 'trends',
+                    funnelFromStep: 0,
+                    funnelToStep: 2,
+                },
+            } as FunnelsQuery
+            builtInsightVizDataLogic.actions.updateQuerySource(querySource)
+
+            expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    ...querySource,
+                    series: querySource.series.slice(0, 2),
+                } as FunnelsQuery)
+            }).toMatchValues({
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        ...querySource,
+                        series: querySource.series.slice(0, 2),
+                        funnelsFilter: {
+                            funnelVizType: 'trends',
+                            funnelFromStep: 0,
+                            funnelToStep: 1,
+                        },
+                        trendsFilter: {}, // we currently don't remove insight filters of previous query kinds
+                        version: 2,
+                    },
+                },
             })
         })
     })
@@ -99,6 +145,7 @@ describe('insightVizDataLogic', () => {
                                 date_from: '-7d',
                                 date_to: null,
                             },
+                            version: 2,
                         },
                     },
                 })
@@ -125,6 +172,7 @@ describe('insightVizDataLogic', () => {
                                 date_from: '-7d',
                                 date_to: '-3d',
                             },
+                            version: 2,
                         },
                     },
                 })
@@ -155,6 +203,7 @@ describe('insightVizDataLogic', () => {
                                 breakdown_type: 'event',
                                 breakdown: '$current_url',
                             },
+                            version: 2,
                         },
                     },
                 })
@@ -180,6 +229,7 @@ describe('insightVizDataLogic', () => {
                                 breakdown_type: 'event',
                                 breakdown: '$browser',
                             },
+                            version: 2,
                         },
                     },
                 })
@@ -206,6 +256,7 @@ describe('insightVizDataLogic', () => {
                             trendsFilter: {
                                 display: 'ActionsAreaGraph',
                             },
+                            version: 2,
                         },
                     },
                 })
@@ -228,6 +279,7 @@ describe('insightVizDataLogic', () => {
                                 display: 'ActionsAreaGraph',
                                 showValuesOnSeries: true,
                             },
+                            version: 2,
                         },
                     },
                 })
@@ -257,6 +309,7 @@ describe('insightVizDataLogic', () => {
                                 layout: FunnelLayout.horizontal,
                             },
                             trendsFilter: {}, // we currently don't remove insight filters of previous query kinds
+                            version: 2,
                         },
                     },
                 })
@@ -393,6 +446,7 @@ describe('insightVizDataLogic', () => {
                                 date_to: undefined,
                             },
                             trendsFilter: { smoothingIntervals: undefined },
+                            version: 2,
                         },
                     },
                 })
@@ -446,6 +500,125 @@ describe('insightVizDataLogic', () => {
             }).toMatchValues({
                 validationError: "Exclusion steps cannot contain an event that's part of funnel steps.",
             })
+        })
+    })
+
+    describe('isSingleSeries', () => {
+        it('returns true for single series without breakdown', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isSingleSeries: true })
+        })
+
+        it('returns false for multiple series without formula', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isSingleSeries: false })
+        })
+
+        it('returns true for multiple series with single formula', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                    trendsFilter: {
+                        formula: 'A + B',
+                    },
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isSingleSeries: true })
+        })
+
+        it('returns true for multiple series with single formula in formulas array', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                    trendsFilter: {
+                        formulas: ['A + B'],
+                    },
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isSingleSeries: true })
+        })
+
+        it('returns false for multiple series with multiple formulas', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                    trendsFilter: {
+                        formulas: ['A + B', 'A - B'],
+                    },
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isSingleSeries: false })
+        })
+
+        it('returns false for single series with breakdown', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                    breakdownFilter: {
+                        breakdown: '$browser',
+                        breakdown_type: 'event',
+                    },
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isSingleSeries: false })
         })
     })
 })

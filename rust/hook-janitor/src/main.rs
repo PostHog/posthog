@@ -9,13 +9,15 @@ use std::{str::FromStr, time::Duration};
 use tokio::sync::Semaphore;
 use webhooks::WebhookCleaner;
 
+use common_kafka::kafka_producer::create_kafka_producer;
 use common_metrics::setup_metrics_routes;
-use hook_common::kafka_producer::create_kafka_producer;
 
 mod cleanup;
 mod config;
 mod handlers;
 mod webhooks;
+
+common_alloc::used!();
 
 async fn listen(app: Router, bind: String) -> Result<()> {
     let listener = tokio::net::TcpListener::bind(bind).await?;

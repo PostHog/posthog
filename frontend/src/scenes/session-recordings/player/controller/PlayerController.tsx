@@ -1,65 +1,174 @@
-import { IconPause, IconPlay } from '@posthog/icons'
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { IconFullScreen, IconSync } from 'lib/lemon-ui/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+
+import { IconCamera, IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
+import { IconFullScreen } from 'lib/lemon-ui/icons'
+import { cn } from 'lib/utils/css-classes'
+import { PlayerUpNext } from 'scenes/session-recordings/player/PlayerUpNext'
+import {
+    CommentOnRecordingButton,
+    EmojiCommentOnRecordingButton,
+} from 'scenes/session-recordings/player/commenting/CommentOnRecordingButton'
+import {
+    SessionRecordingPlayerMode,
+    sessionRecordingPlayerLogic,
+} from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { SessionPlayerState } from '~/types'
 
-import { PlayerMetaLinks } from '../PlayerMetaLinks'
-import { PlayerSettings } from '../PlayerSettings'
+import { playerSettingsLogic } from '../playerSettingsLogic'
+import { ClipRecording } from './ClipRecording'
 import { SeekSkip, Timestamp } from './PlayerControllerTime'
 import { Seekbar } from './Seekbar'
 
-export function PlayerController({ linkIconsOnly }: { linkIconsOnly: boolean }): JSX.Element {
-    const { playingState, isFullScreen, endReached } = useValues(sessionRecordingPlayerLogic)
-    const { togglePlayPause, setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
+function PlayPauseButton(): JSX.Element {
+    const { playingState, endReached } = useValues(sessionRecordingPlayerLogic)
+    const { togglePlayPause } = useActions(sessionRecordingPlayerLogic)
 
     const showPause = playingState === SessionPlayerState.PLAY
 
     return (
-        <div className="bg-bg-light flex flex-col select-none">
-            <Seekbar />
-            <div className="flex justify-between h-8 gap-2 m-2 mt-1">
-                <div className="flex divide-x gap-2">
-                    <Timestamp />
-                    <div className="flex pl-2 gap-1">
-                        <LemonButton
-                            size="small"
-                            onClick={togglePlayPause}
-                            tooltip={
-                                <div className="flex gap-1">
-                                    <span>{showPause ? 'Pause' : endReached ? 'Restart' : 'Play'}</span>
-                                    <KeyboardShortcut space />
-                                </div>
-                            }
-                        >
-                            {showPause ? (
-                                <IconPause className="text-2xl" />
-                            ) : endReached ? (
-                                <IconSync className="text-2xl" />
-                            ) : (
-                                <IconPlay className="text-2xl" />
-                            )}
-                        </LemonButton>
-                        <SeekSkip direction="backward" />
-                        <SeekSkip direction="forward" />
-                        <LemonButton
-                            size="small"
-                            onClick={() => setIsFullScreen(!isFullScreen)}
-                            tooltip={`${!isFullScreen ? 'Go' : 'Exit'} full screen (F)`}
-                        >
-                            <IconFullScreen
-                                className={clsx('text-2xl', isFullScreen ? 'text-link' : 'text-primary-alt')}
-                            />
-                        </LemonButton>
-                    </div>
-                    <PlayerSettings />
+        <LemonButton
+            size="large"
+            noPadding={true}
+            onClick={togglePlayPause}
+            tooltip={
+                <div className="flex gap-1">
+                    <span>{showPause ? 'Pause' : endReached ? 'Restart' : 'Play'}</span>
+                    <KeyboardShortcut space />
                 </div>
+            }
+        >
+            {showPause ? (
+                <IconPause className="text-3xl" />
+            ) : endReached ? (
+                <IconRewindPlay className="text-3xl" />
+            ) : (
+                <IconPlay className="text-3xl" />
+            )}
+        </LemonButton>
+    )
+}
 
-                <PlayerMetaLinks iconsOnly={linkIconsOnly} />
+function FullScreen(): JSX.Element {
+    const { isFullScreen } = useValues(sessionRecordingPlayerLogic)
+    const { setIsFullScreen } = useActions(sessionRecordingPlayerLogic)
+    return (
+        <LemonButton
+            size="xsmall"
+            onClick={() => setIsFullScreen(!isFullScreen)}
+            tooltip={
+                <>
+                    <span>{!isFullScreen ? 'Go' : 'Exit'}</span> full screen <KeyboardShortcut f />
+                </>
+            }
+            icon={<IconFullScreen className="text-xl" />}
+            data-attr={isFullScreen ? 'exit-full-screen' : 'full-screen'}
+        />
+    )
+}
+
+function CinemaMode(): JSX.Element {
+    const { isCinemaMode, sidebarOpen } = useValues(playerSettingsLogic)
+    const { setIsCinemaMode, setSidebarOpen } = useActions(playerSettingsLogic)
+
+    const handleCinemaMode = (): void => {
+        setIsCinemaMode(!isCinemaMode)
+        if (sidebarOpen) {
+            setSidebarOpen(false)
+        }
+    }
+
+    return (
+        <>
+            {isCinemaMode && <LemonTag type="success">You are in "Cinema mode"</LemonTag>}
+            <LemonButton
+                size="xsmall"
+                onClick={handleCinemaMode}
+                tooltip={
+                    <>
+                        <span>{!isCinemaMode ? 'Enter' : 'Exit'}</span> cinema mode <KeyboardShortcut t />
+                    </>
+                }
+                status={isCinemaMode ? 'danger' : 'default'}
+                icon={<IconVideoCamera className="text-xl" />}
+                data-attr={isCinemaMode ? 'exit-cinema-mode' : 'cinema-mode'}
+            />
+        </>
+    )
+}
+
+export function Screenshot({ className }: { className?: string }): JSX.Element {
+    const { takeScreenshot } = useActions(sessionRecordingPlayerLogic)
+
+    return (
+        <LemonButton
+            size="xsmall"
+            onClick={(e) => {
+                e.stopPropagation()
+                takeScreenshot()
+            }}
+            tooltip={
+                <>
+                    Take a screenshot of this point in the recording <KeyboardShortcut s />
+                </>
+            }
+            icon={<IconCamera className={cn('text-xl', className)} />}
+            data-attr="replay-screenshot-png"
+            tooltipPlacement="top"
+        />
+    )
+}
+
+export function PlayerController({ playerIsHovering }: { playerIsHovering: boolean }): JSX.Element {
+    const { playlistLogic, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { isCinemaMode } = useValues(playerSettingsLogic)
+
+    const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
+    const hoverUIEnabled = useFeatureFlag('REPLAY_HOVER_UI', 'test')
+
+    const { ref, size } = useResizeBreakpoints({
+        0: 'small',
+        600: 'normal',
+    })
+
+    return (
+        <div
+            className={cn(
+                'flex flex-col select-none',
+                hoverUIEnabled ? 'absolute bottom-0 left-0 right-0 transition-all duration-150 ease-out' : '',
+                hoverUIEnabled && playerIsHovering
+                    ? 'opacity-100 bg-surface-primary pointer-events-auto'
+                    : hoverUIEnabled
+                      ? 'opacity-0 pointer-events-none'
+                      : 'bg-surface-primary'
+            )}
+        >
+            <Seekbar />
+            <div className="w-full px-2 py-1 relative flex items-center justify-between" ref={ref}>
+                <Timestamp size={size} />
+                <div className="flex gap-0.5 items-center justify-center">
+                    <SeekSkip direction="backward" />
+                    <PlayPauseButton />
+                    <SeekSkip direction="forward" />
+                </div>
+                <div className="flex justify-end items-center">
+                    {!isCinemaMode && playerMode === SessionRecordingPlayerMode.Standard && (
+                        <>
+                            <CommentOnRecordingButton />
+                            <EmojiCommentOnRecordingButton />
+                            <Screenshot />
+                            <ClipRecording />
+                            {playlistLogic ? <PlayerUpNext playlistLogic={playlistLogic} /> : undefined}
+                        </>
+                    )}
+                    {playerMode === SessionRecordingPlayerMode.Standard && <CinemaMode />}
+                    <FullScreen />
+                </div>
             </div>
         </div>
     )

@@ -1,8 +1,8 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 
 import { mswDecorator } from '~/mocks/browser'
-import { examples } from '~/queries/examples'
 import { Query } from '~/queries/Query/Query'
+import { examples } from '~/queries/examples'
 
 import events from './__mocks__/EventsNode.json'
 import persons from './__mocks__/PersonsNode.json'
@@ -19,8 +19,8 @@ const meta: Meta<typeof Query> = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/events': events,
-                '/api/projects/:team_id/persons': persons,
+                '/api/environments/:team_id/events': events,
+                '/api/environments/:team_id/persons': persons,
             },
         }),
     ],

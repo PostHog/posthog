@@ -1,18 +1,17 @@
 import logging
+import argparse
 
 from django.core.management.base import BaseCommand
 
-from ee.clickhouse.materialized_columns.analyze import (
-    logger,
-    materialize_properties_task,
-)
-from ee.clickhouse.materialized_columns.columns import DEFAULT_TABLE_COLUMN
 from posthog.settings import (
     MATERIALIZE_COLUMNS_ANALYSIS_PERIOD_HOURS,
     MATERIALIZE_COLUMNS_BACKFILL_PERIOD_DAYS,
     MATERIALIZE_COLUMNS_MAX_AT_ONCE,
     MATERIALIZE_COLUMNS_MINIMUM_QUERY_TIME,
 )
+
+from ee.clickhouse.materialized_columns.analyze import logger, materialize_properties_task
+from ee.clickhouse.materialized_columns.columns import DEFAULT_TABLE_COLUMN
 
 
 class Command(BaseCommand):
@@ -35,8 +34,14 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--table-column",
+            type=str,
             help="The column to which --property should be materialised from.",
             default=DEFAULT_TABLE_COLUMN,
+            choices=[
+                "properties",
+                "group_properties",
+                "person_properties",
+            ],
         )
         parser.add_argument(
             "--backfill-period",
@@ -69,8 +74,14 @@ class Command(BaseCommand):
             default=MATERIALIZE_COLUMNS_MAX_AT_ONCE,
             help="Max number of columns to materialize via single invocation. Same as MATERIALIZE_COLUMNS_MAX_AT_ONCE env variable.",
         )
+        parser.add_argument(
+            "--nullable",
+            action=argparse.BooleanOptionalAction,
+            default=True,
+            dest="is_nullable",
+        )
 
-    def handle(self, *args, **options):
+    def handle(self, *, is_nullable: bool, **options):
         logger.setLevel(logging.INFO)
 
         if options["dry_run"]:
@@ -80,7 +91,7 @@ class Command(BaseCommand):
             logger.info(f"Materializing column. table={options['property_table']}, property_name={options['property']}")
 
             materialize_properties_task(
-                columns_to_materialize=[
+                properties_to_materialize=[
                     (
                         options["property_table"],
                         options["table_column"],
@@ -90,6 +101,7 @@ class Command(BaseCommand):
                 ],
                 backfill_period_days=options["backfill_period"],
                 dry_run=options["dry_run"],
+                is_nullable=is_nullable,
             )
         else:
             materialize_properties_task(
@@ -99,4 +111,5 @@ class Command(BaseCommand):
                 backfill_period_days=options["backfill_period"],
                 dry_run=options["dry_run"],
                 team_id_to_analyze=options["analyze_team_id"],
+                is_nullable=is_nullable,
             )

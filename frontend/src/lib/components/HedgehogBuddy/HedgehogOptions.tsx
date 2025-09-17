@@ -1,11 +1,16 @@
-import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { capitalizeFirstLetter } from 'lib/utils'
 import React from 'react'
 
-import { COLOR_TO_FILTER_MAP, hedgehogBuddyLogic } from './hedgehogBuddyLogic'
+import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { capitalizeFirstLetter } from 'lib/utils'
+
+import { HedgehogSkin } from '~/types'
+
 import { HedgehogBuddyProfile, HedgehogBuddyStatic } from './HedgehogBuddyRender'
+import { COLOR_TO_FILTER_MAP, hedgehogBuddyLogic } from './hedgehogBuddyLogic'
 import { accessoryGroups, standardAccessories } from './sprites/sprites'
 
 export function HedgehogOptions(): JSX.Element {
@@ -14,21 +19,35 @@ export function HedgehogOptions(): JSX.Element {
 
     return (
         <div>
-            <div className="flex items-start gap-2">
+            <div className="flex gap-2 items-start">
                 <HedgehogBuddyProfile {...hedgehogConfig} size={100} />
                 <div className="flex-1">
                     <h3>Hi, I'm Max!</h3>
                     <p>
-                        Don't mind me. I'm just here to keep you company.
-                        <br />
-                        You can move me around by clicking and dragging or control me with WASD / arrow keys.
+                        {hedgehogConfig.skin === 'spiderhog' ? (
+                            <>
+                                Well, it’s not every day you meet a hedgehog with spider powers. Yep, that's me -
+                                SpiderHog. I wasn’t always this way. Just your average, speedy little guy until a
+                                radioactive spider bit me. With great power comes great responsibility, so buckle up,
+                                because this hedgehog’s got a whole data warehouse to protect...
+                                <br />
+                                You can move me around by clicking and dragging or control me with WASD / arrow keys and
+                                I'll use your mouse as a web slinging target.
+                            </>
+                        ) : (
+                            <>
+                                Don't mind me. I'm just here to keep you company.
+                                <br />
+                                You can move me around by clicking and dragging or control me with WASD / arrow keys.
+                            </>
+                        )}
                     </p>
                 </div>
             </div>
 
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <h4>Options</h4>
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex flex-wrap gap-2 items-center">
                     <LemonSwitch
                         bordered
                         label="Walk around freely"
@@ -110,7 +129,7 @@ function HedgehogAccessories(): JSX.Element {
                 <React.Fragment key={group}>
                     <h4>{capitalizeFirstLetter(group)}</h4>
 
-                    <div className="flex gap-2 pb-2 pt-px overflow-y-auto flex-wrap">
+                    <div className="flex overflow-y-auto flex-wrap gap-2 pt-px pb-2">
                         {Object.keys(standardAccessories)
                             .filter((acc) => standardAccessories[acc].group === group)
                             .map((acc) => (
@@ -118,7 +137,7 @@ function HedgehogAccessories(): JSX.Element {
                                     key={acc}
                                     className={clsx(
                                         'border-2',
-                                        accessories.includes(acc) ? 'border-primary' : 'border-transparent'
+                                        accessories.includes(acc) ? 'border-accent' : 'border-transparent'
                                     )}
                                     size="small"
                                     onClick={() => onClick(acc)}
@@ -138,21 +157,44 @@ function HedgehogAccessories(): JSX.Element {
 function HedgehogColor(): JSX.Element {
     const { hedgehogConfig } = useValues(hedgehogBuddyLogic)
     const { patchHedgehogConfig } = useActions(hedgehogBuddyLogic)
+    const skinSpiderHogEnabled = !!useFeatureFlag('HEDGEHOG_SKIN_SPIDERHOG')
+
+    const skins: HedgehogSkin[] = ['default', 'robohog']
+    if (skinSpiderHogEnabled) {
+        skins.push('spiderhog')
+    }
 
     return (
         <>
-            <h4>Colors</h4>
+            <h4>Skins and colors</h4>
 
-            <div className="flex items-center gap-2 flex-wrap">
-                {[null, ...Object.keys(COLOR_TO_FILTER_MAP)].map((option) => (
+            <div className="flex flex-wrap gap-2 items-center">
+                {skins.map((option) => (
                     <LemonButton
                         key={option}
                         className={clsx(
                             'border-2',
-                            hedgehogConfig.color === option ? 'border-primary' : 'border-transparent'
+                            !hedgehogConfig.color && hedgehogConfig.skin === option
+                                ? 'border-accent'
+                                : 'border-transparent'
                         )}
                         size="small"
-                        onClick={() => patchHedgehogConfig({ color: option as any })}
+                        onClick={() => patchHedgehogConfig({ skin: option as any, color: null })}
+                        noPadding
+                        tooltip={<>{capitalizeFirstLetter(option ?? 'default').replace('hog', 'Hog')}</>}
+                    >
+                        <HedgehogBuddyStatic skin={option} />
+                    </LemonButton>
+                ))}
+                {Object.keys(COLOR_TO_FILTER_MAP).map((option) => (
+                    <LemonButton
+                        key={option}
+                        className={clsx(
+                            'border-2',
+                            hedgehogConfig.color === option ? 'border-accent' : 'border-transparent'
+                        )}
+                        size="small"
+                        onClick={() => patchHedgehogConfig({ color: option as any, skin: 'default' })}
                         noPadding
                         tooltip={<>{capitalizeFirstLetter(option ?? 'default')}</>}
                     >

@@ -3,21 +3,27 @@ import time
 from typing import Optional
 from uuid import UUID
 
-from celery import shared_task
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
+
+import requests
+import posthoganalytics
+from celery import shared_task
 from prometheus_client import Gauge
 from redis import Redis
 from structlog import get_logger
 
-from posthog.clickhouse.client.limit import limit_concurrency, CeleryConcurrencyLimitExceeded
+from posthog.hogql.constants import LimitContext
+
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
-from posthog.hogql.constants import LimitContext
 from posthog.metrics import pushed_metrics_registry
-from posthog.ph_client import get_ph_client
+from posthog.ph_client import get_regional_ph_client
 from posthog.redis import get_client
+from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.tasks.utils import CeleryQueue
 
 logger = get_logger(__name__)
@@ -42,30 +48,37 @@ def redis_heartbeat() -> None:
     autoretry_for=(
         # Important: Only retry for things that might be okay on the next try
         CHQueryErrorTooManySimultaneousQueries,
-        CeleryConcurrencyLimitExceeded,
+        ConcurrencyLimitExceeded,
     ),
     retry_backoff=1,
     retry_backoff_max=10,
     max_retries=10,
     expires=60 * 10,  # Do not run queries that got stuck for more than this
     reject_on_worker_lost=True,
+    track_started=True,
 )
-@limit_concurrency(90)  # Do not go above what CH can handle (max_concurrent_queries)
+@limit_concurrency(150, limit_name="global")  # Do not go above what CH can handle (max_concurrent_queries)
 @limit_concurrency(
-    10, key=lambda *args, **kwargs: kwargs.get("team_id") or args[0]
+    50,
+    key=lambda *args, **kwargs: kwargs.get("team_id") or args[0],
+    limit_name="per_team",
 )  # Do not run too many queries at once for the same team
 def process_query_task(
     team_id: int,
     user_id: Optional[int],
     query_id: str,
     query_json: dict,
+    is_query_service: bool,
     limit_context: Optional[LimitContext] = None,
 ) -> None:
     """
     Kick off query
     Once complete save results to redis
     """
-    from posthog.client import execute_process_query
+    from posthog.clickhouse.client import execute_process_query
+
+    if is_query_service:
+        tag_queries(chargeable=1)
 
     execute_process_query(
         team_id=team_id,
@@ -73,6 +86,7 @@ def process_query_task(
         query_id=query_id,
         query_json=query_json,
         limit_context=limit_context,
+        is_query_service=is_query_service,
     )
 
 
@@ -181,21 +195,16 @@ CLICKHOUSE_TABLES = [
     "log_entries",
 ]
 
-HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC = {
-    "heartbeat": "ingestion",
-    "heartbeat_buffer": "ingestion_buffer",
-    "heartbeat_api": "ingestion_api",
-}
+HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC = {"$heartbeat": "ingestion_api"}
 
 
 @shared_task(ignore_result=True)
 def ingestion_lag() -> None:
     from statshog.defaults.django import statsd
 
-    from posthog.client import sync_execute
+    from posthog.clickhouse.client import sync_execute
+    from posthog.models.team.team import Team
 
-    # Requires https://github.com/PostHog/posthog-heartbeat-plugin to be enabled on team 2
-    # Note that it runs every minute, and we compare it with now(), so there's up to 60s delay
     query = """
     SELECT event, date_diff('second', max(timestamp), now())
     FROM events
@@ -205,11 +214,13 @@ def ingestion_lag() -> None:
     GROUP BY event
     """
 
+    team_ids = settings.INGESTION_LAG_METRIC_TEAM_IDS
+
     try:
         results = sync_execute(
             query,
             {
-                "team_ids": settings.INGESTION_LAG_METRIC_TEAM_IDS,
+                "team_ids": team_ids,
                 "events": list(HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC.keys()),
             },
         )
@@ -227,13 +238,24 @@ def ingestion_lag() -> None:
     except:
         pass
 
+    for team in Team.objects.filter(pk__in=team_ids):
+        requests.post(
+            settings.SITE_URL + "/e",
+            json={
+                "event": "$heartbeat",
+                "distinct_id": "posthog-celery-heartbeat",
+                "token": team.api_token,
+                "properties": {"$timestamp": timezone.now().isoformat()},
+            },
+        )
+
 
 @shared_task(ignore_result=True, queue=CeleryQueue.SESSION_REPLAY_GENERAL.value)
 def replay_count_metrics() -> None:
     try:
         logger.info("[replay_count_metrics] running task")
 
-        from posthog.client import sync_execute
+        from posthog.clickhouse.client import sync_execute
 
         # ultimately I want to observe values by team id, but at the moment that would be lots of series, let's reduce the value first
         query = """
@@ -291,73 +313,10 @@ KNOWN_CELERY_TASK_IDENTIFIERS = {
 
 
 @shared_task(ignore_result=True)
-def graphile_worker_queue_size() -> None:
-    from django.db import connections
-    from statshog.defaults.django import statsd
-
-    connection = connections["graphile"] if "graphile" in connections else connections["default"]
-    with connection.cursor() as cursor:
-        cursor.execute(
-            """
-        SELECT count(*)
-        FROM graphile_worker.jobs
-        WHERE (jobs.locked_at is null or jobs.locked_at < (now() - INTERVAL '4 hours'))
-        AND run_at <= now()
-        AND attempts < max_attempts
-        """
-        )
-
-        queue_size = cursor.fetchone()[0]
-        statsd.gauge("graphile_worker_queue_size", queue_size)
-
-        # Track the number of jobs that will still be run at least once or are currently running based on job type (i.e. task_identifier)
-        # Completed jobs are deleted and "permanently failed" jobs have attempts == max_attempts
-        # Jobs not yet eligible for execution are filtered out with run_at <= now()
-        cursor.execute(
-            """
-        SELECT task_identifier, count(*) as c, EXTRACT(EPOCH FROM MIN(run_at)) as oldest FROM graphile_worker.jobs
-        WHERE attempts < max_attempts
-        AND run_at <= now()
-        GROUP BY task_identifier
-        """
-        )
-
-        seen_task_identifier = set()
-        with pushed_metrics_registry("celery_graphile_worker_queue_size") as registry:
-            processing_lag_gauge = Gauge(
-                "posthog_celery_graphile_lag_seconds",
-                "Oldest scheduled run on pending Graphile jobs per task identifier, zero if queue empty.",
-                labelnames=["task_identifier"],
-                registry=registry,
-            )
-            waiting_jobs_gauge = Gauge(
-                "posthog_celery_graphile_waiting_jobs",
-                "Number of Graphile jobs in the queue, per task identifier.",
-                labelnames=["task_identifier"],
-                registry=registry,
-            )
-            for task_identifier, count, oldest in cursor.fetchall():
-                seen_task_identifier.add(task_identifier)
-                waiting_jobs_gauge.labels(task_identifier=task_identifier).set(count)
-                processing_lag_gauge.labels(task_identifier=task_identifier).set(time.time() - float(oldest))
-                statsd.gauge(
-                    "graphile_waiting_jobs",
-                    count,
-                    tags={"task_identifier": task_identifier},
-                )
-
-            # The query will not return rows for empty queues, creating missing points.
-            # Let's emit updates for known queues even if they are empty.
-            for task_identifier in KNOWN_CELERY_TASK_IDENTIFIERS - seen_task_identifier:
-                waiting_jobs_gauge.labels(task_identifier=task_identifier).set(0)
-                processing_lag_gauge.labels(task_identifier=task_identifier).set(0)
-
-
-@shared_task(ignore_result=True)
 def clickhouse_row_count() -> None:
     from statshog.defaults.django import statsd
 
-    from posthog.client import sync_execute
+    from posthog.clickhouse.client import sync_execute
 
     with pushed_metrics_registry("celery_clickhouse_row_count") as registry:
         row_count_gauge = Gauge(
@@ -391,7 +350,7 @@ def clickhouse_errors_count() -> None:
     225 - NO_ZOOKEEPER
     242 - TABLE_IS_READ_ONLY
     """
-    from posthog.client import sync_execute
+    from posthog.clickhouse.client import sync_execute
 
     QUERY = """
         select
@@ -400,11 +359,14 @@ def clickhouse_errors_count() -> None:
             name,
             value as errors,
             dateDiff('minute', last_error_time, now()) minutes_ago
-        from clusterAllReplicas('posthog', system, errors)
+        from clusterAllReplicas(%(cluster)s, system.errors)
         where code in (999, 225, 242)
         order by minutes_ago
     """
-    rows = sync_execute(QUERY)
+    params = {
+        "cluster": CLICKHOUSE_CLUSTER,
+    }
+    rows = sync_execute(QUERY, params)
     with pushed_metrics_registry("celery_clickhouse_errors") as registry:
         errors_gauge = Gauge(
             "posthog_celery_clickhouse_errors",
@@ -421,7 +383,7 @@ def clickhouse_errors_count() -> None:
 def clickhouse_part_count() -> None:
     from statshog.defaults.django import statsd
 
-    from posthog.client import sync_execute
+    from posthog.clickhouse.client import sync_execute
 
     QUERY = """
         SELECT table, count(1) freq
@@ -452,7 +414,7 @@ def clickhouse_part_count() -> None:
 def clickhouse_mutation_count() -> None:
     from statshog.defaults.django import statsd
 
-    from posthog.client import sync_execute
+    from posthog.clickhouse.client import sync_execute
 
     QUERY = """
         SELECT
@@ -484,22 +446,7 @@ def clickhouse_mutation_count() -> None:
 @shared_task(ignore_result=True)
 def clickhouse_clear_removed_data() -> None:
     from posthog.models.async_deletion.delete_cohorts import AsyncCohortDeletion
-    from posthog.models.async_deletion.delete_events import AsyncEventDeletion
     from posthog.pagerduty.pd import create_incident
-
-    runner = AsyncEventDeletion()
-
-    try:
-        runner.mark_deletions_done()
-    except Exception as e:
-        logger.error("Failed to mark deletions done", error=e, exc_info=True)
-        create_incident("Failed to mark deletions done", "clickhouse_clear_removed_data", severity="error")
-
-    try:
-        runner.run()
-    except Exception as e:
-        logger.error("Failed to run deletions", error=e, exc_info=True)
-        create_incident("Failed to run deletions", "clickhouse_clear_removed_data", severity="error")
 
     cohort_runner = AsyncCohortDeletion()
 
@@ -560,19 +507,11 @@ def clean_stale_partials() -> None:
 
 
 @shared_task(ignore_result=True)
-def monitoring_check_clickhouse_schema_drift() -> None:
-    from posthog.tasks.check_clickhouse_schema_drift import (
-        check_clickhouse_schema_drift,
-    )
+def calculate_cohort(parallel_count: int) -> None:
+    from posthog.tasks.calculate_cohort import enqueue_cohorts_to_calculate, reset_stuck_cohorts
 
-    check_clickhouse_schema_drift()
-
-
-@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
-def calculate_cohort() -> None:
-    from posthog.tasks.calculate_cohort import calculate_cohorts
-
-    calculate_cohorts()
+    enqueue_cohorts_to_calculate(parallel_count)
+    reset_stuck_cohorts()
 
 
 class Polling:
@@ -664,13 +603,6 @@ def process_scheduled_changes() -> None:
 
 
 @shared_task(ignore_result=True)
-def validate_proxy_domains() -> None:
-    from posthog.tasks.validate_proxy_domains import validate_proxy_domains
-
-    validate_proxy_domains()
-
-
-@shared_task(ignore_result=True)
 def sync_insight_cache_states_task() -> None:
     from posthog.caching.insight_caching_state import sync_insight_cache_states
 
@@ -716,20 +648,18 @@ def calculate_decide_usage() -> None:
         capture_usage_for_all_teams as capture_decide_usage_for_all_teams,
     )
 
-    ph_client = get_ph_client()
+    ph_client = get_regional_ph_client()
 
-    capture_decide_usage_for_all_teams(ph_client)
-
-    ph_client.shutdown()
+    if ph_client:
+        capture_decide_usage_for_all_teams(ph_client)
+        ph_client.shutdown()
 
 
 @shared_task(ignore_result=True)
 def find_flags_with_enriched_analytics() -> None:
     from datetime import datetime, timedelta
 
-    from posthog.models.feature_flag.flag_analytics import (
-        find_flags_with_enriched_analytics,
-    )
+    from posthog.models.feature_flag.flag_analytics import find_flags_with_enriched_analytics
 
     end = datetime.now()
     begin = end - timedelta(hours=12)
@@ -763,9 +693,7 @@ def check_async_migration_health() -> None:
 
 @shared_task(ignore_result=True)
 def verify_persons_data_in_sync() -> None:
-    from posthog.tasks.verify_persons_data_in_sync import (
-        verify_persons_data_in_sync as verify,
-    )
+    from posthog.tasks.verify_persons_data_in_sync import verify_persons_data_in_sync as verify
 
     if not is_cloud():
         return
@@ -773,18 +701,25 @@ def verify_persons_data_in_sync() -> None:
     verify()
 
 
-@shared_task(ignrore_result=True)
+@shared_task(ignore_result=True)
 def stop_surveys_reached_target() -> None:
     from posthog.tasks.stop_surveys_reached_target import stop_surveys_reached_target
 
     stop_surveys_reached_target()
 
 
-@shared_task(ignrore_result=True)
+@shared_task(ignore_result=True)
 def update_survey_iteration() -> None:
     from posthog.tasks.update_survey_iteration import update_survey_iteration
 
     update_survey_iteration()
+
+
+@shared_task(ignore_result=True)
+def update_survey_adaptive_sampling() -> None:
+    from posthog.tasks.update_survey_adaptive_sampling import update_survey_adaptive_sampling
+
+    update_survey_adaptive_sampling()
 
 
 def recompute_materialized_columns_enabled() -> bool:
@@ -801,24 +736,11 @@ def recompute_materialized_columns_enabled() -> bool:
 def clickhouse_materialize_columns() -> None:
     if recompute_materialized_columns_enabled():
         try:
-            from ee.clickhouse.materialized_columns.analyze import (
-                materialize_properties_task,
-            )
+            from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
         except ImportError:
             pass
         else:
             materialize_properties_task()
-
-
-@shared_task(ignore_result=True)
-def clickhouse_mark_all_materialized() -> None:
-    if recompute_materialized_columns_enabled():
-        try:
-            from ee.tasks.materialized_columns import mark_all_materialized
-        except ImportError:
-            pass
-        else:
-            mark_all_materialized()
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.USAGE_REPORTS.value)
@@ -829,21 +751,9 @@ def send_org_usage_reports() -> None:
 
 
 @shared_task(ignore_result=True)
-def update_quota_limiting() -> None:
-    try:
-        from ee.billing.quota_limiting import update_all_org_billing_quotas
-
-        update_all_org_billing_quotas()
-    except ImportError:
-        pass
-
-
-@shared_task(ignore_result=True)
 def schedule_all_subscriptions() -> None:
     try:
-        from ee.tasks.subscriptions import (
-            schedule_all_subscriptions as _schedule_all_subscriptions,
-        )
+        from ee.tasks.subscriptions import schedule_all_subscriptions as _schedule_all_subscriptions
     except ImportError:
         pass
     else:
@@ -872,68 +782,194 @@ def check_flags_to_rollback() -> None:
 
 
 @shared_task(ignore_result=True)
-def ee_persist_single_recording(id: str, team_id: int) -> None:
+def ee_persist_single_recording_v2(id: str, team_id: int) -> None:
     try:
-        from ee.session_recordings.persistence_tasks import persist_single_recording
+        from ee.session_recordings.persistence_tasks import persist_single_recording_v2
 
-        persist_single_recording(id, team_id)
+        persist_single_recording_v2(id, team_id)
     except ImportError:
         pass
 
 
 @shared_task(ignore_result=True)
-def ee_persist_finished_recordings() -> None:
+def ee_persist_finished_recordings_v2() -> None:
     try:
-        from ee.session_recordings.persistence_tasks import persist_finished_recordings
+        from ee.session_recordings.persistence_tasks import persist_finished_recordings_v2
     except ImportError:
         pass
     else:
-        persist_finished_recordings()
+        persist_finished_recordings_v2()
 
 
-@shared_task(ignore_result=True)
-def check_data_import_row_limits() -> None:
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.SESSION_REPLAY_GENERAL.value,
+)
+def count_items_in_playlists() -> None:
     try:
-        from posthog.tasks.warehouse import check_synced_row_limits
-    except ImportError:
-        pass
+        from ee.session_recordings.playlist_counters.recordings_that_match_playlist_filters import (
+            enqueue_recordings_that_match_playlist_filters,
+        )
+    except ImportError as ie:
+        posthoganalytics.capture_exception(ie, properties={"posthog_feature": "session_replay_playlist_counters"})
+        logger.exception("Failed to import task to count items in playlists", error=ie)
     else:
-        check_synced_row_limits()
+        enqueue_recordings_that_match_playlist_filters()
 
 
-# this task runs a CH query and triggers other tasks
-# it can run on the default queue
 @shared_task(ignore_result=True)
-def calculate_replay_embeddings() -> None:
-    try:
-        from ee.tasks.replay import generate_recordings_embeddings_batch
+def environments_rollback_migration(organization_id: int, environment_mappings: dict[str, int], user_id: int) -> None:
+    from posthog.tasks.environments_rollback import environments_rollback_migration
 
-        generate_recordings_embeddings_batch()
-    except ImportError:
-        pass
+    environments_rollback_migration(organization_id, environment_mappings, user_id)
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
+def background_delete_model_task(
+    model_name: str, team_id: int, batch_size: int = 10000, records_to_delete: int | None = None
+) -> None:
+    """
+    Background task to delete records from a model in batches.
+
+    Args:
+        model_name: Django model name in format 'app_label.model_name'
+        team_id: Team ID to filter records for deletion
+        batch_size: Number of records to delete per batch
+        records_to_delete: Maximum number of records to delete (None means delete all)
+    """
+    import logging
+
+    from django.apps import apps
+
+    import structlog
+
+    logger = structlog.get_logger(__name__)
+    logger.setLevel(logging.INFO)
+
+    try:
+        # Parse model name
+        app_label, model_label = model_name.split(".")
+        model = apps.get_model(app_label, model_label)
+
+        # Determine team field name
+        team_field = "team_id" if hasattr(model, "team_id") else "team"
+
+        # Get total count for logging - use raw SQL for better performance
+        with connection.cursor() as cursor:
+            cursor.execute(f"SELECT COUNT(*) FROM {model._meta.db_table} WHERE {team_field} = %s", [team_id])
+            total_count = cursor.fetchone()[0]
+        logger.info(f"Starting background deletion for {model_name}, team_id={team_id}, total={total_count}")
+
+        # Determine how many records to actually delete
+        if records_to_delete is not None:
+            records_to_delete = min(records_to_delete, total_count)
+            logger.info(f"Will delete up to {records_to_delete} records due to records_to_delete limit")
+        else:
+            records_to_delete = total_count
+
+        # At this point, records_to_delete is guaranteed to be an int
+        records_to_delete_int: int = records_to_delete  # type: ignore
+
+        deleted_count = 0
+        batch_num = 0
+
+        while deleted_count < records_to_delete_int:
+            # Calculate how many more records we can delete
+            remaining_to_delete = records_to_delete_int - deleted_count
+            current_batch_size = min(batch_size, remaining_to_delete)
+
+            # Use raw SQL for both SELECT and DELETE to avoid Django ORM overhead
+            with connection.cursor() as cursor:
+                # Get batch of IDs to delete - no offset needed since we're deleting as we go
+                cursor.execute(
+                    f"""
+                    SELECT id FROM {model._meta.db_table}
+                    WHERE {team_field} = %s
+                    LIMIT %s
+                    """,
+                    [team_id, current_batch_size],
+                )
+                batch_ids = [row[0] for row in cursor.fetchall()]
+
+            if not batch_ids:
+                logger.info(f"No more records to delete for {model_name}, team_id={team_id}")
+                break
+
+            # Delete the batch using raw SQL for better performance
+            with connection.cursor() as cursor:
+                # Use IN clause with parameterized query
+                placeholders = ",".join(["%s"] * len(batch_ids))
+                cursor.execute(f"DELETE FROM {model._meta.db_table} WHERE id IN ({placeholders})", batch_ids)
+                deleted_in_batch = cursor.rowcount
+
+            deleted_count += deleted_in_batch
+            batch_num += 1
+
+            logger.info(
+                f"Deleted batch {batch_num} for {model_name}, "
+                f"team_id={team_id}, batch_size={deleted_in_batch}, "
+                f"total_deleted={deleted_count}/{records_to_delete_int}"
+            )
+
+            # If we got fewer records than requested, we're done
+            if len(batch_ids) < current_batch_size:
+                break
+
+            time.sleep(0.2)  # Sleep to avoid overwhelming the database
+
+        logger.info(
+            f"Completed background deletion for {model_name}, " f"team_id={team_id}, total_deleted={deleted_count}"
+        )
+
     except Exception as e:
-        logger.error("Failed to calculate replay embeddings", error=e, exc_info=True)
-
-
-# this task triggers other tasks
-# it can run on the default queue
-@shared_task(ignore_result=True)
-def calculate_replay_error_clusters() -> None:
-    try:
-        from ee.tasks.replay import generate_replay_embedding_error_clusters
-
-        generate_replay_embedding_error_clusters()
-    except ImportError:
-        pass
-    except Exception as e:
-        logger.error("Failed to calculate replay error clusters", error=e, exc_info=True)
+        logger.error(f"Error in background deletion for {model_name}, team_id={team_id}: {str(e)}", exc_info=True)
+        raise
 
 
 @shared_task(ignore_result=True)
-def calculate_external_data_rows_synced() -> None:
-    try:
-        from posthog.tasks.warehouse import capture_external_data_rows_synced
-    except ImportError:
-        pass
-    else:
-        capture_external_data_rows_synced()
+def refresh_activity_log_fields_cache() -> None:
+    """Refresh fields cache for large organizations every 12 hours"""
+    from django.db.models import Count
+
+    from posthog.api.advanced_activity_logs.field_discovery import AdvancedActivityLogFieldDiscovery, DetailFieldsResult
+    from posthog.api.advanced_activity_logs.fields_cache import cache_fields
+    from posthog.api.advanced_activity_logs.queries import SMALL_ORG_THRESHOLD
+    from posthog.exceptions_capture import capture_exception
+    from posthog.models import Organization
+
+    logger.info("[refresh_activity_log_fields_cache] running task")
+
+    large_orgs = Organization.objects.annotate(activity_count=Count("activitylog")).filter(
+        activity_count__gt=SMALL_ORG_THRESHOLD
+    )
+
+    org_count = len(large_orgs)
+    logger.info(f"[refresh_activity_log_fields_cache] processing {org_count} large organizations")
+
+    for org in large_orgs:
+        try:
+            discovery = AdvancedActivityLogFieldDiscovery(org.id)
+
+            result: DetailFieldsResult = {}
+
+            top_level_fields = discovery._get_top_level_fields()
+            discovery._merge_fields_into_result(result, top_level_fields)
+
+            nested_fields = discovery._compute_nested_fields_realtime()
+            discovery._merge_fields_into_result(result, nested_fields)
+
+            changes_fields = discovery._get_changes_fields()
+            discovery._merge_fields_into_result(result, changes_fields)
+
+            record_count = discovery._get_org_record_count()
+            cache_fields(str(org.id), result, record_count)
+
+        except Exception as e:
+            logger.exception(
+                "Failed to refresh activity log fields cache for org",
+                org_id=org.id,
+                error=e,
+            )
+            capture_exception(e)
+
+    logger.info(f"[refresh_activity_log_fields_cache] completed for {org_count} organizations")

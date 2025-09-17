@@ -1,0 +1,25 @@
+{
+    "name": "RudderStack",
+    "url": "https://github.com/rudderlabs/rudderstack-posthog-plugin",
+    "description": "Send event data to RudderStack",
+    "main": "index.js",
+    "config": [
+        {
+            "key": "dataPlaneUrl",
+            "hint": "Provide RudderStack server url, append v1/batch path",
+            "name": "RudderStack Server URL",
+            "type": "string",
+            "default": "https://hosted.rudderlabs.com/v1/batch",
+            "required": true
+        },
+        {
+            "key": "writeKey",
+            "hint": "Provide source writekey",
+            "name": "RudderStack Source Writekey",
+            "type": "string",
+            "default": "",
+            "required": true,
+            "secret": true
+        }
+    ]
+}

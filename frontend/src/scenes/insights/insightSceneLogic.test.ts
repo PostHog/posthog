@@ -1,13 +1,16 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { combineUrl, router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
-import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
-import { InsightVizNode, NodeKind } from '~/queries/schema'
+import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { InsightShortId, InsightType, ItemMode } from '~/types'
 
@@ -16,26 +19,30 @@ const Insight42 = '42' as InsightShortId
 
 describe('insightSceneLogic', () => {
     let logic: ReturnType<typeof insightSceneLogic.build>
+    let tabId: string = ''
     beforeEach(async () => {
         useMocks({
             get: {
-                '/api/projects/:team/insights/trend/': { result: ['result from api'] },
+                '/api/environments/:team_id/insights/trend/': { result: ['result from api'] },
             },
             post: {
-                '/api/projects/:team/insights/funnel/': { result: ['result from api'] },
-                '/api/projects/:team/insights/': (req) => [
+                '/api/environments/:team_id/insights/funnel/': { result: ['result from api'] },
+                '/api/environments/:team_id/insights/': (req) => [
                     200,
-                    { id: 12, short_id: Insight12, ...((req.body as any) || {}) },
+                    { id: 12, short_id: Insight12, ...(req.body as any) },
                 ],
+                '/api/environments/:team_id/query/upgrade/': { query: {} },
             },
         })
         initKeaTests()
-        logic = insightSceneLogic()
-        logic.mount()
+        sceneLogic.mount()
+        tabId = sceneLogic.values.activeTabId || ''
     })
 
     it('keeps url /insight/new', async () => {
         router.actions.push(urls.insightNew())
+        logic = insightSceneLogic({ tabId })
+        logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         await expectLogic(router)
             .delay(1)
@@ -44,48 +51,34 @@ describe('insightSceneLogic', () => {
             })
     })
 
-    it('redirects when opening /insight/new with insight type in theurl', async () => {
-        router.actions.push(urls.insightNew(InsightType.FUNNELS))
+    it('redirects maintaining url params when opening /insight/new with insight type in theurl', async () => {
+        router.actions.push(urls.insightNew({ type: InsightType.FUNNELS }))
+        logic = insightSceneLogic({ tabId })
+        logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        await expectLogic(router)
-            .delay(1)
-            .toMatchValues({
-                location: partial({
-                    pathname: addProjectIdIfMissing(urls.insightNew(), MOCK_TEAM_ID),
-                    search: '',
-                    hash: '',
-                }),
-            })
 
         expect((logic.values.insightLogicRef?.logic.values.insight.query as InsightVizNode).source?.kind).toEqual(
             'FunnelsQuery'
         )
     })
 
-    it('redirects when opening /insight/new with query in the url', async () => {
+    it('redirects maintaining url params when opening /insight/new with query in the url', async () => {
         router.actions.push(
-            urls.insightNew(undefined, undefined, {
-                kind: NodeKind.InsightVizNode,
-                source: examples.InsightPathsQuery,
-            } as InsightVizNode)
-        )
-        await expectLogic(logic).toFinishAllListeners()
-        await expectLogic(router)
-            .delay(1)
-            .toMatchValues({
-                location: partial({
-                    pathname: addProjectIdIfMissing(urls.insightNew(), MOCK_TEAM_ID),
-                    search: '',
-                    hash: '',
-                }),
+            urls.insightNew({
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: examples.InsightPathsQuery,
+                } as InsightVizNode,
             })
-
-        expect((logic.values.insightLogicRef?.logic.values.insight.query as InsightVizNode).source?.kind).toEqual(
-            'PathsQuery'
         )
+        logic = insightSceneLogic({ tabId })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['upgradeQuery']).toFinishAllListeners()
     })
 
     it('persists edit mode in the url', async () => {
+        logic = insightSceneLogic({ tabId })
+        logic.mount()
         const viewUrl = combineUrl(urls.insightView(Insight42))
         const editUrl = combineUrl(urls.insightEdit(Insight42))
 

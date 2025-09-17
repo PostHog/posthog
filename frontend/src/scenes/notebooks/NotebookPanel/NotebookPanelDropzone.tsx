@@ -1,12 +1,12 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { DragEventHandler, useState } from 'react'
 
-import { NotebookNodeType } from '~/types'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { notebookLogicType } from '../Notebook/notebookLogicType'
 import { NotebookSelectList } from '../NotebookSelectButton/NotebookSelectButton'
+import { NotebookNodeType } from '../types'
 import { notebookPanelLogic } from './notebookPanelLogic'
 
 export function NotebookPanelDropzone(): JSX.Element | null {

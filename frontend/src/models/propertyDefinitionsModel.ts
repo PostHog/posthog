@@ -1,4 +1,5 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+
 import api, { ApiMethodOptions, CountedPaginatedResponse } from 'lib/api'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
@@ -18,6 +19,7 @@ import {
     PropertyType,
 } from '~/types'
 
+import { groupsModel } from './groupsModel'
 import type { propertyDefinitionsModelType } from './propertyDefinitionsModelType'
 
 export type PropertyDefinitionStorage = Record<string, PropertyDefinition | PropertyDefinitionState>
@@ -52,6 +54,18 @@ const localProperties: PropertyDefinitionStorage = {
         is_seen_on_filtered_events: false,
         property_type: PropertyType.Selector,
     },
+    'resource/assignee': {
+        id: 'assignee',
+        name: 'assignee',
+        description: 'User or role assigned to a resource',
+        property_type: PropertyType.Assignee,
+    },
+    'resource/first_seen': {
+        id: 'first_seen',
+        name: 'first_seen',
+        description: 'The first time the resource was seen',
+        property_type: PropertyType.DateTime,
+    },
 }
 
 const localOptions: Record<string, PropValue[]> = {
@@ -59,7 +73,7 @@ const localOptions: Record<string, PropValue[]> = {
         { id: 0, name: 'web' },
         { id: 1, name: 'mobile' },
     ],
-    'session/console_log_level': [
+    'log_entry/level': [
         { id: 0, name: 'info' },
         { id: 1, name: 'warn' },
         { id: 2, name: 'error' },
@@ -70,7 +84,7 @@ export type FormatPropertyValueForDisplayFunction = (
     propertyName?: BreakdownKeyType,
     valueToFormat?: PropertyFilterValue,
     type?: PropertyDefinitionType,
-    groupTypeIndex?: GroupTypeIndex
+    groupTypeIndex?: GroupTypeIndex | null
 ) => string | string[] | null
 
 /** Update cached property definition metadata */
@@ -109,9 +123,9 @@ const checkOrLoadPropertyDefinition = (
     propertyDefinitionStorage: PropertyDefinitionStorage,
     groupTypeIndex?: number | null
 ): PropertyDefinition | null => {
-    // first time we see this, schedule a fetch
     const key = getPropertyKey(definitionType, propertyName, groupTypeIndex)
     if (typeof propertyName === 'string' && !(key in propertyDefinitionStorage)) {
+        // first time we see this, schedule a fetch
         window.setTimeout(
             () =>
                 propertyDefinitionsModel
@@ -133,10 +147,20 @@ const constructValuesEndpoint = (
     type: PropertyDefinitionType,
     propertyKey: string,
     eventNames: string[] | undefined,
-    newInput: string | undefined
+    newInput: string | undefined,
+    properties?: { key: string; values: string | string[] }[]
 ): string => {
-    const basePath =
-        type === PropertyDefinitionType.Session ? `api/projects/${teamId}/${type}s/values` : `api/${type}/values`
+    let basePath: string
+
+    if (type === PropertyDefinitionType.Session) {
+        basePath = `api/environments/${teamId}/${type}s/values`
+    } else if (type === PropertyDefinitionType.FlagValue) {
+        // FlagValue is project-scoped, so use the project-scoped endpoint
+        basePath = `api/projects/${teamId}/${type}/values`
+    } else {
+        basePath = `api/${type}/values`
+    }
+
     const path = endpoint ? endpoint : basePath + `?key=${encodeURIComponent(propertyKey)}`
 
     let eventParams = ''
@@ -144,14 +168,22 @@ const constructValuesEndpoint = (
         eventParams += `&event_name=${eventName}`
     }
 
+    // Add property filters
+    if (properties?.length) {
+        for (const prop of properties) {
+            const values = Array.isArray(prop.values) ? prop.values : [prop.values]
+            eventParams += `&properties_${prop.key}=${encodeURIComponent(JSON.stringify(values))}`
+        }
+    }
+
     return path + (newInput ? '&value=' + encodeURIComponent(newInput) : '') + eventParams
 }
 
 export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
     path(['models', 'propertyDefinitionsModel']),
-    connect({
-        values: [teamLogic, ['currentTeamId']],
-    }),
+    connect(() => ({
+        values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes']],
+    })),
     actions({
         // public
         loadPropertyDefinitions: (
@@ -169,6 +201,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             newInput: string | undefined
             propertyKey: string
             eventNames?: string[]
+            properties?: { key: string; values: string | string[] }[]
         }) => payload,
         setOptionsLoading: (key: string) => ({ key }),
         setOptions: (key: string, values: PropValue[], allowCustomValues: boolean) => ({
@@ -181,7 +214,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         abortAnyRunningQuery: true,
     }),
     reducers({
-        propertyDefinitionStorage: [
+        rawPropertyDefinitionStorage: [
             { ...localProperties } as PropertyDefinitionStorage,
             {
                 updatePropertyDefinitions: (state, { propertyDefinitions }) => {
@@ -199,7 +232,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 setOptions: (state, { key, values, allowCustomValues }) => ({
                     ...state,
                     [key]: {
-                        values: [...Array.from(new Set(values))],
+                        values: Array.from(new Set(values)),
                         status: 'loaded',
                         allowCustomValues,
                     },
@@ -209,14 +242,14 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
     }),
     listeners(({ actions, values, cache }) => ({
         loadPropertyDefinitions: async ({ propertyKeys, type, groupTypeIndex }) => {
-            const { propertyDefinitionStorage } = values
+            const { rawPropertyDefinitionStorage } = values
 
             const pendingStateUpdate: PropertyDefinitionStorage = {}
             for (const propertyKey of propertyKeys) {
                 const key = getPropertyKey(type, propertyKey, groupTypeIndex)
                 if (
-                    !(key in propertyDefinitionStorage) ||
-                    propertyDefinitionStorage[key] === PropertyDefinitionState.Error
+                    !(key in rawPropertyDefinitionStorage) ||
+                    rawPropertyDefinitionStorage[key] === PropertyDefinitionState.Error
                 ) {
                     pendingStateUpdate[key] = PropertyDefinitionState.Pending
                 }
@@ -309,19 +342,19 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                         const key = `${type}/${property}`
                         if (
                             !(key in newProperties) &&
-                            values.propertyDefinitionStorage[key] === PropertyDefinitionState.Loading
+                            values.rawPropertyDefinitionStorage[key] === PropertyDefinitionState.Loading
                         ) {
                             newProperties[key] = PropertyDefinitionState.Missing
                         }
                     }
                     actions.updatePropertyDefinitions(newProperties)
                 }
-            } catch (e) {
+            } catch {
                 const newProperties: PropertyDefinitionStorage = {}
                 for (const [type, pending] of Object.entries(pendingByType)) {
                     for (const property of pending) {
                         const key = `${type}/${property}`
-                        if (values.propertyDefinitionStorage[key] === PropertyDefinitionState.Loading) {
+                        if (values.rawPropertyDefinitionStorage[key] === PropertyDefinitionState.Loading) {
                             newProperties[key] = PropertyDefinitionState.Error
                         }
                     }
@@ -337,7 +370,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             }
         },
 
-        loadPropertyValues: async ({ endpoint, type, newInput, propertyKey, eventNames }, breakpoint) => {
+        loadPropertyValues: async ({ endpoint, type, newInput, propertyKey, eventNames, properties }, breakpoint) => {
             if (['cohort'].includes(type)) {
                 return
             }
@@ -362,11 +395,19 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             }
 
             const propValues: PropValue[] = await api.get(
-                constructValuesEndpoint(endpoint, values.currentTeamId, type, propertyKey, eventNames, newInput),
+                constructValuesEndpoint(
+                    endpoint,
+                    values.currentTeamId,
+                    type,
+                    propertyKey,
+                    eventNames,
+                    newInput,
+                    properties
+                ),
                 methodOptions
             )
             breakpoint()
-            actions.setOptions(propertyKey, propValues, true)
+            actions.setOptions(propertyKey, propValues, type !== PropertyDefinitionType.FlagValue)
             cache.abortController = null
 
             await captureTimeToSeeData(teamLogic.values.currentTeamId, {
@@ -404,6 +445,21 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     return Object.entries(propertyDefinitionStorage ?? {})
                         .filter(([key, value]) => key.startsWith(keyPrefix) && typeof value === 'object')
                         .map(([, value]) => value as PropertyDefinition)
+                }
+            },
+        ],
+        propertyDefinitionStorage: [
+            (s) => [s.rawPropertyDefinitionStorage, s.eventMetadataPropertyDefinitions],
+            (rawPropertyDefinitionStorage, eventMetadataPropertyDefinitions): PropertyDefinitionStorage => {
+                const metadataDefinitions = Object.fromEntries(
+                    eventMetadataPropertyDefinitions.map((definition) => [
+                        `${PropertyDefinitionType.EventMetadata}/${definition.id}`,
+                        definition,
+                    ])
+                )
+                return {
+                    ...rawPropertyDefinitionStorage,
+                    ...metadataDefinitions,
                 }
             },
         ],
@@ -507,6 +563,47 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     // but if the caller sent a single value we should return one
                     return Array.isArray(valueToFormat) ? formattedValues : formattedValues[0]
                 }
+            },
+        ],
+        eventMetadataPropertyDefinitions: [
+            (s) => [s.groupTypes],
+            (groupTypes) => {
+                const definitions = [
+                    {
+                        id: 'event',
+                        name: 'event',
+                        property_type: PropertyType.String,
+                        type: PropertyDefinitionType.EventMetadata,
+                    },
+                    {
+                        id: 'timestamp',
+                        name: 'timestamp',
+                        property_type: PropertyType.DateTime,
+                        type: PropertyDefinitionType.EventMetadata,
+                    },
+                    {
+                        id: 'distinct_id',
+                        name: 'distinct_id',
+                        property_type: PropertyType.String,
+                        type: PropertyDefinitionType.EventMetadata,
+                    },
+                    {
+                        id: 'person_id',
+                        name: 'person_id',
+                        property_type: PropertyType.String,
+                        type: PropertyDefinitionType.EventMetadata,
+                    },
+                ] as PropertyDefinition[]
+                for (const [groupTypeIndex, groupType] of groupTypes) {
+                    const column = `$group_${groupTypeIndex}`
+                    definitions.push({
+                        id: column,
+                        name: groupType.name_singular || groupType.group_type,
+                        property_type: PropertyType.String,
+                        type: PropertyDefinitionType.EventMetadata,
+                    })
+                }
+                return definitions
             },
         ],
     }),

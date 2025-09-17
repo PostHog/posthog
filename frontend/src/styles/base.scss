@@ -1,0 +1,1759 @@
+// Global components
+@import 'vars';
+@import 'mixins';
+@import 'utilities-legacy'; // TODO: Remove all legacy utilities
+
+// Set variables
+:root,
+:host {
+    --color-red-50: oklch(0.971 0.013 17.38deg);
+    --color-red-100: oklch(0.936 0.032 17.717deg);
+    --color-red-200: oklch(0.885 0.062 18.334deg);
+    --color-red-300: oklch(0.808 0.114 19.571deg);
+    --color-red-400: oklch(0.704 0.191 22.216deg);
+    --color-red-500: oklch(0.637 0.237 25.331deg);
+    --color-red-600: oklch(0.577 0.245 27.325deg);
+    --color-red-700: oklch(0.505 0.213 27.518deg);
+    --color-red-800: oklch(0.444 0.177 26.899deg);
+    --color-red-900: oklch(0.396 0.141 25.723deg);
+    --color-red-950: oklch(0.258 0.092 26.042deg);
+    --color-orange-50: oklch(0.98 0.016 73.684deg);
+    --color-orange-100: oklch(0.954 0.038 75.164deg);
+    --color-orange-200: oklch(0.901 0.076 70.697deg);
+    --color-orange-300: oklch(0.837 0.128 66.29deg);
+    --color-orange-400: oklch(0.75 0.183 55.934deg);
+    --color-orange-500: oklch(0.705 0.213 47.604deg);
+    --color-orange-600: oklch(0.646 0.222 41.116deg);
+    --color-orange-700: oklch(0.553 0.195 38.402deg);
+    --color-orange-800: oklch(0.47 0.157 37.304deg);
+    --color-orange-900: oklch(0.408 0.123 38.172deg);
+    --color-orange-950: oklch(0.266 0.079 36.259deg);
+    --color-amber-50: oklch(0.987 0.022 95.277deg);
+    --color-amber-100: oklch(0.962 0.059 95.617deg);
+    --color-amber-200: oklch(0.924 0.12 95.746deg);
+    --color-amber-300: oklch(0.879 0.169 91.605deg);
+    --color-amber-400: oklch(0.828 0.189 84.429deg);
+    --color-amber-500: oklch(0.769 0.188 70.08deg);
+    --color-amber-600: oklch(0.666 0.179 58.318deg);
+    --color-amber-700: oklch(0.555 0.163 48.998deg);
+    --color-amber-800: oklch(0.473 0.137 46.201deg);
+    --color-amber-900: oklch(0.414 0.112 45.904deg);
+    --color-amber-950: oklch(0.279 0.077 45.635deg);
+    --color-yellow-50: oklch(0.987 0.026 102.212deg);
+    --color-yellow-100: oklch(0.973 0.071 103.193deg);
+    --color-yellow-200: oklch(0.945 0.129 101.54deg);
+    --color-yellow-300: oklch(0.905 0.182 98.111deg);
+    --color-yellow-400: oklch(0.852 0.199 91.936deg);
+    --color-yellow-500: oklch(0.795 0.184 86.047deg);
+    --color-yellow-600: oklch(0.681 0.162 75.834deg);
+    --color-yellow-700: oklch(0.554 0.135 66.442deg);
+    --color-yellow-800: oklch(0.476 0.114 61.907deg);
+    --color-yellow-900: oklch(0.421 0.095 57.708deg);
+    --color-yellow-950: oklch(0.286 0.066 53.813deg);
+    --color-lime-50: oklch(0.986 0.031 120.757deg);
+    --color-lime-100: oklch(0.967 0.067 122.328deg);
+    --color-lime-200: oklch(0.938 0.127 124.321deg);
+    --color-lime-300: oklch(0.897 0.196 126.665deg);
+    --color-lime-400: oklch(0.841 0.238 128.85deg);
+    --color-lime-500: oklch(0.768 0.233 130.85deg);
+    --color-lime-600: oklch(0.648 0.2 131.684deg);
+    --color-lime-700: oklch(0.532 0.157 131.589deg);
+    --color-lime-800: oklch(0.453 0.124 130.933deg);
+    --color-lime-900: oklch(0.405 0.101 131.063deg);
+    --color-lime-950: oklch(0.274 0.072 132.109deg);
+    --color-green-50: oklch(0.982 0.018 155.826deg);
+    --color-green-100: oklch(0.962 0.044 156.743deg);
+    --color-green-200: oklch(0.925 0.084 155.995deg);
+    --color-green-300: oklch(0.871 0.15 154.449deg);
+    --color-green-400: oklch(0.792 0.209 151.711deg);
+    --color-green-500: oklch(0.723 0.219 149.579deg);
+    --color-green-600: oklch(0.627 0.194 149.214deg);
+    --color-green-700: oklch(0.527 0.154 150.069deg);
+    --color-green-800: oklch(0.448 0.119 151.328deg);
+    --color-green-900: oklch(0.393 0.095 152.535deg);
+    --color-green-950: oklch(0.266 0.065 152.934deg);
+    --color-emerald-50: oklch(0.979 0.021 166.113deg);
+    --color-emerald-100: oklch(0.95 0.052 163.051deg);
+    --color-emerald-200: oklch(0.905 0.093 164.15deg);
+    --color-emerald-300: oklch(0.845 0.143 164.978deg);
+    --color-emerald-400: oklch(0.765 0.177 163.223deg);
+    --color-emerald-500: oklch(0.696 0.17 162.48deg);
+    --color-emerald-600: oklch(0.596 0.145 163.225deg);
+    --color-emerald-700: oklch(0.508 0.118 165.612deg);
+    --color-emerald-800: oklch(0.432 0.095 166.913deg);
+    --color-emerald-900: oklch(0.378 0.077 168.94deg);
+    --color-emerald-950: oklch(0.262 0.051 172.552deg);
+    --color-teal-50: oklch(0.984 0.014 180.72deg);
+    --color-teal-100: oklch(0.953 0.051 180.801deg);
+    --color-teal-200: oklch(0.91 0.096 180.426deg);
+    --color-teal-300: oklch(0.855 0.138 181.071deg);
+    --color-teal-400: oklch(0.777 0.152 181.912deg);
+    --color-teal-500: oklch(0.704 0.14 182.503deg);
+    --color-teal-600: oklch(0.6 0.118 184.704deg);
+    --color-teal-700: oklch(0.511 0.096 186.391deg);
+    --color-teal-800: oklch(0.437 0.078 188.216deg);
+    --color-teal-900: oklch(0.386 0.063 188.416deg);
+    --color-teal-950: oklch(0.277 0.046 192.524deg);
+    --color-cyan-50: oklch(0.984 0.019 200.873deg);
+    --color-cyan-100: oklch(0.956 0.045 203.388deg);
+    --color-cyan-200: oklch(0.917 0.08 205.041deg);
+    --color-cyan-300: oklch(0.865 0.127 207.078deg);
+    --color-cyan-400: oklch(0.789 0.154 211.53deg);
+    --color-cyan-500: oklch(0.715 0.143 215.221deg);
+    --color-cyan-600: oklch(0.609 0.126 221.723deg);
+    --color-cyan-700: oklch(0.52 0.105 223.128deg);
+    --color-cyan-800: oklch(0.45 0.085 224.283deg);
+    --color-cyan-900: oklch(0.398 0.07 227.392deg);
+    --color-cyan-950: oklch(0.302 0.056 229.695deg);
+    --color-sky-50: oklch(0.977 0.013 236.62deg);
+    --color-sky-100: oklch(0.951 0.026 236.824deg);
+    --color-sky-200: oklch(0.901 0.058 230.902deg);
+    --color-sky-300: oklch(0.828 0.111 230.318deg);
+    --color-sky-400: oklch(0.746 0.16 232.661deg);
+    --color-sky-500: oklch(0.685 0.169 237.323deg);
+    --color-sky-600: oklch(0.588 0.158 241.966deg);
+    --color-sky-700: oklch(0.5 0.134 242.749deg);
+    --color-sky-800: oklch(0.443 0.11 240.79deg);
+    --color-sky-900: oklch(0.391 0.09 240.876deg);
+    --color-sky-950: oklch(0.293 0.066 243.157deg);
+    --color-blue-50: oklch(0.97 0.014 254.604deg);
+    --color-blue-100: oklch(0.932 0.032 255.585deg);
+    --color-blue-200: oklch(0.882 0.059 254.128deg);
+    --color-blue-300: oklch(0.809 0.105 251.813deg);
+    --color-blue-400: oklch(0.707 0.165 254.624deg);
+    --color-blue-500: oklch(0.623 0.214 259.815deg);
+    --color-blue-600: oklch(0.546 0.245 262.881deg);
+    --color-blue-700: oklch(0.488 0.243 264.376deg);
+    --color-blue-800: oklch(0.424 0.199 265.638deg);
+    --color-blue-900: oklch(0.379 0.146 265.522deg);
+    --color-blue-950: oklch(0.282 0.091 267.935deg);
+    --color-indigo-50: oklch(0.962 0.018 272.314deg);
+    --color-indigo-100: oklch(0.93 0.034 272.788deg);
+    --color-indigo-200: oklch(0.87 0.065 274.039deg);
+    --color-indigo-300: oklch(0.785 0.115 274.713deg);
+    --color-indigo-400: oklch(0.673 0.182 276.935deg);
+    --color-indigo-500: oklch(0.585 0.233 277.117deg);
+    --color-indigo-600: oklch(0.511 0.262 276.966deg);
+    --color-indigo-700: oklch(0.457 0.24 277.023deg);
+    --color-indigo-800: oklch(0.398 0.195 277.366deg);
+    --color-indigo-900: oklch(0.359 0.144 278.697deg);
+    --color-indigo-950: oklch(0.257 0.09 281.288deg);
+    --color-violet-50: oklch(0.969 0.016 293.756deg);
+    --color-violet-100: oklch(0.943 0.029 294.588deg);
+    --color-violet-200: oklch(0.894 0.057 293.283deg);
+    --color-violet-300: oklch(0.811 0.111 293.571deg);
+    --color-violet-400: oklch(0.702 0.183 293.541deg);
+    --color-violet-500: oklch(0.606 0.25 292.717deg);
+    --color-violet-600: oklch(0.541 0.281 293.009deg);
+    --color-violet-700: oklch(0.491 0.27 292.581deg);
+    --color-violet-800: oklch(0.432 0.232 292.759deg);
+    --color-violet-900: oklch(0.38 0.189 293.745deg);
+    --color-violet-950: oklch(0.283 0.141 291.089deg);
+    --color-purple-50: oklch(0.977 0.014 308.299deg);
+    --color-purple-100: oklch(0.946 0.033 307.174deg);
+    --color-purple-200: oklch(0.902 0.063 306.703deg);
+    --color-purple-300: oklch(0.827 0.119 306.383deg);
+    --color-purple-400: oklch(0.714 0.203 305.504deg);
+    --color-purple-500: oklch(0.627 0.265 303.9deg);
+    --color-purple-600: oklch(0.558 0.288 302.321deg);
+    --color-purple-700: oklch(0.496 0.265 301.924deg);
+    --color-purple-800: oklch(0.438 0.218 303.724deg);
+    --color-purple-900: oklch(0.381 0.176 304.987deg);
+    --color-purple-950: oklch(0.291 0.149 302.717deg);
+    --color-fuchsia-50: oklch(0.977 0.017 320.058deg);
+    --color-fuchsia-100: oklch(0.952 0.037 318.852deg);
+    --color-fuchsia-200: oklch(0.903 0.076 319.62deg);
+    --color-fuchsia-300: oklch(0.833 0.145 321.434deg);
+    --color-fuchsia-400: oklch(0.74 0.238 322.16deg);
+    --color-fuchsia-500: oklch(0.667 0.295 322.15deg);
+    --color-fuchsia-600: oklch(0.591 0.293 322.896deg);
+    --color-fuchsia-700: oklch(0.518 0.253 323.949deg);
+    --color-fuchsia-800: oklch(0.452 0.211 324.591deg);
+    --color-fuchsia-900: oklch(0.401 0.17 325.612deg);
+    --color-fuchsia-950: oklch(0.293 0.136 325.661deg);
+    --color-pink-50: oklch(0.971 0.014 343.198deg);
+    --color-pink-100: oklch(0.948 0.028 342.258deg);
+    --color-pink-200: oklch(0.899 0.061 343.231deg);
+    --color-pink-300: oklch(0.823 0.12 346.018deg);
+    --color-pink-400: oklch(0.718 0.202 349.761deg);
+    --color-pink-500: oklch(0.656 0.241 354.308deg);
+    --color-pink-600: oklch(0.592 0.249 0.584deg);
+    --color-pink-700: oklch(0.525 0.223 3.958deg);
+    --color-pink-800: oklch(0.459 0.187 3.815deg);
+    --color-pink-900: oklch(0.408 0.153 2.432deg);
+    --color-pink-950: oklch(0.284 0.109 3.907deg);
+    --color-rose-50: oklch(0.969 0.015 12.422deg);
+    --color-rose-100: oklch(0.941 0.03 12.58deg);
+    --color-rose-200: oklch(0.892 0.058 10.001deg);
+    --color-rose-300: oklch(0.81 0.117 11.638deg);
+    --color-rose-400: oklch(0.712 0.194 13.428deg);
+    --color-rose-500: oklch(0.645 0.246 16.439deg);
+    --color-rose-600: oklch(0.586 0.253 17.585deg);
+    --color-rose-700: oklch(0.514 0.222 16.935deg);
+    --color-rose-800: oklch(0.455 0.188 13.697deg);
+    --color-rose-900: oklch(0.41 0.159 10.272deg);
+    --color-rose-950: oklch(0.271 0.105 12.094deg);
+    --color-slate-50: oklch(0.984 0.003 247.858deg);
+    --color-slate-100: oklch(0.968 0.007 247.896deg);
+    --color-slate-200: oklch(0.929 0.013 255.508deg);
+    --color-slate-300: oklch(0.869 0.022 252.894deg);
+    --color-slate-400: oklch(0.704 0.04 256.788deg);
+    --color-slate-500: oklch(0.554 0.046 257.417deg);
+    --color-slate-600: oklch(0.446 0.043 257.281deg);
+    --color-slate-700: oklch(0.372 0.044 257.287deg);
+    --color-slate-800: oklch(0.279 0.041 260.031deg);
+    --color-slate-900: oklch(0.208 0.042 265.755deg);
+    --color-slate-950: oklch(0.129 0.042 264.695deg);
+    --color-gray-50: oklch(0.985 0.002 247.839deg);
+    --color-gray-100: oklch(0.967 0.003 264.542deg);
+    --color-gray-200: oklch(0.928 0.006 264.531deg);
+    --color-gray-300: oklch(0.872 0.01 258.338deg);
+    --color-gray-400: oklch(0.707 0.022 261.325deg);
+    --color-gray-500: oklch(0.551 0.027 264.364deg);
+    --color-gray-600: oklch(0.446 0.03 256.802deg);
+    --color-gray-700: oklch(0.373 0.034 259.733deg);
+    --color-gray-800: oklch(0.278 0.033 256.848deg);
+    --color-gray-900: oklch(0.21 0.034 264.665deg);
+    --color-gray-950: oklch(0.13 0.028 261.692deg);
+    --color-zinc-50: oklch(0.985 0 0deg);
+    --color-zinc-100: oklch(0.967 0.001 286.375deg);
+    --color-zinc-200: oklch(0.92 0.004 286.32deg);
+    --color-zinc-300: oklch(0.871 0.006 286.286deg);
+    --color-zinc-400: oklch(0.705 0.015 286.067deg);
+    --color-zinc-500: oklch(0.552 0.016 285.938deg);
+    --color-zinc-600: oklch(0.442 0.017 285.786deg);
+    --color-zinc-700: oklch(0.37 0.013 285.805deg);
+    --color-zinc-800: oklch(0.274 0.006 286.033deg);
+    --color-zinc-900: oklch(0.21 0.006 285.885deg);
+    --color-zinc-950: oklch(0.141 0.005 285.823deg);
+    --color-stone-50: oklch(0.985 0.001 106.423deg);
+    --color-stone-100: oklch(0.97 0.001 106.424deg);
+    --color-stone-200: oklch(0.923 0.003 48.717deg);
+    --color-stone-300: oklch(0.869 0.005 56.366deg);
+    --color-stone-400: oklch(0.709 0.01 56.259deg);
+    --color-stone-500: oklch(0.553 0.013 58.071deg);
+    --color-stone-600: oklch(0.444 0.011 73.639deg);
+    --color-stone-700: oklch(0.374 0.01 67.558deg);
+    --color-stone-800: oklch(0.268 0.007 34.298deg);
+    --color-stone-900: oklch(0.216 0.006 56.043deg);
+    --color-stone-950: oklch(0.147 0.004 49.25deg);
+    --color-black: #000;
+    --color-white: #fff;
+
+    // Primitive neutral cool colors
+    --color-neutral-cool-50: hsl(240deg 8% 95%);
+    --color-neutral-cool-75: hsl(236deg 8% 92.5%);
+    --color-neutral-cool-100: hsl(232deg 8% 90%);
+    --color-neutral-cool-150: hsl(232.5deg 8% 85%);
+    --color-neutral-cool-200: hsl(233deg 8% 80%);
+    --color-neutral-cool-250: hsl(231.5deg 8% 75%);
+    --color-neutral-cool-300: hsl(230deg 8% 70%);
+    --color-neutral-cool-350: hsl(230.5deg 8% 65%);
+    --color-neutral-cool-400: hsl(231deg 8% 60%);
+    --color-neutral-cool-450: hsl(231deg 8% 55%);
+    --color-neutral-cool-500: hsl(231deg 8% 50%);
+    --color-neutral-cool-550: hsl(230.5deg 8% 45%);
+    --color-neutral-cool-600: hsl(230deg 8% 40%);
+    --color-neutral-cool-650: hsl(230deg 8% 35%);
+    --color-neutral-cool-700: hsl(230deg 8% 30%);
+    --color-neutral-cool-750: hsl(235deg 8% 25%);
+    --color-neutral-cool-800: hsl(230deg 8% 20%);
+    --color-neutral-cool-850: hsl(235deg 8% 15%);
+    --color-neutral-cool-900: hsl(240deg 8% 10%);
+    --color-neutral-cool-950: hsl(240deg 8% 8%);
+
+    // Primitive neutral colors
+    --color-neutral-50: hsl(0deg 0% 95%);
+    --color-neutral-100: hsl(0deg 0% 90%);
+    --color-neutral-150: hsl(0deg 0% 85%);
+    --color-neutral-200: hsl(0deg 0% 80%);
+    --color-neutral-250: hsl(0deg 0% 75%);
+    --color-neutral-300: hsl(0deg 0% 70%);
+    --color-neutral-350: hsl(0deg 0% 65%);
+    --color-neutral-400: hsl(0deg 0% 60%);
+    --color-neutral-450: hsl(0deg 0% 55%);
+    --color-neutral-500: hsl(0deg 0% 50%);
+    --color-neutral-550: hsl(0deg 0% 45%);
+    --color-neutral-600: hsl(0deg 0% 40%);
+    --color-neutral-650: hsl(0deg 0% 35%);
+    --color-neutral-700: hsl(0deg 0% 30%);
+    --color-neutral-750: hsl(0deg 0% 25%);
+    --color-neutral-800: hsl(0deg 0% 20%);
+    --color-neutral-850: hsl(0deg 0% 15%);
+    --color-neutral-900: hsl(0deg 0% 10%);
+    --color-neutral-950: hsl(0deg 0% 5%);
+
+    // Posthog 3000 (yellow-greys) colors
+    --color-posthog-3000-25: hsl(75deg 14% 96.5%);
+    --color-posthog-3000-50: hsl(75deg 14% 95%);
+    --color-posthog-3000-100: hsl(70deg 16% 93%);
+    --color-posthog-3000-150: hsl(77deg 13% 89%);
+    --color-posthog-3000-200: hsl(78deg 13% 85%);
+    --color-posthog-3000-250: hsl(67deg 8% 80%);
+    --color-posthog-3000-300: hsl(72deg 8% 76%);
+    --color-posthog-3000-350: hsl(70deg 8% 71%);
+    --color-posthog-3000-400: hsl(69deg 8% 65%);
+    --color-posthog-3000-450: hsl(67deg 8% 60%);
+    --color-posthog-3000-500: hsl(67deg 8% 55%);
+
+    // PostHog brand colors
+    // Split into hue, saturation, lightness to make it easier to change the brand colors
+    // //////////////////////////////////////////////////////////
+    --color-posthog-brand-orange-hue: 19;
+    --color-posthog-brand-orange-saturation: 100%;
+    --color-posthog-brand-orange-lightness: 48%;
+    --color-posthog-brand-blue-hue: 228;
+    --color-posthog-brand-blue-saturation: 100%;
+    --color-posthog-brand-blue-lightness: 56%;
+    --color-posthog-brand-yellow-hue: 43;
+    --color-posthog-brand-yellow-saturation: 94%;
+    --color-posthog-brand-yellow-lightness: 57%;
+
+    // Product specific colors
+    --color-product-data-pipeline-light: rgb(46 162 211);
+    --color-product-product-analytics-light: rgb(47 128 250);
+    --color-product-messaging-light: rgb(47 128 250);
+    --color-product-web-analytics-light: rgb(52 175 102);
+    --color-product-web-analytics-dark: rgb(54 196 111); // original color
+    --color-product-embedded-analytics-light: rgb(243 153 109);
+    --color-product-embedded-analytics-dark: rgb(250 158 120);
+    --color-product-session-replay-light: rgb(235 162 18);
+    --color-product-session-replay-dark: rgb(247 165 1);
+    --color-product-heatmaps-light: rgb(220 152 16);
+    --color-product-heatmaps-dark: rgb(247 165 1);
+    --color-product-logs-light: rgb(214 37 123);
+    --color-product-feature-flags-light: rgb(48 171 198);
+    --color-product-experiments-light: rgb(182 42 217);
+    --color-product-error-tracking-light: rgb(211 148 24);
+    --color-product-error-tracking-dark: rgb(247 165 1);
+    --color-product-surveys-light: rgb(243 84 84);
+    --color-product-data-warehouse-light: rgb(133 103 255);
+    --color-product-llm-analytics-light: rgb(182 42 217);
+    --color-product-links-light: rgb(143 7 255);
+    --color-product-revenue-analytics-light: rgb(52 175 102);
+    --color-product-revenue-analytics-dark: rgb(54 196 111);
+    --color-product-user-interviews-light: rgb(0 140 255);
+    --color-product-dashboards-light: rgb(255 139 7);
+    --color-product-early-access-features-light: rgb(39 171 151);
+    --color-product-early-access-features-dark: rgb(53 213 189);
+
+    // Insight colors
+    --color-insight-funnel-light: rgb(47 128 250);
+    --color-insight-trends-light: rgb(247 165 1);
+    --color-insight-user-paths-light: rgb(30 179 152);
+    --color-user-paths-dark: rgb(41 219 187);
+    --color-insight-retention-light: rgb(243 84 84);
+    --color-insight-stickiness-light: rgb(247 165 1);
+    --color-insight-lifecycle-light: rgb(48 171 198);
+    --color-insight-calendar-heatmap-light: rgb(12 39 146);
+    --color-insight-calendar-heatmap-dark: rgb(61 91 215);
+    --color-insight-sql-light: rgb(245 78 0);
+
+    // Generic brand color assignments
+    // Change these to change the brand colors
+    // //////////////////////////////////////////////////////////
+    --color-brand-primary-hue: var(--color-posthog-brand-orange-hue);
+    --color-brand-primary-saturation: var(--color-posthog-brand-orange-saturation);
+    --color-brand-primary-lightness: var(--color-posthog-brand-orange-lightness);
+    --color-brand-secondary-hue: var(--color-posthog-brand-blue-hue);
+    --color-brand-secondary-saturation: var(--color-posthog-brand-blue-saturation);
+    --color-brand-secondary-lightness: var(--color-posthog-brand-blue-lightness);
+
+    // Accent colors (accents can be changed to change the brand colors)
+    // Used for interactive elements and highlights, inputs, toggles, charts, etc.
+    // //////////////////////////////////////////////////////////
+    --color-accent: hsl(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        var(--color-brand-primary-lightness)
+    );
+    --color-accent-inverted: hsl(
+        var(--color-posthog-brand-yellow-hue),
+        var(--color-posthog-brand-yellow-saturation),
+        var(--color-posthog-brand-yellow-lightness)
+    );
+    --color-accent-hover: hsl(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        calc(var(--color-brand-primary-lightness) + 10%)
+    );
+    --color-accent-hover-inverted: hsl(
+        var(--color-posthog-brand-yellow-hue),
+        var(--color-posthog-brand-yellow-saturation),
+        calc(var(--color-posthog-brand-yellow-lightness) + 10%)
+    );
+    --color-accent-active: hsl(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        calc(var(--color-brand-primary-lightness) + 15%)
+    );
+    --color-accent-active-inverted: hsl(
+        var(--color-posthog-brand-yellow-hue),
+        var(--color-posthog-brand-yellow-saturation),
+        calc(var(--color-posthog-brand-yellow-lightness) + 15%)
+    );
+    --color-accent-highlight-primary: hsla(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        var(--color-brand-primary-lightness),
+        20%
+    );
+    --color-accent-highlight-secondary: hsla(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        var(--color-brand-primary-lightness),
+        10%
+    );
+    --color-accent-highlight-secondary-border: hsla(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        var(--color-brand-primary-lightness),
+        14%
+    );
+    --color-accent-highlight-secondary-hover-border: hsla(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        var(--color-brand-primary-lightness),
+        35%
+    );
+
+    // Backgrounds
+    // Behind surfaces, large areas: app scenes, etc.
+    // //////////////////////////////////////////////////////////
+    --color-bg-primary: var(--color-posthog-3000-50);
+
+    /* Most prominent/used background (replaces --color-bg-3000) */
+    --color-bg-surface-primary: var(--color-white);
+
+    /* Most prominent surface (Cards, tables, etc.) */
+    --color-bg-surface-secondary: var(--color-posthog-3000-100);
+
+    /* Second most prominent surface (Toolbars) */
+    --color-bg-surface-tertiary: var(--color-posthog-3000-150);
+
+    /* Most prominent surface (Cards, tables, etc.) */
+    --color-bg-surface-tooltip: var(--color-neutral-cool-850);
+    --color-bg-surface-tooltip-inverse: var(--color-neutral-cool-250);
+    --color-bg-surface-popover: var(--color-white);
+    --color-bg-surface-popover-inverse: var(--color-neutral-cool-950);
+
+    // Fills
+    // Small colourful areas: banners, pills, buttons, etc.
+    // //////////////////////////////////////////////////////////
+    --color-bg-fill-primary: var(--color-white);
+    --color-bg-fill-secondary: var(--color-posthog-3000-25);
+    --color-bg-fill-tertiary: var(--color-posthog-3000-50);
+    --color-bg-fill-highlight-25: color-mix(in oklab, var(--color-black) 2.5%, transparent);
+    --color-bg-fill-highlight-50: color-mix(in oklab, var(--color-black) 5%, transparent);
+    --color-bg-fill-highlight-75: color-mix(in oklab, var(--color-black) 7.5%, transparent);
+    --color-bg-fill-highlight-100: color-mix(in oklab, var(--color-black) 10%, transparent);
+    --color-bg-fill-highlight-150: color-mix(in oklab, var(--color-black) 15%, transparent);
+    --color-bg-fill-highlight-200: color-mix(in oklab, var(--color-black) 20%, transparent);
+    --color-bg-fill-highlight-inverse-25: color-mix(in oklab, var(--color-white) 2.5%, transparent);
+    --color-bg-fill-highlight-inverse-50: color-mix(in oklab, var(--color-white) 5%, transparent);
+    --color-bg-fill-highlight-inverse-75: color-mix(in oklab, var(--color-white) 7.5%, transparent);
+    --color-bg-fill-highlight-inverse-100: color-mix(in oklab, var(--color-white) 10%, transparent);
+    --color-bg-fill-highlight-inverse-150: color-mix(in oklab, var(--color-white) 15%, transparent);
+    --color-bg-fill-highlight-inverse-200: color-mix(in oklab, var(--color-white) 20%, transparent);
+
+    // Highlights
+    --color-bg-fill-primary-highlight: color-mix(in oklab, var(--color-primary-500) 10%, transparent);
+
+    // Info fills
+    --color-bg-fill-info-secondary: var(--color-blue-100);
+    --color-bg-fill-info-tertiary: var(--color-blue-50);
+    --color-bg-fill-warning-secondary: var(--color-yellow-100);
+    --color-bg-fill-warning-tertiary: var(--color-yellow-50);
+    --color-bg-fill-warning-highlight: color-mix(in oklab, var(--color-yellow-500) 15%, transparent);
+    --color-bg-fill-error-secondary: var(--color-red-100);
+    --color-bg-fill-error-tertiary: var(--color-red-50);
+    --color-bg-fill-error-highlight: color-mix(in oklab, var(--color-red-500) 10%, transparent);
+    --color-bg-fill-success-secondary: var(--color-green-100);
+    --color-bg-fill-success-tertiary: var(--color-green-50);
+    --color-bg-fill-success-highlight: color-mix(in oklab, var(--color-green-500) 10%, transparent);
+
+    // Buttons
+    --color-bg-fill-button-group-tertiary-hover: var(--color-bg-fill-highlight-25);
+    --color-bg-fill-button-tertiary-hover: var(--color-bg-fill-highlight-75);
+    --color-bg-fill-button-tertiary-hover-inverse: var(--color-bg-fill-highlight-inverse-75);
+    --color-bg-fill-button-tertiary-active: var(--color-bg-fill-highlight-50);
+    --color-bg-fill-button-tertiary-active-inverse: var(--color-bg-fill-highlight-inverse-50);
+    --color-bg-fill-button-panel: var(--color-bg-fill-highlight-50);
+    --color-bg-fill-button-panel-hover: var(--color-bg-fill-highlight-100);
+    --color-bg-fill-button-panel-active: var(--color-bg-fill-highlight-75);
+    --color-bg-fill-button-danger-hover: var(--danger-highlight);
+    --color-bg-fill-button-danger-active: var(--danger-highlight);
+
+    // Inputs
+    --color-bg-fill-input: var(--color-white);
+    --color-bg-fill-switch: var(--color-neutral-cool-250);
+    --color-bg-fill-slider-rail: color-mix(in oklab, var(--color-black) 10%, transparent);
+    --color-bg-fill-scroll-thumb: color-mix(in oklab, var(--color-black) 20%, transparent);
+
+    // Borders (Useful for single pixel backgrounds to mimic borders)
+    // //////////////////////////////////////////////////////////
+    --color-bg-border-primary: var(--color-posthog-3000-200);
+    --color-bg-border-secondary: var(--color-posthog-3000-400);
+
+    // Content (text, icons)
+    // //////////////////////////////////////////////////////////
+    --color-text-primary: var(--color-neutral-950);
+    --color-text-primary-inverse: var(--color-neutral-100);
+    --color-text-secondary-inverse: var(--color-neutral-400);
+    --color-text-secondary: var(--color-neutral-750);
+    --color-text-tertiary: var(--color-neutral-600);
+    --color-text-success: var(--color-green-600);
+    --color-text-warning: var(--color-yellow-700);
+    --color-text-error: var(--color-red-600);
+
+    // Borders
+    // Borders for surfaces/fills (TODO: perhaps we need to do border-fill-primary, border-fill-warning, etc.)
+    // //////////////////////////////////////////////////////////
+    --color-border-primary: var(--color-posthog-3000-200);
+    --color-border-secondary: var(--color-posthog-3000-400);
+    --color-border-info: var(--color-blue-400);
+    --color-border-warning: var(--color-yellow-400);
+    --color-border-error: var(--color-red-400);
+    --color-border-success: var(--color-green-400);
+
+    // Graph colors
+    // //////////////////////////////////////////////////////////
+    --color-graph-axis-label: var(--color-text-secondary);
+
+    /* Labels around graph */
+    --color-graph-axis-line: var(--color-neutral-cool-100);
+
+    /* Background lines in a graph, horizontal and vertical */
+
+    --color-graph-axis: var(--color-text-secondary);
+
+    /* Line around a graph */
+    --color-graph-crosshair: var(--color-neutral-cool-450);
+
+    /* Crosshair line, horizontal or vertical */
+
+    // Skeleton colors
+    // //////////////////////////////////////////////////////////
+    --color-skeleton-light: rgb(
+        190 190 190 / 20%
+    ); // Equivalent to --color-neutral-200 but with transparency, improve browser compatibility
+
+    --color-skeleton-dark: rgb(
+        129 129 129 / 24%
+    ); // Equivalent to --color-neutral-400 but with transparency, improve browser compatibility
+
+    // Breakpoint variables
+    // //////////////////////////////////////////////////////////
+    --breakpoint-sm: 576px;
+    --breakpoint-md: 768px;
+    --breakpoint-lg: 992px;
+    --breakpoint-xl: 1200px;
+    --breakpoint-xxl: 1600px;
+
+    // Brand colors
+    // //////////////////////////////////////////////////////////
+    --brand-blue: #1d4aff;
+    --brand-red: #f54e00;
+    --brand-yellow: #f9bd2b;
+    --brand-key: #000;
+
+    // Shadows
+    // //////////////////////////////////////////////////////////
+    --shadow-elevation-3000: 0 3px 0 var(--border-3000-light);
+
+    // Non-color vars
+    --radius: 0.375rem; // Increased from Tailwind's default of 0.25rem
+    --radius-sm: 0.25rem; // Increased from Tailwind's default of 0.125rem
+    --radius-base: var(--radius); // Increased from Tailwind's default of 0.25rem
+    --radius-lg: 0.625rem; // Increased from Tailwind's default of 0.5rem
+    --radius-full: 9999px;
+    --modal-shadow-elevation: 0px 16px 16px -16px rgb(0 0 0 / 35%);
+    --opacity-disabled: 0.65;
+    --font-medium: 500;
+    --font-semibold: 600;
+    --font-sans:
+        'Emoji Flags Polyfill', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue',
+        helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    --font-title:
+        'Emoji Flags Polyfill', 'MatterSQ', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto',
+        'Helvetica Neue', helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    --font-button:
+        'Emoji Flags Polyfill', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', 'Helvetica Neue',
+        helvetica, arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    --font-mono:
+        'Emoji Flags Polyfill', ui-monospace, 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono',
+        monospace;
+
+    // Dashboard item colors
+    --blue: #597dce;
+    --purple: #c278cf;
+    --green: var(--success);
+    --black: var(--text-3000);
+
+    // Data colors (e.g. insight series). Note: colors.ts relies on these values being hexadecimal
+    --data-color-1: #1d4aff;
+    --data-color-1-hover: #1a3cf6;
+    --data-color-2: #621da6;
+    --data-color-3: #42827e;
+    --data-color-4: #ce0e74;
+    --data-color-5: #f14f58;
+    --data-color-6: #7c440e;
+    --data-color-7: #529a0a;
+    --data-color-8: #0476fb;
+    --data-color-9: #fe729e;
+    --data-color-10: #35416b;
+    --data-color-11: #41cbc4;
+    --data-color-12: #b64b02;
+    --data-color-13: #e4a604;
+    --data-color-14: #a56eff;
+    --data-color-15: #30d5c8;
+
+    // Lifecycle series (compiled)
+    --color-lifecycle-new: #1d4aff;
+    --color-lifecycle-returning: #388600;
+    --color-lifecycle-resurrecting: #a56eff;
+    --color-lifecycle-dormant: #db3707;
+    --color-lifecycle-new-hover: #0024b6;
+    --color-lifecycle-returning-hover: #254d08;
+    --color-lifecycle-resurrecting-hover: #6608ff;
+    --color-lifecycle-dormant-hover: #781e04;
+
+    // Revenue analytics MRR series (compiled)
+    --color-revenue-analytics-new: #388600;
+    --color-revenue-analytics-expansion: #1d4aff;
+    --color-revenue-analytics-contraction: #ffa500;
+    --color-revenue-analytics-churn: #db3707;
+    --color-revenue-analytics-new-hover: #254d08;
+    --color-revenue-analytics-expansion-hover: #0024b6;
+    --color-revenue-analytics-contraction-hover: #a26c07;
+    --color-revenue-analytics-churn-hover: #781e04;
+
+    // Z-indexes
+    --z-bottom-notice: 1450;
+    --z-command-palette: 1400;
+    --z-force-modal-above-popovers: 1350;
+    --z-tooltip: 1300;
+    --z-definition-popover: 1250;
+    --z-popover: 1200;
+    --z-graph-tooltip: 1150;
+
+    // 1161 and 1162 are reserved to be set from code
+    // 1166 through 1169 are reserved to be set from code
+    // this allows us to place some modals on top of others
+    // we should never be forgiven
+    // if we ever need more than 7 modals active at the same time
+    --z-top: 9999;
+    --z-modal: 1100;
+    --z-hedgehog-buddy: 1050;
+    --z-annotation-popover: 800;
+    --z-drawer: 900;
+    --z-notifications-popover: 800; // below the TZ aware popover but over the main-nav
+    --z-scene-layout-content-panel: 770;
+    --z-scene-layout-content-panel-under: 769;
+    --z-layout-panel: 760;
+    --z-layout-panel-under: 759;
+    --z-layout-navbar-over: 757;
+    --z-layout-navbar: 756;
+    --z-layout-navbar-under: 755;
+    --z-main-nav: 750;
+    --z-resizer: 701;
+    --z-lemon-sidebar: 700;
+    --z-lemon-activation-sidebar: 650;
+    --z-mobile-nav-overlay: 600;
+    --z-top-navigation: 550;
+    --z-top-navigation-under: 549;
+    --z-content-overlay: 500;
+    --z-raised: 5;
+
+    // Elements
+    --side-panel-bar-width: 3rem;
+    --project-navbar-width: 215px;
+    --project-navbar-width-collapsed: 45px;
+    --project-panel-width: 245px;
+    --project-panel-inner-width: calc(var(--project-panel-width) - (var(--spacing) * 2));
+    --resizer-thickness: 8px;
+
+    // The space the panel is from the left edge of the screen on mobile
+    --panel-layout-mobile-offset: 40px;
+
+    // Toasts
+    // Update and override from react-toastify
+    // which attaches these variables to :root
+    // which means they aren't available in the toolbar
+    --toastify-color-dark: var(--color-accent-3000-dark);
+    --toastify-color-light: var(--color-bg-surface-primary);
+    --toastify-color-info: var(--color-blue-500);
+    --toastify-color-success: var(--success);
+    --toastify-color-warning: var(--warning);
+    --toastify-color-error: var(--danger);
+    --toastify-color-progress-info: var(--toastify-color-info);
+    --toastify-color-progress-success: var(--toastify-color-success);
+    --toastify-color-progress-warning: var(--toastify-color-warning);
+    --toastify-color-progress-error: var(--toastify-color-error);
+    --toastify-toast-background: var(--color-bg-surface-primary);
+    --toastify-toast-width: 26rem;
+    --toastify-toast-min-height: 3.5rem;
+    --toastify-toast-max-height: 16rem;
+    --toastify-text-color-light: #757575;
+
+    // In-app prompts
+    --in-app-prompts-width: 26rem;
+    --lettermark-1-bg: #dcb1e3;
+    --lettermark-1-text: #572e5e;
+    --lettermark-2-bg: #ffc4b2;
+    --lettermark-2-text: #3e5891;
+    --lettermark-3-bg: #b1985d;
+    --lettermark-3-text: #3e5891;
+    --lettermark-4-bg: #3e5891;
+    --lettermark-4-text: #ffc4b2;
+    --lettermark-5-bg: #8da9e7;
+    --lettermark-5-text: #572e5e;
+    --lettermark-6-bg: #572e5e;
+    --lettermark-6-text: #dcb1e3;
+    --lettermark-7-bg: #ffc035;
+    --lettermark-7-text: #35416b;
+    --lettermark-8-bg: #ff906e;
+    --lettermark-8-text: #2a3d65;
+
+    // Modals
+    --modal-backdrop-blur: 5px; // Half the value in Figma as blur is calculated differently there it seems
+    --modal-backdrop-color: rgb(0 0 0 / 20%);
+    --modal-transition-time: 200ms;
+
+    // Notebooks
+    --notebook-popover-transition-properties: 150ms cubic-bezier(0, 0.5, 0.5, 1);
+    --notebook-column-left-width: 27rem;
+    --notebook-column-right-width: 20rem;
+
+    // Deprecated colors
+    // Vars
+    --danger-highlight: rgb(219 55 7 / 10%);
+    --danger-lighter: #ffa599;
+    --danger-light: #df4b20;
+    --danger: #db3707;
+    --danger-dark: #992705;
+    --warning-highlight: rgb(247 165 1 / 10%);
+    --warning: #f7a501;
+    --warning-dark: #e09423;
+    --highlight: #e49f2c;
+    --success-highlight: rgb(56 134 0 / 10%);
+    --success-light: #5f9d32;
+    --success: #388600;
+    --success-dark: #245700;
+    --muted: #5f5f5f;
+    --muted-alt: #747ea1;
+    --mark: hsl(42deg 93% 86% / 80%);
+    --white: #fff;
+    --side: #fafaf9;
+    --mid: #f2f2f2;
+    --border: rgb(0 0 0 / 15%);
+    --border-light: rgb(0 0 0 / 8%);
+    --border-bold: rgb(0 0 0 / 24%);
+    --transparent: transparent;
+    --text-3000-light: #111;
+    --color-text-secondary-3000-light: rgb(17 17 17 / 70%);
+    --muted-3000-light: rgb(17 17 17 / 60%);
+    --trace-3000-light: rgb(17 17 17 / 25%);
+    --primary-3000-light: #f54e01;
+    --primary-highlight-light: rgb(245 78 1 / 10%);
+    --primary-3000-hover-light: #f54e01;
+    --primary-3000-active-light: #f54e01;
+    --secondary-3000-light: rgb(207 209 194 / 60%);
+    --secondary-3000-hover-light: #cfd1c2;
+    --color-accent-3000-light: #eeefe9;
+    --color-bg-3000-light: #f3f4ef;
+    --border-3000-light: #dadbd2;
+    --border-bold-3000-light: #c1c2b9;
+    --glass-bg-3000-light: #e4e5deb3;
+    --glass-border-3000-light: #e4e5de;
+    --link-3000-light: #f54e00;
+    --primary-3000-frame-bg-light: #eb9d2a;
+    --primary-3000-button-bg-light: #fff;
+    --primary-3000-button-border-light: #b17816;
+    --primary-3000-button-border-hover-light: #8e5b03;
+    --secondary-3000-frame-bg-light: #e1dddd;
+    --secondary-3000-button-bg-light: #f3f4ef;
+    --secondary-3000-button-border-light: #ccc;
+    --secondary-3000-button-border-hover-light: #aaa;
+    --danger-3000-frame-bg-light: #f54e0080;
+    --danger-3000-button-border-light: #e96b30;
+    --danger-3000-button-border-hover-light: #f54e00;
+    --shadow-elevation-3000-light: 0 3px 0 var(--border-3000-light);
+    --shadow-elevation-3000-dark: 0 3px 0 var(--border-3000-dark);
+    --text-3000-dark: #fff;
+    --color-text-secondary-3000-dark: rgb(255 255 255 / 70%);
+    --muted-3000-dark: rgb(255 255 255 / 50%);
+    --trace-3000-dark: rgb(255 255 255 / 25%);
+    --primary-3000-dark: #f7a503;
+    --primary-highlight-dark: rgb(247 165 3 / 10%);
+    --primary-3000-hover-dark: #f7a503;
+    --primary-3000-active-dark: #f7a503;
+    --primary-alt-highlight-light: #e5e7e0;
+    --secondary-3000-dark: #1d1f27;
+    --secondary-3000-hover-dark: #575d77;
+    --color-accent-3000-dark: #21242b;
+    --color-bg-3000-dark: #1d1f27;
+    --border-3000-dark: #35373e;
+    --border-bold-3000-dark: #3f4046;
+    --glass-bg-3000-dark: #24262a99;
+    --glass-border-3000-dark: var(--border-3000-dark);
+    --link-3000-dark: #f1a82c;
+    --primary-3000-frame-bg-dark: #926826;
+    --primary-3000-button-bg-dark: #e0a045;
+    --primary-3000-button-border-dark: #b17816;
+    --primary-3000-button-border-hover-dark: #8e5b03;
+    --primary-alt-highlight-dark: #232429;
+    --secondary-3000-frame-bg-dark: #323232;
+    --secondary-3000-button-bg-dark: #1d1f27;
+    --secondary-3000-button-border-dark: #4a4c52;
+    --secondary-3000-button-border-hover-dark: #5e6064;
+    --danger-3000-frame-bg-dark: #f54e0080;
+    --danger-3000-button-border-dark: #c44003;
+    --danger-3000-button-border-hover-dark: #f54e00;
+
+    // Light mode
+    --text-3000: var(--text-3000-light);
+    --color-text-secondary-3000: var(--color-text-secondary-3000-light);
+    --muted-3000: var(--muted-3000-light);
+    --trace-3000: var(--trace-3000-light);
+    --primary-3000: var(--primary-3000-light);
+    --primary-3000-hover: var(--primary-3000-hover-light);
+    --primary-3000-active: var(--primary-3000-active-light);
+    --secondary-3000: var(--secondary-3000-light);
+    --secondary-3000-hover: var(--secondary-3000-hover-light);
+    --color-accent-3000: var(--color-accent-3000-light);
+    --color-bg-3000: var(--color-bg-3000-light);
+    --border-3000: var(--border-3000-light);
+    --border-light-opaque: #eee;
+    --border-bold-3000: var(--border-bold-3000-light);
+    --glass-bg-3000: var(--glass-bg-3000-light);
+    --glass-border-3000: var(--glass-border-3000-light);
+    --color-bg-light: #fff;
+    --color-bg-table: #f9faf7;
+    --link: var(--link-3000-light);
+    --primary-3000-frame-bg: var(--primary-3000-frame-bg-light);
+    --primary-3000-button-bg: var(--primary-3000-button-bg-light);
+    --primary-3000-button-border: var(--primary-3000-button-border-light);
+    --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-light);
+    --primary-alt-highlight: var(--primary-alt-highlight-light);
+    --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-light);
+    --secondary-3000-button-bg: var(--secondary-3000-button-bg-light);
+    --secondary-3000-button-border: var(--secondary-3000-button-border-light);
+    --secondary-3000-button-border-hover: var(--secondary-3000-button-border-hover-light);
+    --danger-3000-frame-bg: var(--danger-3000-frame-bg-light);
+    --danger-3000-button-border: var(--danger-3000-button-border-light);
+    --danger-3000-button-border-hover: var(--danger-3000-button-border-hover-light);
+    --tooltip-bg: #2d2d2d;
+}
+
+// We specifically override the brand colors for dark mode here
+// Because we can't do light-dark for the individual hue/saturation/lightness
+[theme='dark'] {
+    // Brand colors (dark mode)
+    // //////////////////////////////////////////////////////////
+    --color-brand-primary-hue: var(--color-posthog-brand-yellow-hue);
+    --color-brand-primary-saturation: var(--color-posthog-brand-yellow-saturation);
+    --color-brand-primary-lightness: var(--color-posthog-brand-yellow-lightness);
+
+    // Accent colors (dark mode)
+    // //////////////////////////////////////////////////////////
+    --color-accent: hsl(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        var(--color-brand-primary-lightness)
+    );
+    --color-accent-inverted: hsl(
+        var(--color-posthog-brand-orange-hue),
+        var(--color-posthog-brand-orange-saturation),
+        var(--color-posthog-brand-orange-lightness)
+    );
+    --color-accent-hover: hsl(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        calc(var(--color-brand-primary-lightness) + 10%)
+    );
+    --color-accent-hover-inverted: hsl(
+        var(--color-posthog-brand-orange-hue),
+        var(--color-posthog-brand-orange-saturation),
+        calc(var(--color-posthog-brand-orange-lightness) + 10%)
+    );
+    --color-accent-active: hsl(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        calc(var(--color-brand-primary-lightness) + 15%)
+    );
+    --color-accent-active-inverted: hsl(
+        var(--color-posthog-brand-orange-hue),
+        var(--color-posthog-brand-orange-saturation),
+        calc(var(--color-posthog-brand-orange-lightness) + 15%)
+    );
+
+    // Used for highlighting search results, and other subtle accent sitations
+    // Most prominent
+    --color-accent-highlight-primary: hsla(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        var(--color-brand-primary-lightness),
+        20%
+    );
+
+    // Less prominent
+    --color-accent-highlight-secondary: hsla(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        var(--color-brand-primary-lightness),
+        10%
+    );
+    --color-accent-highlight-secondary-border: hsla(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        var(--color-brand-primary-lightness),
+        14%
+    );
+    --color-accent-highlight-secondary-hover-border: hsla(
+        var(--color-brand-primary-hue),
+        var(--color-brand-primary-saturation),
+        var(--color-brand-primary-lightness),
+        35%
+    );
+
+    // Backgrounds (dark mode)
+    // //////////////////////////////////////////////////////////
+    --color-bg-primary: var(--color-neutral-cool-950);
+    --color-bg-surface-primary: var(--color-neutral-cool-850);
+    --color-bg-surface-secondary: var(--color-neutral-cool-900);
+    --color-bg-surface-tertiary: var(--color-neutral-cool-950);
+    --color-bg-surface-tooltip: var(--color-neutral-100);
+    --color-bg-surface-tooltip-inverse: var(--color-neutral-950);
+    --color-bg-surface-popover: var(--color-neutral-cool-850);
+    --color-bg-surface-popover-inverse: var(--color-neutral-cool-950);
+
+    // Fills (dark mode)
+    // Small colourful areas: banners, pills, buttons, etc.
+    // //////////////////////////////////////////////////////////
+    --color-bg-fill-primary: var(--color-neutral-cool-900);
+    --color-bg-fill-secondary: var(--color-neutral-cool-850);
+    --color-bg-fill-tertiary: var(--color-neutral-cool-800);
+    --color-bg-fill-highlight-25: color-mix(in oklab, var(--color-white) 2.5%, transparent);
+    --color-bg-fill-highlight-50: color-mix(in oklab, var(--color-white) 5%, transparent);
+    --color-bg-fill-highlight-75: color-mix(in oklab, var(--color-white) 7.5%, transparent);
+    --color-bg-fill-highlight-100: color-mix(in oklab, var(--color-white) 10%, transparent);
+    --color-bg-fill-highlight-150: color-mix(in oklab, var(--color-white) 15%, transparent);
+    --color-bg-fill-highlight-200: color-mix(in oklab, var(--color-white) 20%, transparent);
+    --color-bg-fill-highlight-inverse-25: color-mix(in oklab, var(--color-black) 2.5%, transparent);
+    --color-bg-fill-highlight-inverse-50: color-mix(in oklab, var(--color-black) 5%, transparent);
+    --color-bg-fill-highlight-inverse-75: color-mix(in oklab, var(--color-black) 7.5%, transparent);
+    --color-bg-fill-highlight-inverse-100: color-mix(in oklab, var(--color-black) 10%, transparent);
+    --color-bg-fill-highlight-inverse-150: color-mix(in oklab, var(--color-black) 15%, transparent);
+    --color-bg-fill-highlight-inverse-200: color-mix(in oklab, var(--color-black) 20%, transparent);
+    --color-bg-fill-info-secondary: var(--color-blue-950);
+    --color-bg-fill-info-tertiary: var(--color-blue-950);
+    --color-bg-fill-warning-secondary: var(--color-yellow-950);
+    --color-bg-fill-warning-tertiary: color-mix(in oklab, var(--color-yellow-950) 10%, transparent);
+    --color-bg-fill-warning-highlight: color-mix(in oklab, var(--color-yellow-950) 50%, transparent);
+    --color-bg-fill-error-secondary: var(--color-red-950);
+    --color-bg-fill-error-tertiary: color-mix(in oklab, var(--color-red-950) 50%, transparent);
+    --color-bg-fill-error-highlight: color-mix(in oklab, var(--color-red-950) 50%, transparent);
+    --color-bg-fill-success-secondary: var(--color-green-950);
+    --color-bg-fill-success-tertiary: color-mix(in oklab, var(--color-green-950) 50%, transparent);
+    --color-bg-fill-success-highlight: color-mix(in oklab, var(--color-green-950) 50%, transparent);
+    --color-bg-fill-primary-highlight: color-mix(in oklab, var(--color-primary-950) 50%, transparent);
+    --color-bg-fill-button-group-tertiary-hover: var(--color-bg-fill-highlight-25);
+    --color-bg-fill-button-tertiary-hover: var(--color-bg-fill-highlight-75);
+    --color-bg-fill-button-tertiary-hover-inverse: var(--color-bg-fill-highlight-inverse-75);
+    --color-bg-fill-button-tertiary-active: var(--color-bg-fill-highlight-50);
+    --color-bg-fill-button-tertiary-active-inverse: var(--color-bg-fill-highlight-inverse-50);
+    --color-bg-fill-button-panel: var(--color-bg-fill-highlight-100);
+    --color-bg-fill-button-panel-hover: var(--color-bg-fill-highlight-150);
+    --color-bg-fill-button-panel-active: var(--color-bg-fill-highlight-100);
+    --color-bg-fill-input: var(--color-neutral-cool-850);
+    --color-bg-fill-switch: var(--color-neutral-cool-900);
+    --color-bg-fill-slider-rail: color-mix(in oklab, var(--color-white) 15%, transparent);
+    --color-bg-fill-scroll-thumb: color-mix(in oklab, var(--color-white) 20%, transparent);
+    --color-bg-border-primary: var(--color-neutral-cool-800);
+    --color-bg-border-secondary: var(--color-neutral-cool-600);
+
+    // Content (text, icons) (dark mode)
+    // //////////////////////////////////////////////////////////
+    --color-text-primary: var(--color-neutral-100);
+    --color-text-primary-inverse: var(--color-neutral-950);
+    --color-text-secondary-inverse: var(--color-neutral-650);
+    --color-text-secondary: var(--color-neutral-350);
+    --color-text-tertiary: var(--color-neutral-400);
+    --color-text-success: var(--color-green-400);
+    --color-text-warning: var(--color-yellow-400);
+    --color-text-error: var(--color-red-400);
+
+    // Borders (dark mode)
+    // Borders for surfaces/fills
+    // //////////////////////////////////////////////////////////
+    --color-border-primary: var(--color-neutral-cool-800);
+    --color-border-secondary: var(--color-neutral-cool-600);
+    --color-border-info: var(--color-blue-900);
+    --color-border-warning: var(--color-yellow-900);
+
+    /* Border for warning */
+    --color-border-error: var(--color-red-900);
+
+    /* Border for error */
+    --color-border-success: var(--color-green-900);
+
+    /* Border for success */
+
+    // Graph colors (dark mode)
+    // //////////////////////////////////////////////////////////
+    --color-graph-axis-label: var(--color-text-secondary);
+    --color-graph-axis-line: var(--color-neutral-cool-750);
+    --color-graph-axis: var(--color-text-secondary);
+    --color-graph-crosshair: var(--color-neutral-cool-650);
+
+    // Deprecated colors (Dark mode)
+    --text-3000: var(--text-3000-dark);
+    --color-text-secondary-3000: var(--color-text-secondary-3000-dark);
+    --muted-3000: var(--muted-3000-dark);
+    --trace-3000: var(--trace-3000-dark);
+    --primary-3000: var(--primary-3000-dark);
+    --primary-highlight: var(--primary-highlight-dark);
+    --primary-3000-hover: var(--primary-3000-hover-dark);
+    --primary-3000-active: var(--primary-3000-active-dark);
+    --secondary-3000: var(--secondary-3000-dark);
+    --secondary-3000-hover: var(--secondary-3000-hover-dark);
+    --color-accent-3000: var(--color-accent-3000-dark);
+    --color-bg-3000: var(--color-bg-3000-dark);
+    --border-3000: var(--border-3000-dark);
+    --border-light-opaque: #1e2028;
+    --border-bold-3000: var(--border-bold-3000-dark);
+    --glass-bg-3000: var(--glass-bg-3000-dark);
+    --glass-border-3000: var(--glass-border-3000-dark);
+    --color-bg-light: var(--color-accent-3000);
+    --color-bg-table: #232429;
+    --brand-key: #fff; // In dark mode the black in PostHog's logo is replaced with white for proper contrast
+    --link: var(--link-3000-dark);
+    --shadow-elevation-3000: var(--shadow-elevation-3000-dark);
+    --primary-3000-frame-bg: var(--primary-3000-frame-bg-dark);
+    --primary-3000-button-bg: var(--primary-3000-button-bg-dark);
+    --primary-3000-button-border: var(--primary-3000-button-border-dark);
+    --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-dark);
+    --primary-alt-highlight: var(--primary-alt-highlight-dark);
+    --secondary-3000-frame-bg: var(--secondary-3000-frame-bg-dark);
+    --secondary-3000-button-bg: var(--secondary-3000-button-bg-dark);
+    --secondary-3000-button-border: var(--secondary-3000-button-border-dark);
+    --secondary-3000-button-border-hover: var(--secondary-3000-button-border-hover-dark);
+    --danger-3000-frame-bg: var(--danger-3000-frame-bg-dark);
+    --danger-3000-button-border: var(--danger-3000-button-border-dark);
+    --danger-3000-button-border-hover: var(--danger-3000-button-border-hover-dark);
+    --tooltip-bg: var(--tooltip-bg-dark);
+    --data-color-2: #7f26d9;
+    --data-color-3: #3e7a76;
+    --data-color-4: #bf0d6c;
+    --data-color-5: #f0474f;
+    --data-color-6: #b36114;
+    --data-color-10: #6576b3;
+}
+
+@layer base {
+    /* stylelint-disable-next-line no-invalid-position-at-import-rule */ // allowing @import to be inside layer
+    @import '../../node_modules/react-toastify/dist/ReactToastify'; // Toastify is in base so that we can override
+
+    /* stylelint-disable-next-line order/order */ // allowing @import to be first
+    *,
+    ::after,
+    ::before,
+    ::backdrop,
+    ::file-selector-button {
+        border-color: var(--color-border-primary, currentColor);
+    }
+
+    .rendering-pixelated {
+        image-rendering: pixelated;
+    }
+
+    input[type='text'] {
+        font-weight: 400;
+    }
+
+    input[type='radio'] {
+        accent-color: var(--color-accent);
+    }
+
+    input[type='search'] {
+        &::-webkit-search-decoration,
+        &::-webkit-search-cancel-button,
+        &::-webkit-search-results-button,
+        &::-webkit-search-results-decoration {
+            display: none;
+        }
+    }
+
+    body {
+        font-size: 14px;
+        font-weight: 400;
+        line-height: 1.5715;
+        color: var(--text-3000);
+        color-scheme: light dark;
+        touch-action: manipulation; // Disable double-tap-to-zoom on mobile, making taps slightly snappier
+        background: var(--color-bg-primary);
+
+        &[theme='light'] {
+            color-scheme: light;
+        }
+
+        &[theme='dark'] {
+            color-scheme: dark;
+        }
+
+        &.is-resizing {
+            cursor: grabbing !important;
+
+            // Disable pointer events on all elements except the resizer
+            *:not(.Resizer) {
+                pointer-events: none;
+            }
+        }
+
+        * > {
+            ::-webkit-scrollbar {
+                width: 0.5rem;
+                height: 0.5rem;
+            }
+
+            ::-webkit-scrollbar-track {
+                background: var(--color-bg-surface-primary);
+            }
+
+            ::-webkit-scrollbar-thumb {
+                background: var(--trace-3000);
+                border-radius: var(--radius);
+
+                &:hover {
+                    background: var(--muted-3000);
+                }
+            }
+        }
+
+        .show-scrollbar-on-hover {
+            scrollbar-color: transparent transparent;
+            scrollbar-width: thin;
+
+            &::-webkit-scrollbar {
+                width: 0.5rem;
+                height: 0.5rem;
+            }
+
+            &::-webkit-scrollbar-track {
+                background: transparent;
+            }
+
+            &:hover {
+                scrollbar-color: var(--color-bg-fill-scroll-thumb) transparent;
+
+                &::-webkit-scrollbar-thumb {
+                    background: var(--color-bg-fill-scroll-thumb);
+                    border-radius: 8px;
+                }
+            }
+        }
+
+        b,
+        strong {
+            font-weight: 600; // Tailwind's default is "bolder" (800)
+        }
+
+        h1,
+        h2,
+        // Note: .thank-you-message is excluded in h3 below to prevent the survey thank you message to be styled,
+        // as these styles are only for PostHog main app. It's important to use :where() to avoid increased specificity
+        h3:where(:not(.thank-you-message)),
+        h4,
+        h5 {
+            margin-top: 0;
+            margin-bottom: 0.5em;
+            font-family: var(--font-title);
+            font-weight: 500;
+        }
+
+        h1,
+        h2,
+        h3,
+        h4 {
+            color: var(--text-3000);
+        }
+
+        h1 {
+            font-size: 1.75rem;
+        }
+
+        h2 {
+            font-size: 1.3125rem;
+        }
+
+        h3 {
+            font-size: 1rem;
+        }
+
+        h5 {
+            margin-bottom: 0.25rem;
+            font-size: 0.6875rem;
+            font-weight: 600;
+            line-height: 1.5rem;
+            color: var(--color-text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.075em;
+        }
+
+        pre {
+            margin-top: 0;
+            margin-bottom: 1em;
+            overflow: auto;
+        }
+
+        dialog {
+            background-color: var(--color-bg-primary);
+        }
+
+        .LemonButton,
+        .Link {
+            .text-link {
+                color: var(--text-3000) !important;
+            }
+
+            &:hover {
+                .text-link {
+                    color: var(--color-accent) !important;
+                }
+            }
+        }
+    }
+
+    .page-caption {
+        max-width: 48rem;
+        margin-bottom: 1rem;
+        font-size: 0.875rem;
+        line-height: 1.25rem;
+
+        &.tabbed {
+            margin-bottom: 0.5rem;
+        }
+
+        &:empty {
+            display: none;
+        }
+    }
+
+    .secondary {
+        font-size: 0.9em;
+        font-weight: var(--font-medium);
+        color: var(--primary-alt);
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        background: none;
+        border: 0;
+    }
+
+    .card-secondary {
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--color-text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+    }
+
+    mark {
+        background-color: var(--mark) !important;
+        border-radius: var(--radius);
+    }
+
+    hr {
+        margin: 1em 0;
+        border-top: 1px solid var(--border);
+    }
+
+    dfn {
+        font-style: normal;
+        text-decoration: underline;
+        text-decoration-style: dotted;
+    }
+
+    // Vendor-specific adjustments
+
+    input::-ms-clear {
+        display: none; // Hide IE/Edge's clear button that can mess input sizing up
+    }
+
+    // Toasts
+
+    .Toastify__toast {
+        align-items: center;
+        padding: 0.75rem;
+        margin-bottom: 0.5rem !important;
+        font-family: var(--font-sans);
+        font-size: 1rem;
+        cursor: unset;
+        border: 1px solid var(--secondary-3000-button-border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow-elevation-3000);
+        opacity: 1 !important;
+    }
+
+    .Toastify__toast-container {
+        padding: 0;
+    }
+
+    .Toastify__toast-body {
+        padding: 0;
+        font-size: 0.875rem;
+        font-weight: 500;
+        line-height: 1.25rem;
+        color: var(--text-3000);
+
+        b,
+        strong {
+            font-weight: 700;
+        }
+
+        button {
+            margin: 0 0.75rem;
+        }
+    }
+
+    .Toastify__toast-icon {
+        width: 1.5rem;
+        height: 1.5rem;
+        margin-right: 0.75rem;
+        font-size: 1.5rem;
+        color: var(--color-text-secondary);
+
+        .Toastify__toast--success & {
+            color: var(--toastify-color-success);
+        }
+
+        .Toastify__toast--warning & {
+            color: var(--toastify-color-warning);
+        }
+
+        .Toastify__toast--error & {
+            color: var(--toastify-color-error);
+        }
+    }
+
+    .Toastify__progress-bar {
+        height: var(--radius);
+    }
+
+    // Form & input styles
+
+    .error-on-blur {
+        &.errored:not(:focus) {
+            border-color: var(--danger) !important;
+        }
+    }
+
+    // Button styles
+
+    .info-indicator {
+        margin-left: 4px;
+        color: var(--primary-alt) !important;
+        cursor: pointer;
+
+        &.left {
+            margin-right: 4px;
+            margin-left: 0;
+        }
+    }
+
+    // Graph series glyph
+
+    .graph-series-glyph {
+        display: flex;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        font-size: 12px;
+        font-weight: bold;
+        line-height: 1rem;
+        pointer-events: none;
+        border: 2px solid var(--text-3000);
+        border-radius: 50%;
+
+        // variants
+        &.funnel-step-glyph {
+            width: 23px;
+            height: 23px;
+            font-size: unset;
+            color: var(--primary-alt);
+            background-color: var(--color-bg-surface-primary);
+            border-color: var(--border);
+        }
+    }
+
+    // Bottom notice (DEBUG=1 mode)
+
+    #bottom-notice {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        z-index: var(--z-bottom-notice);
+        display: flex !important;
+        flex-direction: row;
+        width: 100%;
+        font-size: 0.75rem;
+        line-height: 1.5rem;
+        color: #fff;
+        background: #000;
+
+        code {
+            font-size: inherit;
+            color: inherit;
+        }
+
+        &.warning div {
+            height: auto;
+            background: var(--danger);
+        }
+
+        &.tricolor {
+            cursor: pointer;
+
+            div:nth-child(1) {
+                background: var(--brand-blue);
+            }
+
+            div:nth-child(2) {
+                background: var(--brand-red);
+            }
+
+            div:nth-child(3) {
+                background: var(--brand-yellow);
+            }
+
+            span {
+                cursor: text;
+            }
+        }
+
+        div {
+            flex-basis: 0;
+            flex-grow: 1;
+            height: 1.5rem;
+            text-align: center;
+        }
+
+        span {
+            display: none;
+        }
+
+        button {
+            width: 1.5rem;
+            height: 1.5rem;
+            padding: 0;
+            font-size: 1rem;
+            font-weight: bold;
+            color: inherit;
+            cursor: pointer;
+            background: transparent;
+            border: none;
+        }
+
+        @media screen and (min-width: 750px) {
+            font-size: 1rem;
+            line-height: 2rem;
+
+            div {
+                height: 2rem;
+            }
+
+            span {
+                display: inline;
+            }
+
+            button {
+                width: 2rem;
+                height: 2rem;
+                font-size: 1.25rem;
+            }
+        }
+    }
+
+    html {
+        text-size-adjust: 100%;
+    }
+
+    input::placeholder,
+    textarea::placeholder {
+        // Overrides Tailwind's default
+        color: var(--color-text-tertiary);
+    }
+
+    a {
+        color: var(--link);
+        text-decoration: none;
+    }
+
+    p {
+        margin-top: 0;
+        margin-bottom: 1em;
+    }
+
+    img {
+        vertical-align: middle;
+        border-style: none;
+    }
+
+    [tabindex='-1']:focus {
+        outline: none !important;
+    }
+
+    .storybook-test-runner {
+        &.storybook-test-runner--fullscreen {
+            height: fit-content;
+        }
+
+        &.storybook-test-runner--padded {
+            #storybook-root {
+                // Make the root element (which is the default screenshot reference) hug the component
+                display: inline-block;
+            }
+        }
+
+        // Only use this class in visual regression tests
+        *,
+        *::before,
+        *::after {
+            transition-duration: 0ms !important;
+            animation-fill-mode: forwards !important;
+            animation-duration: 0ms !important;
+            animation-iteration-count: 1 !important;
+        }
+
+        // Hide some parts of the UI that were causing flakiness
+        ::-webkit-scrollbar,
+        *> ::-webkit-scrollbar,
+        // Scrollbar in WebKit/Blink browsers
+        .LemonTabs__bar::after,
+        // Active tab slider
+        .scrollable::after,
+        // Scrollability indicators
+        .scrollable::before {
+            display: none;
+        }
+
+        #storybook-root > .fixed:only-child {
+            // Fix for stories of fixed overlays like CommandBar - otherwise body would be zero-sized
+            position: static !important;
+        }
+
+        #storybook-root:empty ~ .ReactModalPortal > .ReactModal__Overlay {
+            // Fix for stories of fixed modals - otherwise body would be zero-sized
+            position: static !important;
+        }
+    }
+
+    .ligatures-none {
+        font-variant-ligatures: none;
+    }
+
+    .hide-scrollbar {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+
+        &::-webkit-scrollbar {
+            display: none;
+        }
+    }
+
+    .arial {
+        font-family: Arial, sans-serif;
+    }
+
+    .verdana {
+        font-family: Verdana, sans-serif;
+    }
+
+    .tahoma {
+        font-family: Tahoma, sans-serif;
+    }
+
+    .trebuchet-ms {
+        font-family: 'Trebuchet MS', sans-serif;
+    }
+
+    .helvetica {
+        font-family: Helvetica, sans-serif;
+    }
+
+    .times-new-roman {
+        font-family: 'Times New Roman', serif;
+    }
+
+    .georgia {
+        font-family: Georgia, serif;
+    }
+
+    .courier-new {
+        font-family: 'Courier New', monospace;
+    }
+
+    .system-ui {
+        font-family: system-ui;
+    }
+
+    .inherit {
+        font-family: inherit;
+    }
+
+    .animate-float {
+        animation: float 3s infinite ease-in-out;
+    }
+
+    // Primitive classes
+
+    // Used for ui/dropdown-menu and ui/context-menu
+    .primitive-menu-content {
+        z-index: var(--z-popover);
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        min-width: 8rem;
+        max-width: 200px;
+        overflow: hidden;
+        color: var(--color-text-primary);
+        background-color: var(--color-bg-surface-primary);
+        border: 1px solid var(--color-border-primary);
+        border-radius: var(--radius-md);
+        box-shadow: var(--shadow-elevation-3000);
+    }
+
+    .primitive-menu-content-inner {
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        padding: var(--spacing);
+    }
+
+    .animate-mark {
+        animation: animate-mark 2s ease-in-out forwards;
+        animation-fill-mode: none;
+    }
+
+    // Highlight background blink
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes highlight {
+        0% {
+            background-color: var(--mark);
+        }
+
+        100% {
+            background-color: initial;
+        }
+    }
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes animate-mark {
+        0%,
+        100% {
+            background-color: var(--original-bg, initial);
+        }
+
+        50% {
+            background-color: color-mix(in sRGB, var(--mark) 50%, transparent);
+        }
+    }
+
+    // Generic 360 spin
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes spin {
+        0% {
+            transform: rotateZ(0deg);
+        }
+
+        100% {
+            transform: rotateZ(360deg);
+        }
+    }
+
+    // Floating animation
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes float {
+        0% {
+            transform: translateY(0);
+        }
+
+        50% {
+            transform: translateY(-10px);
+        }
+
+        100% {
+            transform: translateY(0);
+        }
+    }
+
+    /* stylelint-disable-next-line order/order */
+    .hogqlx-blink {
+        animation: hogqlx-blink 1s steps(1, end) infinite;
+    }
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes hogqlx-blink {
+        0% {
+            opacity: 1;
+        }
+
+        50% {
+            opacity: 0;
+        }
+
+        100% {
+            opacity: 1;
+        }
+    }
+
+    /* stylelint-disable-next-line keyframes-name-pattern */
+    @keyframes hogqlx-marquee {
+        0% {
+            transform: translateX(0);
+        }
+
+        100% {
+            transform: translateX(-100%);
+        }
+    }
+
+    /* stylelint-disable-next-line order/order */
+    .hogqlx-marquee {
+        position: relative;
+        overflow: hidden;
+        white-space: nowrap;
+    }
+
+    .hogqlx-marquee span {
+        display: inline-block;
+        padding-left: 100%;
+        animation: hogqlx-marquee 10s linear infinite;
+    }
+
+    .hogqlx-redacted {
+        /* themeable variables */
+        position: relative;
+        display: inline-block;
+        color: transparent; /* hide glyphs under the cover */
+        cursor: pointer;
+        background: var(--color-bg-primary); /* the “black bar” */
+        border-radius: var(--radius);
+    }
+
+    .hogqlx-redacted:hover,
+    .hogqlx-redacted:focus-visible {
+        color: inherit; /* show the text */
+        background: transparent; /* remove the bar */
+    }
+
+    .hogqlx-redacted:focus-visible {
+        outline: 2px dashed currentColor;
+        outline-offset: 2px;
+    }
+}

@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { SECURE_URL_REGEX } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -25,14 +26,14 @@ export const isSecureURL = (url: string): boolean => {
     try {
         const parsed = new URL(url)
         return parsed.protocol === 'https:'
-    } catch (_) {
+    } catch {
         return false
     }
 }
 
 export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
     path(['scenes', 'organization', 'verifiedDomainsLogic']),
-    connect({ values: [organizationLogic, ['currentOrganization']], logic: [userLogic] }),
+    connect(() => ({ values: [organizationLogic, ['currentOrganization']], logic: [userLogic] })),
     actions({
         replaceDomain: (domain: OrganizationDomainType) => ({ domain }),
         setAddModalShown: (shown: boolean) => ({ shown }),
@@ -78,14 +79,17 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                     (await api.get(`api/organizations/${values.currentOrganization?.id}/domains`))
                         .results as OrganizationDomainType[],
                 addVerifiedDomain: async (domain: string) => {
-                    const response = await api.create(`api/organizations/${values.currentOrganization?.id}/domains`, {
-                        domain,
-                    })
+                    const response = await api.create<OrganizationDomainType>(
+                        `api/organizations/${values.currentOrganization?.id}/domains`,
+                        {
+                            domain,
+                        }
+                    )
                     return [response, ...values.verifiedDomains]
                 },
                 deleteVerifiedDomain: async (id: string) => {
                     await api.delete(`api/organizations/${values.currentOrganization?.id}/domains/${id}`)
-                    return [...values.verifiedDomains.filter((domain) => domain.id !== id)]
+                    return values.verifiedDomains.filter((domain) => domain.id !== id)
                 },
             },
         ],
@@ -93,18 +97,18 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             false,
             {
                 updateDomain: async (payload: OrganizationDomainUpdatePayload) => {
-                    const response = await api.update(
+                    const response = await api.update<OrganizationDomainType>(
                         `api/organizations/${values.currentOrganization?.id}/domains/${payload.id}`,
                         { ...payload, id: undefined }
                     )
                     lemonToast.success('Domain updated successfully! Changes will take immediately.')
-                    actions.replaceDomain(response as OrganizationDomainType)
+                    actions.replaceDomain(response)
                     return false
                 },
                 verifyDomain: async () => {
-                    const response = (await api.create(
+                    const response = await api.create<OrganizationDomainType>(
                         `api/organizations/${values.currentOrganization?.id}/domains/${values.verifyModal}/verify`
-                    )) as OrganizationDomainType
+                    )
                     if (response.is_verified) {
                         lemonToast.success('Domain verified successfully.')
                     } else {
@@ -158,12 +162,12 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                 if (!id) {
                     return
                 }
-                const response = (await api.update(
+                const response = await api.update<OrganizationDomainType>(
                     `api/organizations/${values.currentOrganization?.id}/domains/${payload.id}`,
                     {
                         ...updateParams,
                     }
-                )) as OrganizationDomainType
+                )
                 breakpoint()
                 actions.replaceDomain(response)
                 actions.setConfigureSAMLModalId(null)

@@ -1,40 +1,41 @@
-from typing import Literal, cast, Optional
-
 import math
-from posthog.hogql.ast import (
-    VariableAssignment,
-    Constant,
-    ArithmeticOperation,
-    Field,
-    ExprStatement,
-    Call,
-    ArithmeticOperationOp,
-    CompareOperationOp,
-    CompareOperation,
-    JoinExpr,
-    SelectQuery,
-    Program,
-    IfStatement,
-    Block,
-    WhileStatement,
-    Function,
-    Array,
-    Dict,
-    VariableDeclaration,
-)
+from typing import Literal, Optional, cast
 
-from posthog.hogql.parser import parse_program
-from posthog.hogql import ast
-from posthog.hogql.errors import ExposedHogQLError, SyntaxError
-from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select, parse_string_template
-from posthog.hogql.visitor import clear_locations
 from posthog.test.base import BaseTest, MemoryLeakTestMixin
+
+from posthog.hogql import ast
+from posthog.hogql.ast import (
+    ArithmeticOperation,
+    ArithmeticOperationOp,
+    Array,
+    Block,
+    Call,
+    CompareOperation,
+    CompareOperationOp,
+    Constant,
+    Dict,
+    ExprStatement,
+    Field,
+    Function,
+    IfStatement,
+    JoinExpr,
+    Program,
+    SelectQuery,
+    SelectSetNode,
+    SelectSetQuery,
+    VariableAssignment,
+    VariableDeclaration,
+    WhileStatement,
+)
+from posthog.hogql.errors import ExposedHogQLError, SyntaxError
+from posthog.hogql.parser import parse_expr, parse_order_expr, parse_program, parse_select, parse_string_template
+from posthog.hogql.visitor import clear_locations
 
 
 def parser_test_factory(backend: Literal["python", "cpp"]):
     base_classes = (MemoryLeakTestMixin, BaseTest) if backend == "cpp" else (BaseTest,)
 
-    class TestParser(*base_classes):
+    class TestParser(*base_classes):  # type: ignore
         MEMORY_INCREASE_PER_PARSE_LIMIT_B = 10_000
         MEMORY_INCREASE_INCREMENTAL_FACTOR_LIMIT = 0.1
         MEMORY_PRIMING_RUNS_N = 2
@@ -50,9 +51,9 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         def _select(
             self, query: str, placeholders: Optional[dict[str, ast.Expr]] = None
-        ) -> ast.SelectQuery | ast.SelectUnionQuery | ast.HogQLXTag:
+        ) -> ast.SelectQuery | ast.SelectSetQuery | ast.HogQLXTag:
             return cast(
-                ast.SelectQuery | ast.SelectUnionQuery | ast.HogQLXTag,
+                ast.SelectQuery | ast.SelectSetQuery | ast.HogQLXTag,
                 clear_locations(parse_select(query, placeholders=placeholders, backend=backend)),
             )
 
@@ -337,6 +338,22 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                         ),
                     ),
                     args=[ast.Constant(value=3)],
+                ),
+            )
+
+        def test_call_expr_sql(self):
+            self.assertEqual(
+                self._expr("asd.asd(select 1)"),
+                ast.ExprCall(
+                    expr=ast.Field(chain=["asd", "asd"]),
+                    args=[ast.SelectQuery(select=[ast.Constant(value=1)])],
+                ),
+            )
+            self.assertEqual(
+                self._expr("sql(select 1)"),
+                ast.Call(
+                    name="sql",
+                    args=[ast.SelectQuery(select=[ast.Constant(value=1)])],
                 ),
             )
 
@@ -735,7 +752,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
         def test_placeholders(self):
             self.assertEqual(
                 self._expr("{foo}"),
-                ast.Placeholder(chain=["foo"]),
+                ast.Placeholder(expr=ast.Field(chain=["foo"])),
             )
             self.assertEqual(
                 self._expr("{foo}", {"foo": ast.Constant(value="bar")}),
@@ -764,7 +781,19 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ast.Call(name="toIntervalMonth", args=[ast.Constant(value=1)]),
             )
             self.assertEqual(
+                self._expr("interval '1 month'"),
+                ast.Call(name="toIntervalMonth", args=[ast.Constant(value=1)]),
+            )
+            self.assertEqual(
                 self._expr("now() - interval 1 week"),
+                ast.ArithmeticOperation(
+                    op=ast.ArithmeticOperationOp.Sub,
+                    left=ast.Call(name="now", args=[]),
+                    right=ast.Call(name="toIntervalWeek", args=[ast.Constant(value=1)]),
+                ),
+            )
+            self.assertEqual(
+                self._expr("now() - interval '1 week'"),
                 ast.ArithmeticOperation(
                     op=ast.ArithmeticOperationOp.Sub,
                     left=ast.Call(name="now", args=[]),
@@ -946,7 +975,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 self._select("select 1 from {placeholder}"),
                 ast.SelectQuery(
                     select=[ast.Constant(value=1)],
-                    select_from=ast.JoinExpr(table=ast.Placeholder(chain=["placeholder"])),
+                    select_from=ast.JoinExpr(table=ast.Placeholder(expr=ast.Field(chain=["placeholder"]))),
                 ),
             )
             self.assertEqual(
@@ -1253,6 +1282,16 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     end=14,
                 ),
             )
+            # Note that the parser will skip anything after `--`, so the `DESC` behind will not be parsed
+            self.assertEqual(
+                parse_order_expr("timestamp -- a comment DESC"),
+                ast.OrderExpr(
+                    expr=ast.Field(chain=["timestamp"], start=0, end=9),
+                    order="ASC",
+                    start=0,
+                    end=9,
+                ),
+            )
 
         def test_select_order_by(self):
             self.assertEqual(
@@ -1318,13 +1357,47 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
             )
             self.assertEqual(
-                self._select("select 1 from events LIMIT 1 OFFSET 3 BY 1, event"),
+                self._select("select 1 from events LIMIT 1 BY event LIMIT 2 OFFSET 3"),
                 ast.SelectQuery(
                     select=[ast.Constant(value=1)],
                     select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                    limit=ast.Constant(value=1),
+                    limit=ast.Constant(value=2),
                     offset=ast.Constant(value=3),
-                    limit_by=[ast.Constant(value=1), ast.Field(chain=["event"])],
+                    limit_by=ast.LimitByExpr(n=ast.Constant(value=1), exprs=[ast.Field(chain=["event"])]),
+                ),
+            )
+            self.assertEqual(
+                self._select("select 1 from events LIMIT 1 OFFSET 4 BY event LIMIT 2"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    limit=ast.Constant(value=2),
+                    limit_by=ast.LimitByExpr(
+                        n=ast.Constant(value=1), offset_value=ast.Constant(value=4), exprs=[ast.Field(chain=["event"])]
+                    ),
+                ),
+            )
+            self.assertEqual(
+                self._select("select 1 from events LIMIT 4, 1 BY event LIMIT 2"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    limit=ast.Constant(value=2),
+                    limit_by=ast.LimitByExpr(
+                        n=ast.Constant(value=1), offset_value=ast.Constant(value=4), exprs=[ast.Field(chain=["event"])]
+                    ),
+                ),
+            )
+            self.assertEqual(
+                self._select("select 1 from events LIMIT 1 OFFSET 4 BY event LIMIT 2 OFFSET 5"),
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                    limit=ast.Constant(value=2),
+                    offset=ast.Constant(value=5),
+                    limit_by=ast.LimitByExpr(
+                        n=ast.Constant(value=1), offset_value=ast.Constant(value=4), exprs=[ast.Field(chain=["event"])]
+                    ),
                 ),
             )
 
@@ -1336,7 +1409,7 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                     where=ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
                         left=ast.Constant(value=1),
-                        right=ast.Placeholder(chain=["hogql_val_1"]),
+                        right=ast.Placeholder(expr=ast.Field(chain=["hogql_val_1"])),
                     ),
                 ),
             )
@@ -1355,15 +1428,74 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 ),
             )
 
+        def test_placeholder_expressions(self):
+            actual = self._select("select 1 where 1 == {1 ? hogql_val_1 : hogql_val_2}")
+            expected = clear_locations(
+                ast.SelectQuery(
+                    select=[ast.Constant(value=1)],
+                    where=ast.CompareOperation(
+                        op=ast.CompareOperationOp.Eq,
+                        left=ast.Constant(value=1),
+                        right=ast.Placeholder(
+                            expr=ast.Call(
+                                name="if",
+                                args=[
+                                    ast.Constant(value=1),
+                                    ast.Field(chain=["hogql_val_1"]),
+                                    ast.Field(chain=["hogql_val_2"]),
+                                ],
+                            )
+                        ),
+                    ),
+                )
+            )
+            self.assertEqual(actual, expected)
+
         def test_select_union_all(self):
             self.assertEqual(
                 self._select("select 1 union all select 2 union all select 3"),
-                ast.SelectUnionQuery(
-                    select_queries=[
-                        ast.SelectQuery(select=[ast.Constant(value=1)]),
-                        ast.SelectQuery(select=[ast.Constant(value=2)]),
-                        ast.SelectQuery(select=[ast.Constant(value=3)]),
-                    ]
+                ast.SelectSetQuery(
+                    initial_select_query=ast.SelectQuery(select=[ast.Constant(value=1)]),
+                    subsequent_select_queries=[
+                        SelectSetNode(set_operator="UNION ALL", select_query=query)
+                        for query in (
+                            ast.SelectQuery(select=[ast.Constant(value=2)]),
+                            ast.SelectQuery(select=[ast.Constant(value=3)]),
+                        )
+                    ],
+                ),
+            )
+
+        def test_nested_selects(self):
+            self.assertEqual(
+                self._select("(select 1 intersect select 2) union all (select 3 except select 4)"),
+                SelectSetQuery(
+                    initial_select_query=SelectSetQuery(
+                        initial_select_query=SelectQuery(select=[Constant(value=1)]),
+                        subsequent_select_queries=[
+                            SelectSetNode(
+                                select_query=SelectQuery(
+                                    select=[Constant(value=2)],
+                                ),
+                                set_operator="INTERSECT",
+                            )
+                        ],
+                    ),
+                    subsequent_select_queries=[
+                        SelectSetNode(
+                            select_query=SelectSetQuery(
+                                initial_select_query=SelectQuery(
+                                    select=[Constant(value=3)],
+                                ),
+                                subsequent_select_queries=[
+                                    SelectSetNode(
+                                        select_query=SelectQuery(select=[Constant(value=4)]), set_operator="EXCEPT"
+                                    )
+                                ],
+                            ),
+                            set_operator="UNION ALL",
+                        )
+                    ],
                 ),
             )
 
@@ -1677,7 +1809,10 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
 
         def test_visit_hogqlx_tag(self):
             node = self._select("select event from <HogQLQuery query='select event from events' />")
-            table_node = cast(ast.SelectQuery, node).select_from.table
+            assert isinstance(node, ast.SelectQuery)
+            assert isinstance(node.select_from, ast.JoinExpr)
+            table_node = node.select_from.table
+            assert isinstance(table_node, ast.HogQLXTag)
             assert table_node == ast.HogQLXTag(
                 kind="HogQLQuery",
                 attributes=[ast.HogQLXAttribute(name="query", value=ast.Constant(value="select event from events"))],
@@ -1691,44 +1826,61 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             node = self._select(
                 "select event from <OuterQuery><HogQLQuery query='select event from events' /></OuterQuery>"
             )
-            table_node = cast(ast.SelectQuery, node).select_from.table
+            assert isinstance(node, ast.SelectQuery)
+            assert isinstance(node.select_from, ast.JoinExpr)
+            table_node = node.select_from.table
+            assert isinstance(table_node, ast.HogQLXTag)
             assert table_node == ast.HogQLXTag(
                 kind="OuterQuery",
                 attributes=[
                     ast.HogQLXAttribute(
-                        name="source",
-                        value=ast.HogQLXTag(
-                            kind="HogQLQuery",
-                            attributes=[
-                                ast.HogQLXAttribute(name="query", value=ast.Constant(value="select event from events"))
-                            ],
-                        ),
+                        name="children",
+                        value=[
+                            ast.HogQLXTag(
+                                kind="HogQLQuery",
+                                attributes=[
+                                    ast.HogQLXAttribute(
+                                        name="query", value=ast.Constant(value="select event from events")
+                                    )
+                                ],
+                            )
+                        ],
                     )
                 ],
             )
 
             # Empty tag
             node = self._select("select event from <OuterQuery></OuterQuery>")
-            table_node = cast(ast.SelectQuery, node).select_from.table
+            assert isinstance(node, ast.SelectQuery)
+            assert isinstance(node.select_from, ast.JoinExpr)
+            table_node = node.select_from.table
+            assert isinstance(table_node, ast.HogQLXTag)
             assert table_node == ast.HogQLXTag(kind="OuterQuery", attributes=[])
 
             # With attribute
             node = self._select(
                 "select event from <OuterQuery q='b'><HogQLQuery query='select event from events' /></OuterQuery>"
             )
-            table_node = cast(ast.SelectQuery, node).select_from.table
+            assert isinstance(node, ast.SelectQuery)
+            assert isinstance(node.select_from, ast.JoinExpr)
+            table_node = node.select_from.table
+            assert isinstance(table_node, ast.HogQLXTag)
             assert table_node == ast.HogQLXTag(
                 kind="OuterQuery",
                 attributes=[
                     ast.HogQLXAttribute(name="q", value=ast.Constant(value="b")),
                     ast.HogQLXAttribute(
-                        name="source",
-                        value=ast.HogQLXTag(
-                            kind="HogQLQuery",
-                            attributes=[
-                                ast.HogQLXAttribute(name="query", value=ast.Constant(value="select event from events"))
-                            ],
-                        ),
+                        name="children",
+                        value=[
+                            ast.HogQLXTag(
+                                kind="HogQLQuery",
+                                attributes=[
+                                    ast.HogQLXAttribute(
+                                        name="query", value=ast.Constant(value="select event from events")
+                                    )
+                                ],
+                            )
+                        ],
                     ),
                 ],
             )
@@ -1743,14 +1895,17 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
             # With mismatched closing tag
             with self.assertRaises(ExposedHogQLError) as e:
                 self._select(
-                    "select event from <OuterQuery source='b'><HogQLQuery query='select event from events' /></OuterQuery>"
+                    "select event from <OuterQuery children='b'><HogQLQuery query='select event from events' /></OuterQuery>"
                 )
-            assert str(e.exception) == "Nested HogQLX tags cannot have a source attribute"
+            assert str(e.exception) == "Can't have a HogQLX tag with both children and a 'children' attribute"
 
         def test_visit_hogqlx_tag_alias(self):
             node = self._select("select event from <HogQLQuery query='select event from events' /> as a")
-            table_node = cast(ast.SelectQuery, node).select_from.table
-            alias = cast(ast.SelectQuery, node).select_from.alias
+            assert isinstance(node, ast.SelectQuery)
+            assert isinstance(node.select_from, ast.JoinExpr)
+            table_node = node.select_from.table
+            alias = node.select_from.alias
+            assert isinstance(table_node, ast.HogQLXTag)
             assert table_node == ast.HogQLXTag(
                 kind="HogQLQuery",
                 attributes=[ast.HogQLXAttribute(name="query", value=ast.Constant(value="select event from events"))],
@@ -1772,7 +1927,10 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 )
             """
             node = self._select(query)
-            table_node = cast(ast.SelectQuery, node).select_from.table
+            assert isinstance(node, ast.SelectQuery)
+            assert isinstance(node.select_from, ast.JoinExpr)
+            table_node = node.select_from.table
+            assert isinstance(table_node, ast.HogQLXTag)
             assert table_node == ast.HogQLXTag(
                 kind="ActorsQuery",
                 attributes=[
@@ -1805,9 +1963,273 @@ def parser_test_factory(backend: Literal["python", "cpp"]):
                 kind="a",
                 attributes=[
                     ast.HogQLXAttribute(name="href", value=Constant(value="https://google.com")),
-                    ast.HogQLXAttribute(name="source", value=ast.Field(chain=["event"])),
+                    ast.HogQLXAttribute(name="children", value=[ast.Field(chain=["event"])]),
                 ],
             )
+
+        def test_visit_hogqlx_multiple_children(self):
+            query = """
+                select <a href='https://google.com'>{event}<b>{'Bold!'}</b></a> from events
+            """
+            node = self._select(query)
+            assert isinstance(node, ast.SelectQuery) and cast(ast.HogQLXTag, node.select[0]) == ast.HogQLXTag(
+                kind="a",
+                attributes=[
+                    ast.HogQLXAttribute(name="href", value=Constant(value="https://google.com")),
+                    ast.HogQLXAttribute(
+                        name="children",
+                        value=[
+                            ast.Field(chain=["event"]),
+                            ast.HogQLXTag(
+                                kind="b",
+                                attributes=[
+                                    ast.HogQLXAttribute(name="children", value=[ast.Constant(value="Bold!")]),
+                                ],
+                            ),
+                        ],
+                    ),
+                ],
+            )
+
+        def test_visit_hogqlx_text_only_child(self):
+            """A tag with a single plain-text child should be turned into
+            a Constant wrapped in the auto-injected `children` attribute."""
+            node = self._select("select <span>Hello World</span> from events")
+            assert isinstance(node, ast.SelectQuery)
+            tag = cast(ast.HogQLXTag, node.select[0])
+            self.assertEqual(
+                tag,
+                ast.HogQLXTag(
+                    kind="span",
+                    attributes=[
+                        ast.HogQLXAttribute(
+                            name="children",
+                            value=[ast.Constant(value="Hello World")],
+                        )
+                    ],
+                ),
+            )
+
+        def test_visit_hogqlx_text_and_expr_children(self):
+            """Mixed text + expression children must keep ordering:
+            Constant('Hello')  →  Field(event)."""
+            node = self._select("select <span>Hello {event}</span> from events")
+            assert isinstance(node, ast.SelectQuery)
+            tag = cast(ast.HogQLXTag, node.select[0])
+            self.assertEqual(
+                tag,
+                ast.HogQLXTag(
+                    kind="span",
+                    attributes=[
+                        ast.HogQLXAttribute(
+                            name="children",
+                            value=[
+                                ast.Constant(value="Hello "),
+                                ast.Field(chain=["event"]),
+                            ],
+                        )
+                    ],
+                ),
+            )
+
+        # 1. <strong>hello world <strong>banana</strong></strong>
+        def test_visit_hogqlx_nested_tags(self) -> None:
+            node = self._select("select <strong>hello world <strong>banana</strong></strong>")
+            assert isinstance(node, ast.SelectQuery)
+            tag = cast(ast.HogQLXTag, node.select[0])
+
+            self.assertEqual(
+                tag,
+                ast.HogQLXTag(
+                    kind="strong",
+                    attributes=[
+                        ast.HogQLXAttribute(
+                            name="children",
+                            value=[
+                                ast.Constant(value="hello world "),
+                                ast.HogQLXTag(
+                                    kind="strong",
+                                    attributes=[
+                                        ast.HogQLXAttribute(
+                                            name="children",
+                                            value=[ast.Constant(value="banana")],
+                                        )
+                                    ],
+                                ),
+                            ],
+                        )
+                    ],
+                ),
+            )
+
+        # 2. <em />
+        def test_visit_hogqlx_self_closing(self) -> None:
+            node = self._select("select <em /> from events")
+            assert isinstance(node, ast.SelectQuery)
+            tag = cast(ast.HogQLXTag, node.select[0])
+
+            # A self-closing element has no “children” attribute at all.
+            self.assertEqual(tag, ast.HogQLXTag(kind="em", attributes=[]))
+
+        # 3. <strong>{event} <em>asd</em></strong>
+        def test_visit_hogqlx_expr_text_and_tag_children(self) -> None:
+            node = self._select("select <strong>{event} <em>asd</em></strong> from events")
+            assert isinstance(node, ast.SelectQuery)
+            tag = cast(ast.HogQLXTag, node.select[0])
+
+            self.assertEqual(
+                tag,
+                ast.HogQLXTag(
+                    kind="strong",
+                    attributes=[
+                        ast.HogQLXAttribute(
+                            name="children",
+                            value=[
+                                ast.Field(chain=["event"]),
+                                ast.Constant(value=" "),
+                                ast.HogQLXTag(
+                                    kind="em",
+                                    attributes=[
+                                        ast.HogQLXAttribute(
+                                            name="children",
+                                            value=[ast.Constant(value="asd")],
+                                        )
+                                    ],
+                                ),
+                            ],
+                        )
+                    ],
+                ),
+            )
+
+        # 4. <strong><a href="…">Hello <em>{event}</em></a>{'a'}</strong>
+        def test_visit_hogqlx_mixed_nested_attributes(self) -> None:
+            node = self._select(
+                "select <strong>"
+                "<a href='https://google.com'>Hello <em>{event}</em></a>"
+                "{'a'}"
+                "</strong> from events"
+            )
+            assert isinstance(node, ast.SelectQuery)
+            outer = cast(ast.HogQLXTag, node.select[0])
+
+            expected = ast.HogQLXTag(
+                kind="strong",
+                attributes=[
+                    ast.HogQLXAttribute(
+                        name="children",
+                        value=[
+                            ast.HogQLXTag(
+                                kind="a",
+                                attributes=[
+                                    ast.HogQLXAttribute(
+                                        name="href",
+                                        value=ast.Constant(value="https://google.com"),
+                                    ),
+                                    ast.HogQLXAttribute(
+                                        name="children",
+                                        value=[
+                                            ast.Constant(value="Hello "),
+                                            ast.HogQLXTag(
+                                                kind="em",
+                                                attributes=[
+                                                    ast.HogQLXAttribute(
+                                                        name="children",
+                                                        value=[ast.Field(chain=["event"])],
+                                                    )
+                                                ],
+                                            ),
+                                        ],
+                                    ),
+                                ],
+                            ),
+                            ast.Constant(value="a"),
+                        ],
+                    )
+                ],
+            )
+
+            self.assertEqual(outer, expected)
+
+        # Regression tests: “<” operator vs HOGQLX-tag opener
+        def test_lt_vs_tags_and_comments(self):
+            # 1. Plain operator – no whitespace
+            self.assertEqual(
+                self._expr("a<b"),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Field(chain=["a"]),
+                    right=ast.Field(chain=["b"]),
+                ),
+            )
+
+            # 2. Operator with unusual spacing: the ‘b+c’ part must be parsed first,
+            #    so we use a small arithmetic expression on the RHS.
+            self.assertEqual(
+                self._expr("a <b +c"),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Field(chain=["a"]),
+                    right=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Add,
+                        left=ast.Field(chain=["b"]),
+                        right=ast.Field(chain=["c"]),
+                    ),
+                ),
+            )
+
+            # 3. Trailing whitespace after RHS – still an operator
+            self.assertEqual(
+                self._expr("a < timestamp "),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Field(chain=["a"]),
+                    right=ast.Field(chain=["timestamp"]),
+                ),
+            )
+
+            # 4. Same, but with an end-of-line comment that must be ignored
+            self.assertEqual(
+                self._expr("a < timestamp // comment\n"),
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.Lt,
+                    left=ast.Field(chain=["a"]),
+                    right=ast.Field(chain=["timestamp"]),
+                ),
+            )
+
+            # 5. Sequence that *is* a tag: `<b …`  → should now fail to parse
+            with self.assertRaises(SyntaxError):
+                self._expr("a <b c")
+
+        def test_program_while_lt_with_space_and_comment(self):
+            code = """
+                while (a < timestamp // comment
+                ) {
+                    let c := 3;
+                }
+            """
+            program = self._program(code)
+            expected = Program(
+                declarations=[
+                    WhileStatement(
+                        expr=CompareOperation(
+                            op=CompareOperationOp.Lt,
+                            left=Field(chain=["a"]),
+                            right=Field(chain=["timestamp"]),
+                        ),
+                        body=Block(
+                            declarations=[
+                                VariableDeclaration(
+                                    name="c",
+                                    expr=Constant(value=3),
+                                )
+                            ],
+                        ),
+                    )
+                ],
+            )
+            self.assertEqual(program, expected)
 
         def test_select_extract_as_function(self):
             node = self._select("select extract('string', 'other string') from events")

@@ -1,32 +1,38 @@
 import './NotebookScene.scss'
 
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { IconInfo, IconOpenSidebar } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { useEffect } from 'react'
+import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { NotebookTarget } from '~/types'
+import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 
 import { Notebook } from './Notebook/Notebook'
 import { NotebookLoadingState } from './Notebook/NotebookLoadingState'
+import { NotebookExpandButton, NotebookSyncInfo, NotebookTableOfContentsButton } from './Notebook/NotebookMeta'
+import { NotebookShareModal } from './Notebook/NotebookShareModal'
 import { notebookLogic } from './Notebook/notebookLogic'
-import { NotebookExpandButton, NotebookSyncInfo } from './Notebook/NotebookMeta'
 import { NotebookMenu } from './NotebookMenu'
 import { notebookPanelLogic } from './NotebookPanel/notebookPanelLogic'
-import { notebookSceneLogic, NotebookSceneLogicProps } from './notebookSceneLogic'
 import { LOCAL_NOTEBOOK_TEMPLATES } from './NotebookTemplates/notebookTemplates'
+import { NotebookSceneLogicProps, notebookSceneLogic } from './notebookSceneLogic'
+import { NotebookTarget } from './types'
 
 interface NotebookSceneProps {
     shortId?: string
 }
 
-export const scene: SceneExport = {
+export const scene: SceneExport<NotebookSceneLogicProps> = {
     component: NotebookScene,
     logic: notebookSceneLogic,
-    paramsToProps: ({ params: { shortId } }: { params: NotebookSceneProps }): NotebookSceneLogicProps => ({
+    paramsToProps: ({ params: { shortId } }: { params: NotebookSceneProps }) => ({
         shortId: shortId || 'missing',
     }),
 }
@@ -34,7 +40,7 @@ export const scene: SceneExport = {
 export function NotebookScene(): JSX.Element {
     const { notebookId, loading } = useValues(notebookSceneLogic)
     const { createNotebook } = useActions(notebookSceneLogic)
-    const { notebook, conflictWarningVisible } = useValues(
+    const { notebook, conflictWarningVisible, accessDeniedToNotebook } = useValues(
         notebookLogic({ shortId: notebookId, target: NotebookTarget.Scene })
     )
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
@@ -45,7 +51,12 @@ export function NotebookScene(): JSX.Element {
             // NOTE: We don't do this in the logic afterMount as the logic can get cached by the router
             createNotebook(NotebookTarget.Scene)
         }
+        // oxlint-disable-next-line exhaustive-deps
     }, [notebookId])
+
+    if (accessDeniedToNotebook) {
+        return <AccessDenied object="notebook" />
+    }
 
     if (!notebook && !loading && !conflictWarningVisible) {
         return <NotFound object="notebook" />
@@ -53,8 +64,8 @@ export function NotebookScene(): JSX.Element {
 
     if (visibility === 'visible' && selectedNotebook === notebookId) {
         return (
-            <div className="flex flex-col justify-center items-center h-full text-muted-alt mx-10 flex-1">
-                <h2 className="text-muted-alt">
+            <div className="flex flex-col justify-center items-center h-full text-secondary mx-10 flex-1">
+                <h2 className="text-secondary">
                     This Notebook is open in the side panel <IconOpenSidebar />
                 </h2>
 
@@ -77,9 +88,14 @@ export function NotebookScene(): JSX.Element {
     }
 
     return (
-        <div className="NotebookScene">
-            <div className="flex items-center justify-between border-b py-2 mb-2 sticky top-0 bg-bg-3000 z-10">
+        <div className={cn('NotebookScene h-[calc(100vh-var(--scene-layout-header-height))]')}>
+            <div
+                className={cn(
+                    'flex items-center justify-between border-b py-2 mb-2 sticky top-0 bg-primary z-10 top-0'
+                )}
+            >
                 <div className="flex gap-2 items-center">
+                    <SceneBreadcrumbBackButton />
                     {isTemplate && <LemonTag type="highlight">TEMPLATE</LemonTag>}
                     <UserActivityIndicator at={notebook?.last_modified_at} by={notebook?.last_modified_by} />
                 </div>
@@ -106,6 +122,7 @@ export function NotebookScene(): JSX.Element {
                             : ''}
                         Guide
                     </LemonButton>
+                    <NotebookTableOfContentsButton type="secondary" size="small" />
                     <NotebookExpandButton type="secondary" size="small" />
                     <LemonButton
                         type="secondary"
@@ -128,6 +145,7 @@ export function NotebookScene(): JSX.Element {
             </div>
 
             <Notebook key={notebookId} shortId={notebookId} editable={!isTemplate} />
+            <NotebookShareModal shortId={notebookId} />
         </div>
     )
 }

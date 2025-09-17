@@ -1,7 +1,9 @@
-import { IconDashboard } from '@posthog/icons'
 import { useValues } from 'kea'
-import { IconWithCount } from 'lib/lemon-ui/icons'
+
+import { IconDashboard } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconWithCount } from 'lib/lemon-ui/icons'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { QueryBasedInsightModel } from '~/types'
@@ -25,8 +27,9 @@ export function AddToDashboard({ insight, setOpenModal }: SaveToDashboardProps):
                         <IconDashboard />
                     </IconWithCount>
                 }
+                tooltip={dashboards.length === 0 ? 'Add to dashboard' : 'Manage dashboards'}
             >
-                {dashboards.length === 0 ? 'Add to dashboard' : 'Manage dashboards'}
+                Dashboards
             </LemonButton>
         </span>
     )

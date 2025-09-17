@@ -1,14 +1,17 @@
-from typing import Union, Optional
+from typing import Optional, Union
+
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
+from posthog.schema import PersonsArgMaxVersion, PersonsOnEventsMode
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.parser import parse_select, parse_expr
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_ast
-from posthog.hogql.visitor import clone_expr, CloningVisitor
+from posthog.hogql.visitor import CloningVisitor, clone_expr
+
 from posthog.models import PropertyDefinition
-from posthog.schema import PersonsOnEventsMode, PersonsArgMaxVersion
-from posthog.test.base import ClickhouseTestMixin, APIBaseTest
 
 
 def _expr(s: Union[str, ast.Expr, None], placeholders: Optional[dict[str, ast.Expr]] = None) -> Union[ast.Expr, None]:
@@ -24,7 +27,7 @@ def _expr(s: Union[str, ast.Expr, None], placeholders: Optional[dict[str, ast.Ex
 def _select(
     s: str,
     placeholders: Optional[dict[str, ast.Expr]] = None,
-) -> ast.SelectQuery | ast.SelectUnionQuery:
+) -> ast.SelectQuery | ast.SelectSetQuery:
     parsed = parse_select(s, placeholders=placeholders)
     return parsed
 
@@ -59,12 +62,13 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(new_select.select_from, ast.JoinExpr)
         assert isinstance(new_select.select_from.next_join, ast.JoinExpr)
         assert isinstance(new_select.select_from.next_join.next_join, ast.JoinExpr)
-        assert isinstance(new_select.select_from.next_join.next_join.table, ast.SelectQuery)
+        assert isinstance(new_select.select_from.next_join.next_join.next_join, ast.JoinExpr)
+        assert isinstance(new_select.select_from.next_join.next_join.next_join.table, ast.SelectQuery)
 
-        assert new_select.select_from.next_join.alias == "events__pdi"
-        assert new_select.select_from.next_join.next_join.alias == "events__pdi__person"
+        assert new_select.select_from.next_join.next_join.alias == "events__pdi"
+        assert new_select.select_from.next_join.next_join.next_join.alias == "events__pdi__person"
 
-        where = new_select.select_from.next_join.next_join.table.where
+        where = new_select.select_from.next_join.next_join.next_join.table.where
         if where is None:
             return None
 
@@ -150,6 +154,11 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         expected = _expr("properties.email = 'jimmy@posthog.com'")
         assert actual == expected
 
+    def test_person_array(self):
+        actual = self.get_clause("SELECT * FROM events WHERE person.properties.email IN ['jimmy@posthog.com']")
+        expected = _expr("properties.email IN ['jimmy@posthog.com']")
+        assert actual == expected
+
     def test_person_properties_function_calls(self):
         actual = self.get_clause(
             "SELECT * FROM events WHERE properties.email = 'bla@posthog.com' and toString(person.properties.email) = 'jimmy@posthog.com'"
@@ -170,6 +179,16 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         )
         assert actual is None
 
+    def test_left_join_with_negation(self):
+        actual = self.get_clause("SELECT * FROM events WHERE person.properties.email != 'jimmy@posthog.com'")
+        assert actual is None
+
+    def test_subquery(self):
+        actual = self.print_query(
+            "SELECT * FROM events WHERE person.id IN (select person_id from person_distinct_ids where distinct_id = '1')"
+        )
+        assert "in(id, (SELECT person_distinct_ids.person_id" in actual
+
     def test_boolean(self):
         PropertyDefinition.objects.get_or_create(
             team=self.team,
@@ -179,6 +198,6 @@ class TestPersonWhereClauseExtractor(ClickhouseTestMixin, APIBaseTest):
         )
         actual = self.print_query("SELECT * FROM events WHERE person.properties.person_boolean = false")
         assert (
-            f"FROM person WHERE and(equals(person.team_id, {self.team.id}), ifNull(equals(transform(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties"
+            f"ifNull(equals(toBool(transform(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties"
             in actual
         )

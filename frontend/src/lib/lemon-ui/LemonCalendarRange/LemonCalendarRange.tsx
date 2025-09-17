@@ -1,8 +1,10 @@
+import { useState } from 'react'
+
 import { IconX } from '@posthog/icons'
+
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { formatDate, formatDateRange } from 'lib/utils'
-import { useState } from 'react'
 
 import { LemonCalendarRangeInline } from './LemonCalendarRangeInline'
 
@@ -31,10 +33,10 @@ export function LemonCalendarRange({ value, onChange, onClose, months }: LemonCa
             <div className="p-2">
                 <LemonCalendarRangeInline value={value} onChange={setRange} months={months} />
             </div>
-            <div className="flex space-x-2 justify-end items-center border-t p-2 pt-4">
+            <div className="flex deprecated-space-x-2 justify-end items-center border-t p-2 pt-4">
                 {rangeStart && rangeEnd && (
                     <div className="flex-1">
-                        <span className="text-muted">Selected period:</span>{' '}
+                        <span className="text-secondary">Selected period:</span>{' '}
                         <span>
                             {rangeStart.isSame(rangeEnd, 'd')
                                 ? formatDate(rangeStart)

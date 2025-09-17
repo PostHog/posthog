@@ -1,14 +1,24 @@
-from typing import Union, Optional
-from posthog.clickhouse.materialized_columns.column import ColumnName
+from typing import Optional, Union
+
+from rest_framework.exceptions import ValidationError
+
+from posthog.schema import (
+    ActionsNode,
+    DataWarehouseNode,
+    EventsNode,
+    FunnelExclusionActionsNode,
+    FunnelExclusionEventsNode,
+)
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
+
+from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
 from posthog.hogql_queries.insights.utils.properties import Properties
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.property.property import PropertyName
-from posthog.schema import ActionsNode, EventsNode, FunnelExclusionActionsNode, FunnelExclusionEventsNode
-from rest_framework.exceptions import ValidationError
 
 
 class FunnelEventQuery:
@@ -55,7 +65,12 @@ class FunnelEventQuery:
             sample=self._sample_expr(),
         )
 
-        where_exprs = [self._date_range_expr(), self._entity_expr(skip_entity_filter), *self._properties_expr()]
+        where_exprs = [
+            self._date_range_expr(),
+            self._entity_expr(skip_entity_filter),
+            *self._properties_expr(),
+            self._aggregation_target_filter(),
+        ]
         where = ast.And(exprs=[expr for expr in where_exprs if expr is not None])
 
         stmt = ast.SelectQuery(
@@ -79,15 +94,16 @@ class FunnelEventQuery:
         elif funnelsFilter.funnelAggregateByHogQL and funnelsFilter.funnelAggregateByHogQL != "person_id":
             aggregation_target = parse_expr(funnelsFilter.funnelAggregateByHogQL)
 
-        # TODO: is this still relevant?
-        # # Aggregating by Distinct ID
-        # elif self._aggregate_users_by_distinct_id:
-        #     aggregation_target = f"{self.EVENT_TABLE_ALIAS}.distinct_id"
-
         if isinstance(aggregation_target, str):
             return ast.Field(chain=[aggregation_target])
         else:
             return aggregation_target
+
+    def _aggregation_target_filter(self) -> ast.Expr | None:
+        if self._aggregation_target_expr() == ast.Field(chain=["person_id"]):
+            return None
+
+        return parse_expr("aggregation_target != '' and aggregation_target != null")
 
     def _sample_expr(self) -> ast.SampleExpr | None:
         query = self.context.query
@@ -126,7 +142,7 @@ class FunnelEventQuery:
         )
 
     def _entity_expr(self, skip_entity_filter: bool) -> ast.Expr | None:
-        team, query, funnelsFilter = self.context.team, self.context.query, self.context.funnelsFilter
+        query, funnelsFilter = self.context.query, self.context.funnelsFilter
         exclusions = funnelsFilter.exclusions or []
 
         if skip_entity_filter is True:
@@ -139,10 +155,12 @@ class FunnelEventQuery:
                 events.add(node.event)
             elif isinstance(node, ActionsNode) or isinstance(node, FunnelExclusionActionsNode):
                 try:
-                    action = Action.objects.get(pk=int(node.id), team=team)
+                    action = Action.objects.get(pk=int(node.id), team__project_id=self.context.team.project_id)
                     events.update(action.get_step_events())
                 except Action.DoesNotExist:
                     raise ValidationError(f"Action ID {node.id} does not exist!")
+            elif isinstance(node, DataWarehouseNode):
+                continue  # Data warehouse nodes aren't based on events
             else:
                 raise ValidationError("Series and exclusions must be compose of action and event nodes")
 

@@ -1,21 +1,20 @@
 import json
+from collections.abc import Callable
 from enum import StrEnum
 from typing import Any, Optional
-from collections.abc import Callable
 
 from django.conf import settings
-from kafka import KafkaConsumer as KC
-from kafka import KafkaProducer as KP
-from kafka.producer.future import (
-    FutureProduceResult,
-    FutureRecordMetadata,
-    RecordMetadata,
+
+from kafka import (
+    KafkaConsumer as KC,
+    KafkaProducer as KP,
 )
+from kafka.producer.future import FutureProduceResult, FutureRecordMetadata, RecordMetadata
 from kafka.structs import TopicPartition
 from statshog.defaults.django import statsd
 from structlog import get_logger
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client import helper
 from posthog.utils import SingletonDecorator
 
@@ -106,7 +105,7 @@ def _sasl_params():
 class _KafkaProducer:
     def __init__(
         self,
-        test=settings.TEST,
+        test=False,
         # the default producer uses these defaulted environment variables,
         # but the session recording producer needs to override them
         kafka_base64_keys=None,
@@ -115,6 +114,8 @@ class _KafkaProducer:
         max_request_size=None,
         compression_type=None,
     ):
+        if settings.TEST:
+            test = True  # Set at runtime so that overriden settings.TEST is supported
         if kafka_security_protocol is None:
             kafka_security_protocol = settings.KAFKA_SECURITY_PROTOCOL
         if kafka_hosts is None:
@@ -219,10 +220,12 @@ def build_kafka_consumer(
     topic: Optional[str],
     value_deserializer=lambda v: json.loads(v.decode("utf-8")),
     auto_offset_reset="latest",
-    test=settings.TEST,
+    test=False,
     group_id=None,
     consumer_timeout_ms=float("inf"),
 ):
+    if settings.TEST:
+        test = True  # Set at runtime so that overriden settings.TEST is supported
     if test:
         consumer = KafkaConsumerForTests(
             topic=topic,

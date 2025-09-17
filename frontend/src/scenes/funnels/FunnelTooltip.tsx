@@ -1,21 +1,22 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { useEffect, useRef } from 'react'
+
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/utils'
-import { useEffect, useRef } from 'react'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { ClickToInspectActors } from 'scenes/insights/InsightTooltip/InsightTooltip'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
-import { ensureTooltip } from 'scenes/insights/views/LineGraph/LineGraph'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { BreakdownFilter } from '~/queries/schema'
+import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { FunnelStepWithConversionMetrics } from '~/types'
 
 import { funnelDataLogic } from './funnelDataLogic'
@@ -41,7 +42,7 @@ export function FunnelTooltip({
     breakdownFilter,
     embedded = false,
 }: FunnelTooltipProps): JSX.Element {
-    const { cohorts } = useValues(cohortsModel)
+    const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     return (
         <div
@@ -58,7 +59,7 @@ export function FunnelTooltip({
                     {formatBreakdownLabel(
                         series.breakdown_value,
                         breakdownFilter,
-                        cohorts,
+                        allCohorts.results,
                         formatPropertyValueForDisplay
                     )}
                 </strong>
@@ -89,13 +90,13 @@ export function FunnelTooltip({
                     {stepIndex > 0 && series.median_conversion_time != null && (
                         <tr>
                             <td>Median time from previous</td>
-                            <td>{humanFriendlyDuration(series.median_conversion_time, 3)}</td>
+                            <td>{humanFriendlyDuration(series.median_conversion_time, { maxUnits: 3 })}</td>
                         </tr>
                     )}
                     {stepIndex > 0 && series.average_conversion_time != null && (
                         <tr>
                             <td>Average time from previous</td>
-                            <td>{humanFriendlyDuration(series.average_conversion_time, 3)}</td>
+                            <td>{humanFriendlyDuration(series.average_conversion_time, { maxUnits: 3 })}</td>
                         </tr>
                     )}
                 </tbody>
@@ -112,10 +113,11 @@ export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTM
     const { aggregationLabel } = useValues(groupsModel)
 
     const vizRef = useRef<HTMLDivElement>(null)
+    const { getTooltip } = useInsightTooltip()
 
     useEffect(() => {
         const svgRect = vizRef.current?.getBoundingClientRect()
-        const [tooltipRoot, tooltipEl] = ensureTooltip()
+        const [tooltipRoot, tooltipEl] = getTooltip()
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
         const tooltipRect = tooltipEl.getBoundingClientRect()
         if (tooltipOrigin) {
@@ -150,7 +152,7 @@ export function useFunnelTooltip(showPersonsModal: boolean): React.RefObject<HTM
             tooltipEl.style.left = 'revert'
             tooltipEl.style.top = 'revert'
         }
-    }, [isTooltipShown, tooltipOrigin, currentTooltip])
+    }, [isTooltipShown, tooltipOrigin, currentTooltip]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return vizRef
 }

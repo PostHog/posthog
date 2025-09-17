@@ -1,36 +1,48 @@
 import './Cohorts.scss'
 
-import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { ListHog } from 'lib/components/hedgehogs'
+import { useState } from 'react'
+
+import { LemonInput } from '@posthog/lemon-ui'
+
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { ListHog } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { useState } from 'react'
+import { cohortsSceneLogic } from 'scenes/cohorts/cohortsSceneLogic'
+import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
+import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { CohortType, ProductKey } from '~/types'
 
-import { cohortsModel } from '../../models/cohortsModel'
+const RESOURCE_TYPE = 'cohort'
+
+export const scene: SceneExport = {
+    component: Cohorts,
+    logic: cohortsSceneLogic,
+}
 
 export function Cohorts(): JSX.Element {
-    const { cohorts, cohortsSearch, cohortsLoading } = useValues(cohortsModel)
-    const { deleteCohort, exportCohortPersons } = useActions(cohortsModel)
+    const { cohorts, cohortsLoading, pagination, cohortFilters } = useValues(cohortsSceneLogic)
+    const { deleteCohort, exportCohortPersons, setCohortFilters } = useActions(cohortsSceneLogic)
     const { searchParams } = useValues(router)
-    const [searchTerm, setSearchTerm] = useState<string>('')
+    const [searchTerm, setSearchTerm] = useState(cohortFilters.search || '')
 
     const columns: LemonTableColumns<CohortType> = [
         {
             title: 'Name',
             dataIndex: 'name',
-            className: 'ph-no-capture',
             width: '30%',
             sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
             render: function Render(name, { id, description }) {
@@ -124,7 +136,13 @@ export function Cohorts(): JSX.Element {
                                     Export all columns for users
                                 </LemonButton>
                                 <LemonDivider />
-                                <LemonButton status="danger" onClick={() => deleteCohort(cohort)} fullWidth>
+                                <LemonButton
+                                    status="danger"
+                                    onClick={() => {
+                                        deleteCohort({ id: cohort.id, name: cohort.name, deleted: true })
+                                    }}
+                                    fullWidth
+                                >
                                     Delete cohort
                                 </LemonButton>
                             </>
@@ -136,23 +154,48 @@ export function Cohorts(): JSX.Element {
     ]
 
     return (
-        <>
+        <SceneContent>
+            <PersonsManagementSceneTabs
+                tabKey="cohorts"
+                buttons={
+                    <LemonButton
+                        type="primary"
+                        data-attr="new-cohort"
+                        onClick={() => router.actions.push(urls.cohort('new'))}
+                    >
+                        New cohort
+                    </LemonButton>
+                }
+            />
+
+            <SceneTitleSection
+                name="Cohorts"
+                description="A catalog of identified persons and your created cohorts."
+                resourceType={{
+                    type: RESOURCE_TYPE,
+                }}
+            />
+            <SceneDivider />
+
             <ProductIntroduction
                 productName="Cohorts"
                 productKey={ProductKey.COHORTS}
                 thingName="cohort"
-                description="Use cohorts to group people together, such as users who used your app in the last week, or people who viewed the signup page but didn’t convert."
-                isEmpty={cohorts?.length == 0 && !cohortsLoading}
+                description="Use cohorts to group people together, such as users who used your app in the last week, or people who viewed the signup page but didn't convert."
+                isEmpty={cohorts.count == 0 && !cohortsLoading && !searchTerm}
                 docsURL="https://posthog.com/docs/data/cohorts"
                 action={() => router.actions.push(urls.cohort('new'))}
                 customHog={ListHog}
             />
 
-            <div className="flex justify-between items-center mb-4 gap-2">
+            <div className="flex justify-between items-center mb-0 gap-2">
                 <LemonInput
                     type="search"
                     placeholder="Search for cohorts"
-                    onChange={setSearchTerm}
+                    onChange={(search) => {
+                        setSearchTerm(search)
+                        setCohortFilters({ search: search || undefined, page: 1 })
+                    }}
                     value={searchTerm}
                 />
             </div>
@@ -160,11 +203,11 @@ export function Cohorts(): JSX.Element {
                 columns={columns}
                 loading={cohortsLoading}
                 rowKey="id"
-                pagination={{ pageSize: 100 }}
-                dataSource={searchTerm ? cohortsSearch(searchTerm) : cohorts ?? []}
+                pagination={pagination}
+                dataSource={cohorts.results}
                 nouns={['cohort', 'cohorts']}
                 data-attr="cohorts-table"
             />
-        </>
+        </SceneContent>
     )
 }

@@ -1,24 +1,27 @@
 from datetime import datetime
-from freezegun import freeze_time
-from posthog.hogql.modifiers import create_default_modifiers_for_team
 
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from freezegun import freeze_time
+from posthog.test.base import BaseTest, _create_event, _create_person
+
 from posthog.schema import (
     BaseMathType,
     BreakdownFilter,
     BreakdownType,
     ChartDisplayType,
-    InsightDateRange,
     DataWarehouseNode,
+    DateRange,
     EventsNode,
     HogQLQueryResponse,
     TrendsFilter,
     TrendsQuery,
 )
-from posthog.test.base import BaseTest, _create_event, _create_person
+
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.timings import HogQLTimings
+
+from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 
 class TestTrendsQueryBuilder(BaseTest):
@@ -73,7 +76,7 @@ class TestTrendsQueryBuilder(BaseTest):
     def test_column_names(self):
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=InsightDateRange(date_from="2023-01-01"),
+            dateRange=DateRange(date_from="2023-01-01"),
             series=[EventsNode(event="$pageview", math=BaseMathType.TOTAL)],
         )
 
@@ -85,7 +88,7 @@ class TestTrendsQueryBuilder(BaseTest):
     def assert_column_names_with_display_type(self, display_type: ChartDisplayType):
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=InsightDateRange(date_from="2023-01-01"),
+            dateRange=DateRange(date_from="2023-01-01"),
             series=[EventsNode(event="$pageview")],
             trendsFilter=TrendsFilter(display=display_type),
         )
@@ -98,7 +101,7 @@ class TestTrendsQueryBuilder(BaseTest):
     def assert_column_names_with_display_type_and_breakdowns(self, display_type: ChartDisplayType):
         trends_query = TrendsQuery(
             kind="TrendsQuery",
-            dateRange=InsightDateRange(date_from="2023-01-01"),
+            dateRange=DateRange(date_from="2023-01-01"),
             series=[EventsNode(event="$pageview")],
             trendsFilter=TrendsFilter(display=display_type),
             breakdownFilter=BreakdownFilter(breakdown="$geoip_country_code", breakdown_type=BreakdownType.EVENT),

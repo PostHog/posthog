@@ -2,6 +2,7 @@
 name = "hook-api"
 version = "0.1.0"
 edition = "2021"
+publish = false
 
 [lints]
 workspace = true
@@ -23,3 +24,4 @@ tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 url = { workspace = true }
 common-metrics = { path = "../common/metrics" }
+common-alloc = { path = "../common/alloc" }

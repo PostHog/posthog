@@ -1,5 +1,6 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import { detect } from 'detect-browser'
+
+import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { Hub, PluginConfig, PluginLogEntrySource, PluginLogEntryType, PluginMethods } from '../../../types'
 import { PluginInstance } from '../lazy'
@@ -17,12 +18,6 @@ export class UserAgentPlugin implements PluginInstance {
     clearRetryTimeoutIfExists = async () => {}
     getTeardown = () => {
         return Promise.resolve(null)
-    }
-    getTask = () => {
-        return Promise.resolve(null)
-    }
-    getScheduledTasks = () => {
-        return Promise.resolve({})
     }
     setupPluginIfNeeded = () => {
         return Promise.resolve(true)

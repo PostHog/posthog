@@ -1,25 +1,26 @@
+import { useActions, useValues } from 'kea'
+
 import { IconArrowRight } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { IconSync } from 'lib/lemon-ui/icons'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { useEffect } from 'react'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { IconSync } from 'lib/lemon-ui/icons'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
-import { groupsModel } from '~/models/groupsModel'
-import { FeatureFlagType, OrganizationFeatureFlag } from '~/types'
+import { type Noun, groupsModel } from '~/models/groupsModel'
+import { CohortType, FeatureFlagType, OrganizationFeatureFlag, OrganizationType } from '~/types'
 
 import { organizationLogic } from '../organizationLogic'
-import { featureFlagLogic } from './featureFlagLogic'
 import { groupFilters } from './FeatureFlags'
+import { featureFlagLogic } from './featureFlagLogic'
 
-function checkHasStaticCohort(featureFlag: FeatureFlagType): boolean {
-    const { cohorts } = useValues(cohortsModel)
+function checkHasStaticCohort(featureFlag: FeatureFlagType, cohorts: CohortType[]): boolean {
     const staticCohorts = new Set()
     cohorts.forEach((cohort) => {
         if (cohort.is_static) {
@@ -37,11 +38,15 @@ function checkHasStaticCohort(featureFlag: FeatureFlagType): boolean {
     return false
 }
 
-const getColumns = (): LemonTableColumns<OrganizationFeatureFlag> => {
-    const { currentTeamId } = useValues(teamLogic)
-    const { currentOrganization } = useValues(organizationLogic)
-    const { aggregationLabel } = useValues(groupsModel)
-
+const getColumns = ({
+    aggregationLabel,
+    currentTeamId,
+    currentOrganization,
+}: {
+    aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
+    currentTeamId: number | null
+    currentOrganization: OrganizationType | null
+}): LemonTableColumns<OrganizationFeatureFlag> => {
     return [
         {
             title: 'Project',
@@ -133,8 +138,9 @@ function FeatureFlagCopySection(): JSX.Element {
     const { setCopyDestinationProject, copyFlag } = useActions(featureFlagLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { allCohorts } = useValues(cohortsModel)
 
-    const hasStaticCohort = checkHasStaticCohort(featureFlag)
+    const hasStaticCohort = checkHasStaticCohort(featureFlag, allCohorts.results)
     const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
 
     return hasMultipleProjects && featureFlag.can_edit ? (
@@ -168,6 +174,7 @@ function FeatureFlagCopySection(): JSX.Element {
                         options={
                             currentOrganization?.teams
                                 ?.map((team) => ({ value: team.id, label: team.name }))
+                                .sort((a, b) => a.label.localeCompare(b.label))
                                 .filter((option) => option.value !== currentTeam?.id) || []
                         }
                         className="min-w-[10rem]"
@@ -198,10 +205,11 @@ function FeatureFlagCopySection(): JSX.Element {
 export default function FeatureFlagProjects(): JSX.Element {
     const { projectsWithCurrentFlag } = useValues(featureFlagLogic)
     const { loadProjectsWithCurrentFlag } = useActions(featureFlagLogic)
+    const { currentTeamId } = useValues(teamLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const { aggregationLabel } = useValues(groupsModel)
 
-    useEffect(() => {
-        loadProjectsWithCurrentFlag()
-    }, [])
+    useOnMountEffect(loadProjectsWithCurrentFlag)
 
     return (
         <div>
@@ -210,7 +218,7 @@ export default function FeatureFlagProjects(): JSX.Element {
             <LemonTable
                 loading={false}
                 dataSource={projectsWithCurrentFlag}
-                columns={getColumns()}
+                columns={getColumns({ currentTeamId, currentOrganization, aggregationLabel })}
                 emptyState="This feature flag is not being used in any other project."
             />
         </div>

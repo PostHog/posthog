@@ -1,10 +1,11 @@
 from typing import Optional, cast
 
-import structlog
 from django.conf import settings
 
+import structlog
+
 from posthog.async_migrations.definition import AsyncMigrationDefinition
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 
 logger = structlog.get_logger(__name__)
 

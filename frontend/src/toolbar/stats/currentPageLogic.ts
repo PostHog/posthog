@@ -21,6 +21,28 @@ const replaceWithWildcard = (part: string): string => {
     return part
 }
 
+/**
+ * Sometimes we are able to set the href before the posthog init fragment is removed
+ * we never want to store it as it will mean the heatmap URL is too specific and doesn't match
+ * this ensures we never store it
+ */
+export function withoutPostHogInit(href: string): string {
+    try {
+        // we can't use `new URL(href)` because it behaves differently between browsers
+        // and e.g. converts `https://*.example.com/` to `https://%2A.example.com/`
+        const firstHash = href.indexOf('#')
+        if (firstHash === -1) {
+            return href
+        }
+        return href
+            .replace(/__posthog=\{[^}]*}[^#]*/, '')
+            .replace('##', '#')
+            .replace(/#$/, '')
+    } catch {
+        return href
+    }
+}
+
 export const currentPageLogic = kea<currentPageLogicType>([
     path(['toolbar', 'stats', 'currentPageLogic']),
     actions(() => ({
@@ -29,10 +51,13 @@ export const currentPageLogic = kea<currentPageLogicType>([
         autoWildcardHref: true,
     })),
     reducers(() => ({
-        href: [window.location.href, { setHref: (_, { href }) => href }],
+        href: [window.location.href, { setHref: (_, { href }) => withoutPostHogInit(href) }],
         wildcardHref: [
             window.location.href,
-            { setHref: (_, { href }) => href, setWildcardHref: (_, { href }) => href },
+            {
+                setHref: (_, { href }) => withoutPostHogInit(href),
+                setWildcardHref: (_, { href }) => withoutPostHogInit(href),
+            },
         ],
     })),
 
@@ -50,11 +75,13 @@ export const currentPageLogic = kea<currentPageLogicType>([
             // Iterate over query params and do the same for their values
             if (urlParts.length > 1) {
                 const queryParams = urlParts[1].split('&')
+
                 for (let i = 0; i < queryParams.length; i++) {
                     const [key, value] = queryParams[i].split('=')
                     queryParams[i] = `${key}=${replaceWithWildcard(value)}`
                 }
-                url = `${url}?${queryParams.join('&')}`
+
+                url = `${url}\\?${queryParams.join('&')}`
             }
 
             actions.setWildcardHref(url)
@@ -62,9 +89,11 @@ export const currentPageLogic = kea<currentPageLogicType>([
     })),
 
     afterMount(({ actions, values, cache }) => {
+        actions.setHref(withoutPostHogInit(values.href))
+
         cache.interval = window.setInterval(() => {
             if (window.location.href !== values.href) {
-                actions.setHref(window.location.href)
+                actions.setHref(withoutPostHogInit(window.location.href))
             }
         }, 500)
     }),

@@ -3,20 +3,21 @@ from enum import Enum
 from functools import cached_property
 from typing import Optional, Union
 
-import structlog
 from django.core.paginator import Paginator
 from django.utils.timezone import now
+
+import structlog
 from prometheus_client import Counter
 
 from posthog.caching.calculate_results import calculate_cache_key
 from posthog.caching.utils import active_teams
-from posthog.hogql_queries.legacy_compatibility.flagged_conversion_manager import conversion_to_query_based
 from posthog.hogql_queries.query_runner import get_query_runner_or_none
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.insight import Insight, InsightViewed
 from posthog.models.insight_caching_state import InsightCachingState
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
+from posthog.schema_migrations.upgrade_manager import upgrade_query
 
 VERY_RECENTLY_VIEWED_THRESHOLD = timedelta(hours=48)
 GENERALLY_VIEWED_THRESHOLD = timedelta(weeks=2)
@@ -141,7 +142,7 @@ def upsert(  # TODO: Rename to `upsert_insight_caching_state` for clarity
     if insight is None:
         return None
 
-    with conversion_to_query_based(insight):
+    with upgrade_query(insight):
         target_age = calculate_target_age(team, target, lazy_loader)
         target_cache_age_seconds = target_age.value.total_seconds() if target_age.value is not None else None
 

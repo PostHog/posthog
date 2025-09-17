@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -53,7 +54,7 @@ export function DuplicateDashboardModal(): JSX.Element {
                 formKey="duplicateDashboard"
                 id="duplicate-dashboard-form"
                 enableFormOnSubmit
-                className="space-y-2"
+                className="deprecated-space-y-2"
             >
                 <LemonField
                     name="duplicateTiles"

@@ -1,8 +1,9 @@
 from rest_framework import status
 
+from posthog.models import Dashboard, OrganizationMembership, User
+
 from ee.api.test.base import APILicensedTest
 from ee.models.dashboard_privilege import DashboardPrivilege
-from posthog.models import Dashboard, OrganizationMembership, User
 
 
 class TestDashboardCollaboratorsAPI(APILicensedTest):

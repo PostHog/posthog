@@ -1,0 +1,41 @@
+.LemonColorGlyph {
+    position: relative;
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: 2px solid var(--text-3000);
+    border-radius: 50%;
+}
+
+.LemonColorGlyph--small {
+    width: 16px;
+    height: 16px;
+}
+
+.LemonColorGlyph--placeholder {
+    border: none;
+}
+
+.LemonColorGlyph--unset {
+    background-color: var(--color-bg-surface-primary);
+    border-color: var(--color-border-primary);
+}
+
+.LemonColorGlyph__strikethrough {
+    position: absolute;
+    width: 9px;
+    height: 9px;
+
+    // diagonal line from bottom-left to top-right
+    background: linear-gradient(
+        to top left,
+        transparent 0%,
+        transparent calc(50% - 1.2px),
+        var(--danger) 50%,
+        transparent calc(50% + 1.2px),
+        transparent 100%
+    );
+}

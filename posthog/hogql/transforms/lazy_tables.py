@@ -1,9 +1,10 @@
 import dataclasses
-from typing import Optional, cast, Literal
+from typing import Literal, Optional, cast
 
 from posthog.hogql import ast
+from posthog.hogql.base import _T_AST
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import LazyTableToAdd, LazyJoinToAdd
+from posthog.hogql.database.models import LazyJoinToAdd, LazyTableToAdd
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import get_long_table_name
@@ -13,7 +14,7 @@ from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 # This mutates the nodes
 def resolve_lazy_tables(
-    node: ast.Expr,
+    node: _T_AST,
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[list[ast.SelectQuery]],
     context: HogQLContext,
@@ -92,10 +93,9 @@ class LazyTableResolver(TraversingVisitor):
             # we have already visited this property
             return
 
-        if isinstance(node.field_type.table_type, ast.TableAliasType):
-            table_type: ast.TableOrSelectType | ast.TableAliasType = node.field_type.table_type.table_type
-        else:
-            table_type = node.field_type.table_type
+        table_type = node.field_type.table_type
+        while isinstance(table_type, ast.TableAliasType) or isinstance(table_type, ast.VirtualTableType):
+            table_type = table_type.table_type
 
         if isinstance(table_type, ast.LazyJoinType) or isinstance(table_type, ast.LazyTableType):
             if self.context and self.context.within_non_hogql_query:
@@ -108,10 +108,9 @@ class LazyTableResolver(TraversingVisitor):
                 self.field_collectors[-1].append(node)
 
     def visit_field_type(self, node: ast.FieldType):
-        if isinstance(node.table_type, ast.TableAliasType):
-            table_type: ast.TableOrSelectType | ast.TableAliasType = node.table_type.table_type
-        else:
-            table_type = node.table_type
+        table_type: ast.TableOrSelectType | ast.TableAliasType = node.table_type
+        while isinstance(table_type, ast.TableAliasType) or isinstance(table_type, ast.VirtualTableType):
+            table_type = table_type.table_type
 
         if isinstance(table_type, ast.LazyJoinType) or isinstance(table_type, ast.LazyTableType):
             # Each time we find a field, we place it in a list for processing in "visit_select_query"
@@ -154,14 +153,18 @@ class LazyTableResolver(TraversingVisitor):
                 fields: list[ast.FieldType | ast.PropertyType] = []
                 for field_or_property in field_collector:
                     if isinstance(field_or_property, ast.FieldType):
-                        if isinstance(field_or_property.table_type, ast.TableAliasType):
+                        if isinstance(field_or_property.table_type, ast.TableAliasType) or isinstance(
+                            field_or_property.table_type, ast.VirtualTableType
+                        ):
                             if field_or_property.table_type.table_type == join.table.type:
                                 fields.append(field_or_property)
                         else:
                             if field_or_property.table_type == join.table.type:
                                 fields.append(field_or_property)
                     elif isinstance(field_or_property, ast.PropertyType):
-                        if isinstance(field_or_property.field_type.table_type, ast.TableAliasType):
+                        if isinstance(field_or_property.field_type.table_type, ast.TableAliasType) or isinstance(
+                            field_or_property.field_type.table_type, ast.VirtualTableType
+                        ):
                             if field_or_property.field_type.table_type.table_type == join.table.type:
                                 fields.append(field_or_property)
                         else:
@@ -185,27 +188,37 @@ class LazyTableResolver(TraversingVisitor):
 
             # Traverse the lazy tables until we reach a real table, collecting them in a list.
             # Usually there's just one or two.
-            table_types: list[ast.LazyJoinType | ast.LazyTableType | ast.TableAliasType] = []
+            table_types: list[ast.LazyJoinType | ast.LazyTableType | ast.TableAliasType | ast.VirtualTableType] = []
             while (
                 isinstance(table_type, ast.TableAliasType)
                 or isinstance(table_type, ast.LazyJoinType)
                 or isinstance(table_type, ast.LazyTableType)
+                or isinstance(table_type, ast.VirtualTableType)
             ):
+                if isinstance(table_type, ast.VirtualTableType):
+                    table_type = table_type.table_type
+                    continue
+                if isinstance(table_type, ast.LazyJoinType):
+                    table_types.append(table_type)
+                    table_type = table_type.table_type
+                    continue
                 if isinstance(table_type, ast.TableAliasType):
                     table_types.append(table_type)
                     table_type = table_type.table_type
                     break
-                if isinstance(table_type, ast.LazyJoinType):
-                    table_types.append(table_type)
-                    table_type = table_type.table_type
                 if isinstance(table_type, ast.LazyTableType):
                     table_types.append(table_type)
                     break
 
             # Loop over the collected lazy tables in reverse order to create the joins
+            # TODO: the code below needs a good refactor... it's very repetitive
             for table_type in reversed(table_types):
                 if isinstance(table_type, ast.LazyJoinType):
-                    from_table = get_long_table_name(select_type, table_type.table_type)
+                    if isinstance(table_type.table_type, ast.VirtualTableType):
+                        from_table = get_long_table_name(select_type, table_type.table_type.table_type)
+                    else:
+                        from_table = get_long_table_name(select_type, table_type.table_type)
+
                     to_table = get_long_table_name(select_type, table_type)
                     if to_table not in joins_to_add:
                         joins_to_add[to_table] = LazyJoinToAdd(
@@ -213,16 +226,20 @@ class LazyTableResolver(TraversingVisitor):
                             lazy_join=table_type.lazy_join,
                             from_table=from_table,
                             to_table=to_table,
+                            lazy_join_type=table_type,
                         )
                     new_join = joins_to_add[to_table]
-                    if table_type == field.table_type:
+
+                    if table_type == field.table_type or (
+                        isinstance(field.table_type, ast.VirtualTableType) and table_type == field.table_type.table_type
+                    ):
                         chain: list[str | int] = []
+                        if isinstance(field.table_type, ast.VirtualTableType):
+                            chain.append(field.table_type.field)
                         chain.append(field.name)
                         if property is not None:
                             chain.extend(property.chain)
-                            property.joined_subquery_field_name = (
-                                f"{field.name}___{'___'.join(str(x) for x in property.chain)}"
-                            )
+                            property.joined_subquery_field_name = "___".join(str(x) for x in chain)
                             new_join.fields_accessed[property.joined_subquery_field_name] = chain
                         else:
                             new_join.fields_accessed[field.name] = chain
@@ -234,14 +251,16 @@ class LazyTableResolver(TraversingVisitor):
                             lazy_table=table_type.table,
                         )
                     new_table = tables_to_add[table_name]
-                    if table_type == field.table_type:
+                    if table_type == field.table_type or (
+                        isinstance(field.table_type, ast.VirtualTableType) and table_type == field.table_type.table_type
+                    ):
                         chain = []
+                        if isinstance(field.table_type, ast.VirtualTableType):
+                            chain.append(field.table_type.field)
                         chain.append(field.name)
                         if property is not None:
                             chain.extend(property.chain)
-                            property.joined_subquery_field_name = (
-                                f"{field.name}___{'___'.join(str(x) for x in property.chain)}"
-                            )
+                            property.joined_subquery_field_name = "___".join(str(x) for x in chain)
                             new_table.fields_accessed[property.joined_subquery_field_name] = chain
                         else:
                             new_table.fields_accessed[field.name] = chain
@@ -255,16 +274,20 @@ class LazyTableResolver(TraversingVisitor):
                                 lazy_join=table_type.table_type.lazy_join,
                                 from_table=from_table,
                                 to_table=to_table,
+                                lazy_join_type=table_type.table_type,
                             )
                         new_join = joins_to_add[to_table]
-                        if table_type == field.table_type:
+                        if table_type == field.table_type or (
+                            isinstance(field.table_type, ast.VirtualTableType)
+                            and table_type == field.table_type.table_type
+                        ):
                             chain: list[str | int] = []
+                            if isinstance(field.table_type, ast.VirtualTableType):
+                                chain.append(field.table_type.field)
                             chain.append(field.name)
                             if property is not None:
                                 chain.extend(property.chain)
-                                property.joined_subquery_field_name = (
-                                    f"{field.name}___{'___'.join(str(x) for x in property.chain)}"
-                                )
+                                property.joined_subquery_field_name = "___".join(str(x) for x in chain)
                                 new_join.fields_accessed[property.joined_subquery_field_name] = chain
                             else:
                                 new_join.fields_accessed[field.name] = chain
@@ -276,14 +299,17 @@ class LazyTableResolver(TraversingVisitor):
                                 lazy_table=cast(ast.LazyTable, table_type.table_type.table),
                             )
                         new_table = tables_to_add[table_name]
-                        if table_type == field.table_type:
+                        if table_type == field.table_type or (
+                            isinstance(field.table_type, ast.VirtualTableType)
+                            and table_type == field.table_type.table_type
+                        ):
                             chain = []
+                            if isinstance(field.table_type, ast.VirtualTableType):
+                                chain.append(field.table_type.field)
                             chain.append(field.name)
                             if property is not None:
                                 chain.extend(property.chain)
-                                property.joined_subquery_field_name = (
-                                    f"{field.name}___{'___'.join(str(x) for x in property.chain)}"
-                                )
+                                property.joined_subquery_field_name = "___".join(str(x) for x in chain)
                                 new_table.fields_accessed[property.joined_subquery_field_name] = chain
                             else:
                                 new_table.fields_accessed[field.name] = chain
@@ -348,9 +374,6 @@ class LazyTableResolver(TraversingVisitor):
                     break
                 join_ptr = join_ptr.next_join
 
-        # Store all the constraint fields we've seen for each join to decide where in the order of joins the next join should be added
-        field_chain_finder = FieldFinder()
-
         # For all the collected joins, create the join subqueries, and add them to the table.
         for to_table, join_scope in joins_to_add.items():
             join_to_add: ast.JoinExpr = join_scope.lazy_join.join_function(
@@ -380,6 +403,7 @@ class LazyTableResolver(TraversingVisitor):
             if join_to_add.type is not None:
                 select_type.tables[to_table] = join_to_add.type
 
+            field_chain_finder = FieldFinder()
             field_chain_finder.visit(join_to_add.constraint)
 
             select_from_alias: str | int | None = None
@@ -389,7 +413,21 @@ class LazyTableResolver(TraversingVisitor):
                 if node.select_from and node.select_from.table and isinstance(node.select_from.table, ast.Field):
                     select_from_alias = node.select_from.table.chain[0]
 
-            constraint_tables = [x[0] for x in field_chain_finder.field_chains if x[0] != select_from_alias]
+            # Store all the constraint tables we've seen for this join to decide where in the order of joins the next join should be added
+            constraint_tables: list[str | int] = []
+            for field_chain in field_chain_finder.field_chains:
+                if field_chain[0] == select_from_alias:
+                    continue
+
+                added = False
+                for constraint_table_join in joins_to_add.values():
+                    if field_chain[0] == constraint_table_join.lazy_join_type.field:
+                        constraint_tables.append(constraint_table_join.to_table)
+                        added = True
+                        break
+
+                if not added:
+                    constraint_tables.append(field_chain[0])
 
             join_ptr = node.select_from
             added = False
@@ -434,6 +472,9 @@ class LazyTableResolver(TraversingVisitor):
                 table_type = field_or_property.field_type.table_type
             else:
                 raise ResolutionError("Should not be reachable")
+
+            while isinstance(table_type, ast.VirtualTableType):
+                table_type = table_type.table_type
 
             table_name = get_long_table_name(select_type, table_type)
             try:

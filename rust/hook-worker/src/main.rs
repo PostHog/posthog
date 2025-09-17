@@ -6,12 +6,14 @@ use hook_common::pgqueue::PgQueue;
 use hook_common::retry::RetryPolicy;
 use std::future::ready;
 
+use common_kafka::kafka_producer::create_kafka_producer;
 use common_metrics::{serve, setup_metrics_routes};
 use health::HealthRegistry;
-use hook_common::kafka_producer::create_kafka_producer;
 use hook_worker::config::Config;
 use hook_worker::error::WorkerError;
 use hook_worker::worker::WebhookWorker;
+
+common_alloc::used!();
 
 #[tokio::main]
 async fn main() -> Result<(), WorkerError> {

@@ -1,0 +1,50 @@
+[package]
+name = "cymbal"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+tokio = { workspace = true }
+envconfig = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+health = { path = "../common/health" }
+axum = { workspace = true }
+metrics = { workspace = true }
+common-metrics = { path = "../common/metrics" }
+common-alloc = { path = "../common/alloc" }
+common-kafka = { path = "../common/kafka" }
+common-types = { path = "../common/types" }
+common-dns = { path = "../common/dns" }
+common-redis = { path = "../common/redis" }
+limiters = { path = "../common/limiters" }
+posthog-symbol-data = "0.2.0"
+common-geoip = { path = "../common/geoip" }
+hogvm = { path = "../common/hogvm" }
+thiserror = { workspace = true }
+sqlx = { workspace = true }
+serde_json = { workspace = true }
+serde = { workspace = true }
+sourcemap = "9.0.0"
+symbolic = { version = "12.12.1", features = ["sourcemapcache"] }
+reqwest = { workspace = true }
+sha2 = "0.10.8"
+aws-config = { workspace = true }
+aws-sdk-s3 = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+moka = { workspace = true }
+rdkafka = { workspace = true }
+posthog-rs = { workspace = true }
+base64 = { workspace = true }
+regex = { workspace = true }
+once_cell = { workspace = true }
+
+[dev-dependencies]
+httpmock = { workspace = true }
+mockall = { workspace = true }
+
+
+[lints]
+workspace = true

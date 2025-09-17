@@ -7,14 +7,11 @@ import structlog
 from dateutil.relativedelta import relativedelta
 from rest_framework.exceptions import ValidationError
 
-from posthog.constants import (
-    MONTHLY_ACTIVE,
-    NON_TIME_SERIES_DISPLAY_TYPES,
-    UNIQUE_GROUPS,
-    UNIQUE_USERS,
-    WEEKLY_ACTIVE,
-)
+from posthog.schema import PersonsOnEventsMode
+
 from posthog.hogql.hogql import translate_hogql
+
+from posthog.constants import MONTHLY_ACTIVE, NON_TIME_SERIES_DISPLAY_TYPES, UNIQUE_GROUPS, UNIQUE_USERS, WEEKLY_ACTIVE
 from posthog.models.entity import Entity
 from posthog.models.event.sql import EVENT_JOIN_PERSON_SQL
 from posthog.models.filters import Filter
@@ -23,7 +20,6 @@ from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team import Team
 from posthog.queries.util import correct_result_for_sampling, get_earliest_timestamp
-from posthog.schema import PersonsOnEventsMode
 
 logger = structlog.get_logger(__name__)
 
@@ -33,6 +29,7 @@ PROPERTY_MATH_FUNCTIONS = {
     "min": "min",
     "max": "max",
     "median": "quantile(0.50)",
+    "p75": "quantile(0.75)",
     "p90": "quantile(0.90)",
     "p95": "quantile(0.95)",
     "p99": "quantile(0.99)",
@@ -43,6 +40,7 @@ COUNT_PER_ACTOR_MATH_FUNCTIONS = {
     "min_count_per_actor": "min",
     "max_count_per_actor": "max",
     "median_count_per_actor": "quantile(0.50)",
+    "p75_count_per_actor": "quantile(0.75)",
     "p90_count_per_actor": "quantile(0.90)",
     "p95_count_per_actor": "quantile(0.95)",
     "p99_count_per_actor": "quantile(0.99)",

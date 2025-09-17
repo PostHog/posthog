@@ -1,18 +1,21 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, useActions, useValues } from 'kea'
-import { LemonWidget } from 'lib/lemon-ui/LemonWidget'
 import { useEffect, useRef, useState } from 'react'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { LemonWidget } from 'lib/lemon-ui/LemonWidget'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 
 import { notebookNodeLogic } from '../Nodes/notebookNodeLogic'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 import { NotebookHistory } from './NotebookHistory'
+import { NotebookTableOfContents } from './NotebookTableOfContents'
 import { notebookLogic } from './notebookLogic'
 
 export const NotebookColumnLeft = (): JSX.Element | null => {
-    const { editingNodeLogic, isShowingLeftColumn, showHistory } = useValues(notebookLogic)
+    const { editingNodeLogic, isShowingLeftColumn, showHistory, showTableOfContents } = useValues(notebookLogic)
 
     return (
         <div
@@ -27,6 +30,8 @@ export const NotebookColumnLeft = (): JSX.Element | null => {
                         <NotebookNodeSettingsWidget logic={editingNodeLogic} />
                     ) : showHistory ? (
                         <NotebookHistory />
+                    ) : showTableOfContents ? (
+                        <NotebookTableOfContents />
                     ) : null
                 ) : null}
             </div>

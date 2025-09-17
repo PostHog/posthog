@@ -1,15 +1,15 @@
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from freezegun import freeze_time
-
-from ee.tasks.subscriptions.slack_subscriptions import send_slack_subscription_report
-from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.integration import Integration
 from posthog.models.subscription import Subscription
-from posthog.test.base import APIBaseTest
+
+from ee.tasks.subscriptions.slack_subscriptions import send_slack_subscription_report
+from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 
 @patch("ee.tasks.subscriptions.slack_subscriptions.SlackIntegration")
@@ -68,12 +68,12 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
                     {
                         "type": "button",
                         "text": {"type": "plain_text", "text": "View in PostHog"},
-                        "url": "http://localhost:8000/insights/123456?utm_source=posthog&utm_campaign=subscription_report&utm_medium=slack",
+                        "url": "http://localhost:8010/insights/123456?utm_source=posthog&utm_campaign=subscription_report&utm_medium=slack",
                     },
                     {
                         "type": "button",
                         "text": {"type": "plain_text", "text": "Manage Subscription"},
-                        "url": f"http://localhost:8000/insights/123456/subscriptions/{self.subscription.id}?utm_source=posthog&utm_campaign=subscription_report&utm_medium=slack",
+                        "url": f"http://localhost:8010/insights/123456/subscriptions/{self.subscription.id}?utm_source=posthog&utm_campaign=subscription_report&utm_medium=slack",
                     },
                 ],
             },
@@ -141,12 +141,12 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
                     {
                         "type": "button",
                         "text": {"type": "plain_text", "text": "View in PostHog"},
-                        "url": f"http://localhost:8000/dashboard/{self.dashboard.id}?utm_source=posthog&utm_campaign=subscription_report&utm_medium=slack",
+                        "url": f"http://localhost:8010/dashboard/{self.dashboard.id}?utm_source=posthog&utm_campaign=subscription_report&utm_medium=slack",
                     },
                     {
                         "type": "button",
                         "text": {"type": "plain_text", "text": "Manage Subscription"},
-                        "url": f"http://localhost:8000/dashboard/{self.dashboard.id}/subscriptions/{self.subscription.id}?utm_source=posthog&utm_campaign=subscription_report&utm_medium=slack",
+                        "url": f"http://localhost:8010/dashboard/{self.dashboard.id}/subscriptions/{self.subscription.id}?utm_source=posthog&utm_campaign=subscription_report&utm_medium=slack",
                     },
                 ],
             },
@@ -181,7 +181,7 @@ class TestSlackSubscriptionsTasks(APIBaseTest):
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"Showing 3 of 10 Insights. <http://localhost:8000/dashboard/{self.dashboard.id}?utm_source=posthog&utm_campaign=subscription_report&utm_medium=slack|View the rest in PostHog>",
+                    "text": f"Showing 3 of 10 Insights. <http://localhost:8010/dashboard/{self.dashboard.id}?utm_source=posthog&utm_campaign=subscription_report&utm_medium=slack|View the rest in PostHog>",
                 },
             }
         ]

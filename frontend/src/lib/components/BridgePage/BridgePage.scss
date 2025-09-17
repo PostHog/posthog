@@ -1,4 +1,5 @@
 @import '../../../styles/mixins';
+@import '../../../styles/vars';
 
 .BridgePage {
     position: relative;
@@ -7,7 +8,7 @@
     flex-direction: column;
     height: 100vh;
     overflow: scroll;
-    background-color: var(--bg-bridge);
+    background-color: var(--color-bg-bridge);
     -ms-overflow-style: none;
 
     &::-webkit-scrollbar {
@@ -24,7 +25,7 @@
 
     .BridgePage__content-wrapper {
         width: 100%;
-        max-width: 380px;
+        max-width: 390px;
 
         @include screen($md) {
             width: auto;
@@ -63,7 +64,7 @@
         width: 100%;
         margin: 1rem 0;
         font-weight: 500;
-        color: var(--muted);
+        color: var(--color-text-secondary);
     }
 
     .BridgePage__left {
@@ -111,7 +112,9 @@
             &.BridgePage__left__message--enter-active,
             &.BridgePage__left__message--enter-done {
                 opacity: 1;
-                transition: 200ms opacity, 200ms transform;
+                transition:
+                    200ms opacity,
+                    200ms transform;
                 transform: translateY(0) rotate(5deg) scale(1);
             }
 
@@ -136,15 +139,6 @@
 
             @include screen($md) {
                 display: none;
-            }
-        }
-
-        .header-logo {
-            padding-bottom: 3rem;
-            text-align: center;
-
-            img {
-                height: 24px;
             }
         }
     }

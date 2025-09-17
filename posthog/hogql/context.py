@@ -1,12 +1,16 @@
 from dataclasses import dataclass, field
+from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
-from posthog.hogql.timings import HogQLTimings
 from posthog.schema import HogQLNotice, HogQLQueryModifiers
+
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.timings import HogQLTimings
 
 if TYPE_CHECKING:
     from posthog.hogql.database.database import Database
     from posthog.hogql.transforms.property_types import PropertySwapper
+
     from posthog.models import Team
 
 
@@ -23,7 +27,7 @@ class HogQLContext:
     """Context given to a HogQL expression printer"""
 
     # Team making the queries
-    team_id: Optional[int]
+    team_id: Optional[int] = None
     # Team making the queries - if team is passed in, then the team isn't queried when creating the database
     team: Optional["Team"] = None
     # Virtual database we're querying, will be populated from team_id if not present
@@ -36,6 +40,10 @@ class HogQLContext:
     enable_select_queries: bool = False
     # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=10000 to the topmost select query?
     limit_top_select: bool = True
+    # Context for determining the appropriate limit to apply
+    limit_context: Optional[LimitContext] = None
+    # Apply a FORMAT clause to output data in given format.
+    output_format: str | None = None
     # Globals that will be resolved in the context of the query
     globals: Optional[dict] = None
 
@@ -54,6 +62,10 @@ class HogQLContext:
     debug: bool = False
 
     property_swapper: Optional["PropertySwapper"] = None
+
+    def __post_init__(self):
+        if self.team:
+            self.team_id = self.team.id
 
     def add_value(self, value: Any) -> str:
         key = f"hogql_val_{len(self.values)}"
@@ -94,3 +106,12 @@ class HogQLContext:
     ):
         if not any(n.start == start and n.end == end and n.message == message and n.fix == fix for n in self.errors):
             self.errors.append(HogQLNotice(start=start, end=end, message=message, fix=fix))
+
+    @cached_property
+    def project_id(self) -> int:
+        from posthog.models import Team
+
+        if not self.team and not self.team_id:
+            raise ValueError("Either team or team_id must be set to determine project_id")
+        team = self.team or Team.objects.only("project_id").get(id=self.team_id)
+        return team.project_id

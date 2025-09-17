@@ -2,12 +2,13 @@ import './LemonCalendar.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import { Ref, forwardRef, useEffect, useState } from 'react'
+
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { dayjs } from 'lib/dayjs'
-import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { range } from 'lib/utils'
-import { forwardRef, Ref, useEffect, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
 export interface LemonCalendarProps {
@@ -51,17 +52,21 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
     const months = Math.max(props.months ?? 1, 1)
     const weekStartDay = props.weekStartDay ?? teamWeekStartDay
     const today = dayjs().startOf('day')
+
     const [leftmostMonth, setLeftmostMonth] = useState<dayjs.Dayjs>((props.leftmostMonth ?? today).startOf('month'))
     useEffect(() => {
         if (props.leftmostMonth && props.leftmostMonth.isSame(leftmostMonth, 'd')) {
             setLeftmostMonth(props.leftmostMonth)
         }
-    }, [props.leftmostMonth])
+    }, [props.leftmostMonth]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div
             ref={ref}
-            className={clsx('LemonCalendar relative flex items-start gap-4', `LemonCalendar--${granularity}`)}
+            className={clsx(
+                'LemonCalendar relative flex items-start gap-4 tabular-nums',
+                `LemonCalendar--${granularity}`
+            )}
             data-attr="lemon-calendar"
         >
             {range(0, months).map((month) => {
@@ -78,7 +83,7 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                 return (
                     <table className="LemonCalendar__month" key={month} data-attr="lemon-calendar-month">
                         <thead>
-                            <tr>
+                            <tr className="LemonCalendar__month-header">
                                 <th className="relative">
                                     {showLeftMonth && (
                                         <LemonButton
@@ -95,7 +100,7 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                                     )}
                                 </th>
                                 <th
-                                    className="relative font-title font-semibold text-muted-alt uppercase cursor-default text-center"
+                                    className="relative font-title font-semibold text-secondary uppercase cursor-default text-center"
                                     data-attr={`lemon-calendar-month-title-${month}`}
                                     colSpan={5}
                                 >
@@ -119,7 +124,7 @@ export const LemonCalendar = forwardRef(function LemonCalendar(
                             </tr>
                             <tr>
                                 {range(0, 7).map((day) => (
-                                    <th key={day} className="py-2 text-xs font-bold text-muted-alt uppercase">
+                                    <th key={day} className="py-2 text-xs font-bold text-secondary uppercase">
                                         {dayLabels[firstDay.add(day, 'day').day()]}
                                     </th>
                                 ))}

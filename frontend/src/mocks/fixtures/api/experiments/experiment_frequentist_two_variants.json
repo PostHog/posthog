@@ -1,0 +1,151 @@
+{
+    "id": 19,
+    "name": "experiment-two-variants",
+    "description": null,
+    "start_date": "2025-05-25T13:20:00Z",
+    "end_date": null,
+    "feature_flag_key": "experiment-two-variants",
+    "feature_flag": {
+        "id": 321,
+        "team_id": 1,
+        "name": "Feature Flag for Experiment experiment-two-variants",
+        "key": "experiment-two-variants",
+        "filters": {
+            "groups": [
+                {
+                    "properties": [],
+                    "rollout_percentage": 100
+                }
+            ],
+            "multivariate": {
+                "variants": [
+                    {
+                        "key": "control",
+                        "rollout_percentage": 50
+                    },
+                    {
+                        "key": "test",
+                        "rollout_percentage": 50
+                    }
+                ]
+            },
+            "holdout_groups": null,
+            "aggregation_group_type_index": null
+        },
+        "deleted": false,
+        "active": true,
+        "ensure_experience_continuity": false,
+        "has_encrypted_payloads": false,
+        "version": 1
+    },
+    "holdout": null,
+    "holdout_id": null,
+    "exposure_cohort": null,
+    "parameters": {
+        "feature_flag_variants": [
+            {
+                "key": "control",
+                "rollout_percentage": 50
+            },
+            {
+                "key": "test",
+                "rollout_percentage": 50
+            }
+        ],
+        "recommended_sample_size": 0,
+        "recommended_running_time": 0,
+        "minimum_detectable_effect": 30
+    },
+    "secondary_metrics": [],
+    "saved_metrics": [],
+    "saved_metrics_ids": null,
+    "filters": {},
+    "archived": false,
+    "deleted": false,
+    "created_by": {
+        "id": 1,
+        "uuid": "0196a5e4-1c5d-0000-8b8c-31ae10f6d7d7",
+        "distinct_id": "TM2Vy3T9MqY0HHAxgKBj95zZEaZ45MYSpuSxu6MaVNj",
+        "first_name": "Juraj",
+        "last_name": "",
+        "email": "juraj@posthog.com",
+        "is_email_verified": false,
+        "hedgehog_config": null,
+        "role_at_organization": "engineering"
+    },
+    "created_at": "2025-06-12T13:15:12.003949Z",
+    "updated_at": "2025-06-12T15:09:27.786339Z",
+    "type": "product",
+    "exposure_criteria": {
+        "filterTestAccounts": true
+    },
+    "metrics": [
+        {
+            "kind": "ExperimentMetric",
+            "source": {
+                "kind": "EventsNode",
+                "math": "total",
+                "event": "$pageview"
+            },
+            "metric_type": "mean",
+            "uuid": "1c6118f4-830b-479a-9c19-ecaa02c925f4"
+        },
+        {
+            "kind": "ExperimentMetric",
+            "name": "This is a very long metric name with spaces that should wrap nicely to multiple lines and show ellipsis when truncated",
+            "series": [
+                {
+                    "kind": "EventsNode",
+                    "event": "signup completed"
+                }
+            ],
+            "metric_type": "funnel",
+            "uuid": "6a5b5944-7ae1-452f-bcad-914909ecc3ea"
+        },
+        {
+            "kind": "ExperimentMetric",
+            "name": "this_is_a_very_long_metric_name_with_underscores_that_should_break_anywhere_to_prevent_horizontal_overflow",
+            "source": {
+                "kind": "EventsNode",
+                "math": "total",
+                "event": "button_click"
+            },
+            "metric_type": "mean",
+            "uuid": "29735149-4d4e-45ce-89de-fffb32e9036a"
+        }
+    ],
+    "metrics_secondary": [
+        {
+            "kind": "ExperimentMetric",
+            "series": [
+                {
+                    "kind": "EventsNode",
+                    "event": "signup completed"
+                }
+            ],
+            "metric_type": "funnel",
+            "uuid": "9e736c8a-53fb-45ff-8b14-329d03d9e739"
+        },
+        {
+            "kind": "ExperimentMetric",
+            "source": {
+                "kind": "EventsNode",
+                "math": "total",
+                "event": "$pageview"
+            },
+            "metric_type": "mean",
+            "uuid": "b1c257b6-d8f5-43d7-8173-8c257b979b7c"
+        }
+    ],
+    "primary_metrics_ordered_uuids": [
+        "1c6118f4-830b-479a-9c19-ecaa02c925f4",
+        "6a5b5944-7ae1-452f-bcad-914909ecc3ea",
+        "29735149-4d4e-45ce-89de-fffb32e9036a"
+    ],
+    "secondary_metrics_ordered_uuids": ["9e736c8a-53fb-45ff-8b14-329d03d9e739", "b1c257b6-d8f5-43d7-8173-8c257b979b7c"],
+    "stats_config": {
+        "method": "frequentist"
+    },
+    "conclusion": null,
+    "conclusion_comment": null
+}

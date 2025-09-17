@@ -1,29 +1,26 @@
 import re
-from collections import Counter
-from typing import Any
-from collections.abc import Callable
-from collections import Counter as TCounter
-from typing import (
-    Literal,
-    Optional,
-    Union,
-    cast,
+from collections import (
+    Counter,
+    Counter as TCounter,
 )
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
+from typing import Any, Literal, Optional, Union, cast
+
+from django.db.models import QuerySet
 
 from rest_framework import exceptions
 
-from posthog.clickhouse.kafka_engine import trim_quotes_expr
-from posthog.clickhouse.materialized_columns import (
-    TableWithProperties,
-    get_materialized_columns,
-)
-from posthog.constants import PropertyOperatorType
+from posthog.schema import PropertyOperator
+
 from posthog.hogql import ast
+from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor
-from posthog.hogql.database.s3_table import S3Table
+
+from posthog.clickhouse.kafka_engine import trim_quotes_expr
+from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_column_for_property
+from posthog.constants import PropertyOperatorType
 from posthog.models.action.action import Action
 from posthog.models.action.util import get_action_tables_and_properties
 from posthog.models.cohort import Cohort
@@ -36,10 +33,7 @@ from posthog.models.cohort.util import (
 )
 from posthog.models.event import Selector
 from posthog.models.group.sql import GET_GROUP_IDS_BY_PROPERTY_SQL
-from posthog.models.person.sql import (
-    GET_DISTINCT_IDS_BY_PERSON_ID_FILTER,
-    GET_DISTINCT_IDS_BY_PROPERTY_SQL,
-)
+from posthog.models.person.sql import GET_DISTINCT_IDS_BY_PERSON_ID_FILTER, GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.models.property import (
     NEGATED_OPERATORS,
     OperatorType,
@@ -50,8 +44,9 @@ from posthog.models.property import (
 )
 from posthog.models.property.property import ValueT
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
-from posthog.session_recordings.queries.session_query import SessionQuery
 from posthog.queries.util import PersonPropertiesMode
+from posthog.session_recordings.queries.session_query import SessionQuery
+from posthog.types import ErrorTrackingIssueFilter
 from posthog.utils import is_json, is_valid_regex
 
 StringMatching = Literal["selector", "tag_name", "href", "text"]
@@ -67,11 +62,10 @@ StringMatching = Literal["selector", "tag_name", "href", "text"]
 #     A, B, C, D
 # ]}
 
+
 # Property json is of the form:
 # { type: 'AND | OR', groups: List[Property] }
 # which is parsed and sent to this function ->
-
-
 def parse_prop_grouped_clauses(
     team_id: int,
     property_group: Optional[PropertyGroup],
@@ -289,16 +283,22 @@ def parse_prop_clauses(
                 params.update(filter_params)
         elif prop.type == "group":
             if group_properties_joined:
-                filter_query, filter_params = prop_filter_json_extract(
-                    prop,
-                    idx,
-                    prepend,
-                    prop_var=f"group_properties_{prop.group_type_index}",
-                    allow_denormalized_props=False,
-                    property_operator=property_operator,
-                )
-                final.append(filter_query)
-                params.update(filter_params)
+                # Special case: $group_key refers to the actual group_key column, not a JSON property
+                if prop.key == "$group_key":
+                    filter_query, filter_params = _build_group_key_filter(prop, idx, prepend, property_operator)
+                    final.append(filter_query)
+                    params.update(filter_params)
+                else:
+                    filter_query, filter_params = prop_filter_json_extract(
+                        prop,
+                        idx,
+                        prepend,
+                        prop_var=f"group_properties_{prop.group_type_index}",
+                        allow_denormalized_props=False,
+                        property_operator=property_operator,
+                    )
+                    final.append(filter_query)
+                    params.update(filter_params)
             else:
                 # :TRICKY: offer groups support for queries which don't support automatically joining with groups table yet (e.g. lifecycle)
                 filter_query, filter_params = prop_filter_json_extract(
@@ -711,17 +711,18 @@ def get_property_string_expr(
         (optional) alias of the table being queried
     :return:
     """
-    materialized_columns = get_materialized_columns(table) if allow_denormalized_props else {}
-
     table_string = f"{table_alias}." if table_alias is not None and table_alias != "" else ""
 
     if (
         allow_denormalized_props
-        and (property_name, materialised_table_column) in materialized_columns
+        and (
+            materialized_column := get_materialized_column_for_property(table, materialised_table_column, property_name)
+        )
+        and not materialized_column.is_nullable
         and "group" not in materialised_table_column
     ):
         return (
-            f'{table_string}"{materialized_columns[(property_name, materialised_table_column)]}"',
+            f'{table_string}"{materialized_column.name}"',
             True,
         )
 
@@ -800,6 +801,49 @@ def filter_element(
         return "0 = 191" if operator not in NEGATED_OPERATORS else "", {}
 
 
+def _build_group_key_filter(
+    prop: Property, idx: int, prepend: str, property_operator: str
+) -> tuple[str, dict[str, Any]]:
+    """
+    Build SQL filter for $group_key property targeting the group_key column directly.
+
+    Args:
+        prop: Property object with $group_key
+        idx: Index for parameter naming
+        prepend: Prefix for parameter keys
+        property_operator: SQL operator (AND/OR)
+
+    Returns:
+        Tuple of (filter_query, filter_params)
+    """
+    operator = prop.operator or "exact"
+    if prop.negation:
+        operator = negate_operator(operator)
+
+    param_key = f"{prepend}_group_key_{idx}"
+    param_value = prop.value
+
+    if operator == "exact":
+        filter_query = f"{property_operator} group_key = %({param_key})s"
+    elif operator == "is_not":
+        filter_query = f"{property_operator} group_key != %({param_key})s"
+    elif operator == "icontains":
+        filter_query = f"{property_operator} group_key ILIKE %({param_key})s"
+        param_value = f"%{prop.value}%"
+    elif operator == "not_icontains":
+        filter_query = f"{property_operator} NOT (group_key ILIKE %({param_key})s)"
+        param_value = f"%{prop.value}%"
+    elif operator in ("regex", "not_regex"):
+        regex_func = "match" if operator == "regex" else "NOT match"
+        filter_query = f"{property_operator} {regex_func}(group_key, %({param_key})s)"
+    else:
+        # Default to exact match for unsupported operators
+        filter_query = f"{property_operator} group_key = %({param_key})s"
+
+    filter_params = {param_key: param_value}
+    return filter_query, filter_params
+
+
 def process_ok_values(ok_values: Any, operator: OperatorType) -> list[str]:
     if operator.endswith("_set"):
         return [r'[^"]+']
@@ -832,7 +876,7 @@ def build_selector_regex(selector: Selector) -> str:
             regex += r".*?"
             for key, value in sorted(tag.ch_attributes.items()):
                 regex += rf'{re.escape(key)}="{re.escape(str(value))}".*?'
-        regex += r'([-_a-zA-Z0-9\.:"= ]*?)?($|;|:([^;^\s]*(;|$|\s)))'
+        regex += r'([-_a-zA-Z0-9\.:"= \[\]\(\),]*?)?($|;|:([^;^\s]*(;|$|\s)))'
         if tag.direct_descendant:
             regex += r".*"
     if regex:
@@ -922,6 +966,61 @@ def clear_excess_levels(prop: Union["PropertyGroup", "Property"], skip=False):
             prop.values = [clear_excess_levels(p, skip=True) for p in prop.values]
 
     return prop
+
+
+def property_to_django_filter(queryset: QuerySet, property: ErrorTrackingIssueFilter):
+    operator = property.operator
+    value = property.value
+    field = property.key
+
+    if property.type == "error_tracking_issue" and property.key == "issue_description":
+        field = "description"
+
+    array_based = (
+        operator == PropertyOperator.EXACT or operator == PropertyOperator.IS_NOT or operator == PropertyOperator.NOT_IN
+    )
+    negated = (
+        True
+        if operator
+        in [
+            PropertyOperator.IS_NOT,
+            PropertyOperator.NOT_ICONTAINS,
+            PropertyOperator.NOT_REGEX,
+            PropertyOperator.IS_SET,
+            PropertyOperator.NOT_IN,
+        ]
+        else False
+    )
+    query = f"{field}"
+
+    if array_based and not value:
+        return queryset
+
+    if array_based:
+        query += "__in"
+    elif operator == PropertyOperator.IS_SET or operator == PropertyOperator.IS_NOT_SET:
+        query += "__isnull"
+        value = True
+    elif operator == PropertyOperator.ICONTAINS or operator == PropertyOperator.NOT_ICONTAINS:
+        query += "__icontains"
+    elif operator == PropertyOperator.REGEX:
+        query += "__regex"
+    elif operator == PropertyOperator.IS_DATE_EXACT:
+        query += "__date"
+    elif operator == PropertyOperator.GT or operator == PropertyOperator.IS_DATE_AFTER:
+        query += "__gt"
+    elif operator == PropertyOperator.GTE:
+        query += "__gte"
+    elif operator == PropertyOperator.LT or operator == PropertyOperator.IS_DATE_BEFORE:
+        query += "__lt"
+    elif operator == PropertyOperator.LTE:
+        query += "__lte"
+    else:
+        raise NotImplementedError(f"PropertyOperator {operator} not implemented")
+
+    filter = {f"{query}": value}
+
+    return queryset.exclude(**filter) if negated else queryset.filter(**filter)
 
 
 class S3TableVisitor(TraversingVisitor):

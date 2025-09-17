@@ -1,5 +1,7 @@
-import { Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { Link } from '@posthog/lemon-ui'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { teamLogic } from 'scenes/teamLogic'
@@ -17,7 +19,7 @@ export function ProductAnalyticsHeliconeInstructions(): JSX.Element {
                 supports most popular LLM models and you can bring your Helicone data into PostHog for analysis. To get
                 started:
             </p>
-            <ol className="space-y-4">
+            <ol className="deprecated-space-y-4">
                 <li>
                     Sign up to{' '}
                     <Link to="https://www.helicone.ai/" target="_blank">

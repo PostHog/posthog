@@ -1,16 +1,18 @@
-from typing import cast, Literal, Optional
+from typing import Literal, Optional, cast
 
-from django.db import connection
-
-from posthog.hogql import ast
-from posthog.hogql.property import property_to_expr
-from posthog.hogql.parser import parse_expr
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
-from posthog.models import Team, Group
-from posthog.schema import ActorsQuery
+from django.db import connection, connections
 
 import orjson as json
+
+from posthog.schema import ActorsQuery, InsightActorsQuery, TrendsQuery
+
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.property import property_to_expr
+
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.utils.recordings_helper import RecordingsHelper
+from posthog.models import Group, Team
 
 
 class ActorStrategy:
@@ -27,7 +29,7 @@ class ActorStrategy:
         raise NotImplementedError()
 
     def get_recordings(self, matching_events) -> dict[str, list[dict]]:
-        return {}
+        return RecordingsHelper(self.team).get_recordings(matching_events)
 
     def input_columns(self) -> list[str]:
         raise NotImplementedError()
@@ -54,7 +56,10 @@ class PersonStrategy(ActorStrategy):
             AND posthog_person.team_id = %(team_id)s"""
         if order_by:
             persons_query += f" ORDER BY {order_by}"
-        with connection.cursor() as cursor:
+
+        conn = connections["persons_db_reader"] if "persons_db_reader" in connections else connection
+
+        with conn.cursor() as cursor:
             cursor.execute(
                 persons_query,
                 {"uuids": list(actor_ids), "team_id": self.team.pk},
@@ -88,11 +93,10 @@ class PersonStrategy(ActorStrategy):
 
         return person_uuid_to_person
 
-    def get_recordings(self, matching_events) -> dict[str, list[dict]]:
-        return RecordingsHelper(self.team).get_recordings(matching_events)
-
     def input_columns(self) -> list[str]:
-        return ["person", "id", "created_at", "person.$delete"]
+        if isinstance(self.query.source, InsightActorsQuery) and isinstance(self.query.source.source, TrendsQuery):
+            return ["person", "id", "person.$delete", "event_distinct_ids"]
+        return ["person", "id", "person.$delete"]
 
     def filter_conditions(self) -> list[ast.Expr]:
         where_exprs: list[ast.Expr] = []

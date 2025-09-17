@@ -1,19 +1,14 @@
 from datetime import date, datetime, timedelta
-
 from zoneinfo import ZoneInfo
+
 from freezegun.api import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, snapshot_clickhouse_queries
 
 from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType
 from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.queries.funnels.funnel_trends import ClickhouseFunnelTrends
 from posthog.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsActors
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_person,
-    snapshot_clickhouse_queries,
-)
 from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d %H:%M:%S"
@@ -506,14 +501,15 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(0, friday["conversion_rate"])
 
     def test_period_not_final(self):
-        now = datetime.now()
+        # Use timezone-aware datetime to ensure consistent behavior across environments
+        now = datetime.now(tz=ZoneInfo("UTC"))
 
         journeys_for(
             {
                 "user_eight": [
-                    {"event": "step one", "timestamp": now},
-                    {"event": "step two", "timestamp": now + timedelta(minutes=1)},
-                    {"event": "step three", "timestamp": now + timedelta(minutes=2)},
+                    {"event": "step one", "timestamp": now.strftime("%Y-%m-%d %H:%M:%S.%f")},
+                    {"event": "step two", "timestamp": (now + timedelta(minutes=1)).strftime("%Y-%m-%d %H:%M:%S.%f")},
+                    {"event": "step three", "timestamp": (now + timedelta(minutes=2)).strftime("%Y-%m-%d %H:%M:%S.%f")},
                 ]
             },
             self.team,

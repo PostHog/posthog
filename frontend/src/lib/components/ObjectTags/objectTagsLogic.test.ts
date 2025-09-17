@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
-import { objectTagsLogic, ObjectTagsLogicProps } from 'lib/components/ObjectTags/objectTagsLogic'
+
+import { ObjectTagsLogicProps, objectTagsLogic } from 'lib/components/ObjectTags/objectTagsLogic'
 
 import { initKeaTests } from '~/test/init'
 

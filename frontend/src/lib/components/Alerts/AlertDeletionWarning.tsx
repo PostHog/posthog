@@ -1,8 +1,9 @@
 import { useValues } from 'kea'
+
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { alertsLogic } from './alertsLogic'
+import { insightAlertsLogic } from './insightAlertsLogic'
 
 export function AlertDeletionWarning(): JSX.Element | null {
     const { insightProps, insight } = useValues(insightLogic)
@@ -11,9 +12,9 @@ export function AlertDeletionWarning(): JSX.Element | null {
         return null
     }
 
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     const { shouldShowAlertDeletionWarning } = useValues(
-        alertsLogic({
-            insightShortId: insight.short_id,
+        insightAlertsLogic({
             insightId: insight.id as number,
             insightLogicProps: insightProps,
         })

@@ -1,10 +1,12 @@
-import { afterMount, connect, kea, path, selectors } from 'kea'
+import { afterMount, connect, kea, listeners, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
-import { teamLogic } from 'scenes/teamLogic'
+import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { wordPluralize } from 'lib/utils'
+import { projectLogic } from 'scenes/projectLogic'
 
 import { GroupType, GroupTypeIndex } from '~/types'
 
@@ -17,24 +19,64 @@ export interface Noun {
 
 export const groupsModel = kea<groupsModelType>([
     path(['models', 'groupsModel']),
-    connect({
-        values: [teamLogic, ['currentTeamId'], groupsAccessLogic, ['groupsEnabled', 'groupsAccessStatus']],
-    }),
+    connect(() => ({
+        values: [projectLogic, ['currentProjectId'], groupsAccessLogic, ['groupsEnabled', 'groupsAccessStatus']],
+    })),
     loaders(({ values }) => ({
         groupTypesRaw: [
             [] as Array<GroupType>,
             {
                 loadAllGroupTypes: async () => {
-                    return await api.get(`api/projects/${values.currentTeamId}/groups_types`)
+                    if (!values.currentProjectId) {
+                        return []
+                    }
+                    return await api.get(`api/projects/${values.currentProjectId}/groups_types`)
                 },
                 updateGroupTypesMetadata: async (payload: Array<GroupType>) => {
                     if (values.groupsEnabled) {
                         return await api.update(
-                            `/api/projects/${teamLogic.values.currentTeamId}/groups_types/update_metadata`,
+                            `/api/projects/${values.currentProjectId}/groups_types/update_metadata`,
                             payload
                         )
                     }
                     return []
+                },
+                deleteGroupType: async (groupTypeIndex: number) => {
+                    if (values.groupsEnabled) {
+                        await api.delete(`/api/projects/${values.currentProjectId}/groups_types/${groupTypeIndex}`)
+                    }
+                    return []
+                },
+                createDetailDashboard: async (groupTypeIndex: number) => {
+                    const groupType = await api.put(
+                        `/api/projects/${values.currentProjectId}/groups_types/create_detail_dashboard`,
+                        { group_type_index: groupTypeIndex }
+                    )
+                    return values.groupTypesRaw.map((gt) => (gt.group_type_index === groupTypeIndex ? groupType : gt))
+                },
+                removeDetailDashboard: async (dashboardId: number) => {
+                    return values.groupTypesRaw.map((gt) => {
+                        if (gt.detail_dashboard === dashboardId) {
+                            return {
+                                ...gt,
+                                detail_dashboard: null,
+                            }
+                        }
+                        return gt
+                    })
+                },
+                setDefaultColumns: async ({
+                    groupTypeIndex,
+                    defaultColumns,
+                }: {
+                    groupTypeIndex: number
+                    defaultColumns: string[]
+                }) => {
+                    const groupType = await api.put(
+                        `/api/projects/${values.currentProjectId}/groups_types/set_default_columns`,
+                        { group_type_index: groupTypeIndex, default_columns: defaultColumns }
+                    )
+                    return values.groupTypesRaw.map((gt) => (gt.group_type_index === groupTypeIndex ? groupType : gt))
                 },
             },
         ],
@@ -81,7 +123,7 @@ export const groupsModel = kea<groupsModelType>([
                         if (groupType) {
                             return {
                                 singular: groupType.name_singular || groupType.group_type,
-                                plural: groupType.name_plural || `${groupType.group_type}(s)`,
+                                plural: groupType.name_plural || wordPluralize(groupType.group_type),
                             }
                         }
                         return {
@@ -106,7 +148,16 @@ export const groupsModel = kea<groupsModelType>([
             }
         },
     })),
+    listeners(({ actions }) => ({
+        deleteGroupTypeSuccess: () => {
+            actions.loadAllGroupTypes()
+        },
+    })),
     afterMount(({ actions }) => {
-        actions.loadAllGroupTypes()
+        if (window.POSTHOG_APP_CONTEXT?.current_team?.group_types) {
+            actions.loadAllGroupTypesSuccess(window.POSTHOG_APP_CONTEXT.current_team.group_types)
+        } else {
+            actions.loadAllGroupTypes()
+        }
     }),
 ])

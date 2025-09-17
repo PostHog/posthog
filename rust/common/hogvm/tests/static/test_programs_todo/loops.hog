@@ -1,0 +1,76 @@
+print('-- test while loop --')
+{
+    let i := 0
+    while (i < 3) {
+        i := i + 1
+        print(i)
+    }
+    print(i)
+}
+
+print('-- test for loop --')
+{
+    for (let i := 0; i < 3; i := i + 1) {
+        print(i) // prints 3 times
+    }
+}
+
+print('-- test emptier for loop --')
+{
+    let i := 0;
+    for (;i < 3;) {
+        print('woo')
+        i := i + 1;
+    }
+    print('hoo')
+}
+
+print('-- for in loop with arrays --')
+{
+    let arr := [1, 2, 3]
+    for (let i in arr) {
+        print(i)
+    }
+}
+
+print('-- for in loop with arrays and keys --')
+{
+    let arr := [1, 2, 3]
+    for (let k, v in arr) {
+        print(k, v)
+    }
+}
+
+print('-- for in loop with tuples --')
+{
+    let tup := (1, 2, 3)
+    for (let i in tup) {
+        print(i)
+    }
+}
+
+print('-- for in loop with tuples and keys --')
+{
+    let tup := (1, 2, 3)
+    for (let k, v in tup) {
+        print(k, v)
+    }
+}
+
+
+print('-- for in loop with dicts --')
+{
+    let obj := {'first': 'v1', 'second': 'v2', 'third': 'v3'}
+    for (let i in obj) {
+        print(i)
+    }
+}
+
+print('-- for in loop with dicts and keys --')
+{
+    let obj := {'first': 'v1', 'second': 'v2', 'third': 'v3'}
+    for (let k, v in obj) {
+        print(k, v)
+    }
+}
+

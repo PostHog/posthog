@@ -1,14 +1,17 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import useIsHovering from 'lib/hooks/useIsHovering'
-import { colonDelimitedDuration } from 'lib/utils'
-import { memo, MutableRefObject, useEffect, useRef, useState } from 'react'
+import { MutableRefObject, memo, useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
+import { Dayjs } from 'lib/dayjs'
+import useIsHovering from 'lib/hooks/useIsHovering'
+import { colonDelimitedDuration } from 'lib/utils'
+
 import { PlayerFrame } from '../PlayerFrame'
+import { TimestampFormat } from '../playerSettingsLogic'
 import {
-    sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
     SessionRecordingPlayerMode,
+    sessionRecordingPlayerLogic,
 } from '../sessionRecordingPlayerLogic'
 
 const TWENTY_MINUTES_IN_MS = 20 * 60 * 1000
@@ -18,6 +21,8 @@ export type PlayerSeekbarPreviewProps = {
     maxMs: number
     seekBarRef: MutableRefObject<HTMLDivElement | null>
     activeMs: number | null
+    timestampFormat: TimestampFormat
+    startTime: Dayjs | null
 }
 
 const PlayerSeekbarPreviewFrame = ({
@@ -27,7 +32,7 @@ const PlayerSeekbarPreviewFrame = ({
     isVisible,
 }: { percentage: number; isVisible: boolean } & Omit<
     PlayerSeekbarPreviewProps,
-    'seekBarRef' | 'activeMs'
+    'seekBarRef' | 'activeMs' | 'timestampFormat' | 'startTime'
 >): JSX.Element | null => {
     const { sessionRecordingId, logicProps } = useValues(sessionRecordingPlayerLogic)
 
@@ -55,7 +60,7 @@ const PlayerSeekbarPreviewFrame = ({
         if (isVisible) {
             debouncedSeekToTime(minMs + (maxMs - minMs) * percentage)
         }
-    }, [percentage, minMs, maxMs, isVisible])
+    }, [percentage, minMs, maxMs, isVisible]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <BindLogic logic={sessionRecordingPlayerLogic} props={seekPlayerLogicProps}>
@@ -66,11 +71,28 @@ const PlayerSeekbarPreviewFrame = ({
     )
 }
 
-function _PlayerSeekbarPreview({ minMs, maxMs, seekBarRef, activeMs }: PlayerSeekbarPreviewProps): JSX.Element {
+export const PlayerSeekbarPreview = memo(function PlayerSeekbarPreview({
+    minMs,
+    maxMs,
+    seekBarRef,
+    activeMs,
+    timestampFormat,
+    startTime,
+}: PlayerSeekbarPreviewProps): JSX.Element {
     const [percentage, setPercentage] = useState<number>(0)
     const ref = useRef<HTMLDivElement>(null)
     const fixedUnits = maxMs / 1000 > 3600 ? 3 : 2
-    const content = colonDelimitedDuration(minMs / 1000 + ((maxMs - minMs) / 1000) * percentage, fixedUnits)
+
+    const progressionSeconds = ((maxMs - minMs) / 1000) * percentage
+
+    const absoluteTime = startTime?.add(progressionSeconds, 'seconds')
+
+    const content =
+        timestampFormat === TimestampFormat.Relative
+            ? colonDelimitedDuration(minMs / 1000 + progressionSeconds, fixedUnits)
+            : absoluteTime
+              ? (timestampFormat === TimestampFormat.UTC ? absoluteTime?.tz('UTC') : absoluteTime)?.format('HH:mm:ss')
+              : '00:00:00'
 
     const isHovering = useIsHovering(seekBarRef)
 
@@ -99,7 +121,7 @@ function _PlayerSeekbarPreview({ minMs, maxMs, seekBarRef, activeMs }: PlayerSee
         // fixes react-hooks/exhaustive-deps warning about stale ref elements
         const { current } = ref
         return () => current?.removeEventListener('mousemove', handleMouseMove)
-    }, [seekBarRef])
+    }, [seekBarRef, percentage])
 
     return (
         <div className="PlayerSeekBarPreview" ref={ref}>
@@ -124,6 +146,4 @@ function _PlayerSeekbarPreview({ minMs, maxMs, seekBarRef, activeMs }: PlayerSee
             </div>
         </div>
     )
-}
-
-export const PlayerSeekbarPreview = memo(_PlayerSeekbarPreview)
+})

@@ -1,7 +1,9 @@
+import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
+
 import api from 'lib/api'
-import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
@@ -14,9 +16,10 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
 import { queryFromFilters } from '~/queries/nodes/InsightViz/utils'
-import { DataTableNode, NodeKind } from '~/queries/schema'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
+    AccessControlLevel,
     AnyPropertyFilter,
     DashboardTile,
     DashboardType,
@@ -99,6 +102,7 @@ function insightModelWith(properties: Record<string, any>): QueryBasedInsightMod
         effective_restriction_level: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
         layouts: {},
         color: null,
+        user_access_level: AccessControlLevel.Editor,
         ...properties,
     } as QueryBasedInsightModel
 }
@@ -112,7 +116,7 @@ describe('insightLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team/tags': [],
-                '/api/projects/:team/insights/trend/': async (req) => {
+                '/api/environments/:team_id/insights/trend/': async (req) => {
                     const clientQueryId = req.url.searchParams.get('client_query_id')
                     if (clientQueryId !== null) {
                         seenQueryIDs.push(clientQueryId)
@@ -123,7 +127,7 @@ describe('insightLogic', () => {
                     }
                     if (req.url.searchParams.get('date_from') === '-180d') {
                         // delay for 2 seconds before response without pausing
-                        return new Promise((resolve) =>
+                        return new Promise<[number, { result: string[] }]>((resolve) =>
                             setTimeout(() => {
                                 resolve([200, { result: ['very slow result from api'] }])
                             }, 2000)
@@ -131,18 +135,18 @@ describe('insightLogic', () => {
                     }
                     return [200, { result: ['result from api'] }]
                 },
-                '/api/projects/:team/insights/path/': { result: ['result from api'] },
-                '/api/projects/:team/insights/path': { result: ['result from api'] },
-                '/api/projects/:team/insights/funnel/': { result: ['result from api'] },
-                '/api/projects/:team/insights/retention/': { result: ['result from api'] },
-                '/api/projects/:team/insights/43/': partialInsight43,
-                '/api/projects/:team/insights/44/': {
+                '/api/environments/:team_id/insights/path/': { result: ['result from api'] },
+                '/api/environments/:team_id/insights/path': { result: ['result from api'] },
+                '/api/environments/:team_id/insights/funnel/': { result: ['result from api'] },
+                '/api/environments/:team_id/insights/retention/': { result: ['result from api'] },
+                '/api/environments/:team_id/insights/43/': partialInsight43,
+                '/api/environments/:team_id/insights/44/': {
                     id: 44,
                     short_id: Insight44,
                     result: ['result 44'],
                     filters: API_FILTERS,
                 },
-                '/api/projects/:team/insights/': (req) => {
+                '/api/environments/:team_id/insights/': (req) => {
                     if (req.url.searchParams.get('saved')) {
                         return [
                             200,
@@ -181,7 +185,7 @@ describe('insightLogic', () => {
                         },
                     ]
                 },
-                '/api/projects/:team/dashboards/33/': {
+                '/api/environments/:team_id/dashboards/33/': {
                     id: 33,
                     filters: {},
                     tiles: [
@@ -198,7 +202,7 @@ describe('insightLogic', () => {
                         },
                     ],
                 },
-                '/api/projects/:team/dashboards/34/': {
+                '/api/environments/:team_id/dashboards/34/': {
                     id: 33,
                     filters: {},
                     tiles: [
@@ -217,16 +221,16 @@ describe('insightLogic', () => {
                 },
             },
             post: {
-                '/api/projects/:team/insights/funnel/': { result: ['result from api'] },
-                '/api/projects/:team/insights/:id/viewed': [201],
-                '/api/projects/:team/insights/': (req) => [
+                '/api/environments/:team_id/insights/funnel/': { result: ['result from api'] },
+                '/api/environments/:team_id/insights/:id/viewed': [201],
+                '/api/environments/:team_id/insights/': (req) => [
                     200,
-                    { id: 12, short_id: Insight12, ...((req.body as any) || {}) },
+                    { id: 12, short_id: Insight12, ...(req.body as any) },
                 ],
-                '/api/projects/997/insights/cancel/': [201],
+                '/api/environments/997/insights/cancel/': [201],
             },
             patch: {
-                '/api/projects/:team/insights/:id': async (req) => {
+                '/api/environments/:team_id/insights/:id': async (req) => {
                     const payload = await req.json()
                     const response = patchResponseFor(
                         payload,
@@ -240,6 +244,7 @@ describe('insightLogic', () => {
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
         teamLogic.mount()
         sceneLogic.mount()
+        sceneLogic.actions.setTabs([{ id: '1', title: '...', pathname: '/', search: '', hash: '', active: true }])
         await expectLogic(teamLogic)
             .toFinishAllListeners()
             .toMatchValues({ currentTeam: partial({ test_account_filters_default_checked: true }) })
@@ -423,10 +428,13 @@ describe('insightLogic', () => {
         it('does not load from the savedInsightLogic when in a dashboard context', async () => {
             // 1. open saved insights
             router.actions.push(urls.savedInsights(), {}, {})
-            savedInsightsLogic.mount()
+            savedInsightsLogic({ tabId: '1' }).mount()
 
             // 2. the insights are loaded
-            await expectLogic(savedInsightsLogic).toDispatchActions(['loadInsights', 'loadInsightsSuccess'])
+            await expectLogic(savedInsightsLogic({ tabId: '1' })).toDispatchActions([
+                'loadInsights',
+                'loadInsightsSuccess',
+            ])
 
             // 3. mount the insight
             logic = insightLogic({ dashboardItemId: Insight42, dashboardId: 33 })
@@ -503,7 +511,7 @@ describe('insightLogic', () => {
     })
 
     test('saveInsight and updateInsight update the saved insights list', async () => {
-        savedInsightsLogic.mount()
+        savedInsightsLogic({ tabId: '1' }).mount()
 
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight42,
@@ -520,10 +528,10 @@ describe('insightLogic', () => {
         insightDataLogic(insightProps).mount()
 
         logic.actions.saveInsight()
-        await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.addInsight])
+        await expectLogic(logic).toDispatchActions([savedInsightsLogic({ tabId: '1' }).actionTypes.addInsight])
 
         logic.actions.updateInsight({ name: 'my new name' })
-        await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.updateInsight])
+        await expectLogic(logic).toDispatchActions([savedInsightsLogic({ tabId: '1' }).actionTypes.updateInsight])
     })
 
     test('saveInsight updates dashboards', async () => {
@@ -531,7 +539,7 @@ describe('insightLogic', () => {
         dashLogic.mount()
         await expectLogic(dashLogic).toDispatchActions(['loadDashboard'])
 
-        savedInsightsLogic.mount()
+        savedInsightsLogic({ tabId: '1' }).mount()
 
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight43,
@@ -547,7 +555,7 @@ describe('insightLogic', () => {
     })
 
     test('updateInsight updates dashboards', async () => {
-        savedInsightsLogic.mount()
+        savedInsightsLogic({ tabId: '1' }).mount()
         logic = insightLogic({
             dashboardItemId: Insight43,
             cachedInsight: {
@@ -561,7 +569,7 @@ describe('insightLogic', () => {
     })
 
     test('save as new insight', async () => {
-        savedInsightsLogic.mount()
+        savedInsightsLogic({ tabId: '1' }).mount()
 
         const insightProps: InsightLogicProps = {
             dashboardItemId: Insight42,
@@ -579,7 +587,7 @@ describe('insightLogic', () => {
             logic.actions.saveAsConfirmation('New Insight (copy)')
         })
             .toDispatchActions(['setInsight'])
-            .toDispatchActions(savedInsightsLogic, ['loadInsights'])
+            .toDispatchActions(savedInsightsLogic({ tabId: '1' }), ['loadInsights'])
             .toMatchValues({
                 savedInsight: partial({ query: partial({ source: partial({ kind: NodeKind.FunnelsQuery }) }) }),
                 insight: partial({
@@ -594,7 +602,7 @@ describe('insightLogic', () => {
         await expectLogic(router)
             .toDispatchActions(['push', 'locationChanged'])
             .toMatchValues({
-                location: partial({ pathname: '/insights/12/edit' }),
+                location: partial({ pathname: '/project/997/insights/12/edit' }),
             })
     })
 
@@ -737,7 +745,7 @@ describe('insightLogic', () => {
             const mockCreateCalls = (api.create as jest.Mock).mock.calls
             expect(mockCreateCalls).toEqual([
                 [
-                    `api/projects/${MOCK_TEAM_ID}/insights`,
+                    `api/environments/${MOCK_TEAM_ID}/insights`,
                     expect.objectContaining({
                         derived_name: 'DataTableNode query',
                         query: {

@@ -1,6 +1,6 @@
 import os
-from typing import Any, Optional
 from collections.abc import Callable
+from typing import Any, Optional
 
 from django.core.exceptions import ImproperlyConfigured
 

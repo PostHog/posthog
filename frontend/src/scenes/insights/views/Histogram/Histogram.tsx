@@ -2,13 +2,16 @@ import './Histogram.scss'
 
 import * as d3 from 'd3'
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { FunnelLayout } from 'lib/constants'
 import { D3Selector, D3Transition, useD3 } from 'lib/hooks/useD3'
 import { animate, getOrCreateEl, wrap } from 'lib/utils/d3Utils'
-import { useEffect } from 'react'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { histogramLogic } from 'scenes/insights/views/Histogram/histogramLogic'
 
-import { createRoundedRectPath, D3HistogramDatum, getConfig, INITIAL_CONFIG } from './histogramUtils'
+import { D3HistogramDatum, INITIAL_CONFIG, createRoundedRectPath, getConfig } from './histogramUtils'
 
 export interface HistogramDatum {
     id: string | number
@@ -41,6 +44,11 @@ export function Histogram({
 }: HistogramProps): JSX.Element {
     const { config } = useValues(histogramLogic)
     const { setConfig } = useActions(histogramLogic)
+    const { insightProps } = useValues(insightLogic)
+    const { theme } = useValues(insightVizDataLogic(insightProps))
+
+    const backgroundColor = theme?.['preset-1'] || '#000000' // Default to black if no color found
+
     const isEmpty = data.length === 0 || d3.sum(data.map((d) => d.count)) === 0
 
     // Initialize x-axis and y-axis scales
@@ -88,7 +96,7 @@ export function Histogram({
                 config.margin.right
         )
         setConfig(getConfig(layout, isDashboardItem ? width : minWidth, height))
-    }, [data.length, layout, width, height])
+    }, [data.length, layout, width, height]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const ref = useD3(
         (container) => {
@@ -261,6 +269,13 @@ export function Histogram({
 
     /* minWidth required to enforce d3's width calculations on the div wrapping the svg
      so that scrolling horizontally works */
-    //  eslint-disable-next-line react/forbid-dom-props
-    return <div className="histogram-container" ref={ref} style={{ minWidth: config.width }} />
+
+    return (
+        <div
+            className="histogram-container"
+            ref={ref}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{ minWidth: config.width, '--histogram-fill': backgroundColor } as React.CSSProperties}
+        />
+    )
 }

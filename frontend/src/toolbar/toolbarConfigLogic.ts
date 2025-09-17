@@ -1,5 +1,6 @@
 import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl, encodeParams } from 'kea-router'
+
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
@@ -30,6 +31,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             { logout: () => null, tokenExpired: () => null, authenticate: () => null },
         ],
         actionId: [props.actionId || null, { logout: () => null, clearUserIntent: () => null }],
+        experimentId: [props.experimentId || null, { logout: () => null, clearUserIntent: () => null }],
         userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
     })),
@@ -39,11 +41,6 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         apiURL: [
             (s) => [s.props],
             (props: ToolbarProps) => `${props.apiURL?.endsWith('/') ? props.apiURL.replace(/\/+$/, '') : props.apiURL}`,
-        ],
-        jsURL: [
-            (s) => [s.props, s.apiURL],
-            (props: ToolbarProps, apiUrl) =>
-                `${props.jsURL ? (props.jsURL.endsWith('/') ? props.jsURL.replace(/\/+$/, '') : props.jsURL) : apiUrl}`,
         ],
         dataAttributes: [(s) => [s.props], (props): string[] => props.dataAttributes ?? []],
         isAuthenticated: [(s) => [s.temporaryToken], (temporaryToken) => !!temporaryToken],
@@ -75,6 +72,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                 ...values.props,
                 temporaryToken: values.temporaryToken ?? undefined,
                 actionId: values.actionId ?? undefined,
+                experimentId: values.experimentId ?? undefined,
                 userIntent: values.userIntent ?? undefined,
                 posthog: undefined,
                 featureFlags: undefined,

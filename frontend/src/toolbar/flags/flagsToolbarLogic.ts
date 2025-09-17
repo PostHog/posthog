@@ -2,8 +2,9 @@ import Fuse from 'fuse.js'
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { encodeParams } from 'kea-router'
-import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import type { PostHog } from 'posthog-js'
+
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
@@ -11,10 +12,13 @@ import { CombinedFeatureFlagAndValueType } from '~/types'
 
 import type { flagsToolbarLogicType } from './flagsToolbarLogicType'
 
+export type PayloadOverrides = Record<string, any>
+
 export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
     path(['toolbar', 'flags', 'flagsToolbarLogic']),
     connect(() => ({
         values: [toolbarConfigLogic, ['posthog']],
+        actions: [toolbarConfigLogic, ['logout', 'tokenExpired']],
     })),
     actions({
         getUserFlags: true,
@@ -22,11 +26,24 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
             flags,
             variants,
         }),
-        setOverriddenUserFlag: (flagKey: string, overrideValue: string | boolean) => ({ flagKey, overrideValue }),
+        setOverriddenUserFlag: (
+            flagKey: string,
+            overrideValue: string | boolean,
+            payloadOverride?: PayloadOverrides
+        ) => ({
+            flagKey,
+            overrideValue,
+            payloadOverride,
+        }),
+        setPayloadOverride: (flagKey: string, payload: any) => ({ flagKey, payload }),
         deleteOverriddenUserFlag: (flagKey: string) => ({ flagKey }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         checkLocalOverrides: true,
         storeLocalOverrides: (localOverrides: Record<string, string | boolean>) => ({ localOverrides }),
+        setDraftPayload: (flagKey: string, draftPayload: string) => ({ flagKey, draftPayload }),
+        savePayloadOverride: (flagKey: string) => ({ flagKey }),
+        setPayloadError: (flagKey: string, error: string | null) => ({ flagKey, error }),
+        setPayloadEditorOpen: (flagKey: string, isOpen: boolean) => ({ flagKey, isOpen }),
     }),
     loaders(({ values }) => ({
         userFlags: [
@@ -70,24 +87,80 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
                 },
             },
         ],
+        payloadOverrides: [
+            {} as PayloadOverrides,
+            {
+                setPayloadOverride: (state, { flagKey, payload }) => ({
+                    ...state,
+                    [flagKey]: payload,
+                }),
+                deleteOverriddenUserFlag: (state, { flagKey }) => {
+                    const newState = { ...state }
+                    delete newState[flagKey]
+                    return newState
+                },
+            },
+        ],
+        draftPayloads: [
+            {} as Record<string, string>,
+            {
+                setDraftPayload: (state, { flagKey, draftPayload }) => ({
+                    ...state,
+                    [flagKey]: draftPayload,
+                }),
+                deleteOverriddenUserFlag: (state, { flagKey }) => {
+                    const newState = { ...state }
+                    delete newState[flagKey]
+                    return newState
+                },
+            },
+        ],
+        payloadErrors: [
+            {} as Record<string, string | null>,
+            {
+                setPayloadError: (state, { flagKey, error }) => ({
+                    ...state,
+                    [flagKey]: error,
+                }),
+                setDraftPayload: (state, { flagKey }) => ({
+                    ...state,
+                    [flagKey]: null,
+                }),
+            },
+        ],
+        openPayloadEditors: [
+            {} as Record<string, boolean>,
+            {
+                setPayloadEditorOpen: (state, { flagKey, isOpen }) => ({
+                    ...state,
+                    [flagKey]: isOpen,
+                }),
+                deleteOverriddenUserFlag: (state, { flagKey }) => {
+                    const newState = { ...state }
+                    delete newState[flagKey]
+                    return newState
+                },
+            },
+        ],
     }),
     selectors({
         userFlagsWithOverrideInfo: [
-            (s) => [s.userFlags, s.localOverrides, s.posthogClientFlagValues],
-            (userFlags, localOverrides, posthogClientFlagValues) => {
+            (s) => [s.userFlags, s.localOverrides, s.posthogClientFlagValues, s.payloadOverrides],
+            (userFlags, localOverrides, posthogClientFlagValues, payloadOverrides) => {
                 return userFlags.map((flag) => {
                     const hasVariants = (flag.feature_flag.filters?.multivariate?.variants?.length || 0) > 0
 
                     const currentValue =
                         flag.feature_flag.key in localOverrides
                             ? localOverrides[flag.feature_flag.key]
-                            : posthogClientFlagValues[flag.feature_flag.key] ?? flag.value
+                            : (posthogClientFlagValues[flag.feature_flag.key] ?? flag.value)
 
                     return {
                         ...flag,
                         hasVariants,
                         currentValue,
                         hasOverride: flag.feature_flag.key in localOverrides,
+                        payloadOverride: payloadOverrides[flag.feature_flag.key],
                     }
                 })
             },
@@ -107,39 +180,83 @@ export const flagsToolbarLogic = kea<flagsToolbarLogicType>([
         ],
         countFlagsOverridden: [(s) => [s.localOverrides], (localOverrides) => Object.keys(localOverrides).length],
     }),
-    listeners(({ actions, values }) => ({
-        checkLocalOverrides: () => {
+    listeners(({ actions, values }) => {
+        const clearFeatureFlagOverrides = (): void => {
             const clientPostHog = values.posthog
             if (clientPostHog) {
-                const locallyOverrideFeatureFlags = clientPostHog.get_property('$override_feature_flags') || {}
-                actions.storeLocalOverrides(locallyOverrideFeatureFlags)
-            }
-        },
-        setOverriddenUserFlag: ({ flagKey, overrideValue }) => {
-            const clientPostHog = values.posthog
-            if (clientPostHog) {
-                clientPostHog.featureFlags.override({ ...values.localOverrides, [flagKey]: overrideValue })
-                toolbarPosthogJS.capture('toolbar feature flag overridden')
-                actions.checkLocalOverrides()
+                clientPostHog.featureFlags.overrideFeatureFlags(false)
                 clientPostHog.featureFlags.reloadFeatureFlags()
+                actions.storeLocalOverrides({})
             }
-        },
-        deleteOverriddenUserFlag: ({ flagKey }) => {
-            const clientPostHog = values.posthog
-            if (clientPostHog) {
-                const updatedFlags = { ...values.localOverrides }
-                delete updatedFlags[flagKey]
-                if (Object.keys(updatedFlags).length > 0) {
-                    clientPostHog.featureFlags.override({ ...updatedFlags })
-                } else {
-                    clientPostHog.featureFlags.override(false)
+        }
+
+        return {
+            checkLocalOverrides: () => {
+                const clientPostHog = values.posthog
+                if (clientPostHog) {
+                    const locallyOverrideFeatureFlags = clientPostHog.get_property('$override_feature_flags') || {}
+                    actions.storeLocalOverrides(locallyOverrideFeatureFlags)
                 }
-                toolbarPosthogJS.capture('toolbar feature flag override removed')
-                actions.checkLocalOverrides()
-                clientPostHog.featureFlags.reloadFeatureFlags()
-            }
-        },
-    })),
+            },
+            setOverriddenUserFlag: ({ flagKey, overrideValue, payloadOverride }) => {
+                const clientPostHog = values.posthog
+                if (clientPostHog) {
+                    const payloads = payloadOverride ? { [flagKey]: payloadOverride } : undefined
+                    clientPostHog.featureFlags.overrideFeatureFlags({
+                        flags: { ...values.localOverrides, [flagKey]: overrideValue },
+                        payloads: payloads,
+                    })
+                    toolbarPosthogJS.capture('toolbar feature flag overridden')
+                    actions.checkLocalOverrides()
+                    if (payloadOverride) {
+                        actions.setPayloadOverride(flagKey, payloadOverride)
+                    }
+                    clientPostHog.featureFlags.reloadFeatureFlags()
+                }
+            },
+            deleteOverriddenUserFlag: ({ flagKey }) => {
+                const clientPostHog = values.posthog
+                if (clientPostHog) {
+                    const updatedFlags = { ...values.localOverrides }
+                    delete updatedFlags[flagKey]
+                    if (Object.keys(updatedFlags).length > 0) {
+                        clientPostHog.featureFlags.overrideFeatureFlags({ flags: updatedFlags })
+                    } else {
+                        clientPostHog.featureFlags.overrideFeatureFlags(false)
+                    }
+                    toolbarPosthogJS.capture('toolbar feature flag override removed')
+                    actions.checkLocalOverrides()
+                    clientPostHog.featureFlags.reloadFeatureFlags()
+                }
+            },
+            savePayloadOverride: ({ flagKey }) => {
+                try {
+                    const draftPayload = values.draftPayloads[flagKey]
+                    if (!draftPayload || draftPayload.trim() === '') {
+                        actions.setPayloadError(flagKey, null)
+                        actions.setPayloadOverride(flagKey, null)
+                        actions.setOverriddenUserFlag(flagKey, true)
+                        actions.setPayloadEditorOpen(flagKey, false)
+                        return
+                    }
+
+                    const payload = JSON.parse(draftPayload)
+                    actions.setPayloadError(flagKey, null)
+                    actions.setOverriddenUserFlag(flagKey, true, payload)
+                    actions.setPayloadEditorOpen(flagKey, false)
+                } catch (e) {
+                    actions.setPayloadError(flagKey, 'Invalid JSON')
+                    console.error('Invalid JSON:', e)
+                }
+            },
+            logout: () => {
+                clearFeatureFlagOverrides()
+            },
+            tokenExpired: () => {
+                clearFeatureFlagOverrides()
+            },
+        }
+    }),
     permanentlyMount(),
 ])
 

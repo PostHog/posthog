@@ -1,0 +1,5 @@
+export const DEFAULT_MAX_ASYNC_STEPS = 100
+export const DEFAULT_MAX_MEMORY = 64 * 1024 * 1024 // 64 MB
+export const DEFAULT_TIMEOUT_MS = 5000 // ms
+export const MAX_FUNCTION_ARGS_LENGTH = 300
+export const CALLSTACK_LENGTH = 1000

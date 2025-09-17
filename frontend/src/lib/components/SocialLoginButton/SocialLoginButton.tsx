@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { LemonButton, LemonButtonWithoutSideActionProps } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -28,10 +29,11 @@ function SocialLoginLink({ provider, extraQueryParams, children }: SocialLoginLi
         loginParams.idp = 'posthog_custom'
     }
     const loginUrl = combineUrl(`/login/${provider}/`, loginParams).url
+    const iframed = window !== window.parent
 
     return (
         // eslint-disable-next-line react/forbid-elements
-        <a className="block" href={loginUrl}>
+        <a className="block" href={loginUrl} {...(iframed ? { target: '_blank', rel: 'noopener' } : {})}>
             {children}
         </a>
     )
@@ -77,24 +79,21 @@ export function SocialLoginButtons({
     bottomDivider,
     ...props
 }: SocialLoginButtonsProps): JSX.Element | null {
-    const { preflight } = useValues(preflightLogic)
+    const { preflight, socialAuthAvailable } = useValues(preflightLogic)
 
-    const order: string[] = Object.keys(SSO_PROVIDER_NAMES)
-
-    if (
-        !preflight?.available_social_auth_providers ||
-        !Object.values(preflight.available_social_auth_providers).filter((val) => !!val).length
-    ) {
+    if (!preflight || !socialAuthAvailable) {
         return null
     }
+
+    const order: string[] = Object.keys(SSO_PROVIDER_NAMES)
 
     return (
         <>
             {topDivider ? <LemonDivider dashed className="my-4" /> : null}
 
-            <div className={clsx(className, 'text-center space-y-4')}>
+            <div className={clsx(className, 'text-center deprecated-space-y-4')}>
                 {title && <h3>{title}</h3>}
-                {caption && captionLocation === 'top' && <p className="text-muted">{caption}</p>}
+                {caption && captionLocation === 'top' && <p className="text-secondary">{caption}</p>}
                 <div className="flex gap-2 justify-center flex-wrap">
                     {Object.keys(preflight.available_social_auth_providers)
                         .sort((a, b) => order.indexOf(a) - order.indexOf(b))
@@ -102,7 +101,7 @@ export function SocialLoginButtons({
                             <SocialLoginButton key={provider} provider={provider as SSOProvider} {...props} />
                         ))}
                 </div>
-                {caption && captionLocation === 'bottom' && <p className="text-muted">{caption}</p>}
+                {caption && captionLocation === 'bottom' && <p className="text-secondary">{caption}</p>}
             </div>
             {bottomDivider ? <LemonDivider dashed className="my-6" /> : null}
         </>
@@ -112,12 +111,15 @@ export function SocialLoginButtons({
 type SSOEnforcedLoginButtonProps = SocialLoginButtonProps &
     Partial<LemonButtonWithoutSideActionProps> & {
         email: string
+    } & {
+        actionText?: string
     }
 
 export function SSOEnforcedLoginButton({
     provider,
     email,
     extraQueryParams,
+    actionText = 'Log in',
     ...props
 }: SSOEnforcedLoginButtonProps): JSX.Element {
     return (
@@ -133,7 +135,7 @@ export function SSOEnforcedLoginButton({
                 size="large"
                 {...props}
             >
-                Log in with {SSO_PROVIDER_NAMES[provider]}
+                {actionText} with {SSO_PROVIDER_NAMES[provider]}
             </LemonButton>
         </SocialLoginLink>
     )

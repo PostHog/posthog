@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { IconBug } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -23,7 +25,7 @@ export function SupportModalButton({ name, email }: { name?: string; email?: str
                     icon={<IconBug />}
                     size="small"
                 >
-                    <span className="text-muted">Report an issue</span>
+                    <span className="text-secondary">Report an issue</span>
                 </LemonButton>
             </div>
         </>

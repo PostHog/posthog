@@ -19,8 +19,8 @@ const meta: Meta<typeof Query> = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/events': events,
-                '/api/projects/:team_id/persons': persons,
+                '/api/environments/:team_id/events': events,
+                '/api/environments/:team_id/persons': persons,
             },
         }),
     ],
@@ -52,3 +52,13 @@ Persons.args = { query: examples['Persons'] }
 
 export const PersonsTable: Story = QueryTemplate.bind({})
 PersonsTable.args = { query: examples['PersonsTable'] }
+
+export const PinnedColumnsAtTheBeginning: Story = QueryTemplate.bind({})
+PinnedColumnsAtTheBeginning.args = {
+    query: examples['PinnedColumnsAtTheBeginning'],
+}
+
+export const PinnedColumnsInTheMiddle: Story = QueryTemplate.bind({})
+PinnedColumnsInTheMiddle.args = {
+    query: examples['PinnedColumnsInTheMiddle'],
+}

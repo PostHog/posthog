@@ -1,6 +1,7 @@
 from freezegun import freeze_time
-from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
+
 from posthog.cdp.templates.aws_kinesis.template_aws_kinesis import template as template_aws_kinesis
+from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 
 
 class TestTemplateAwsKinesis(BaseHogFunctionTemplateTest):
@@ -13,7 +14,7 @@ class TestTemplateAwsKinesis(BaseHogFunctionTemplateTest):
                 "aws_access_key_id": "aws_access_key_id",
                 "aws_secret_access_key": "aws_secret_access_key",
                 "aws_region": "aws_region",
-                "aws_kinesis_stream_arn": "aws_kinesis_stream_arn",
+                "aws_kinesis_stream_name": "aws_kinesis_stream_arn",
                 "aws_kinesis_partition_key": "1",
                 "payload": {"hello": "world"},
             }

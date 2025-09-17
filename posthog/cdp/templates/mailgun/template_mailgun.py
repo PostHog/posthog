@@ -1,16 +1,19 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
-
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 # See https://documentation.mailgun.com/docs/mailgun/api-reference/openapi-final/tag/Messages
 
 
-template_mailgun_send_email: HogFunctionTemplate = HogFunctionTemplate(
-    status="alpha",
+template_mailgun_send_email: HogFunctionTemplateDC = HogFunctionTemplateDC(
+    status="beta",
+    free=False,
+    type="destination",
     id="template-mailgun-send-email",
-    name="Send an email via Mailgun",
+    name="Mailgun",
     description="Send emails using the Mailgun HTTP API",
     icon_url="/static/services/mailgun.png",
-    hog="""
+    category=["Email Marketing"],
+    code_language="hog",
+    code="""
 if (empty(inputs.template.to)) {
     return false
 }
@@ -50,7 +53,7 @@ let res := fetch(f'https://{inputs.host}/v3/{inputs.domain_name}/messages', {
 })
 
 if (res.status >= 400) {
-    print('Error from Mailgun API:', res.status, res.body)
+    throw Error(f'Error from mailgun api (status {res.status}): {res.body}')
 }
 """.strip(),
     inputs_schema=[

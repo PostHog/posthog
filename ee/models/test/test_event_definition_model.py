@@ -1,7 +1,7 @@
 import pytest
+from posthog.test.base import BaseTest
 
 from ee.models.event_definition import EnterpriseEventDefinition
-from posthog.test.base import BaseTest
 
 
 class TestEventDefinition(BaseTest):

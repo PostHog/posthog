@@ -1,12 +1,14 @@
-import { expectLogic } from 'kea-test-utils'
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
-import { insightLogic } from 'scenes/insights/insightLogic'
+
+import { expectLogic } from 'kea-test-utils'
+
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
-import { FunnelsQuery, InsightVizNode, Node, NodeKind, TrendsQuery } from '~/queries/schema'
+import { FunnelsQuery, InsightVizNode, Node, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
     FunnelVizType,
@@ -28,12 +30,12 @@ describe('insightNavLogic', () => {
         beforeEach(async () => {
             useMocks({
                 get: {
-                    '/api/projects/:team/insights/trend/': async () => {
+                    '/api/environments/:team_id/insights/trend/': async () => {
                         return [200, { result: ['result from api'] }]
                     },
                 },
                 post: {
-                    '/api/projects/:team/insights/funnel/': { result: ['result from api'] },
+                    '/api/environments/:team_id/insights/funnel/': { result: ['result from api'] },
                 },
             })
             initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
@@ -61,7 +63,7 @@ describe('insightNavLogic', () => {
             }).toMatchValues({
                 query: {
                     kind: NodeKind.InsightVizNode,
-                    source: { ...nodeKindToDefaultQuery[NodeKind.TrendsQuery], filterTestAccounts: true },
+                    source: { ...nodeKindToDefaultQuery[NodeKind.TrendsQuery], filterTestAccounts: true, version: 2 },
                 },
             })
         })
@@ -166,31 +168,15 @@ describe('insightNavLogic', () => {
                     },
                 },
             }
-            // const retentionQuery: InsightVizNode = {
-            //     kind: NodeKind.InsightVizNode,
-            //     source: {
-            //         kind: NodeKind.RetentionQuery,
-            //         retentionFilter: {
-            //             returningEntity: {
-            //                 id: 'returning',
-            //                 name: 'returning',
-            //                 type: 'events',
-            //             },
-            //             targetEntity: {
-            //                 id: 'target',
-            //                 name: 'target',
-            //                 type: 'events',
-            //             },
-            //         },
-            //     },
-            // }
 
             it('is initialized on mount', async () => {
                 await expectLogic(logic).toMatchValues({
                     queryPropertyCache: {
                         ...nodeKindToDefaultQuery[NodeKind.TrendsQuery],
                         commonFilter: {},
+                        commonFilterTrendsStickiness: {},
                         filterTestAccounts: true,
+                        version: 2,
                     },
                 })
             })
@@ -317,7 +303,7 @@ describe('insightNavLogic', () => {
                         source: {
                             kind: 'FunnelsQuery',
                             series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
-                            funnelsFilter: { funnelVizType: 'steps' },
+                            funnelsFilter: { funnelVizType: 'steps', showValuesOnSeries: true },
                             filterTestAccounts: true,
                             interval: 'hour',
                             breakdownFilter: {
@@ -361,6 +347,7 @@ describe('insightNavLogic', () => {
                             ],
                             trendsFilter: {},
                             filterTestAccounts: true,
+                            version: 2,
                             breakdownFilter: {
                                 breakdowns: [
                                     { property: 'num', type: 'person' },
@@ -381,6 +368,7 @@ describe('insightNavLogic', () => {
                             { property: '$device_type', type: 'event' },
                         ],
                     },
+                    version: 2,
                 } as TrendsQuery
 
                 await expectLogic(logic, () => {
@@ -395,7 +383,7 @@ describe('insightNavLogic', () => {
                         source: {
                             kind: 'FunnelsQuery',
                             series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
-                            funnelsFilter: { funnelVizType: 'steps' },
+                            funnelsFilter: { funnelVizType: 'steps', showValuesOnSeries: true },
                             filterTestAccounts: true,
                             interval: 'hour',
                             breakdownFilter: {
@@ -419,6 +407,7 @@ describe('insightNavLogic', () => {
                             series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview', math: 'total' }],
                             trendsFilter: { showValuesOnSeries: true },
                             filterTestAccounts: true,
+                            version: 2,
                             interval: 'hour',
                             breakdownFilter: {
                                 breakdowns: undefined,

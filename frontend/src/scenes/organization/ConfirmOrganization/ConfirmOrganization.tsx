@@ -1,6 +1,8 @@
-import { Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { Link } from '@posthog/lemon-ui'
+
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import SignupReferralSource from 'lib/components/SignupReferralSource'
@@ -60,7 +62,7 @@ export function ConfirmOrganization(): JSX.Element {
                 logic={confirmOrganizationLogic}
                 formKey="confirmOrganization"
                 enableFormOnSubmit
-                className="space-y-4"
+                className="deprecated-space-y-4"
             >
                 <LemonField name="email" label="Email">
                     <LemonInput className="ph-ignore-input" value={email} disabled />
@@ -92,7 +94,7 @@ export function ConfirmOrganization(): JSX.Element {
                 </LemonButton>
             </Form>
 
-            <div className="text-center terms-and-conditions-text mt-4 text-muted">
+            <div className="text-center terms-and-conditions-text mt-4 text-secondary">
                 By creating an account, you agree to our{' '}
                 <Link to="https://posthog.com/terms" target="_blank">
                     Terms of Service
@@ -104,7 +106,7 @@ export function ConfirmOrganization(): JSX.Element {
                 .
             </div>
             <LemonDivider thick dashed className="my-6" />
-            <div className="text-center terms-and-conditions-text mt-4 text-muted">
+            <div className="text-center terms-and-conditions-text mt-4 text-secondary">
                 Have questions?{' '}
                 <Link to="https://posthog.com/support" target="_blank">
                     Visit support

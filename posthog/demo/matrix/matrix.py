@@ -1,21 +1,20 @@
-import datetime
+import uuid
 import datetime as dt
 from abc import ABC, abstractmethod
 from collections import defaultdict, deque
-from typing import (
-    Any,
-    Optional,
-)
-import uuid
+from typing import Any, Optional
 
-import mimesis
-import mimesis.random
 from django.conf import settings
 from django.utils import timezone
+
+import mimesis
+import tiktoken
+import mimesis.random
 
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.demo.matrix.randomization import PropertiesProvider
 from posthog.models import Team, User
+from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.utils import UUIDT, uuid7
 
 from .models import Effect, SimPerson, SimServerClient
@@ -29,9 +28,9 @@ class Cluster(ABC):
 
     index: int  # Cluster index
     matrix: "Matrix"  # Parent
-    start: datetime.datetime  # Start of the simulation
-    now: datetime.datetime  # Current moment in the simulation
-    end: datetime.datetime  # End of the simulation (might be same as now or later)
+    start: dt.datetime  # Start of the simulation
+    now: dt.datetime  # Current moment in the simulation
+    end: dt.datetime  # End of the simulation (might be same as now or later)
 
     radius: int
     people_matrix: list[list[SimPerson]]  # Grid containing all people in the cluster
@@ -222,6 +221,7 @@ class Matrix(ABC):
     datetime_provider: mimesis.Datetime
     finance_provider: mimesis.Finance
     file_provider: mimesis.File
+    gpt_4o_encoding: tiktoken.Encoding
 
     def __init__(
         self,
@@ -255,6 +255,7 @@ class Matrix(ABC):
         self.distinct_id_to_person = {}
         self.clusters = [self.CLUSTER_CLASS(index=i, matrix=self) for i in range(n_clusters)]
         self.server_client = SimServerClient(self)
+        self.gpt_4o_encoding = tiktoken.encoding_for_model("gpt-4o")
         self.is_complete = None
 
     @property
@@ -265,6 +266,14 @@ class Matrix(ABC):
     def set_project_up(self, team: Team, user: User):
         """Project setup, such as relevant insights, dashboards, feature flags, etc."""
         team.name = self.PRODUCT_NAME
+        FeatureFlag.objects.create(
+            team=team,
+            key="llm-observability",
+            name="Breaking the fourth wall: PostHog's LLM analytics flag.",
+            filters={"groups": [{"variant": None, "properties": [], "rollout_percentage": 100}]},
+            created_by=user,
+            created_at=dt.datetime.fromtimestamp(0),  # Epoch
+        )
 
     def simulate(self):
         if self.is_complete is not None:

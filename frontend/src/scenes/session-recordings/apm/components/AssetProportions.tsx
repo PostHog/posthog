@@ -1,4 +1,5 @@
 import { Tooltip } from '@posthog/lemon-ui'
+
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { humanizeBytes } from 'lib/utils'
 import { assetTypeToColor } from 'scenes/session-recordings/apm/performance-event-utils'
@@ -14,9 +15,9 @@ const AssetProportions = ({ data }: AssetProportionsProps): JSX.Element => {
     const totalBytes = Object.values(data).reduce((acc, item) => acc + (item.bytes || 0), 0)
 
     return (
-        <div className="flex flex-col space-y-2 w-full">
+        <div className="flex flex-col deprecated-space-y-2 w-full">
             <h3 className="mb-0">Asset breakdown</h3>
-            <div className="flex flex-row w-full space-x-1 items-center">
+            <div className="flex flex-row w-full deprecated-space-x-1 items-center">
                 {Object.entries(data).map(([label, sizeInfo]) => {
                     return <Asset key={label} label={label} bytes={sizeInfo.bytes} totalBytes={totalBytes} />
                 })}
@@ -59,7 +60,7 @@ const Asset = ({
             <div
                 ref={wrapperRef}
                 key={label}
-                className="h-12 flex justify-center px-2 py-1 rounded-sm"
+                className="h-12 flex justify-center px-2 py-1 rounded-xs"
                 /* eslint-disable-next-line react/forbid-dom-props */
                 style={{
                     width: `${proportion}%`,

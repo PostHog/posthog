@@ -1,10 +1,12 @@
-import { IconPencil, IconPlus } from '@posthog/icons'
-import { LemonInputSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { CSSProperties, useMemo } from 'react'
+
+import { IconPencil, IconPlus } from '@posthog/icons'
+import { LemonInputSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+
 import { objectTagsLogic } from 'lib/components/ObjectTags/objectTagsLogic'
 import { colorForString } from 'lib/utils'
-import { CSSProperties, useMemo } from 'react'
 
 import { AvailableFeature } from '~/types'
 
@@ -24,12 +26,14 @@ export type ObjectTagsProps =
           /** Tags CAN'T be added or removed. */
           staticOnly: true
           onChange?: never
+          onBlur?: never
           tagsAvailable?: never
       })
     | (ObjectTagsPropsBase & {
           /** Tags CAN be added or removed.*/
           staticOnly?: false
           onChange?: (tags: string[]) => void
+          onBlur?: () => void
           /** List of all tags that already exist. */
           tagsAvailable?: string[] /** Whether this field should be gated behind a "paywall". */
       })
@@ -46,6 +50,7 @@ let uniqueMemoizedIndex = 1
 export function ObjectTags({
     tags,
     onChange, // Required unless `staticOnly`
+    onBlur,
     saving, // Required unless `staticOnly`
     tagsAvailable,
     style = {},
@@ -62,7 +67,7 @@ export function ObjectTags({
     /** Displaying nothing is confusing, so in case of empty static tags we use a dash as a placeholder */
     const showPlaceholder = staticOnly && !tags?.length
     if (showPlaceholder && !style.color) {
-        style.color = 'var(--muted)'
+        style.color = 'var(--color-text-secondary)'
     }
 
     const onGuardClick = (callback: () => void): void => {
@@ -77,7 +82,7 @@ export function ObjectTags({
         <div
             // eslint-disable-next-line react/forbid-dom-props
             style={style}
-            className={clsx(className, 'inline-flex flex-wrap space-x-1 items-center')}
+            className={clsx(className, 'inline-flex flex-wrap deprecated-space-x-1 items-center')}
             data-attr={dataAttr}
         >
             {editingTags ? (
@@ -87,7 +92,10 @@ export function ObjectTags({
                     value={tags}
                     options={tagsAvailable?.map((t) => ({ key: t, label: t }))}
                     onChange={setTags}
-                    onBlur={() => setEditingTags(false)}
+                    onBlur={() => {
+                        setEditingTags(false)
+                        onBlur?.()
+                    }}
                     loading={saving}
                     data-attr="new-tag-input"
                     placeholder='try "official"'

@@ -3,15 +3,7 @@ from typing import Any, Optional, cast
 from uuid import UUID
 
 from posthog.constants import AvailableFeature
-from posthog.models import (
-    Dashboard,
-    DashboardTile,
-    Insight,
-    Organization,
-    OrganizationMembership,
-    Team,
-    User,
-)
+from posthog.models import Dashboard, DashboardTile, Insight, Organization, OrganizationMembership, Team, User
 
 
 class UserPermissions:
@@ -68,11 +60,19 @@ class UserPermissions:
         return self._insight_permissions[insight.pk]
 
     @cached_property
-    def team_ids_visible_for_user(self) -> list[int]:
+    def teams_visible_for_user(self) -> list[Team]:
         candidate_teams = Team.objects.filter(organization_id__in=self.organizations.keys()).only(
             "pk", "organization_id", "access_control"
         )
-        return [team.pk for team in candidate_teams if self.team(team).effective_membership_level is not None]
+        return [team for team in candidate_teams if self.team(team).effective_membership_level is not None]
+
+    @cached_property
+    def team_ids_visible_for_user(self) -> list[int]:
+        return [team.pk for team in self.teams_visible_for_user]
+
+    @cached_property
+    def project_ids_visible_for_user(self) -> list[int]:
+        return list({team.project_id for team in self.teams_visible_for_user})
 
     # Cached properties/functions for efficient lookups in other classes
 
@@ -161,20 +161,75 @@ class UserTeamPermissions:
         if organization is None or organization_membership is None:
             return None
 
-        if (
-            not organization.is_feature_available(AvailableFeature.PROJECT_BASED_PERMISSIONING)
-            or not self.team.access_control
-        ):
+        if not organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
             return organization_membership.level
 
-        explicit_membership_level = self.p.explicit_team_memberships.get(self.team.id)
-        if explicit_membership_level is not None:
-            return max(explicit_membership_level, organization_membership.level)
-        # Only organizations admins and above get implicit project membership
-        elif organization_membership.level < OrganizationMembership.Level.ADMIN:
-            return None
-        else:
-            return organization_membership.level
+        # This path is deprecated, and will be removed soon
+        if self.team.access_control:
+            explicit_membership_level = self.p.explicit_team_memberships.get(self.team.id)
+            if explicit_membership_level is not None:
+                return max(explicit_membership_level, organization_membership.level)
+            # Only organizations admins and above get implicit project membership
+            elif organization_membership.level < OrganizationMembership.Level.ADMIN:
+                return None
+            else:
+                return organization_membership.level
+
+        # New access control system
+        from ee.models.rbac.access_control import AccessControl
+
+        # Check if the team is private
+        team_is_private = AccessControl.objects.filter(
+            team_id=self.team.id,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        ).exists()
+
+        # If team is not private, all organization members have access
+        if not team_is_private:
+            return cast("OrganizationMembership.Level", organization_membership.level)
+
+        # For private teams, check if the user has specific access
+
+        # Organization admins and owners always have access
+        if organization_membership.level >= OrganizationMembership.Level.ADMIN:
+            return cast("OrganizationMembership.Level", organization_membership.level)
+
+        # Check for direct member access through AccessControl entries
+        user_has_access = AccessControl.objects.filter(
+            team_id=self.team.id,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=organization_membership.id,
+            access_level__in=["member", "admin"],
+        ).exists()
+
+        if user_has_access:
+            return cast("OrganizationMembership.Level", organization_membership.level)
+
+        # Check for role-based access
+        from ee.models.rbac.role import RoleMembership
+
+        user_roles = RoleMembership.objects.filter(organization_member=organization_membership.id).values_list(
+            "role", flat=True
+        )
+
+        role_has_access = AccessControl.objects.filter(
+            team_id=self.team.id,
+            resource="project",
+            resource_id=str(self.team.id),
+            role__in=user_roles,
+            access_level__in=["member", "admin"],
+        ).exists()
+
+        if role_has_access:
+            return cast("OrganizationMembership.Level", organization_membership.level)
+
+        # No access found
+        return None
 
 
 class UserDashboardPermissions:

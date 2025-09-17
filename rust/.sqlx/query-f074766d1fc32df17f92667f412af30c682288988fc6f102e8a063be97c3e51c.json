@@ -1,0 +1,37 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\nINSERT INTO cyclotron_jobs\n    (\n        id,\n        team_id,\n        function_id,\n        created,\n        lock_id,\n        last_heartbeat,\n        janitor_touch_count,\n        transition_count,\n        last_transition,\n        queue_name,\n        state,\n        scheduled,\n        priority,\n        vm_state,\n        metadata,\n        parameters,\n        blob\n    )\nVALUES\n    ($1, $2, $3, NOW(), NULL, NULL, 0, 0, NOW(), $4, $5, $6, $7, $8, $9, $10, $11)\n    ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4",
+        "Uuid",
+        "Text",
+        {
+          "Custom": {
+            "name": "jobstate",
+            "kind": {
+              "Enum": [
+                "available",
+                "completed",
+                "failed",
+                "running",
+                "paused"
+              ]
+            }
+          }
+        },
+        "Timestamptz",
+        "Int2",
+        "Bytea",
+        "Bytea",
+        "Bytea",
+        "Bytea"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f074766d1fc32df17f92667f412af30c682288988fc6f102e8a063be97c3e51c"
+}

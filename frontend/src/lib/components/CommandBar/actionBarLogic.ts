@@ -1,5 +1,6 @@
 import { afterMount, beforeUnmount, connect, kea, listeners, path } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { commandPaletteLogic } from '../CommandPalette/commandPaletteLogic'
@@ -9,7 +10,7 @@ import { BarStatus } from './types'
 
 export const actionBarLogic = kea<actionBarLogicType>([
     path(['lib', 'components', 'CommandBar', 'actionBarLogic']),
-    connect({
+    connect(() => ({
         actions: [
             commandBarLogic,
             ['hideCommandBar', 'setCommandBar', 'clearInitialQuery'],
@@ -31,7 +32,7 @@ export const actionBarLogic = kea<actionBarLogicType>([
                 'activeFlow',
             ],
         ],
-    }),
+    })),
     listeners(({ actions }) => ({
         hidePalette: () => {
             // listen on hide action from legacy palette, and hide command bar

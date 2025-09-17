@@ -1,8 +1,10 @@
+import { useActions, useValues } from 'kea'
+
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonTable } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { useRestrictedArea } from 'lib/components/RestrictedArea'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -11,9 +13,9 @@ import { organizationLogic } from 'scenes/organizationLogic'
 
 import { AccessLevel, AvailableFeature, Resource, RoleType } from '~/types'
 
-import { permissionsLogic } from './permissionsLogic'
 import { CreateRoleModal } from './Roles/CreateRoleModal'
 import { rolesLogic } from './Roles/rolesLogic'
+import { permissionsLogic } from './permissionsLogic'
 import { getSingularType } from './utils'
 
 export function PermissionsGrid(): JSX.Element {
@@ -22,7 +24,11 @@ export function PermissionsGrid(): JSX.Element {
     const { roles, rolesLoading } = useValues(rolesLogic)
     const { setRoleInFocus, openCreateRoleModal } = useActions(rolesLogic)
     const { isAdminOrOwner } = useValues(organizationLogic)
-    const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin }) // TODO: check if this is correct
+
+    const restrictionReason = useRestrictedArea({
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        scope: RestrictionScope.Organization,
+    })
 
     const columns: LemonTableColumns<RoleType> = [
         {
@@ -103,21 +109,28 @@ export function PermissionsGrid(): JSX.Element {
         <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
             <>
                 <div className="flex flex-row justify-between items-center mb-4">
-                    <div className="text-muted-alt">
+                    <div className="text-secondary">
                         Edit organizational default permission levels for PostHog resources. Use roles to apply
                         permissions to specific sets of users.
                     </div>
-                    {!restrictionReason && (
-                        <LemonButton type="primary" onClick={openCreateRoleModal} data-attr="create-role-button">
-                            Create role
-                        </LemonButton>
-                    )}
                 </div>
+
                 <LemonTable
                     columns={columns}
                     loading={rolesLoading || organizationResourcePermissionsLoading}
                     dataSource={[{ name: 'organization_default' } as RoleType, ...roles]}
                 />
+
+                <LemonButton
+                    type="primary"
+                    onClick={openCreateRoleModal}
+                    className="mt-4"
+                    data-attr="create-role-button"
+                    disabledReason={restrictionReason}
+                >
+                    Create role
+                </LemonButton>
+
                 <CreateRoleModal />
             </>
         </PayGateMini>

@@ -1,8 +1,8 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { getSeriesColor } from 'lib/colors'
-import { percentage } from 'lib/utils'
 import { useRef } from 'react'
+
+import { percentage } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { FunnelStepWithConversionMetrics } from '~/types'
@@ -23,13 +23,11 @@ interface StepBarCSSProperties extends React.CSSProperties {
 }
 export function StepBar({ step, stepIndex, series, showPersonsModal }: StepBarProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { disableFunnelBreakdownBaseline } = useValues(funnelDataLogic(insightProps))
+    const { getFunnelsColor } = useValues(funnelDataLogic(insightProps))
     const { showTooltip, hideTooltip } = useActions(funnelTooltipLogic(insightProps))
     const { openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
 
     const ref = useRef<HTMLDivElement | null>(null)
-
-    const seriesOrderForColor = disableFunnelBreakdownBaseline ? (series.order ?? 0) + 1 : series.order ?? 0
 
     return (
         <div
@@ -37,7 +35,7 @@ export function StepBar({ step, stepIndex, series, showPersonsModal }: StepBarPr
             /* eslint-disable-next-line react/forbid-dom-props */
             style={
                 {
-                    '--series-color': getSeriesColor(seriesOrderForColor),
+                    '--series-color': getFunnelsColor(series),
                     '--conversion-rate': percentage(series.conversionRates.fromBasisStep, 1, true),
                 } as StepBarCSSProperties
             }

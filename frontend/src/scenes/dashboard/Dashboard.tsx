@@ -1,38 +1,54 @@
+import './Dashboard.scss'
+
+import clsx from 'clsx'
+import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+
 import { LemonButton } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { cn } from 'lib/utils/css-classes'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { useEffect } from 'react'
 import { DashboardEditBar } from 'scenes/dashboard/DashboardEditBar'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
-import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
+import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { DashboardMode, DashboardPlacement, DashboardType, QueryBasedInsightModel } from '~/types'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
+import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
+import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
 import { DashboardHeader } from './DashboardHeader'
+import { DashboardOverridesBanner } from './DashboardOverridesBanner'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
 interface DashboardProps {
     id?: string
     dashboard?: DashboardType<QueryBasedInsightModel>
     placement?: DashboardPlacement
+    themes?: DataColorThemeModel[]
 }
 
-export const scene: SceneExport = {
+export const scene: SceneExport<DashboardLogicProps> = {
     component: DashboardScene,
     logic: dashboardLogic,
-    paramsToProps: ({ params: { id, placement } }: { params: DashboardProps }): DashboardLogicProps => ({
+    paramsToProps: ({ params: { id, placement } }) => ({
         id: parseInt(id as string),
         placement,
     }),
+    settingSectionId: 'environment-product-analytics',
 }
 
-export function Dashboard({ id, dashboard, placement }: DashboardProps = {}): JSX.Element {
+export function Dashboard({ id, dashboard, placement, themes }: DashboardProps): JSX.Element {
+    useMountedLogic(dataThemeLogic({ themes }))
+
     return (
         <BindLogic logic={dashboardLogic} props={{ id: parseInt(id as string), placement, dashboard }}>
             <DashboardScene />
@@ -41,17 +57,25 @@ export function Dashboard({ id, dashboard, placement }: DashboardProps = {}): JS
 }
 
 function DashboardScene(): JSX.Element {
-    const { placement, dashboard, canEditDashboard, tiles, itemsLoading, dashboardMode, dashboardFailedToLoad } =
-        useValues(dashboardLogic)
+    const {
+        placement,
+        dashboard,
+        canEditDashboard,
+        tiles,
+        itemsLoading,
+        dashboardMode,
+        dashboardFailedToLoad,
+        accessDeniedToDashboard,
+        hasVariables,
+    } = useValues(dashboardLogic)
     const { setDashboardMode, reportDashboardViewed, abortAnyRunningQuery } = useActions(dashboardLogic)
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         reportDashboardViewed()
-        return () => {
-            // request cancellation of any running queries when this component is no longer in the dom
-            abortAnyRunningQuery()
-        }
-    }, [])
+
+        // request cancellation of any running queries when this component is no longer in the dom
+        return () => abortAnyRunningQuery()
+    })
 
     useKeyboardHotkeys(
         placement == DashboardPlacement.Dashboard
@@ -86,9 +110,14 @@ function DashboardScene(): JSX.Element {
         return <NotFound object="dashboard" />
     }
 
+    if (accessDeniedToDashboard) {
+        return <AccessDenied object="dashboard" />
+    }
+
     return (
-        <div className="dashboard">
+        <SceneContent className={cn('dashboard')}>
             {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
+            {canEditDashboard && <AddInsightToDashboardModal />}
 
             {dashboardFailedToLoad ? (
                 <InsightErrorState title="There was an error loading this dashboard" />
@@ -96,37 +125,50 @@ function DashboardScene(): JSX.Element {
                 <EmptyDashboardComponent loading={itemsLoading} canEdit={canEditDashboard} />
             ) : (
                 <div>
-                    <div className="flex gap-2 items-start justify-between flex-wrap">
-                        {![
-                            DashboardPlacement.Public,
-                            DashboardPlacement.Export,
-                            DashboardPlacement.FeatureFlag,
-                        ].includes(placement) &&
-                            dashboard && <DashboardEditBar />}
-                        {placement === DashboardPlacement.FeatureFlag && dashboard?.id && (
-                            <LemonButton type="secondary" size="small" to={urls.dashboard(dashboard.id)}>
-                                Edit dashboard
-                            </LemonButton>
-                        )}
-                        {placement !== DashboardPlacement.Export && (
-                            <div className="flex shrink-0 space-x-4 dashoard-items-actions">
+                    <DashboardOverridesBanner />
+
+                    <SceneStickyBar showBorderBottom={false}>
+                        <div className="flex gap-2 justify-between">
+                            {![
+                                DashboardPlacement.Public,
+                                DashboardPlacement.Export,
+                                DashboardPlacement.FeatureFlag,
+                                DashboardPlacement.Group,
+                            ].includes(placement) &&
+                                dashboard && <DashboardEditBar />}
+                            {[DashboardPlacement.FeatureFlag, DashboardPlacement.Group].includes(placement) &&
+                                dashboard?.id && (
+                                    <LemonButton type="secondary" size="small" to={urls.dashboard(dashboard.id)}>
+                                        {placement === DashboardPlacement.Group
+                                            ? 'Edit dashboard template'
+                                            : 'Edit dashboard'}
+                                    </LemonButton>
+                                )}
+                            {placement !== DashboardPlacement.Export && (
                                 <div
-                                    className={`left-item ${
-                                        placement === DashboardPlacement.Public ? 'text-right' : ''
-                                    }`}
+                                    className={clsx('flex shrink-0 deprecated-space-x-4 dashoard-items-actions', {
+                                        'mt-7': hasVariables,
+                                    })}
                                 >
-                                    {[DashboardPlacement.Public].includes(placement) ? (
-                                        <LastRefreshText />
-                                    ) : !(dashboardMode === DashboardMode.Edit) ? (
-                                        <DashboardReloadAction />
-                                    ) : null}
+                                    <div
+                                        className={`left-item ${
+                                            placement === DashboardPlacement.Public ? 'text-right' : ''
+                                        }`}
+                                    >
+                                        {[DashboardPlacement.Public].includes(placement) ? (
+                                            <LastRefreshText />
+                                        ) : !(dashboardMode === DashboardMode.Edit) ? (
+                                            <DashboardReloadAction />
+                                        ) : null}
+                                    </div>
                                 </div>
-                            </div>
-                        )}
-                    </div>
+                            )}
+                        </div>
+                    </SceneStickyBar>
+
                     <DashboardItems />
                 </div>
             )}
-        </div>
+        </SceneContent>
     )
 }

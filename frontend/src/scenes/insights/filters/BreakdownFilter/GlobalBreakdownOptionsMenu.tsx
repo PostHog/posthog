@@ -1,8 +1,10 @@
 import './BreakdownTagMenu.scss'
 
+import { useActions, useValues } from 'kea'
+
 import { IconInfo } from '@posthog/icons'
 import { LemonInput, LemonLabel, LemonSwitch } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -36,7 +38,7 @@ export const GlobalBreakdownOptionsMenu = (): JSX.Element => {
                                     </>
                                 }
                             >
-                                <IconInfo className="text-muted text-xl shrink-0" />
+                                <IconInfo className="text-secondary text-xl shrink-0" />
                             </Tooltip>
                         </div>
                     }
@@ -49,8 +51,10 @@ export const GlobalBreakdownOptionsMenu = (): JSX.Element => {
                 <LemonInput
                     id="breakdown-limit"
                     min={1}
+                    max={1000}
                     value={breakdownLimit}
-                    onChange={setBreakdownLimit}
+                    // :HACKY: We cap the breakdown limit in the `onChange` handler, as the `max` prop doesn't enforce anything.
+                    onChange={(value) => setBreakdownLimit(value !== undefined ? Math.min(value, 1000) : undefined)}
                     fullWidth={false}
                     className="w-20 ml-2"
                     type="number"

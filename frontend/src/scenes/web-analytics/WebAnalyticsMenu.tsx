@@ -1,5 +1,7 @@
-import { IconEllipsis, IconSearch } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconEllipsis, IconSearch } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
@@ -8,7 +10,9 @@ import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 export const WebAnalyticsMenu = (): JSX.Element => {
     const { shouldFilterTestAccounts } = useValues(webAnalyticsLogic)
+
     const { setShouldFilterTestAccounts } = useActions(webAnalyticsLogic)
+
     return (
         <LemonMenu
             items={[
@@ -29,7 +33,7 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                         />
                     ),
                 },
-            ]}
+            ].filter(Boolean)}
             closeOnClickInside={false}
         >
             <LemonButton icon={<IconEllipsis />} size="small" />

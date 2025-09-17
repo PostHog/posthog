@@ -1,6 +1,9 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
-import { LemonTextAreaMarkdown as _LemonTextMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown'
 import { useState } from 'react'
+
+import { IconTrash } from '@posthog/icons'
+
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { LemonTextArea, LemonTextAreaProps } from './LemonTextArea'
 
@@ -26,7 +29,15 @@ Basic.args = {}
 export const Disabled: Story = Template.bind({})
 Disabled.args = { disabled: true }
 
-export const LemonTextMarkdown = (): JSX.Element => {
-    const [value, setValue] = useState('# Title\n\n**bold** _italic_')
-    return <_LemonTextMarkdown value={value} onChange={(newValue) => setValue(newValue)} />
+export const WithMaxLength: Story = Template.bind({})
+WithMaxLength.args = { maxLength: 100, value: '1234567890' }
+
+export const WithMaxLengthExceeded: Story = Template.bind({})
+WithMaxLengthExceeded.args = { maxLength: 5, value: '1234567890' }
+
+export const WithArbitraryAction: Story = Template.bind({})
+WithArbitraryAction.args = {
+    maxLength: 5,
+    value: '1234567890',
+    actions: [<LemonButton key="1" icon={<IconTrash />} size="xsmall" />],
 }

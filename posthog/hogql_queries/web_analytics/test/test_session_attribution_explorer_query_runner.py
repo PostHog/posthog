@@ -1,29 +1,27 @@
 from typing import Optional
 
-from parameterized import parameterized
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
+
+from posthog.schema import (
+    DateRange,
+    Filters,
+    HogQLQueryModifiers,
+    PropertyOperator,
+    SessionAttributionExplorerQuery,
+    SessionAttributionGroupBy,
+    SessionPropertyFilter,
+    SessionTableVersion,
+)
 
 from posthog.hogql.constants import LimitContext
+
 from posthog.hogql_queries.web_analytics.session_attribution_explorer_query_runner import (
     SessionAttributionExplorerQueryRunner,
 )
 from posthog.models.utils import uuid7
-from posthog.schema import (
-    DateRange,
-    SessionTableVersion,
-    HogQLQueryModifiers,
-    SessionAttributionExplorerQuery,
-    Filters,
-    SessionAttributionGroupBy,
-    SessionPropertyFilter,
-    PropertyOperator,
-)
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-)
 
 
+@snapshot_clickhouse_queries
 class TestSessionAttributionQueryRunner(ClickhouseTestMixin, APIBaseTest):
     def _create_session(
         self, url=None, source=None, medium=None, campaign=None, gclid=None, gad_source=None, referring_domain="$direct"
@@ -80,7 +78,7 @@ class TestSessionAttributionQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self,
         date_from: Optional[str] = None,
         date_to: Optional[str] = None,
-        session_table_version: SessionTableVersion = SessionTableVersion.V1,
+        session_table_version: SessionTableVersion = SessionTableVersion.V2,
         group_by: Optional[list[SessionAttributionGroupBy]] = None,
         limit_context: Optional[LimitContext] = None,
         properties: Optional[list[SessionPropertyFilter]] = None,
@@ -94,20 +92,14 @@ class TestSessionAttributionQueryRunner(ClickhouseTestMixin, APIBaseTest):
         runner = SessionAttributionExplorerQueryRunner(team=self.team, query=query, limit_context=limit_context)
         return runner.calculate()
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_no_crash_when_no_data(self, session_table_version: SessionTableVersion):
-        results = self._run_session_attribution_query(
-            session_table_version=session_table_version,
-        ).results
+    def test_no_crash_when_no_data(self):
+        results = self._run_session_attribution_query().results
         assert results == [(0, [], [], [], [], [], [], [])]
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_group_by_nothing(self, session_table_version: SessionTableVersion):
+    def test_group_by_nothing(self):
         self._create_data()
 
-        results = self._run_session_attribution_query(
-            session_table_version=session_table_version,
-        ).results
+        results = self._run_session_attribution_query().results
 
         assert results == [
             (
@@ -117,17 +109,15 @@ class TestSessionAttributionQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ["source1", "source2"],
                 ["medium1", "medium2"],
                 ["campaign1a", "campaign1b", "campaign2"],
-                ["glcid,gad_source"],
+                ["gclid,gad_source"],
                 ["http://example.com/1a", "http://example.com/1b", "http://example.com/2"],
             )
         ]
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_group_by_initial_url(self, session_table_version: SessionTableVersion):
+    def test_group_by_initial_url(self):
         self._create_data()
 
         results = self._run_session_attribution_query(
-            session_table_version=session_table_version,
             group_by=[SessionAttributionGroupBy.INITIAL_URL],
         ).results
 
@@ -139,7 +129,7 @@ class TestSessionAttributionQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ["source1"],
                 ["medium1"],
                 ["campaign1a"],
-                ["glcid,gad_source"],
+                ["gclid,gad_source"],
                 "http://example.com/1a",
             ),
             (
@@ -149,7 +139,7 @@ class TestSessionAttributionQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 ["source1"],
                 ["medium1"],
                 ["campaign1b"],
-                ["glcid,gad_source"],
+                ["gclid,gad_source"],
                 "http://example.com/1b",
             ),
             (
@@ -164,12 +154,10 @@ class TestSessionAttributionQueryRunner(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_group_channel_medium_source(self, session_table_version: SessionTableVersion):
+    def test_group_channel_medium_source(self):
         self._create_data()
 
         results = self._run_session_attribution_query(
-            session_table_version=session_table_version,
             group_by=[
                 SessionAttributionGroupBy.CHANNEL_TYPE,
                 SessionAttributionGroupBy.MEDIUM,
@@ -185,18 +173,16 @@ class TestSessionAttributionQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "source1",
                 "medium1",
                 ["campaign1a", "campaign1b"],
-                ["glcid,gad_source"],
+                ["gclid,gad_source"],
                 ["http://example.com/1a", "http://example.com/1b"],
             ),
             (1, "Referral", ["referring_domain2"], "source2", "medium2", ["campaign2"], [], ["http://example.com/2"]),
         ]
 
-    @parameterized.expand([[SessionTableVersion.V1], [SessionTableVersion.V2]])
-    def test_filters(self, session_table_version: SessionTableVersion):
+    def test_filters(self):
         self._create_data()
 
         results = self._run_session_attribution_query(
-            session_table_version=session_table_version,
             group_by=[
                 SessionAttributionGroupBy.CHANNEL_TYPE,
                 SessionAttributionGroupBy.MEDIUM,
@@ -215,7 +201,7 @@ class TestSessionAttributionQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "source1",
                 "medium1",
                 ["campaign1a", "campaign1b"],
-                ["glcid,gad_source"],
+                ["gclid,gad_source"],
                 ["http://example.com/1a", "http://example.com/1b"],
             ),
         ]

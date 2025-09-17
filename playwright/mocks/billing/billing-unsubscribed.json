@@ -1,0 +1,3723 @@
+{
+    "license": {
+        "plan": "dev"
+    },
+    "customer_id": "cus_Pg7PIL8MsKi6bx",
+    "deactivated": false,
+    "has_active_subscription": false,
+    "billing_period": {
+        "current_period_start": "2024-03-04T23:43:35.772Z",
+        "current_period_end": "2024-04-03T23:43:35.772Z",
+        "interval": "month"
+    },
+    "available_product_features": [
+        {
+            "key": "surveys_unlimited_surveys",
+            "name": "Unlimited surveys",
+            "description": "Create as many surveys as you want.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "surveys_all_question_types",
+            "name": "All question types",
+            "description": "Rating scale (for NPS and the like), multiple choice, single choice, emoji rating, link, free text.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "surveys_user_targeting",
+            "name": "Advanced user targeting",
+            "description": "Target by URL, user property, or feature flag when used with Feature flags.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "surveys_user_sampling",
+            "name": "User sampling",
+            "description": "Sample users to only survey a portion of the users who match the criteria.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "surveys_api_mode",
+            "name": "API mode",
+            "description": "Using PostHog.js? No more code required. But if want to create your own UI, we have a full API.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "surveys_results_analysis",
+            "name": "Aggregated results",
+            "description": "See feedback summarized and broken down per response, plus completion rates and drop offs.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "surveys_templates",
+            "name": "Templates",
+            "description": "Use our templates to get started quickly with NPS, customer satisfaction surveys, user interviews, and more.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "surveys_data_retention",
+            "name": "Data retention",
+            "description": "Keep a historical record of your data.",
+            "unit": "year",
+            "limit": 1,
+            "note": null
+        },
+        {
+            "key": "zapier",
+            "name": "Zapier",
+            "description": "Zapier lets you connect PostHog with thousands of the most popular apps, so you can automate your work and have more time for what matters most—no code required.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "slack_integration",
+            "name": "Slack",
+            "description": "Get notified about new actions in Slack.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "microsoft_teams_integration",
+            "name": "Microsoft Teams",
+            "description": "Get notified about new actions in Microsoft Teams.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "discord_integration",
+            "name": "Discord",
+            "description": "Get notified about new actions in Discord.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "apps",
+            "name": "Transformations",
+            "description": "Use transformations to filter or modify your incoming data. (Destinations not included, see the Data pipelines addon for product analytics.)",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "boolean_flags",
+            "name": "Boolean feature flags",
+            "description": "Turn features on and off for specific users.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "multivariate_flags",
+            "name": "Multivariate feature flags & experiments",
+            "description": "Create three or more variants of a feature flag to test or release different versions of a feature.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "persist_flags_cross_authentication",
+            "name": "Persist flags across authentication",
+            "description": "Persist feature flags across authentication events so that flag values don't change when an anonymous user logs in and becomes identified.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "feature_flag_payloads",
+            "name": "Test changes without code",
+            "description": "Use JSON payloads to change text, visuals, or entire blocks of code without subsequent deployments.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "multiple_release_conditions",
+            "name": "Multiple release conditions",
+            "description": "Customize your rollout strategy by user or group properties, cohort, or traffic percentage.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "release_condition_overrides",
+            "name": "Release condition overrides",
+            "description": "For any release condition, specify which flag value the users or groups in that condition should receive.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "targeting_by_group",
+            "name": "Flag targeting by groups",
+            "description": "Target feature flag release conditions by group properties, not just user properties.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "local_evaluation_and_bootstrapping",
+            "name": "Local evaluation & bootstrapping",
+            "description": "Bootstrap flags on initialization so all flags are available immediately, without having to make extra network requests.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "flag_usage_stats",
+            "name": "Flag usage stats",
+            "description": "See how many times a flag has been evaluated, how many times each variant has been returned, and what values users received.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "experimentation",
+            "name": "A/B testing",
+            "description": "Test changes to your product and evaluate the impacts those changes make.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "funnel_experiments",
+            "name": "Funnel & trend experiments",
+            "description": "Measure the impact of a change on a aggregate values or a series of events, like a signup flow.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "secondary_metrics",
+            "name": "Secondary experiment metrics",
+            "description": "Track additional metrics to see how your experiment affects other parts of your app or different flows.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "statistical_analysis",
+            "name": "Statistical analysis",
+            "description": "Get a statistical analysis of your experiment results to see if the results are significant, or if they're likely just due to chance.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "feature_flags_data_retention",
+            "name": "Data retention",
+            "description": "Keep a historical record of your data.",
+            "unit": "year",
+            "limit": 1,
+            "note": null
+        },
+        {
+            "key": "console_logs",
+            "name": "Console logs",
+            "description": "Debug issues faster by browsing the user's console.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "recordings_performance",
+            "name": "Network performance on recordings",
+            "description": "See your end-user's network performance and information alongside session recordings.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "session_replay_network_payloads",
+            "name": "Network monitor",
+            "description": "Analyze performance and network calls.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "recordings_playlists",
+            "name": "Recording playlists",
+            "description": "Create playlists of certain session recordings to easily find and watch them again in the future.",
+            "unit": "playlists",
+            "limit": 5,
+            "note": null
+        },
+        {
+            "key": "session_replay_data_retention",
+            "name": "Data retention",
+            "description": "Keep a historical record of your data.",
+            "unit": "month",
+            "limit": 1,
+            "note": null
+        },
+        {
+            "key": "replay_mask_sensitive_data",
+            "name": "Block sensitive data",
+            "description": "Disable capturing data from any DOM element with HTML attributes or a customizable config.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "replay_sharing_embedding",
+            "name": "Share and embed",
+            "description": "Share replays directly via URL or embed via iframe.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "replay_product_analytics_integration",
+            "name": "Event timeline",
+            "description": "See a history of everything that happened in a user's session.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "replay_filter_person_properties",
+            "name": "Filter person properties",
+            "description": "Filter by person properties to quickly find relevant recordings.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "replay_filter_events",
+            "name": "Filter events",
+            "description": "Filter by events to quickly find relevant recordings.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "replay_dom_explorer",
+            "name": "DOM Explorer",
+            "description": "Freeze snapshots of recordings and explore the DOM with your browser dev tools.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "session_replay_sampling",
+            "name": "Sample recorded sessions",
+            "description": "Restrict the percentage of sessions that will be recorded.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "replay_recording_duration_minimum",
+            "name": "Minimum duration",
+            "description": "Only record sessions longer than the minimum duration.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "replay_feature_flag_based_recording",
+            "name": "Record via feature flag",
+            "description": "Only record sessions for users that have the flag enabled.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "dashboards",
+            "name": "Dashboards",
+            "description": "Save trends, funnels, and other insights for easy reference by your whole team.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "funnels",
+            "name": "Funnels",
+            "description": "Visualize user dropoff between a sequence of events. See conversion rate over time, use flexible step ordering, set exclusion steps, and more.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "graphs_trends",
+            "name": "Graphs & trends",
+            "description": "Plot any number of events or actions over time.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "paths",
+            "name": "User paths",
+            "description": "Limited paths excludes: customizing path insights by setting the maximum number of paths, number of people on each path, how path names appear",
+            "unit": null,
+            "limit": null,
+            "note": "Limited"
+        },
+        {
+            "key": "product_analytics_data_retention",
+            "name": "Data retention",
+            "description": "Keep a historical record of your data.",
+            "unit": "year",
+            "limit": 1,
+            "note": null
+        },
+        {
+            "key": "tracked_users",
+            "name": "Tracked users",
+            "description": "Track users across devices and sessions.",
+            "unit": null,
+            "limit": null,
+            "note": "Unlimited"
+        },
+        {
+            "key": "team_members",
+            "name": "Team members",
+            "description": "PostHog doesn't charge per seat add your entire team!",
+            "unit": null,
+            "limit": null,
+            "note": "Unlimited"
+        },
+        {
+            "key": "organizations_projects",
+            "name": "Projects",
+            "description": "Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.",
+            "unit": "project",
+            "limit": 1,
+            "note": null
+        },
+        {
+            "key": "environments",
+            "name": "Environments",
+            "description": "Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.",
+            "unit": "environment",
+            "limit": 1,
+            "note": null
+        },
+        {
+            "key": "api_access",
+            "name": "API access",
+            "description": "Access your data via our developer-friendly API.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "social_sso",
+            "name": "SSO via Google, Github, or Gitlab",
+            "description": "Log in to PostHog with your Google, Github, or Gitlab account.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "community_support",
+            "name": "Community support",
+            "description": "Get help from other users and PostHog team members in our Community forums.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        },
+        {
+            "key": "2fa",
+            "name": "2FA",
+            "description": "Secure your PostHog account with two-factor authentication.",
+            "unit": null,
+            "limit": null,
+            "note": null
+        }
+    ],
+    "current_total_amount_usd": null,
+    "current_total_amount_usd_after_discount": null,
+    "products": [
+        {
+            "name": "Product analytics",
+            "headline": "Product analytics with autocapture",
+            "description": "A comprehensive product analytics platform built to natively work with session replay, feature flags, A/B testing, and surveys.",
+            "price_description": null,
+            "usage_key": "events",
+            "image_url": "https://posthog.com/images/products/product-analytics/product-analytics.png",
+            "screenshot_url": "https://posthog.com/images/products/product-analytics/screenshot-product-analytics.png",
+            "icon_key": "IconGraph",
+            "docs_url": "https://posthog.com/docs/product-analytics",
+            "subscribed": false,
+            "plans": [
+                {
+                    "plan_key": "free-20230117",
+                    "product_key": "product_analytics",
+                    "name": "Free",
+                    "description": "A comprehensive product analytics platform built to natively work with session replay, feature flags, A/B testing, and surveys.",
+                    "image_url": "https://posthog.com/images/products/product-analytics/product-analytics.png",
+                    "docs_url": "https://posthog.com/docs/product-analytics",
+                    "note": null,
+                    "unit": "event",
+                    "free_allocation": 1000000,
+                    "features": [
+                        {
+                            "key": "dashboards",
+                            "name": "Dashboards",
+                            "description": "Save trends, funnels, and other insights for easy reference by your whole team.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "funnels",
+                            "name": "Funnels",
+                            "description": "Visualize user dropoff between a sequence of events. See conversion rate over time, use flexible step ordering, set exclusion steps, and more.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "graphs_trends",
+                            "name": "Graphs & trends",
+                            "description": "Plot any number of events or actions over time.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "paths",
+                            "name": "User paths",
+                            "description": "Limited paths excludes: customizing path insights by setting the maximum number of paths, number of people on each path, how path names appear",
+                            "unit": null,
+                            "limit": null,
+                            "note": "Limited"
+                        },
+                        {
+                            "key": "product_analytics_data_retention",
+                            "name": "Data retention",
+                            "description": "Keep a historical record of your data.",
+                            "unit": "year",
+                            "limit": 1,
+                            "note": null
+                        }
+                    ],
+                    "tiers": null,
+                    "current_plan": true,
+                    "included_if": null,
+                    "contact_support": null,
+                    "unit_amount_usd": null
+                },
+                {
+                    "plan_key": "paid-20240111",
+                    "product_key": "product_analytics",
+                    "name": "Paid",
+                    "description": "A comprehensive product analytics platform built to natively work with session replay, feature flags, A/B testing, and surveys.",
+                    "image_url": "https://posthog.com/images/products/product-analytics/product-analytics.png",
+                    "docs_url": "https://posthog.com/docs/product-analytics",
+                    "note": null,
+                    "unit": "event",
+                    "free_allocation": null,
+                    "features": [
+                        {
+                            "key": "dashboards",
+                            "name": "Dashboards",
+                            "description": "Save trends, funnels, and other insights for easy reference by your whole team.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "funnels",
+                            "name": "Funnels",
+                            "description": "Visualize user dropoff between a sequence of events. See conversion rate over time, use flexible step ordering, set exclusion steps, and more.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "graphs_trends",
+                            "name": "Graphs & trends",
+                            "description": "Plot any number of events or actions over time.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "paths",
+                            "name": "User paths",
+                            "description": "Limited paths excludes: customizing path insights by setting the maximum number of paths, number of people on each path, how path names appear",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "subscriptions",
+                            "name": "Insight & dashboard subscriptions",
+                            "description": "Create a subscription for any insight or dashboard in PostHog to receive regular reports with their updates.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "paths_advanced",
+                            "name": "Advanced paths",
+                            "description": "Customize your path insights by setting the maximum number of paths, number of people on each path, and how path names should appear.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "correlation_analysis",
+                            "name": "Correlation analysis",
+                            "description": "Automatically highlight significant factors that affect the conversion rate of users within a funnel.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "behavioral_cohort_filtering",
+                            "name": "Lifecycle",
+                            "description": "Discover how your active users break down, highlighting those who have recently stopped being active or those who have just become active for the first time.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "product_analytics_data_retention",
+                            "name": "Data retention",
+                            "description": "Keep a historical record of your data.",
+                            "unit": "years",
+                            "limit": 7,
+                            "note": null
+                        }
+                    ],
+                    "tiers": [
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0",
+                            "up_to": 1000000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.00031",
+                            "up_to": 2000000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.00013",
+                            "up_to": 15000000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.0000819",
+                            "up_to": 50000000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.0000455",
+                            "up_to": 100000000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.0000234",
+                            "up_to": 250000000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.0000052",
+                            "up_to": null,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        }
+                    ],
+                    "current_plan": false,
+                    "included_if": null,
+                    "contact_support": null,
+                    "unit_amount_usd": null
+                }
+            ],
+            "type": "product_analytics",
+            "free_allocation": 1000000,
+            "tiers": null,
+            "tiered": true,
+            "unit_amount_usd": null,
+            "current_amount_usd_before_addons": null,
+            "current_amount_usd": null,
+            "current_usage": 0,
+            "usage_limit": 1000000,
+            "has_exceeded_limit": false,
+            "percentage_usage": 0.0,
+            "projected_usage": 0,
+            "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
+            "unit": "event",
+            "addons": [
+                {
+                    "name": "Group analytics",
+                    "description": "Associate events with a group or entity - such as a company, community, or project. Analyze these events as if they were sent by that entity itself. Great for B2B, marketplaces, and more.",
+                    "price_description": null,
+                    "image_url": "https://posthog.com/images/product/product-icons/group-analytics.svg",
+                    "icon_key": "IconPeople",
+                    "docs_url": "https://posthog.com/docs/product-analytics/group-analytics",
+                    "type": "group_analytics",
+                    "tiers": [
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0",
+                            "up_to": 1000000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.0000708",
+                            "up_to": 2000000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.00003",
+                            "up_to": 15000000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.0000189",
+                            "up_to": 50000000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.0000105",
+                            "up_to": 100000000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.0000054",
+                            "up_to": 250000000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.0000012",
+                            "up_to": null,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        }
+                    ],
+                    "tiered": true,
+                    "included_with_main_product": false,
+                    "subscribed": false,
+                    "unit": "event",
+                    "unit_amount_usd": null,
+                    "current_amount_usd": null,
+                    "current_usage": 0,
+                    "projected_usage": 0,
+                    "projected_amount_usd": null,
+                    "plans": [
+                        {
+                            "plan_key": "addon-20230509",
+                            "product_key": "group_analytics",
+                            "name": "Addon",
+                            "description": "Associate events with a group or entity - such as a company, community, or project. Analyze these events as if they were sent by that entity itself. Great for B2B, marketplaces, and more.",
+                            "image_url": "https://posthog.com/images/product/product-icons/group-analytics.svg",
+                            "docs_url": "https://posthog.com/docs/product-analytics/group-analytics",
+                            "note": null,
+                            "unit": "event",
+                            "free_allocation": null,
+                            "features": [
+                                {
+                                    "key": "group_analytics",
+                                    "name": "Group analytics",
+                                    "description": "Associate events with a group - such as a company, community, or project - and analyze them in that context.",
+                                    "unit": null,
+                                    "limit": null,
+                                    "note": null
+                                }
+                            ],
+                            "tiers": [
+                                {
+                                    "flat_amount_usd": "0",
+                                    "unit_amount_usd": "0",
+                                    "up_to": 1000000,
+                                    "current_amount_usd": "0.00",
+                                    "current_usage": 0,
+                                    "projected_usage": null,
+                                    "projected_amount_usd": null
+                                },
+                                {
+                                    "flat_amount_usd": "0",
+                                    "unit_amount_usd": "0.0000708",
+                                    "up_to": 2000000,
+                                    "current_amount_usd": "0.00",
+                                    "current_usage": 0,
+                                    "projected_usage": null,
+                                    "projected_amount_usd": null
+                                },
+                                {
+                                    "flat_amount_usd": "0",
+                                    "unit_amount_usd": "0.00003",
+                                    "up_to": 15000000,
+                                    "current_amount_usd": "0.00",
+                                    "current_usage": 0,
+                                    "projected_usage": null,
+                                    "projected_amount_usd": null
+                                },
+                                {
+                                    "flat_amount_usd": "0",
+                                    "unit_amount_usd": "0.0000189",
+                                    "up_to": 50000000,
+                                    "current_amount_usd": "0.00",
+                                    "current_usage": 0,
+                                    "projected_usage": null,
+                                    "projected_amount_usd": null
+                                },
+                                {
+                                    "flat_amount_usd": "0",
+                                    "unit_amount_usd": "0.0000105",
+                                    "up_to": 100000000,
+                                    "current_amount_usd": "0.00",
+                                    "current_usage": 0,
+                                    "projected_usage": null,
+                                    "projected_amount_usd": null
+                                },
+                                {
+                                    "flat_amount_usd": "0",
+                                    "unit_amount_usd": "0.0000054",
+                                    "up_to": 250000000,
+                                    "current_amount_usd": "0.00",
+                                    "current_usage": 0,
+                                    "projected_usage": null,
+                                    "projected_amount_usd": null
+                                },
+                                {
+                                    "flat_amount_usd": "0",
+                                    "unit_amount_usd": "0.0000012",
+                                    "up_to": null,
+                                    "current_amount_usd": "0.00",
+                                    "current_usage": 0,
+                                    "projected_usage": null,
+                                    "projected_amount_usd": null
+                                }
+                            ],
+                            "current_plan": false,
+                            "included_if": null,
+                            "contact_support": null,
+                            "unit_amount_usd": null
+                        }
+                    ],
+                    "contact_support": null
+                },
+                {
+                    "name": "Data pipelines",
+                    "description": "Get your PostHog data into your data warehouse or other tools like BigQuery, Redshift, Customer.io, and more.",
+                    "price_description": null,
+                    "image_url": "None",
+                    "icon_key": "IconDecisionTree",
+                    "docs_url": "https://posthog.com/docs/cdp/batch-exports",
+                    "type": "data_pipelines",
+                    "tiers": [
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0",
+                            "up_to": 1000000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.000248",
+                            "up_to": 2000000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.000104",
+                            "up_to": 15000000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.0000655",
+                            "up_to": 50000000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.0000364",
+                            "up_to": 100000000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.0000187",
+                            "up_to": 250000000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.0000042",
+                            "up_to": null,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        }
+                    ],
+                    "tiered": true,
+                    "included_with_main_product": false,
+                    "subscribed": false,
+                    "unit": "event",
+                    "unit_amount_usd": null,
+                    "current_amount_usd": null,
+                    "current_usage": 0,
+                    "projected_usage": 0,
+                    "projected_amount_usd": null,
+                    "plans": [
+                        {
+                            "plan_key": "addon-20240111",
+                            "product_key": "data_pipelines",
+                            "name": "Addon",
+                            "description": "Get your PostHog data into your data warehouse or other tools like BigQuery, Redshift, Customer.io, and more.",
+                            "image_url": null,
+                            "docs_url": "https://posthog.com/docs/cdp/batch-exports",
+                            "note": null,
+                            "unit": "event",
+                            "free_allocation": null,
+                            "features": [
+                                {
+                                    "key": "data_pipelines",
+                                    "name": "Data pipelines",
+                                    "description": "Get your PostHog data into your data warehouse or other tools like BigQuery, Redshift, Customer.io, and more.",
+                                    "unit": null,
+                                    "limit": null,
+                                    "note": null
+                                }
+                            ],
+                            "tiers": [
+                                {
+                                    "flat_amount_usd": "0",
+                                    "unit_amount_usd": "0",
+                                    "up_to": 1000000,
+                                    "current_amount_usd": "0.00",
+                                    "current_usage": 0,
+                                    "projected_usage": null,
+                                    "projected_amount_usd": null
+                                },
+                                {
+                                    "flat_amount_usd": "0",
+                                    "unit_amount_usd": "0.000248",
+                                    "up_to": 2000000,
+                                    "current_amount_usd": "0.00",
+                                    "current_usage": 0,
+                                    "projected_usage": null,
+                                    "projected_amount_usd": null
+                                },
+                                {
+                                    "flat_amount_usd": "0",
+                                    "unit_amount_usd": "0.000104",
+                                    "up_to": 15000000,
+                                    "current_amount_usd": "0.00",
+                                    "current_usage": 0,
+                                    "projected_usage": null,
+                                    "projected_amount_usd": null
+                                },
+                                {
+                                    "flat_amount_usd": "0",
+                                    "unit_amount_usd": "0.0000655",
+                                    "up_to": 50000000,
+                                    "current_amount_usd": "0.00",
+                                    "current_usage": 0,
+                                    "projected_usage": null,
+                                    "projected_amount_usd": null
+                                },
+                                {
+                                    "flat_amount_usd": "0",
+                                    "unit_amount_usd": "0.0000364",
+                                    "up_to": 100000000,
+                                    "current_amount_usd": "0.00",
+                                    "current_usage": 0,
+                                    "projected_usage": null,
+                                    "projected_amount_usd": null
+                                },
+                                {
+                                    "flat_amount_usd": "0",
+                                    "unit_amount_usd": "0.0000187",
+                                    "up_to": 250000000,
+                                    "current_amount_usd": "0.00",
+                                    "current_usage": 0,
+                                    "projected_usage": null,
+                                    "projected_amount_usd": null
+                                },
+                                {
+                                    "flat_amount_usd": "0",
+                                    "unit_amount_usd": "0.0000042",
+                                    "up_to": null,
+                                    "current_amount_usd": "0.00",
+                                    "current_usage": 0,
+                                    "projected_usage": null,
+                                    "projected_amount_usd": null
+                                }
+                            ],
+                            "current_plan": false,
+                            "included_if": null,
+                            "contact_support": null,
+                            "unit_amount_usd": null
+                        }
+                    ],
+                    "contact_support": null
+                }
+            ],
+            "contact_support": false,
+            "inclusion_only": false,
+            "features": [
+                {
+                    "key": "product_analytics_data_retention",
+                    "name": "Data retention",
+                    "description": "Keep a historical record of your data.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "dashboards",
+                    "name": "Dashboards",
+                    "description": "Save trends, funnels, and other insights for easy reference by your whole team.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/product-analytics/screenshot-dashboards.png",
+                        "dark": "https://posthog.com/images/products/product-analytics/screenshot-dashboards-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "funnels",
+                    "name": "Funnels",
+                    "description": "Visualize user dropoff between a sequence of events. See conversion rate over time, use flexible step ordering, set exclusion steps, and more.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/product-analytics/screenshot-funnels.png",
+                        "dark": "https://posthog.com/images/products/product-analytics/screenshot-funnels-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "graphs_trends",
+                    "name": "Graphs & trends",
+                    "description": "Plot any number of events or actions over time.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "paths",
+                    "name": "User paths",
+                    "description": "Limited paths excludes: customizing path insights by setting the maximum number of paths, number of people on each path, how path names appear",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "insights",
+                    "name": "Unlimited Insights",
+                    "description": "Trends, funnels, retention, user paths, stickiness, and lifecycle insights to visualize your data.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "subscriptions",
+                    "name": "Insight & dashboard subscriptions",
+                    "description": "Create a subscription for any insight or dashboard in PostHog to receive regular reports with their updates.",
+                    "images": null,
+                    "icon_key": "IconNotification",
+                    "type": "secondary"
+                },
+                {
+                    "key": "paths_advanced",
+                    "name": "Advanced paths",
+                    "description": "Customize your path insights by setting the maximum number of paths, number of people on each path, and how path names should appear.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "correlation_analysis",
+                    "name": "Correlation analysis",
+                    "description": "Automatically highlight significant factors that affect the conversion rate of users within a funnel.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/product-analytics/screenshot-correlation-analysis.png",
+                        "dark": "https://posthog.com/images/products/product-analytics/screenshot-correlation-analysis-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "behavioral_cohort_filtering",
+                    "name": "Lifecycle",
+                    "description": "Discover how your active users break down, highlighting those who have recently stopped being active or those who have just become active for the first time.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/product-analytics/screenshot-lifecycle.png",
+                        "dark": "https://posthog.com/images/products/product-analytics/screenshot-lifecycle-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "product_analytics_retention",
+                    "name": "Retention",
+                    "description": "See how many users return on subsequent days after performing an event the first time, or recurrently.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/product-analytics/screenshot-retention.png",
+                        "dark": "https://posthog.com/images/products/product-analytics/screenshot-retention-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "product_analytics_stickiness",
+                    "name": "Stickiness",
+                    "description": "Learn how many times users perform a specific event in a period of time.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/product-analytics/screenshot-stickiness.png",
+                        "dark": "https://posthog.com/images/products/product-analytics/screenshot-stickiness-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "autocapture",
+                    "name": "Autocapture",
+                    "description": "Add PostHog.js to your website or web app to track all event data and retroactively define events.",
+                    "images": null,
+                    "icon_key": "IconBolt",
+                    "type": "secondary"
+                },
+                {
+                    "key": "data_visualization",
+                    "name": "Data visualization",
+                    "description": "Filter data by user property, group data, and use formulas in queries.",
+                    "images": null,
+                    "icon_key": "IconPieChart",
+                    "type": "secondary"
+                },
+                {
+                    "key": "product_analytics_sql_queries",
+                    "name": "Query with SQL",
+                    "description": "Use PostHog’s filtering interface or switch into SQL mode for more powerful querying.",
+                    "images": null,
+                    "icon_key": "IconTerminal",
+                    "type": "secondary"
+                }
+            ]
+        },
+        {
+            "name": "Session replay",
+            "headline": "Watch how users experience your app",
+            "description": "Session replay helps you diagnose issues and understand user behavior in your product or website.",
+            "price_description": null,
+            "usage_key": "recordings",
+            "image_url": "https://posthog.com/images/products/session-replay/session-replay.png",
+            "screenshot_url": "https://posthog.com/images/products/session-replay/screenshot-session-replay.png",
+            "icon_key": "IconRewindPlay",
+            "docs_url": "https://posthog.com/docs/session-replay",
+            "subscribed": false,
+            "plans": [
+                {
+                    "plan_key": "free-20231218",
+                    "product_key": "session_replay",
+                    "name": "Free",
+                    "description": "Session replay helps you diagnose issues and understand user behavior in your product or website.",
+                    "image_url": "https://posthog.com/images/products/session-replay/session-replay.png",
+                    "docs_url": "https://posthog.com/docs/session-replay",
+                    "note": null,
+                    "unit": "recording",
+                    "free_allocation": 5000,
+                    "features": [
+                        {
+                            "key": "console_logs",
+                            "name": "Console logs",
+                            "description": "Debug issues faster by browsing the user's console.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "recordings_performance",
+                            "name": "Network performance on recordings",
+                            "description": "See your end-user's network performance and information alongside session recordings.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "session_replay_network_payloads",
+                            "name": "Network monitor",
+                            "description": "Analyze performance and network calls.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "recordings_playlists",
+                            "name": "Recording playlists",
+                            "description": "Create playlists of certain session recordings to easily find and watch them again in the future.",
+                            "unit": "playlists",
+                            "limit": 5,
+                            "note": null
+                        },
+                        {
+                            "key": "session_replay_data_retention",
+                            "name": "Data retention",
+                            "description": "Keep a historical record of your data.",
+                            "unit": "month",
+                            "limit": 1,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_mask_sensitive_data",
+                            "name": "Block sensitive data",
+                            "description": "Disable capturing data from any DOM element with HTML attributes or a customizable config.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_sharing_embedding",
+                            "name": "Share and embed",
+                            "description": "Share replays directly via URL or embed via iframe.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_product_analytics_integration",
+                            "name": "Event timeline",
+                            "description": "See a history of everything that happened in a user's session.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_filter_person_properties",
+                            "name": "Filter person properties",
+                            "description": "Filter by person properties to quickly find relevant recordings.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_filter_events",
+                            "name": "Filter events",
+                            "description": "Filter by events to quickly find relevant recordings.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_dom_explorer",
+                            "name": "DOM Explorer",
+                            "description": "Freeze snapshots of recordings and explore the DOM with your browser dev tools.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "session_replay_sampling",
+                            "name": "Sample recorded sessions",
+                            "description": "Restrict the percentage of sessions that will be recorded.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_recording_duration_minimum",
+                            "name": "Minimum duration",
+                            "description": "Only record sessions longer than the minimum duration.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_feature_flag_based_recording",
+                            "name": "Record via feature flag",
+                            "description": "Only record sessions for users that have the flag enabled.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        }
+                    ],
+                    "tiers": null,
+                    "current_plan": true,
+                    "included_if": null,
+                    "contact_support": null,
+                    "unit_amount_usd": null
+                },
+                {
+                    "plan_key": "paid-20231218",
+                    "product_key": "session_replay",
+                    "name": "Paid",
+                    "description": "Session replay helps you diagnose issues and understand user behavior in your product or website.",
+                    "image_url": "https://posthog.com/images/products/session-replay/session-replay.png",
+                    "docs_url": "https://posthog.com/docs/session-replay",
+                    "note": null,
+                    "unit": "recording",
+                    "free_allocation": null,
+                    "features": [
+                        {
+                            "key": "console_logs",
+                            "name": "Console logs",
+                            "description": "Debug issues faster by browsing the user's console.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "recordings_playlists",
+                            "name": "Recording playlists",
+                            "description": "Create playlists of certain session recordings to easily find and watch them again in the future.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "recordings_performance",
+                            "name": "Network performance on recordings",
+                            "description": "See your end-user's network performance and information alongside session recordings.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "session_replay_network_payloads",
+                            "name": "Network monitor",
+                            "description": "Analyze performance and network calls.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "recordings_file_export",
+                            "name": "Download recordings",
+                            "description": "Retain recordings beyond data retention limits.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "session_replay_data_retention",
+                            "name": "Data retention",
+                            "description": "Keep a historical record of your data.",
+                            "unit": "months",
+                            "limit": 3,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_mask_sensitive_data",
+                            "name": "Block sensitive data",
+                            "description": "Disable capturing data from any DOM element with HTML attributes or a customizable config.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_sharing_embedding",
+                            "name": "Share and embed",
+                            "description": "Share replays directly via URL or embed via iframe.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_product_analytics_integration",
+                            "name": "Event timeline",
+                            "description": "See a history of everything that happened in a user's session.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_filter_person_properties",
+                            "name": "Filter person properties",
+                            "description": "Filter by person properties to quickly find relevant recordings.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_filter_events",
+                            "name": "Filter events",
+                            "description": "Filter by events to quickly find relevant recordings.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_dom_explorer",
+                            "name": "DOM Explorer",
+                            "description": "Freeze snapshots of recordings and explore the DOM with your browser dev tools.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "session_replay_sampling",
+                            "name": "Sample recorded sessions",
+                            "description": "Restrict the percentage of sessions that will be recorded.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_recording_duration_minimum",
+                            "name": "Minimum duration",
+                            "description": "Only record sessions longer than the minimum duration.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "replay_feature_flag_based_recording",
+                            "name": "Record via feature flag",
+                            "description": "Only record sessions for users that have the flag enabled.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        }
+                    ],
+                    "tiers": [
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0",
+                            "up_to": 5000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.04",
+                            "up_to": 15000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.003",
+                            "up_to": 50000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.0027",
+                            "up_to": 150000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.0025",
+                            "up_to": 500000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.002",
+                            "up_to": null,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        }
+                    ],
+                    "current_plan": false,
+                    "included_if": null,
+                    "contact_support": null,
+                    "unit_amount_usd": null
+                }
+            ],
+            "type": "session_replay",
+            "free_allocation": 5000,
+            "tiers": null,
+            "tiered": true,
+            "unit_amount_usd": null,
+            "current_amount_usd_before_addons": null,
+            "current_amount_usd": null,
+            "current_usage": 0,
+            "usage_limit": 5000,
+            "has_exceeded_limit": false,
+            "percentage_usage": 0.0,
+            "projected_usage": 0,
+            "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
+            "unit": "recording",
+            "addons": [],
+            "contact_support": false,
+            "inclusion_only": false,
+            "features": [
+                {
+                    "key": "recordings_playlists",
+                    "name": "Recording playlists",
+                    "description": "Create playlists of certain session recordings to easily find and watch them again in the future.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "session_replay_data_retention",
+                    "name": "Data retention",
+                    "description": "Keep a historical record of your data.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "console_logs",
+                    "name": "Console logs",
+                    "description": "Debug issues faster by browsing the user's console.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/session-replay/console.png",
+                        "dark": "https://posthog.com/images/products/session-replay/console-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "recordings_performance",
+                    "name": "Network performance on recordings",
+                    "description": "See your end-user's network performance and information alongside session recordings.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "session_replay_network_payloads",
+                    "name": "Network monitor",
+                    "description": "Analyze performance and network calls.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/session-replay/network.png",
+                        "dark": "https://posthog.com/images/products/session-replay/network-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "recordings_file_export",
+                    "name": "Download recordings",
+                    "description": "Retain recordings beyond data retention limits.",
+                    "images": null,
+                    "icon_key": "IconDownload",
+                    "type": "secondary"
+                },
+                {
+                    "key": "session_replay_sampling",
+                    "name": "Sample recorded sessions",
+                    "description": "Restrict the percentage of sessions that will be recorded.",
+                    "images": null,
+                    "icon_key": "IconSampling",
+                    "type": "secondary"
+                },
+                {
+                    "key": "replay_recording_duration_minimum",
+                    "name": "Minimum duration",
+                    "description": "Only record sessions longer than the minimum duration.",
+                    "images": null,
+                    "icon_key": "IconClock",
+                    "type": "secondary"
+                },
+                {
+                    "key": "replay_feature_flag_based_recording",
+                    "name": "Record via feature flag",
+                    "description": "Only record sessions for users that have the flag enabled.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "replay_mask_sensitive_data",
+                    "name": "Block sensitive data",
+                    "description": "Disable capturing data from any DOM element with HTML attributes or a customizable config.",
+                    "images": null,
+                    "icon_key": "IconPassword",
+                    "type": "secondary"
+                },
+                {
+                    "key": "replay_sharing_embedding",
+                    "name": "Share and embed",
+                    "description": "Share replays directly via URL or embed via iframe.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "replay_product_analytics_integration",
+                    "name": "Event timeline",
+                    "description": "See a history of everything that happened in a user's session.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/session-replay/timeline.png",
+                        "dark": "https://posthog.com/images/products/session-replay/timeline-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "replay_filter_person_properties",
+                    "name": "Filter person properties",
+                    "description": "Filter by person properties to quickly find relevant recordings.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "replay_filter_events",
+                    "name": "Filter events",
+                    "description": "Filter by events to quickly find relevant recordings.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "replay_dom_explorer",
+                    "name": "DOM Explorer",
+                    "description": "Freeze snapshots of recordings and explore the DOM with your browser dev tools.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "works_with_posthog_js",
+                    "name": "Capture sessions without extra code",
+                    "description": "Works with PostHog.js",
+                    "images": null,
+                    "icon_key": "IconBolt",
+                    "type": "secondary"
+                },
+                {
+                    "key": "replay_automatic_playlists",
+                    "name": "Automatic playlists",
+                    "description": "Filter by user behavior, user properties, or time.",
+                    "images": null,
+                    "icon_key": "IconPlaylist",
+                    "type": "secondary"
+                }
+            ]
+        },
+        {
+            "name": "Feature flags & A/B testing",
+            "headline": "Safely roll out features and A/B tests to specific users or groups",
+            "description": "Test changes with small groups of users before rolling out wider. Analyze usage with product analytics and session replay.",
+            "price_description": null,
+            "usage_key": "feature_flag_requests",
+            "image_url": "https://posthog.com/images/products/feature-flags/feature-flags.png",
+            "screenshot_url": "https://posthog.com/images/products/feature-flags/screenshot-feature-flags.png",
+            "icon_key": "IconToggle",
+            "docs_url": "https://posthog.com/docs/feature-flags",
+            "subscribed": false,
+            "plans": [
+                {
+                    "plan_key": "free-20230117",
+                    "product_key": "feature_flags",
+                    "name": "Free",
+                    "description": "Test changes with small groups of users before rolling out wider. Analyze usage with product analytics and session replay.",
+                    "image_url": "https://posthog.com/images/products/feature-flags/feature-flags.png",
+                    "docs_url": "https://posthog.com/docs/feature-flags",
+                    "note": null,
+                    "unit": "request",
+                    "free_allocation": 1000000,
+                    "features": [
+                        {
+                            "key": "boolean_flags",
+                            "name": "Boolean feature flags",
+                            "description": "Turn features on and off for specific users.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "multivariate_flags",
+                            "name": "Multivariate feature flags & experiments",
+                            "description": "Create three or more variants of a feature flag to test or release different versions of a feature.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "persist_flags_cross_authentication",
+                            "name": "Persist flags across authentication",
+                            "description": "Persist feature flags across authentication events so that flag values don't change when an anonymous user logs in and becomes identified.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "feature_flag_payloads",
+                            "name": "Test changes without code",
+                            "description": "Use JSON payloads to change text, visuals, or entire blocks of code without subsequent deployments.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "multiple_release_conditions",
+                            "name": "Multiple release conditions",
+                            "description": "Customize your rollout strategy by user or group properties, cohort, or trafic percentage.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "release_condition_overrides",
+                            "name": "Release condition overrides",
+                            "description": "For any release condition, specify which flag value the users or groups in that condition should receive.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "targeting_by_group",
+                            "name": "Flag targeting by groups",
+                            "description": "Target feature flag release conditions by group properties, not just user properties.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "local_evaluation_and_bootstrapping",
+                            "name": "Local evaluation & bootstrapping",
+                            "description": "Bootstrap flags on initialization so all flags are available immediately, without having to make extra network requests.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "flag_usage_stats",
+                            "name": "Flag usage stats",
+                            "description": "See how many times a flag has been evaluated, how many times each variant has been returned, and what values users received.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "experimentation",
+                            "name": "A/B testing",
+                            "description": "Test changes to your product and evaluate the impacts those changes make.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "funnel_experiments",
+                            "name": "Funnel & trend experiments",
+                            "description": "Measure the impact of a change on a aggregate values or a series of events, like a signup flow.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "secondary_metrics",
+                            "name": "Secondary experiment metrics",
+                            "description": "Track additional metrics to see how your experiment affects other parts of your app or different flows.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "statistical_analysis",
+                            "name": "Statistical analysis",
+                            "description": "Get a statistical analysis of your experiment results to see if the results are significant, or if they're likely just due to chance.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "feature_flags_data_retention",
+                            "name": "Data retention",
+                            "description": "Keep a historical record of your data.",
+                            "unit": "year",
+                            "limit": 1,
+                            "note": null
+                        }
+                    ],
+                    "tiers": null,
+                    "current_plan": true,
+                    "included_if": null,
+                    "contact_support": null,
+                    "unit_amount_usd": null
+                },
+                {
+                    "plan_key": "paid-20230623",
+                    "product_key": "feature_flags",
+                    "name": "Paid",
+                    "description": "Test changes with small groups of users before rolling out wider. Analyze usage with product analytics and session replay.",
+                    "image_url": "https://posthog.com/images/products/feature-flags/feature-flags.png",
+                    "docs_url": "https://posthog.com/docs/feature-flags",
+                    "note": null,
+                    "unit": "request",
+                    "free_allocation": null,
+                    "features": [
+                        {
+                            "key": "boolean_flags",
+                            "name": "Boolean feature flags",
+                            "description": "Turn features on and off for specific users.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "multivariate_flags",
+                            "name": "Multivariate feature flags & experiments",
+                            "description": "Create three or more variants of a feature flag to test or release different versions of a feature.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "persist_flags_cross_authentication",
+                            "name": "Persist flags across authentication",
+                            "description": "Persist feature flags across authentication events so that flag values don't change when an anonymous user logs in and becomes identified.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "feature_flag_payloads",
+                            "name": "Test changes without code",
+                            "description": "Use JSON payloads to change text, visuals, or entire blocks of code without subsequent deployments.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "multiple_release_conditions",
+                            "name": "Multiple release conditions",
+                            "description": "Customize your rollout strategy by user or group properties, cohort, or trafic percentage.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "release_condition_overrides",
+                            "name": "Release condition overrides",
+                            "description": "For any release condition, specify which flag value the users or groups in that condition should receive.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "targeting_by_group",
+                            "name": "Flag targeting by groups",
+                            "description": "Target feature flag release conditions by group properties, not just user properties.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "local_evaluation_and_bootstrapping",
+                            "name": "Local evaluation & bootstrapping",
+                            "description": "Bootstrap flags on initialization so all flags are available immediately, without having to make extra network requests.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "flag_usage_stats",
+                            "name": "Flag usage stats",
+                            "description": "See how many times a flag has been evaluated, how many times each variant has been returned, and what values users received.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "experimentation",
+                            "name": "A/B testing",
+                            "description": "Test changes to your product and evaluate the impacts those changes make.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "funnel_experiments",
+                            "name": "Funnel & trend experiments",
+                            "description": "Measure the impact of a change on a aggregate values or a series of events, like a signup flow.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "secondary_metrics",
+                            "name": "Secondary experiment metrics",
+                            "description": "Track additional metrics to see how your experiment affects other parts of your app or different flows.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "statistical_analysis",
+                            "name": "Statistical analysis",
+                            "description": "Get a statistical analysis of your experiment results to see if the results are significant, or if they're likely just due to chance.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "group_experiments",
+                            "name": "Group experiments",
+                            "description": "Target experiments to specific groups of users so everyone in the same group gets the same variant.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "feature_flags_data_retention",
+                            "name": "Data retention",
+                            "description": "Keep a historical record of your data.",
+                            "unit": "years",
+                            "limit": 7,
+                            "note": null
+                        }
+                    ],
+                    "tiers": [
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0",
+                            "up_to": 1000000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.0001",
+                            "up_to": 2000000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.000045",
+                            "up_to": 10000000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.000025",
+                            "up_to": 50000000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.00001",
+                            "up_to": null,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        }
+                    ],
+                    "current_plan": false,
+                    "included_if": null,
+                    "contact_support": null,
+                    "unit_amount_usd": null
+                }
+            ],
+            "type": "feature_flags",
+            "free_allocation": 1000000,
+            "tiers": null,
+            "tiered": true,
+            "unit_amount_usd": null,
+            "current_amount_usd_before_addons": null,
+            "current_amount_usd": null,
+            "current_usage": 0,
+            "usage_limit": 1000000,
+            "has_exceeded_limit": false,
+            "percentage_usage": 0.0,
+            "projected_usage": 0,
+            "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
+            "unit": "request",
+            "addons": [],
+            "contact_support": false,
+            "inclusion_only": false,
+            "features": [
+                {
+                    "key": "boolean_flags",
+                    "name": "Boolean feature flags",
+                    "description": "Turn features on and off for specific users.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "feature_flags_data_retention",
+                    "name": "Data retention",
+                    "description": "Keep a historical record of your data.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "multivariate_flags",
+                    "name": "Multivariate feature flags & experiments",
+                    "description": "Create three or more variants of a feature flag to test or release different versions of a feature.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/feature-flags/multivariate.png",
+                        "dark": "https://posthog.com/images/products/feature-flags/multivariate-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "persist_flags_cross_authentication",
+                    "name": "Persist flags across authentication",
+                    "description": "Persist feature flags across authentication events so that flag values don't change when an anonymous user logs in and becomes identified.",
+                    "images": null,
+                    "icon_key": "IconUnlock",
+                    "type": "secondary"
+                },
+                {
+                    "key": "feature_flag_payloads",
+                    "name": "Test changes without code",
+                    "description": "Use JSON payloads to change text, visuals, or entire blocks of code without subsequent deployments.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/feature-flags/payloads.png",
+                        "dark": "https://posthog.com/images/products/feature-flags/payloads-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "multiple_release_conditions",
+                    "name": "Multiple release conditions",
+                    "description": "Customize your rollout strategy by user or group properties, cohort, or trafic percentage.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/feature-flags/release-conditions.png",
+                        "dark": "https://posthog.com/images/products/feature-flags/release-conditions-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "release_condition_overrides",
+                    "name": "Release condition overrides",
+                    "description": "For any release condition, specify which flag value the users or groups in that condition should receive.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "targeting_by_group",
+                    "name": "Flag targeting by groups",
+                    "description": "Target feature flag release conditions by group properties, not just user properties.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "local_evaluation_and_bootstrapping",
+                    "name": "Local evaluation & bootstrapping",
+                    "description": "Bootstrap flags on initialization so all flags are available immediately, without having to make extra network requests.",
+                    "images": null,
+                    "icon_key": "IconDecisionTree",
+                    "type": "secondary"
+                },
+                {
+                    "key": "flag_usage_stats",
+                    "name": "Flag usage stats",
+                    "description": "See how many times a flag has been evaluated, how many times each variant has been returned, and what values users received.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/feature-flags/reports.png",
+                        "dark": "https://posthog.com/images/products/feature-flags/reports-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "user_opt_in",
+                    "name": "Early access feature opt-in widget",
+                    "description": "Allow users to opt in to (or out of) specified features. Or use the API to build your own UI.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/feature-flags/early-access.png",
+                        "dark": "https://posthog.com/images/products/feature-flags/early-access-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "instant_rollbacks",
+                    "name": "Instant rollbacks",
+                    "description": "Disable a feature without touching your codebase.",
+                    "images": null,
+                    "icon_key": "IconRevert",
+                    "type": "secondary"
+                },
+                {
+                    "key": "experimentation",
+                    "name": "A/B testing",
+                    "description": "Test changes to your product and evaluate the impacts those changes make.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "group_experiments",
+                    "name": "Group experiments",
+                    "description": "Target experiments to specific groups of users so everyone in the same group gets the same variant.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "funnel_experiments",
+                    "name": "Funnel & trend experiments",
+                    "description": "Measure the impact of a change on a aggregate values or a series of events, like a signup flow.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "secondary_metrics",
+                    "name": "Secondary experiment metrics",
+                    "description": "Track additional metrics to see how your experiment affects other parts of your app or different flows.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "statistical_analysis",
+                    "name": "Statistical analysis",
+                    "description": "Get a statistical analysis of your experiment results to see if the results are significant, or if they're likely just due to chance.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                }
+            ]
+        },
+        {
+            "name": "Surveys",
+            "headline": "Ask anything with no-code surveys",
+            "description": "Build in-app popups with freeform text responses, multiple choice, NPS, ratings, and emoji reactions. Or use the API for complete control.",
+            "price_description": null,
+            "usage_key": "survey_responses",
+            "image_url": "https://posthog.com/images/products/surveys/surveys.png",
+            "screenshot_url": "https://posthog.com/images/products/surveys/screenshot-surveys.png",
+            "icon_key": "IconMessage",
+            "docs_url": "https://posthog.com/docs/surveys",
+            "subscribed": false,
+            "plans": [
+                {
+                    "plan_key": "free-20230928",
+                    "product_key": "surveys",
+                    "name": "Free",
+                    "description": "Build in-app popups with freeform text responses, multiple choice, NPS, ratings, and emoji reactions. Or use the API for complete control.",
+                    "image_url": "https://posthog.com/images/products/surveys/surveys.png",
+                    "docs_url": "https://posthog.com/docs/surveys",
+                    "note": null,
+                    "unit": "survey response",
+                    "free_allocation": 250,
+                    "features": [
+                        {
+                            "key": "surveys_unlimited_surveys",
+                            "name": "Unlimited surveys",
+                            "description": "Create as many surveys as you want.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "surveys_all_question_types",
+                            "name": "All question types",
+                            "description": "Rating scale (for NPS and the like), multiple choice, single choice, emoji rating, link, free text.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "surveys_user_targeting",
+                            "name": "Advanced user targeting",
+                            "description": "Target by URL, user property, or feature flag when used with Feature flags.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "surveys_user_sampling",
+                            "name": "User sampling",
+                            "description": "Sample users to only survey a portion of the users who match the criteria.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "surveys_api_mode",
+                            "name": "API mode",
+                            "description": "Using PostHog.js? No more code required. But if want to create your own UI, we have a full API.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "surveys_results_analysis",
+                            "name": "Aggregated results",
+                            "description": "See feedback summarized and broken down per response, plus completion rates and drop offs.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "surveys_templates",
+                            "name": "Templates",
+                            "description": "Use our templates to get started quickly with NPS, customer satisfaction surveys, user interviews, and more.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "surveys_data_retention",
+                            "name": "Data retention",
+                            "description": "Keep a historical record of your data.",
+                            "unit": "year",
+                            "limit": 1,
+                            "note": null
+                        }
+                    ],
+                    "tiers": null,
+                    "current_plan": true,
+                    "included_if": null,
+                    "contact_support": null,
+                    "unit_amount_usd": null
+                },
+                {
+                    "plan_key": "paid-20230928",
+                    "product_key": "surveys",
+                    "name": "Paid",
+                    "description": "Build in-app popups with freeform text responses, multiple choice, NPS, ratings, and emoji reactions. Or use the API for complete control.",
+                    "image_url": "https://posthog.com/images/products/surveys/surveys.png",
+                    "docs_url": "https://posthog.com/docs/surveys",
+                    "note": null,
+                    "unit": "survey response",
+                    "free_allocation": null,
+                    "features": [
+                        {
+                            "key": "surveys_unlimited_surveys",
+                            "name": "Unlimited surveys",
+                            "description": "Create as many surveys as you want.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "surveys_all_question_types",
+                            "name": "All question types",
+                            "description": "Rating scale (for NPS and the like), multiple choice, single choice, emoji rating, link, free text.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "surveys_multiple_questions",
+                            "name": "Multiple questions",
+                            "description": "Ask up to 10 questions in a single survey.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "surveys_user_targeting",
+                            "name": "Advanced user targeting",
+                            "description": "Target by URL, user property, or feature flag when used with Feature flags.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "surveys_user_sampling",
+                            "name": "User sampling",
+                            "description": "Sample users to only survey a portion of the users who match the criteria.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "surveys_styling",
+                            "name": "Custom colors & positioning",
+                            "description": "Customize the colors of your surveys to match your brand and set survey position.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "surveys_text_html",
+                            "name": "Custom HTML text",
+                            "description": "Add custom HTML to your survey text.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "surveys_api_mode",
+                            "name": "API mode",
+                            "description": "Using PostHog.js? No more code required. But if want to create your own UI, we have a full API.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "surveys_results_analysis",
+                            "name": "Aggregated results",
+                            "description": "See feedback summarized and broken down per response, plus completion rates and drop offs.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "surveys_templates",
+                            "name": "Templates",
+                            "description": "Use our templates to get started quickly with NPS, customer satisfaction surveys, user interviews, and more.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "surveys_data_retention",
+                            "name": "Data retention",
+                            "description": "Keep a historical record of your data.",
+                            "unit": "years",
+                            "limit": 7,
+                            "note": null
+                        }
+                    ],
+                    "tiers": [
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0",
+                            "up_to": 250,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.2",
+                            "up_to": 500,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.1",
+                            "up_to": 1000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.035",
+                            "up_to": 10000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.015",
+                            "up_to": 20000,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        },
+                        {
+                            "flat_amount_usd": "0",
+                            "unit_amount_usd": "0.01",
+                            "up_to": null,
+                            "current_amount_usd": "0.00",
+                            "current_usage": 0,
+                            "projected_usage": null,
+                            "projected_amount_usd": null
+                        }
+                    ],
+                    "current_plan": false,
+                    "included_if": null,
+                    "contact_support": null,
+                    "unit_amount_usd": null
+                }
+            ],
+            "type": "surveys",
+            "free_allocation": 250,
+            "tiers": null,
+            "tiered": true,
+            "unit_amount_usd": null,
+            "current_amount_usd_before_addons": null,
+            "current_amount_usd": null,
+            "current_usage": 0,
+            "usage_limit": 250,
+            "has_exceeded_limit": false,
+            "percentage_usage": 0.0,
+            "projected_usage": 0,
+            "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
+            "unit": "survey response",
+            "addons": [],
+            "contact_support": false,
+            "inclusion_only": false,
+            "features": [
+                {
+                    "key": "surveys_unlimited_surveys",
+                    "name": "Unlimited surveys",
+                    "description": "Create as many surveys as you want.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "surveys_all_question_types",
+                    "name": "All question types",
+                    "description": "Rating scale (for NPS and the like), multiple choice, single choice, emoji rating, link, free text.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/surveys/question-types.png",
+                        "dark": "https://posthog.com/images/products/surveys/question-types-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "surveys_multiple_questions",
+                    "name": "Multiple questions",
+                    "description": "Ask up to 10 questions in a single survey.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/surveys/steps.png",
+                        "dark": "https://posthog.com/images/products/surveys/steps-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "surveys_user_targeting",
+                    "name": "Advanced user targeting",
+                    "description": "Target by URL, user property, or feature flag when used with Feature flags.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/surveys/targeting.png",
+                        "dark": "https://posthog.com/images/products/surveys/targeting-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "surveys_user_sampling",
+                    "name": "User sampling",
+                    "description": "Sample users to only survey a portion of the users who match the criteria.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "surveys_styling",
+                    "name": "Custom colors & positioning",
+                    "description": "Customize the colors of your surveys to match your brand and set survey position.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "surveys_text_html",
+                    "name": "Custom HTML text",
+                    "description": "Add custom HTML to your survey text.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "surveys_api_mode",
+                    "name": "API mode",
+                    "description": "Using PostHog.js? No more code required. But if want to create your own UI, we have a full API.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/surveys/api.png",
+                        "dark": "https://posthog.com/images/products/surveys/api-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "surveys_results_analysis",
+                    "name": "Aggregated results",
+                    "description": "See feedback summarized and broken down per response, plus completion rates and drop offs.",
+                    "images": null,
+                    "icon_key": "IconPieChart",
+                    "type": "secondary"
+                },
+                {
+                    "key": "surveys_templates",
+                    "name": "Templates",
+                    "description": "Use our templates to get started quickly with NPS, customer satisfaction surveys, user interviews, and more.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/surveys/templates.png",
+                        "dark": "https://posthog.com/images/products/surveys/templates-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "surveys_data_retention",
+                    "name": "Data retention",
+                    "description": "Keep a historical record of your data.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "surveys_link_question_type",
+                    "name": "Link somewhere",
+                    "description": "Send users to a webpage or invite them to book a meeting with a calendar invite.",
+                    "images": {
+                        "light": "https://posthog.com/images/products/surveys/link-scheduler.png",
+                        "dark": "https://posthog.com/images/products/surveys/link-scheduler-dark.png"
+                    },
+                    "icon_key": null,
+                    "type": "primary"
+                },
+                {
+                    "key": "surveys_slack_notifications",
+                    "name": "Slack notifications",
+                    "description": "Send realtime survey responses to a Slack channel.",
+                    "images": null,
+                    "icon_key": "IconNotification",
+                    "type": "secondary"
+                },
+                {
+                    "key": "surveys_wait_periods",
+                    "name": "Customizable wait periods",
+                    "description": "Set a delay before a survey opens.",
+                    "images": null,
+                    "icon_key": "IconClock",
+                    "type": "secondary"
+                }
+            ]
+        },
+        {
+            "name": "Integrations",
+            "headline": null,
+            "description": "Connect PostHog to your favorite tools.",
+            "price_description": null,
+            "usage_key": null,
+            "image_url": "https://posthog.com/images/product/product-icons/integrations.svg",
+            "screenshot_url": null,
+            "icon_key": "IconBolt",
+            "docs_url": "https://posthog.com/docs/cdp",
+            "subscribed": null,
+            "plans": [
+                {
+                    "plan_key": "free-20230117",
+                    "product_key": "integrations",
+                    "name": "Free",
+                    "description": "Connect PostHog to your favorite tools.",
+                    "image_url": "https://posthog.com/images/product/product-icons/integrations.svg",
+                    "docs_url": "https://posthog.com/docs/cdp",
+                    "note": null,
+                    "unit": null,
+                    "free_allocation": null,
+                    "features": [
+                        {
+                            "key": "zapier",
+                            "name": "Zapier",
+                            "description": "Zapier lets you connect PostHog with thousands of the most popular apps, so you can automate your work and have more time for what matters most—no code required.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "slack_integration",
+                            "name": "Slack",
+                            "description": "Get notified about new actions in Slack.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "microsoft_teams_integration",
+                            "name": "Microsoft Teams",
+                            "description": "Get notified about new actions in Microsoft Teams.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "discord_integration",
+                            "name": "Discord",
+                            "description": "Get notified about new actions in Discord.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "apps",
+                            "name": "Transformations",
+                            "description": "Use transformations to filter or modify your incoming data. (Destinations not included, see the Data pipelines addon for product analytics.)",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        }
+                    ],
+                    "tiers": null,
+                    "current_plan": true,
+                    "included_if": "no_active_subscription",
+                    "contact_support": null,
+                    "unit_amount_usd": null
+                },
+                {
+                    "plan_key": "paid-20230117",
+                    "product_key": "integrations",
+                    "name": "Paid",
+                    "description": "Connect PostHog to your favorite tools.",
+                    "image_url": "https://posthog.com/images/product/product-icons/integrations.svg",
+                    "docs_url": "https://posthog.com/docs/cdp",
+                    "note": null,
+                    "unit": null,
+                    "free_allocation": null,
+                    "features": [
+                        {
+                            "key": "zapier",
+                            "name": "Zapier",
+                            "description": "Zapier lets you connect PostHog with thousands of the most popular apps, so you can automate your work and have more time for what matters most—no code required.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "slack_integration",
+                            "name": "Slack",
+                            "description": "Get notified about new actions in Slack.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "microsoft_teams_integration",
+                            "name": "Microsoft Teams",
+                            "description": "Get notified about new actions in Microsoft Teams.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "discord_integration",
+                            "name": "Discord",
+                            "description": "Get notified about new actions in Discord.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "apps",
+                            "name": "Transformations",
+                            "description": "Use transformations to filter or modify your incoming data. (Destinations not included, see the Data pipelines addon for product analytics.)",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "app_metrics",
+                            "name": "Transformation & destination metrics",
+                            "description": "Get metrics on your transformation and destination metrics to see their usage, reliability, and more.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        }
+                    ],
+                    "tiers": null,
+                    "current_plan": false,
+                    "included_if": "has_subscription",
+                    "contact_support": null,
+                    "unit_amount_usd": null
+                }
+            ],
+            "type": "integrations",
+            "free_allocation": 0,
+            "tiers": null,
+            "tiered": false,
+            "unit_amount_usd": null,
+            "current_amount_usd_before_addons": null,
+            "current_amount_usd": null,
+            "current_usage": 0,
+            "usage_limit": 0,
+            "has_exceeded_limit": false,
+            "percentage_usage": 0,
+            "projected_usage": 0,
+            "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
+            "unit": null,
+            "addons": [],
+            "contact_support": false,
+            "inclusion_only": true,
+            "features": [
+                {
+                    "key": "apps",
+                    "name": "Transformations",
+                    "description": "Use transformations to filter or modify your incoming data. (Destinations not included, see the Data pipelines addon for product analytics.)",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "slack_integration",
+                    "name": "Slack",
+                    "description": "Get notified about new actions in Slack.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "microsoft_teams_integration",
+                    "name": "Microsoft Teams",
+                    "description": "Get notified about new actions in Microsoft Teams.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "discord_integration",
+                    "name": "Discord",
+                    "description": "Get notified about new actions in Discord.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "zapier",
+                    "name": "Zapier",
+                    "description": "Zapier lets you connect PostHog with thousands of the most popular apps, so you can automate your work and have more time for what matters most—no code required.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "app_metrics",
+                    "name": "Transformation & destination metrics",
+                    "description": "Get metrics on your transformation and destination metrics to see their usage, reliability, and more.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                }
+            ]
+        },
+        {
+            "name": "Platform and support",
+            "headline": null,
+            "description": "SSO, permission management, and support.",
+            "price_description": null,
+            "usage_key": null,
+            "image_url": "https://posthog.com/images/product/product-icons/platform.svg",
+            "screenshot_url": null,
+            "icon_key": "IconStack",
+            "docs_url": "https://posthog.com/docs",
+            "subscribed": null,
+            "plans": [
+                {
+                    "plan_key": "free-20230117",
+                    "product_key": "platform_and_support",
+                    "name": "Free",
+                    "description": "SSO, permission management, and support.",
+                    "image_url": "https://posthog.com/images/product/product-icons/platform.svg",
+                    "docs_url": "https://posthog.com/docs",
+                    "note": null,
+                    "unit": null,
+                    "free_allocation": null,
+                    "features": [
+                        {
+                            "key": "tracked_users",
+                            "name": "Tracked users",
+                            "description": "Track users across devices and sessions.",
+                            "unit": null,
+                            "limit": null,
+                            "note": "Unlimited"
+                        },
+                        {
+                            "key": "team_members",
+                            "name": "Team members",
+                            "description": "PostHog doesn't charge per seat add your entire team!",
+                            "unit": null,
+                            "limit": null,
+                            "note": "Unlimited"
+                        },
+                        {
+                            "key": "organizations_projects",
+                            "name": "Projects",
+                            "description": "Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.",
+                            "unit": "project",
+                            "limit": 1,
+                            "note": null
+                        },
+                        {
+                            "key": "environments",
+                            "name": "Environments",
+                            "description": "Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.",
+                            "unit": "environment",
+                            "limit": 1,
+                            "note": null
+                        },
+                        {
+                            "key": "api_access",
+                            "name": "API access",
+                            "description": "Access your data via our developer-friendly API.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "social_sso",
+                            "name": "SSO via Google, Github, or Gitlab",
+                            "description": "Log in to PostHog with your Google, Github, or Gitlab account.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "community_support",
+                            "name": "Community support",
+                            "description": "Get help from other users and PostHog team members in our Community forums.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "2fa",
+                            "name": "2FA",
+                            "description": "Secure your PostHog account with two-factor authentication.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        }
+                    ],
+                    "tiers": null,
+                    "current_plan": true,
+                    "included_if": "no_active_subscription",
+                    "contact_support": null,
+                    "unit_amount_usd": null
+                },
+                {
+                    "plan_key": "paid-20240208",
+                    "product_key": "platform_and_support",
+                    "name": "Pay-per-use",
+                    "description": "SSO, permission management, and support.",
+                    "image_url": "https://posthog.com/images/product/product-icons/platform.svg",
+                    "docs_url": "https://posthog.com/docs",
+                    "note": null,
+                    "unit": null,
+                    "free_allocation": null,
+                    "features": [
+                        {
+                            "key": "tracked_users",
+                            "name": "Tracked users",
+                            "description": "Track users across devices and sessions.",
+                            "unit": null,
+                            "limit": null,
+                            "note": "Unlimited"
+                        },
+                        {
+                            "key": "team_members",
+                            "name": "Team members",
+                            "description": "PostHog doesn't charge per seat add your entire team!",
+                            "unit": null,
+                            "limit": null,
+                            "note": "Unlimited"
+                        },
+                        {
+                            "key": "organizations_projects",
+                            "name": "Projects",
+                            "description": "Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.",
+                            "unit": "projects",
+                            "limit": 2,
+                            "note": null
+                        },
+                        {
+                            "key": "environments",
+                            "name": "Environments",
+                            "description": "Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.",
+                            "unit": "environment",
+                            "limit": 2,
+                            "note": null
+                        },
+                        {
+                            "key": "api_access",
+                            "name": "API access",
+                            "description": "Access your data via our developer-friendly API.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "social_sso",
+                            "name": "SSO via Google, Github, or Gitlab",
+                            "description": "Log in to PostHog with your Google, Github, or Gitlab account.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "community_support",
+                            "name": "Community support",
+                            "description": "Get help from other users and PostHog team members in our Community forums.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "dedicated_support",
+                            "name": "Dedicated account manager",
+                            "description": "Work with a dedicated account manager via Slack or email to help you get the most out of PostHog.",
+                            "unit": null,
+                            "limit": null,
+                            "note": "$2k+/month spend"
+                        },
+                        {
+                            "key": "email_support",
+                            "name": "Email support",
+                            "description": "Get help directly from our product engineers via email. No wading through multiple support people before you get help.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "2fa",
+                            "name": "2FA",
+                            "description": "Secure your PostHog account with two-factor authentication.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        }
+                    ],
+                    "tiers": null,
+                    "current_plan": false,
+                    "included_if": "has_subscription",
+                    "contact_support": null,
+                    "unit_amount_usd": null
+                },
+                {
+                    "plan_key": "teams-20240208",
+                    "product_key": "platform_and_support",
+                    "name": "Teams",
+                    "description": "SSO, permission management, and support.",
+                    "image_url": "https://posthog.com/images/product/product-icons/platform.svg",
+                    "docs_url": "https://posthog.com/docs",
+                    "note": null,
+                    "unit": null,
+                    "free_allocation": null,
+                    "features": [
+                        {
+                            "key": "tracked_users",
+                            "name": "Tracked users",
+                            "description": "Track users across devices and sessions.",
+                            "unit": null,
+                            "limit": null,
+                            "note": "Unlimited"
+                        },
+                        {
+                            "key": "team_members",
+                            "name": "Team members",
+                            "description": "PostHog doesn't charge per seat add your entire team!",
+                            "unit": null,
+                            "limit": null,
+                            "note": "Unlimited"
+                        },
+                        {
+                            "key": "organizations_projects",
+                            "name": "Projects",
+                            "description": "Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.",
+                            "unit": null,
+                            "limit": null,
+                            "note": "Unlimited"
+                        },
+                        {
+                            "key": "environments",
+                            "name": "Environments",
+                            "description": "Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.",
+                            "unit": null,
+                            "limit": null,
+                            "note": "Unlimited"
+                        },
+                        {
+                            "key": "api_access",
+                            "name": "API access",
+                            "description": "Access your data via our developer-friendly API.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "social_sso",
+                            "name": "SSO via Google, Github, or Gitlab",
+                            "description": "Log in to PostHog with your Google, Github, or Gitlab account.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "sso_enforcement",
+                            "name": "Enforce SSO login",
+                            "description": "Users can only sign up and log in to your PostHog organization with your specified SSO provider.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "2fa",
+                            "name": "2FA",
+                            "description": "Secure your PostHog account with two-factor authentication.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "2fa_enforcement",
+                            "name": "Enforce 2FA",
+                            "description": "Require all users in your organization to enable two-factor authentication.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "community_support",
+                            "name": "Community support",
+                            "description": "Get help from other users and PostHog team members in our Community forums.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "email_support",
+                            "name": "Email support",
+                            "description": "Get help directly from our product engineers via email. No wading through multiple support people before you get help.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "dedicated_support",
+                            "name": "Dedicated account manager",
+                            "description": "Work with a dedicated account manager via Slack or email to help you get the most out of PostHog.",
+                            "unit": null,
+                            "limit": null,
+                            "note": "$2k+/month spend"
+                        },
+                        {
+                            "key": "priority_support",
+                            "name": "Priority support",
+                            "description": "Get help from our team faster than other customers.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "white_labelling",
+                            "name": "White labeling",
+                            "description": "Use your own branding on surveys, shared dashboards, shared insights, and more.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "project_based_permissioning",
+                            "name": "Project permissions",
+                            "description": "Restrict access to data within the organization to only those who need it.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "advanced_permissions",
+                            "name": "Advanced permissions",
+                            "description": "Control who can access and modify data and features within your organization.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "access_control",
+                            "name": "Access control",
+                            "description": "Control who can access and modify data and features within your organization.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "audit_logs",
+                            "name": "Audit logs",
+                            "description": "See who in your organization has accessed or modified entities within PostHog.",
+                            "unit": null,
+                            "limit": null,
+                            "note": "Basic"
+                        },
+                        {
+                            "key": "security_assessment",
+                            "name": "Security assessment",
+                            "description": "Security assessment",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "hipaa_baa",
+                            "name": "HIPAA BAA",
+                            "description": "Get a signed HIPAA Business Associate Agreement (BAA) to use PostHog in a HIPAA-compliant manner.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "ingestion_taxonomy",
+                            "name": "Ingestion taxonomy",
+                            "description": "Organize and manage your data with event and property definitions - set and update descriptions, verification status, hide/show, and assign ownership.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "tagging",
+                            "name": "Dashboard tags",
+                            "description": "Organize dashboards with tags.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        }
+                    ],
+                    "tiers": [],
+                    "current_plan": false,
+                    "included_if": null,
+                    "contact_support": null,
+                    "unit_amount_usd": "450.00"
+                },
+                {
+                    "plan_key": "enterprise-20240208",
+                    "product_key": "platform_and_support",
+                    "name": "Enterprise",
+                    "description": "SSO, permission management, and support.",
+                    "image_url": "https://posthog.com/images/product/product-icons/platform.svg",
+                    "docs_url": "https://posthog.com/docs",
+                    "note": null,
+                    "unit": null,
+                    "free_allocation": null,
+                    "features": [
+                        {
+                            "key": "team_members",
+                            "name": "Team members",
+                            "description": "PostHog doesn't charge per seat add your entire team!",
+                            "unit": null,
+                            "limit": null,
+                            "note": "Unlimited"
+                        },
+                        {
+                            "key": "organizations_projects",
+                            "name": "Projects",
+                            "description": "Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.",
+                            "unit": null,
+                            "limit": null,
+                            "note": "Unlimited"
+                        },
+                        {
+                            "key": "environments",
+                            "name": "Environments",
+                            "description": "Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.",
+                            "unit": null,
+                            "limit": null,
+                            "note": "Unlimited"
+                        },
+                        {
+                            "key": "tracked_users",
+                            "name": "Tracked users",
+                            "description": "Track users across devices and sessions.",
+                            "unit": null,
+                            "limit": null,
+                            "note": "Unlimited"
+                        },
+                        {
+                            "key": "api_access",
+                            "name": "API access",
+                            "description": "Access your data via our developer-friendly API.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "white_labelling",
+                            "name": "White labeling",
+                            "description": "Use your own branding on surveys, shared dashboards, shared insights, and more.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "ingestion_taxonomy",
+                            "name": "Ingestion taxonomy",
+                            "description": "Organize and manage your data with event and property definitions - set and update descriptions, verification status, hide/show, and assign ownership.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "tagging",
+                            "name": "Dashboard tags",
+                            "description": "Organize dashboards with tags.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "social_sso",
+                            "name": "SSO via Google, Github, or Gitlab",
+                            "description": "Log in to PostHog with your Google, Github, or Gitlab account.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "sso_enforcement",
+                            "name": "Enforce SSO login",
+                            "description": "Users can only sign up and log in to your PostHog organization with your specified SSO provider.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "saml",
+                            "name": "SAML SSO",
+                            "description": "Allow your organization's users to log in with SAML.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "2fa",
+                            "name": "2FA",
+                            "description": "Secure your PostHog account with two-factor authentication.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "2fa_enforcement",
+                            "name": "Enforce 2FA",
+                            "description": "Require all users in your organization to enable two-factor authentication.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "project_based_permissioning",
+                            "name": "Project permissions",
+                            "description": "Restrict access to data within the organization to only those who need it.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "role_based_access",
+                            "name": "Role-based access",
+                            "description": "Control access to features like experiments, session recordings, and feature flags with custom roles.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "advanced_permissions",
+                            "name": "Advanced permissions",
+                            "description": "Control who can access and modify data and features within your organization.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "access_control",
+                            "name": "Access control",
+                            "description": "Control who can access and modify data and features within your organization.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "audit_logs",
+                            "name": "Audit logs",
+                            "description": "See who in your organization has accessed or modified entities within PostHog.",
+                            "unit": null,
+                            "limit": null,
+                            "note": "Advanced"
+                        },
+                        {
+                            "key": "hipaa_baa",
+                            "name": "HIPAA BAA",
+                            "description": "Get a signed HIPAA Business Associate Agreement (BAA) to use PostHog in a HIPAA-compliant manner.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "custom_msa",
+                            "name": "Custom MSA",
+                            "description": "Get a custom Master Services Agreement (MSA) to use PostHog in a way that fits your company's needs.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "community_support",
+                            "name": "Community support",
+                            "description": "Get help from other users and PostHog team members in our Community forums.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "email_support",
+                            "name": "Email support",
+                            "description": "Get help directly from our product engineers via email. No wading through multiple support people before you get help.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "dedicated_support",
+                            "name": "Dedicated account manager",
+                            "description": "Work with a dedicated account manager via Slack or email to help you get the most out of PostHog.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "priority_support",
+                            "name": "Priority support",
+                            "description": "Get help from our team faster than other customers.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "security_assessment",
+                            "name": "Security assessment",
+                            "description": "Security assessment",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "training",
+                            "name": "Ongoing training",
+                            "description": "Get training from our team to help you quickly get up and running with PostHog.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        },
+                        {
+                            "key": "configuration_support",
+                            "name": "Personalized onboarding",
+                            "description": "Get help from our team to create dashboards that will help you understand your data and your business.",
+                            "unit": null,
+                            "limit": null,
+                            "note": null
+                        }
+                    ],
+                    "tiers": null,
+                    "current_plan": false,
+                    "included_if": null,
+                    "contact_support": true,
+                    "unit_amount_usd": null
+                }
+            ],
+            "type": "platform_and_support",
+            "free_allocation": 0,
+            "tiers": null,
+            "tiered": false,
+            "unit_amount_usd": null,
+            "current_amount_usd_before_addons": null,
+            "current_amount_usd": null,
+            "current_usage": 0,
+            "usage_limit": 0,
+            "has_exceeded_limit": false,
+            "percentage_usage": 0,
+            "projected_usage": 0,
+            "projected_amount_usd": null,
+            "projected_amount_usd_with_limit": null,
+            "unit": null,
+            "addons": [],
+            "contact_support": false,
+            "inclusion_only": true,
+            "features": [
+                {
+                    "key": "tracked_users",
+                    "name": "Tracked users",
+                    "description": "Track users across devices and sessions.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "team_members",
+                    "name": "Team members",
+                    "description": "PostHog doesn't charge per seat add your entire team!",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "api_access",
+                    "name": "API access",
+                    "description": "Access your data via our developer-friendly API.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "organizations_projects",
+                    "name": "Projects",
+                    "description": "Organize environments within a project. Share dashboards, insights and more across environments without duplicating work.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "environments",
+                    "name": "Environments",
+                    "description": "Create separate silos of data within a project. Data belongs to a single environment and all queries are environment-specific.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "social_sso",
+                    "name": "SSO via Google, Github, or Gitlab",
+                    "description": "Log in to PostHog with your Google, Github, or Gitlab account.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "role_based_access",
+                    "name": "Role-based access",
+                    "description": "Control access to features like experiments, session recordings, and feature flags with custom roles.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "project_based_permissioning",
+                    "name": "Project permissions",
+                    "description": "Restrict access to data within the organization to only those who need it.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "advanced_permissions",
+                    "name": "Advanced permissions",
+                    "description": "Control who can access and modify data and features within your organization.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "access_control",
+                    "name": "Access control",
+                    "description": "Control who can access and modify data and features within your organization.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "saml",
+                    "name": "SAML SSO",
+                    "description": "Allow your organization's users to log in with SAML.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "sso_enforcement",
+                    "name": "Enforce SSO login",
+                    "description": "Users can only sign up and log in to your PostHog organization with your specified SSO provider.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "2fa",
+                    "name": "2FA",
+                    "description": "Secure your PostHog account with two-factor authentication.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "2fa_enforcement",
+                    "name": "Enforce 2FA",
+                    "description": "Require all users in your organization to enable two-factor authentication.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "white_labelling",
+                    "name": "White labeling",
+                    "description": "Use your own branding on surveys, shared dashboards, shared insights, and more.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "community_support",
+                    "name": "Community support",
+                    "description": "Get help from other users and PostHog team members in our Community forums.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "dedicated_support",
+                    "name": "Dedicated account manager",
+                    "description": "Work with a dedicated account manager via Slack or email to help you get the most out of PostHog.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "email_support",
+                    "name": "Email support",
+                    "description": "Get help directly from our product engineers via email. No wading through multiple support people before you get help.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "priority_support",
+                    "name": "Priority support",
+                    "description": "Get help from our team faster than other customers.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "training",
+                    "name": "Ongoing training",
+                    "description": "Get training from our team to help you quickly get up and running with PostHog.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "configuration_support",
+                    "name": "Personalized onboarding",
+                    "description": "Get help from our team to create dashboards that will help you understand your data and your business.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "terms_and_conditions",
+                    "name": "Terms and conditions",
+                    "description": "Terms and conditions",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "security_assessment",
+                    "name": "Security assessment",
+                    "description": "Security assessment",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "bespoke_pricing",
+                    "name": "Bespoke pricing",
+                    "description": "Custom pricing to fit your company's needs.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "invoice_payments",
+                    "name": "Payment via invoicing",
+                    "description": "Pay for your PostHog subscription via invoice.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "support_response_time",
+                    "name": "Support response time",
+                    "description": "Get help from our team!",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "audit_logs",
+                    "name": "Audit logs",
+                    "description": "See who in your organization has accessed or modified entities within PostHog.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "hipaa_baa",
+                    "name": "HIPAA BAA",
+                    "description": "Get a signed HIPAA Business Associate Agreement (BAA) to use PostHog in a HIPAA-compliant manner.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "custom_msa",
+                    "name": "Custom MSA",
+                    "description": "Get a custom Master Services Agreement (MSA) to use PostHog in a way that fits your company's needs.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "ingestion_taxonomy",
+                    "name": "Ingestion taxonomy",
+                    "description": "Organize and manage your data with event and property definitions - set and update descriptions, verification status, hide/show, and assign ownership.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                },
+                {
+                    "key": "tagging",
+                    "name": "Dashboard tags",
+                    "description": "Organize dashboards with tags.",
+                    "images": null,
+                    "icon_key": null,
+                    "type": null
+                }
+            ]
+        }
+    ],
+    "custom_limits_usd": {},
+    "usage_summary": {
+        "events": {
+            "usage": 0,
+            "limit": 1000000
+        },
+        "recordings": {
+            "usage": 0,
+            "limit": 5000
+        },
+        "feature_flag_requests": {
+            "usage": 0,
+            "limit": 1000000
+        },
+        "survey_responses": {
+            "usage": 0,
+            "limit": 250
+        }
+    },
+    "free_trial_until": null,
+    "discount_percent": null,
+    "discount_amount_usd": null,
+    "amount_off_expires_at": null,
+    "never_drop_data": null,
+    "customer_trust_scores": {
+        "surveys": 0,
+        "feature_flags": 0,
+        "session_replay": 3,
+        "product_analytics": 3
+    },
+    "stripe_portal_url": "http://localhost:8000/api/billing/portal"
+}

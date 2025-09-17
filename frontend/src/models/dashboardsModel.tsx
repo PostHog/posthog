@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+
 import api, { PaginatedResponse } from 'lib/api'
 import { GENERATED_DASHBOARD_PREFIX } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -10,6 +11,8 @@ import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { tagsModel } from '~/models/tagsModel'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
 import { DashboardBasicType, DashboardTile, DashboardType, InsightShortId, QueryBasedInsightModel } from '~/types'
@@ -18,9 +21,9 @@ import type { dashboardsModelType } from './dashboardsModelType'
 
 export const dashboardsModel = kea<dashboardsModelType>([
     path(['models', 'dashboardsModel']),
-    connect({
+    connect(() => ({
         actions: [tagsModel, ['loadTags']],
-    }),
+    })),
     actions(() => ({
         // we page through the dashboards and need to manually track when that is finished
         dashboardsFullyLoaded: true,
@@ -91,9 +94,16 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         // If user is anonymous (i.e. viewing a shared dashboard logged out), don't load authenticated stuff
                         return { count: 0, next: null, previous: null, results: [] }
                     }
-                    const dashboards: PaginatedResponse<DashboardType> = await api.get(
-                        url || `api/projects/${teamLogic.values.currentTeamId}/dashboards/?limit=100`
-                    )
+
+                    if (!teamLogic.values.currentTeam) {
+                        return { count: 0, next: null, previous: null, results: [] }
+                    }
+
+                    let apiUrl =
+                        url ||
+                        `api/environments/${teamLogic.values.currentTeamId}/dashboards/?limit=2000&exclude_generated=true`
+
+                    const dashboards: PaginatedResponse<DashboardType> = await api.get(apiUrl)
 
                     return {
                         ...dashboards,
@@ -105,8 +115,8 @@ export const dashboardsModel = kea<dashboardsModelType>([
         // We're not using this loader as a reducer per se, but just calling it `dashboard`
         // to have the right payload ({ dashboard }) in the Success actions
         dashboard: {
-            __default: null as null | DashboardType,
-            updateDashboard: async ({ id, allowUndo, ...payload }, breakpoint) => {
+            __default: null as null | DashboardType<QueryBasedInsightModel>,
+            updateDashboard: async ({ id, allowUndo, discardResult, ...payload }, breakpoint) => {
                 if (!Object.entries(payload).length) {
                     return
                 }
@@ -114,10 +124,11 @@ export const dashboardsModel = kea<dashboardsModelType>([
 
                 const beforeChange = { ...values.rawDashboards[id] }
 
-                const response = (await api.update(
-                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                const response = await api.update<DashboardType>(
+                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                     payload
-                )) as DashboardType
+                )
+                refreshTreeItem('dashboard', id)
                 const updatedAttribute = Object.keys(payload)[0]
                 if (updatedAttribute === 'name' || updatedAttribute === 'description' || updatedAttribute === 'tags') {
                     eventUsageLogic.actions.reportDashboardFrontEndUpdate(
@@ -134,51 +145,67 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         button: {
                             label: 'Undo',
                             action: async () => {
-                                const reverted = (await api.update(
-                                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                                const reverted = await api.update<DashboardType>(
+                                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
                                     beforeChange
-                                )) as DashboardType
+                                )
                                 actions.updateDashboardSuccess(getQueryBasedDashboard(reverted))
                                 lemonToast.success('Dashboard change reverted')
                             },
                         },
                     })
                 }
-                return getQueryBasedDashboard(response)
+
+                return discardResult ? values.dashboard : getQueryBasedDashboard(response)
             },
-            deleteDashboard: async ({ id, deleteInsights }) =>
-                getQueryBasedDashboard(
-                    await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
+            deleteDashboard: async ({ id, deleteInsights }) => {
+                const deleted = getQueryBasedDashboard(
+                    await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                         deleted: true,
                         delete_insights: deleteInsights,
                     })
-                ) as DashboardType<QueryBasedInsightModel>,
-            restoreDashboard: async ({ id }) =>
-                getQueryBasedDashboard(
-                    await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
+                ) as DashboardType<QueryBasedInsightModel>
+                deleteFromTree('dashboard', String(id))
+                return deleted
+            },
+            restoreDashboard: async ({ id }) => {
+                const restored = getQueryBasedDashboard(
+                    await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
                         deleted: false,
                     })
-                ) as DashboardType<QueryBasedInsightModel>,
+                ) as DashboardType<QueryBasedInsightModel>
+                refreshTreeItem('dashboard', String(id))
+                return restored
+            },
             pinDashboard: async ({ id, source }) => {
-                const response = (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
-                    pinned: true,
-                })) as DashboardType
+                const response = await api.update(
+                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                    {
+                        pinned: true,
+                    }
+                )
                 eventUsageLogic.actions.reportDashboardPinToggled(true, source)
                 return getQueryBasedDashboard(response)!
             },
             unpinDashboard: async ({ id, source }) => {
-                const response = (await api.update(`api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}`, {
-                    pinned: false,
-                })) as DashboardType
+                const response = await api.update<DashboardType>(
+                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/${id}`,
+                    {
+                        pinned: false,
+                    }
+                )
                 eventUsageLogic.actions.reportDashboardPinToggled(false, source)
                 return getQueryBasedDashboard(response)!
             },
             duplicateDashboard: async ({ id, name, show, duplicateTiles }) => {
-                const result = (await api.create(`api/projects/${teamLogic.values.currentTeamId}/dashboards/`, {
-                    use_dashboard: id,
-                    name: `${name} (Copy)`,
-                    duplicate_tiles: duplicateTiles,
-                })) as DashboardType
+                const result = await api.create<DashboardType>(
+                    `api/environments/${teamLogic.values.currentTeamId}/dashboards/`,
+                    {
+                        use_dashboard: id,
+                        name: `${name} (Copy)`,
+                        duplicate_tiles: duplicateTiles,
+                    }
+                )
                 if (show) {
                     router.actions.push(urls.dashboard(result.id))
                 }
@@ -238,7 +265,7 @@ export const dashboardsModel = kea<dashboardsModelType>([
         nameSortedDashboards: [
             () => [selectors.rawDashboards],
             (rawDashboards) => {
-                return [...Object.values(rawDashboards)]
+                return Object.values(rawDashboards)
                     .filter((dashboard) => !(dashboard.name ?? 'Untitled').startsWith(GENERATED_DASHBOARD_PREFIX))
                     .sort(nameCompareFunction)
             },
@@ -270,6 +297,12 @@ export const dashboardsModel = kea<dashboardsModelType>([
             }
         },
         addDashboardSuccess: ({ dashboard }) => {
+            activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.CreateFirstDashboard)
+
+            if (router.values.location.pathname.includes('onboarding')) {
+                // don't send a toast if we're in onboarding
+                return
+            }
             lemonToast.success(<>Dashboard created</>, {
                 button: {
                     label: 'View',

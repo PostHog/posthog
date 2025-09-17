@@ -1,13 +1,16 @@
+import { useValues } from 'kea'
+
 import { LemonDropdown } from '@posthog/lemon-ui'
-import { getSeriesColor } from 'lib/colors'
+
 import { capitalizeFirstLetter, percentage } from 'lib/utils'
-import { useEffect, useRef, useState } from 'react'
+import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { Noun } from '~/models/groupsModel'
-import { BreakdownFilter } from '~/queries/schema'
+import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { FunnelStepWithConversionMetrics } from '~/types'
 
 import { FunnelTooltip } from '../FunnelTooltip'
+import { funnelDataLogic } from '../funnelDataLogic'
 import { getSeriesPositionName } from '../funnelUtils'
 
 interface BarProps {
@@ -18,15 +21,11 @@ interface BarProps {
     isBreakdown?: boolean
     breakdownIndex?: number
     breakdownMaxIndex?: number
-    breakdownSumPercentage?: number
     step: FunnelStepWithConversionMetrics
     stepIndex: number
     breakdownFilter: BreakdownFilter | null | undefined
     aggregationTargetLabel: Noun
-    /** Bar wrapper width in px. */
-    wrapperWidth: number
 }
-type LabelPosition = 'inside' | 'outside'
 
 export function Bar({
     percentage: conversionPercentage,
@@ -36,53 +35,20 @@ export function Bar({
     isBreakdown = false,
     breakdownIndex,
     breakdownMaxIndex,
-    breakdownSumPercentage,
     step,
     stepIndex,
     breakdownFilter,
     aggregationTargetLabel,
-    wrapperWidth,
 }: BarProps): JSX.Element | null {
-    const barRef = useRef<HTMLDivElement | null>(null)
-    const labelRef = useRef<HTMLDivElement | null>(null)
-    const [labelPosition, setLabelPosition] = useState<LabelPosition>('inside')
-    const [labelVisible, setLabelVisible] = useState(true)
-    const LABEL_POSITION_OFFSET = 8 // Defined here and in SCSS
+    const { insightProps } = useValues(insightLogic)
+    const { getFunnelsColor } = useValues(funnelDataLogic(insightProps))
+
     const cursorType = !disabled ? 'pointer' : ''
-    const hasBreakdownSum = isBreakdown && typeof breakdownSumPercentage === 'number'
-    const shouldShowLabel = !isBreakdown || (hasBreakdownSum && labelVisible)
 
-    function decideLabelPosition(): void {
-        if (hasBreakdownSum) {
-            // Label is always outside for breakdowns, but don't show if it doesn't fit in the wrapper
-            setLabelPosition('outside')
-            const barWidth = barRef.current?.clientWidth ?? null
-            const barOffset = barRef.current?.offsetLeft ?? null
-            const labelWidth = labelRef.current?.clientWidth ?? null
-            if (barWidth !== null && barOffset !== null && wrapperWidth !== null && labelWidth !== null) {
-                if (wrapperWidth - (barWidth + barOffset) < labelWidth + LABEL_POSITION_OFFSET * 2) {
-                    setLabelVisible(false)
-                } else {
-                    setLabelVisible(true)
-                }
-            }
-            return
-        }
-        // Place label inside or outside bar, based on whether it fits
-        const barWidth = barRef.current?.clientWidth ?? null
-        const labelWidth = labelRef.current?.clientWidth ?? null
-        if (barWidth !== null && labelWidth !== null) {
-            if (labelWidth + LABEL_POSITION_OFFSET * 2 > barWidth) {
-                setLabelPosition('outside')
-                return
-            }
-        }
-        setLabelPosition('inside')
-    }
-
-    useEffect(() => {
-        decideLabelPosition()
-    }, [wrapperWidth])
+    // Labels are handled differently for breakdown vs non-breakdown funnels:
+    // - Non-breakdown: Show labels on bars (CSS positions inside/outside based on width)
+    // - Breakdown: Hide bar labels (CSS), summary shown in empty space instead
+    const shouldShowLabel = !isBreakdown
 
     if (!conversionPercentage) {
         return null
@@ -105,13 +71,12 @@ export function Bar({
             }
         >
             <div
-                ref={barRef}
                 className={`funnel-bar ${getSeriesPositionName(breakdownIndex, breakdownMaxIndex)}`}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
                     flex: `${conversionPercentage} 1 0`,
                     cursor: cursorType,
-                    backgroundColor: getSeriesColor(breakdownIndex ?? 0),
+                    backgroundColor: getFunnelsColor(step),
                 }}
                 onClick={() => {
                     if (!disabled && onBarClick) {
@@ -121,17 +86,16 @@ export function Bar({
             >
                 {shouldShowLabel && (
                     <div
-                        ref={labelRef}
-                        className={`funnel-bar-percentage ${labelPosition}`}
+                        className="funnel-bar-percentage"
                         title={
                             name ? `${capitalizeFirstLetter(aggregationTargetLabel.plural)} who did ${name}` : undefined
                         }
                         role="progressbar"
                         aria-valuemin={0}
                         aria-valuemax={100}
-                        aria-valuenow={(breakdownSumPercentage ?? conversionPercentage) * 100}
+                        aria-valuenow={conversionPercentage * 100}
                     >
-                        {percentage(breakdownSumPercentage ?? conversionPercentage, 1, true)}
+                        {percentage(conversionPercentage, 1, true)}
                     </div>
                 )}
             </div>

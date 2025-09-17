@@ -1,0 +1,13 @@
+string
+integer
+float
+boolean
+boolean
+null
+object
+array
+tuple
+function
+datetime
+date
+error

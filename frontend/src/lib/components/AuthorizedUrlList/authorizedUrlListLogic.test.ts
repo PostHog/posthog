@@ -1,15 +1,18 @@
+import { MOCK_TEAM_ID, api } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
-import { api, MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import {
+    AuthorizedUrlListType,
+    SuggestedDomain,
     appEditorUrl,
     authorizedUrlListLogic,
-    AuthorizedUrlListType,
     filterNotAuthorizedUrls,
     validateProposedUrl,
 } from './authorizedUrlListLogic'
@@ -20,7 +23,7 @@ describe('the authorized urls list logic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team/insights/trend/': (req) => {
+                '/api/environments/:team_id/insights/trend/': (req) => {
                     if (JSON.parse(req.url.searchParams.get('events') || '[]')?.[0]?.throw) {
                         return [500, { status: 0, detail: 'error from the API' }]
                     }
@@ -35,6 +38,8 @@ describe('the authorized urls list logic', () => {
         logic = authorizedUrlListLogic({
             type: AuthorizedUrlListType.TOOLBAR_URLS,
             actionId: null,
+            experimentId: null,
+            query: null,
         })
         logic.mount()
     })
@@ -85,12 +90,34 @@ describe('the authorized urls list logic', () => {
                 proposedUrl: 'https://not.*.valid.*',
                 validityMessage: 'Wildcards can only be used for subdomains',
             },
+            {
+                proposedUrl: 'http://localhost:*',
+                validityMessage: 'Wildcards are not allowed in the port position',
+            },
+            {
+                proposedUrl: 'http://valid.example.com:*',
+                validityMessage: 'Wildcards are not allowed in the port position',
+            },
+            {
+                proposedUrl: 'http://*.localhost:3000',
+                validityMessage: undefined,
+            },
+            {
+                proposedUrl: 'http://*.valid.com:3000',
+                validityMessage: undefined,
+            },
         ]
 
         testCases.forEach((testCase) => {
             it(`a proposal of "${testCase.proposedUrl}" has validity message "${testCase.validityMessage}"`, () => {
                 expect(validateProposedUrl(testCase.proposedUrl, [], false)).toEqual(testCase.validityMessage)
             })
+        })
+
+        it('can refuse wildcards', () => {
+            expect(validateProposedUrl('https://*.example.com', [], false, false)).toEqual('Wildcards are not allowed')
+            expect(validateProposedUrl('https://*.example.com', [], false, true)).toEqual(undefined)
+            expect(validateProposedUrl('https://*.example.com', [], false)).toEqual(undefined)
         })
 
         it('fails if the proposed URL is already authorized', () => {
@@ -111,6 +138,8 @@ describe('the authorized urls list logic', () => {
             logic = authorizedUrlListLogic({
                 type: AuthorizedUrlListType.RECORDING_DOMAINS,
                 actionId: null,
+                experimentId: null,
+                query: null,
             })
             logic.mount()
         })
@@ -124,7 +153,7 @@ describe('the authorized urls list logic', () => {
 
             expectLogic(logic, () => logic.actions.addUrl('http://*.example.com')).toFinishAllListeners()
 
-            expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}`, {
+            expect(api.update).toHaveBeenCalledWith(`api/environments/${MOCK_TEAM_ID}`, {
                 recording_domains: ['https://recordings.posthog.com/', 'http://*.example.com'],
             })
         })
@@ -155,13 +184,13 @@ describe('the authorized urls list logic', () => {
     })
 
     describe('filterNotAuthorizedUrls', () => {
-        const testUrls = [
-            'https://1.wildcard.com',
-            'https://2.wildcard.com',
-            'https://a.single.io',
-            'https://a.sub.b.multi-wildcard.com',
-            'https://a.not.b.multi-wildcard.com',
-            'https://not.valid.io',
+        const testUrls: SuggestedDomain[] = [
+            { url: 'https://1.wildcard.com', count: 1 },
+            { url: 'https://2.wildcard.com', count: 1 },
+            { url: 'https://a.single.io', count: 1 },
+            { url: 'https://a.sub.b.multi-wildcard.com', count: 1 },
+            { url: 'https://a.not.b.multi-wildcard.com', count: 1 },
+            { url: 'https://not.valid.io', count: 1 },
         ]
 
         it('suggests all if empty', () => {
@@ -170,18 +199,22 @@ describe('the authorized urls list logic', () => {
 
         it('allows specific domains', () => {
             expect(filterNotAuthorizedUrls(testUrls, ['https://a.single.io'])).toEqual([
-                'https://1.wildcard.com',
-                'https://2.wildcard.com',
-                'https://a.sub.b.multi-wildcard.com',
-                'https://a.not.b.multi-wildcard.com',
-                'https://not.valid.io',
+                { url: 'https://1.wildcard.com', count: 1 },
+                { url: 'https://2.wildcard.com', count: 1 },
+                { url: 'https://a.sub.b.multi-wildcard.com', count: 1 },
+                { url: 'https://a.not.b.multi-wildcard.com', count: 1 },
+                { url: 'https://not.valid.io', count: 1 },
             ])
         })
 
         it('filters wildcard domains', () => {
             expect(
                 filterNotAuthorizedUrls(testUrls, ['https://*.wildcard.com', 'https://*.sub.*.multi-wildcard.com'])
-            ).toEqual(['https://a.single.io', 'https://a.not.b.multi-wildcard.com', 'https://not.valid.io'])
+            ).toEqual([
+                { url: 'https://a.single.io', count: 1 },
+                { url: 'https://a.not.b.multi-wildcard.com', count: 1 },
+                { url: 'https://not.valid.io', count: 1 },
+            ])
         })
     })
 })

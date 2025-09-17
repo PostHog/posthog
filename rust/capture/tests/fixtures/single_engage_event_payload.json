@@ -1,0 +1,12 @@
+{
+    "timestamp": "2025-07-01T11:00:00Z",
+    "api_key": "phc_VXRzc3poSG9GZm1JenRiZnJ6TTJFZGh4OWY2QXzx9f3",
+    "distinct_id": "known_user@example.com",
+    "properties": {
+        "$anon_distinct_id": "01983d85-e613-7067-a70e-21bb63f8b8ee",
+        "$set": {
+            "foo": "bar",
+            "baz": 42
+        }
+    }
+}

@@ -1,25 +1,7 @@
 import uuid
 from datetime import datetime
-from unittest.case import skip
 
-from django.test import override_settings
 from freezegun import freeze_time
-from rest_framework.exceptions import ValidationError
-
-from posthog.client import sync_execute
-from posthog.constants import FILTER_TEST_ACCOUNTS, INSIGHT_FUNNELS
-from posthog.models import Action, Element
-from posthog.models.cohort import Cohort
-from posthog.models.filters import Filter
-from posthog.models.instance_setting import get_instance_setting
-from posthog.queries.funnels import ClickhouseFunnel, ClickhouseFunnelActors
-from posthog.queries.funnels.test.breakdown_cases import (
-    assert_funnel_results_equal,
-    funnel_breakdown_test_factory,
-)
-from posthog.queries.funnels.test.conversion_time_cases import (
-    funnel_conversion_time_test_factory,
-)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -29,6 +11,21 @@ from posthog.test.base import (
     create_person_id_override_by_distinct_id,
     snapshot_clickhouse_queries,
 )
+from unittest.case import skip
+
+from django.test import override_settings
+
+from rest_framework.exceptions import ValidationError
+
+from posthog.clickhouse.client import sync_execute
+from posthog.constants import FILTER_TEST_ACCOUNTS, INSIGHT_FUNNELS
+from posthog.models import Action, Element
+from posthog.models.cohort import Cohort
+from posthog.models.filters import Filter
+from posthog.models.instance_setting import get_instance_setting
+from posthog.queries.funnels import ClickhouseFunnel, ClickhouseFunnelActors
+from posthog.queries.funnels.test.breakdown_cases import assert_funnel_results_equal, funnel_breakdown_test_factory
+from posthog.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
 from posthog.test.test_journeys import journeys_for
 
 
@@ -3055,10 +3052,6 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 self.assertCountEqual(self._get_actor_ids_at_step(filter, 2), [person1.uuid])
 
         def test_breakdown_values_is_set_on_the_query_with_fewer_than_two_entities(self):
-            """
-            failing test for https://sentry.io/organizations/posthog/issues/2807609211/?project=1899813&referrer=slack
-            """
-
             filter_with_breakdown = {
                 "events": [{"id": "with one entity", "type": "events", "order": 0}],
                 "breakdown": "something",
@@ -3678,6 +3671,35 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             filters = {
                 "events": [{"id": "user signed up", "type": "events", "order": 0}],
                 "actions": [{"id": action_checkout_all.pk, "type": "actions", "order": 1}],
+                "funnel_window_days": 14,
+            }
+
+            result = self._basic_funnel(filters=filters).run()
+            self.assertEqual(result[0]["count"], 1)
+            self.assertEqual(result[1]["count"], 1)
+
+        def test_funnel_personless_events_are_supported(self):
+            personless_user = uuid.uuid4()
+            self._signup_event(distinct_id=personless_user, person_id=personless_user)
+            self._add_to_cart_event(distinct_id=personless_user, person_id=personless_user)
+
+            filters = {
+                "events": [
+                    {
+                        "type": "events",
+                        "id": "user signed up",
+                        "order": 0,
+                        "name": "user signed up",
+                        "math": "total",
+                    },
+                    {
+                        "type": "events",
+                        "id": "added to cart",
+                        "order": 1,
+                        "name": "added to cart",
+                        "math": "total",
+                    },
+                ],
                 "funnel_window_days": 14,
             }
 

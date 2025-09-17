@@ -1,9 +1,7 @@
-from posthog.clickhouse.client import sync_execute, query_with_columns
-from posthog.test.base import (
-    _create_event,
-    ClickhouseTestMixin,
-    BaseTest,
-)
+from posthog.test.base import BaseTest, ClickhouseDestroyTablesMixin, ClickhouseTestMixin, _create_event
+
+from posthog.clickhouse.client import query_with_columns, sync_execute
+from posthog.models import Team
 
 distinct_id_counter = 0
 session_id_counter = 0
@@ -21,7 +19,12 @@ def create_session_id():
     return f"s{session_id_counter}"
 
 
-class TestSessionsModel(ClickhouseTestMixin, BaseTest):
+# only certain team ids can insert events into this legacy sessions table, see sessions/sql.py for more info
+TEAM_ID = 2
+TEAM = Team(id=TEAM_ID)
+
+
+class TestSessionsModel(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, BaseTest):
     def select_by_session_id(self, session_id):
         return query_with_columns(
             """
@@ -34,7 +37,7 @@ class TestSessionsModel(ClickhouseTestMixin, BaseTest):
                 """,
             {
                 "session_id": session_id,
-                "team_id": self.team.id,
+                "team_id": TEAM_ID,
             },
         )
 
@@ -42,7 +45,7 @@ class TestSessionsModel(ClickhouseTestMixin, BaseTest):
         distinct_id = create_distinct_id()
         session_id = create_session_id()
         _create_event(
-            team=self.team,
+            team=TEAM,
             event="$pageview",
             distinct_id=distinct_id,
             properties={"$current_url": "/", "$session_id": session_id},
@@ -60,7 +63,7 @@ class TestSessionsModel(ClickhouseTestMixin, BaseTest):
                 """,
             {
                 "distinct_id": distinct_id,
-                "team_id": self.team.id,
+                "team_id": TEAM_ID,
             },
         )
 
@@ -72,14 +75,14 @@ class TestSessionsModel(ClickhouseTestMixin, BaseTest):
         session_id = create_session_id()
 
         _create_event(
-            team=self.team,
+            team=TEAM,
             event="$pageview",
             distinct_id=distinct_id1,
             properties={"$session_id": session_id},
             timestamp="2024-03-08",
         )
         _create_event(
-            team=self.team,
+            team=TEAM,
             event="$pageview",
             distinct_id=distinct_id2,
             properties={"$session_id": session_id},
@@ -96,28 +99,28 @@ class TestSessionsModel(ClickhouseTestMixin, BaseTest):
         session_id = create_session_id()
 
         _create_event(
-            team=self.team,
+            team=TEAM,
             event="$pageview",
             distinct_id=distinct_id,
             properties={"$current_url": "/entry", "$session_id": session_id},
             timestamp="2024-03-08:01",
         )
         _create_event(
-            team=self.team,
+            team=TEAM,
             event="$pageview",
             distinct_id=distinct_id,
             properties={"$current_url": "/middle", "$session_id": session_id},
             timestamp="2024-03-08:02",
         )
         _create_event(
-            team=self.team,
+            team=TEAM,
             event="$pageview",
             distinct_id=distinct_id,
             properties={"$current_url": "/middle", "$session_id": session_id},
             timestamp="2024-03-08:03",
         )
         _create_event(
-            team=self.team,
+            team=TEAM,
             event="$pageview",
             distinct_id=distinct_id,
             properties={"$current_url": "/exit", "$session_id": session_id},
@@ -136,14 +139,14 @@ class TestSessionsModel(ClickhouseTestMixin, BaseTest):
         session_id = create_session_id()
 
         _create_event(
-            team=self.team,
+            team=TEAM,
             event="$pageview",
             distinct_id=distinct_id,
             properties={"$session_id": session_id, "utm_source": "source"},
             timestamp="2024-03-08",
         )
         _create_event(
-            team=self.team,
+            team=TEAM,
             event="$pageview",
             distinct_id=distinct_id,
             properties={"$session_id": session_id, "utm_source": "other_source"},
@@ -159,35 +162,35 @@ class TestSessionsModel(ClickhouseTestMixin, BaseTest):
         session_id = create_session_id()
 
         _create_event(
-            team=self.team,
+            team=TEAM,
             event="$pageview",
             distinct_id=distinct_id,
             properties={"$session_id": session_id},
             timestamp="2024-03-08",
         )
         _create_event(
-            team=self.team,
+            team=TEAM,
             event="$autocapture",
             distinct_id=distinct_id,
             properties={"$session_id": session_id},
             timestamp="2024-03-08",
         )
         _create_event(
-            team=self.team,
+            team=TEAM,
             event="$autocapture",
             distinct_id=distinct_id,
             properties={"$session_id": session_id},
             timestamp="2024-03-08",
         )
         _create_event(
-            team=self.team,
+            team=TEAM,
             event="other event",
             distinct_id=distinct_id,
             properties={"$session_id": session_id},
             timestamp="2024-03-08",
         )
         _create_event(
-            team=self.team,
+            team=TEAM,
             event="$pageleave",
             distinct_id=distinct_id,
             properties={"$session_id": session_id},
@@ -209,14 +212,14 @@ class TestSessionsModel(ClickhouseTestMixin, BaseTest):
         session_id3 = create_session_id()
 
         _create_event(
-            team=self.team,
+            team=TEAM,
             event="$pageview",
             distinct_id=distinct_id,
             properties={"$session_id": session_id1},
             timestamp="2024-03-08",
         )
         _create_event(
-            team=self.team,
+            team=TEAM,
             event="$pageview",
             distinct_id=distinct_id,
             properties={"$session_id": session_id2},
@@ -235,7 +238,7 @@ class TestSessionsModel(ClickhouseTestMixin, BaseTest):
         distinct_id = create_distinct_id()
         session_id = create_session_id()
         _create_event(
-            team=self.team,
+            team=TEAM,
             event="$pageview",
             distinct_id=distinct_id,
             properties={"$session_id": session_id},
@@ -260,7 +263,7 @@ class TestSessionsModel(ClickhouseTestMixin, BaseTest):
         """,
             {
                 "session_id": session_id,
-                "team_id": self.team.id,
+                "team_id": TEAM_ID,
             },
         )
         self.assertEqual(len(responses), 1)
@@ -270,7 +273,7 @@ class TestSessionsModel(ClickhouseTestMixin, BaseTest):
         distinct_id = create_distinct_id()
         session_id = create_session_id()
         _create_event(
-            team=self.team,
+            team=TEAM,
             event="$pageview",
             distinct_id=distinct_id,
             properties={"$session_id": session_id},
@@ -295,7 +298,7 @@ class TestSessionsModel(ClickhouseTestMixin, BaseTest):
         """,
             {
                 "session_id": session_id,
-                "team_id": self.team.id,
+                "team_id": TEAM_ID,
             },
         )
         self.assertEqual(len(responses), 1)

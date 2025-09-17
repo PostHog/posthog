@@ -1,0 +1,20 @@
+#!/bin/sh
+
+set -e
+
+# This script copies the following built files from posthog-js so that they can served on PostHog's CDN
+
+cp node_modules/posthog-js/dist/array.js* dist/
+cp node_modules/posthog-js/dist/array.full.js* dist/
+cp node_modules/posthog-js/dist/array.full.es5.js* dist/
+cp node_modules/posthog-js/dist/surveys.js* dist/
+cp node_modules/posthog-js/dist/exception-autocapture.js* dist/
+cp node_modules/posthog-js/dist/web-vitals.js* dist/
+cp node_modules/posthog-js/dist/tracing-headers.js* dist/
+cp node_modules/posthog-js/dist/dead-clicks-autocapture.js* dist/
+cp node_modules/posthog-js/dist/customizations.full.js* dist/
+# there are multiple external integrations that we use, so we need to copy them all
+cp node_modules/posthog-js/dist/*integration.js* dist/ 2>/dev/null || true
+# there are multiple recorder files that we use, so we need to copy them all
+cp node_modules/posthog-js/dist/*recorder*.js* dist/ 2>/dev/null || true
+

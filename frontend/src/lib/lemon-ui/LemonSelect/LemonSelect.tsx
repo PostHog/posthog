@@ -1,10 +1,14 @@
-import { IconX } from '@posthog/icons'
 import clsx from 'clsx'
 import React, { useMemo } from 'react'
 
+import { IconX } from '@posthog/icons'
+
+import { LemonDropdownProps } from 'lib/lemon-ui/LemonDropdown'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
 import { LemonButton, LemonButtonProps } from '../LemonButton'
 import {
-    isLemonMenuSection,
     LemonMenu,
     LemonMenuItem,
     LemonMenuItemBase,
@@ -12,6 +16,7 @@ import {
     LemonMenuItemNode,
     LemonMenuProps,
     LemonMenuSection,
+    isLemonMenuSection,
 } from '../LemonMenu/LemonMenu'
 import { PopoverProps } from '../Popover'
 import { TooltipProps } from '../Tooltip'
@@ -63,6 +68,7 @@ export interface LemonSelectPropsBase<T>
         | 'tabIndex'
         | 'type'
         | 'tooltip'
+        | 'icon'
     > {
     options: LemonSelectOptions<T>
     /** Callback fired when a value is selected, even if it already is set. */
@@ -75,6 +81,14 @@ export interface LemonSelectPropsBase<T>
     placeholder?: string
     size?: LemonButtonProps['size']
     menu?: Pick<LemonMenuProps, 'className' | 'closeParentPopoverOnClickInside'>
+    visible?: LemonDropdownProps['visible']
+    startVisible?: LemonDropdownProps['startVisible']
+    /** Access control props for automatic permission checking */
+    accessControl?: {
+        resourceType: AccessControlResourceType
+        minAccessLevel: AccessControlLevel
+        userAccessLevel?: AccessControlLevel
+    }
 }
 
 export interface LemonSelectPropsClearable<T> extends LemonSelectPropsBase<T> {
@@ -111,6 +125,9 @@ export function LemonSelect<T extends string | number | boolean | null>({
     className,
     menu,
     renderButtonContent,
+    visible,
+    startVisible,
+    accessControl,
     ...buttonProps
 }: LemonSelectProps<T>): JSX.Element {
     const [items, allLeafOptions] = useMemo(
@@ -139,6 +156,8 @@ export function LemonSelect<T extends string | number | boolean | null>({
                 .flatMap((i) => (isLemonMenuSection(i) ? i.items.filter(Boolean) : i))
                 .findIndex((i) => (i as LemonMenuItem).active)}
             closeParentPopoverOnClickInside={menu?.closeParentPopoverOnClickInside}
+            visible={visible}
+            startVisible={startVisible}
         >
             <LemonButton
                 className={clsx(className, 'LemonSelect')}
@@ -161,14 +180,15 @@ export function LemonSelect<T extends string | number | boolean | null>({
                         : undefined
                 }
                 tooltip={activeLeaf?.tooltip}
+                accessControl={accessControl}
                 {...buttonProps}
             >
                 <span className="flex flex-1">
                     {renderButtonContent
                         ? renderButtonContent(activeLeaf)
                         : activeLeaf
-                        ? activeLeaf.label
-                        : value ?? <span className="text-muted">{placeholder}</span>}
+                          ? activeLeaf.label
+                          : (value ?? placeholder)}
                 </span>
             </LemonButton>
         </LemonMenu>

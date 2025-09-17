@@ -1,0 +1,58 @@
+{
+    "cache_key": "cache_bc7df2389a4b4e9958a291d07ca0894a_[{'alias': '/person/<id>', 'regex': '\\\\/person\\\\/[^\\\\/]+'}, {'alias': 'Any Session Recording Route', 'regex': '.*sessionRecordingId=[a-zA-Z]+'}, {'alias': '/insights/<insight_id>', 'regex': '.*\\\\/insights\\\\/[0-9a-zA-Z]+'}, {'alias': '/project/<team_id>', 'regex': '\\\\/project\\\\/\\\\d+'}, {'alias': '/dashboard/<dashboard_id>', 'regex': '\\\\/dashboard\\\\/[0-9]+'}, {'alias': '/feature_flags/<feature_flag_id>', 'regex': '\\\\/feature_flags\\\\/[0-9]+'}, {'alias': '/replay/<replay_id>', 'regex': '\\\\/replay\\\\/[0-9a-f\\\\-]+'}, {'alias': '/cohorts/<cohort_id>', 'regex': '\\\\/cohorts\\\\/[0-9]+'}, {'alias': '/experiments/<experiment_id>', 'regex': '\\\\/experiments\\\\/[0-9]+'}, {'alias': '/surveys/<survey_id>', 'regex': '\\\\/surveys\\\\/[0-9a-f\\\\-]+'}, {'alias': '/events/<event_id>', 'regex': '\\\\/events\\\\/[0-9a-f\\\\-]+'}, {'alias': '/verify_email/<id>', 'regex': '\\\\/verify_email\\\\/[0-9a-f\\\\-]+'}, {'alias': '/community/profiles/<id>', 'regex': '\\\\/community\\\\/profiles\\\\/[0-9]+'}, {'alias': '/notebooks/<notebook_id>', 'regex': '\\\\/notebooks\\\\/[a-zA-Z0-9]+'}, {'alias': '/groups/<id>', 'regex': '\\\\/groups\\\\/[0-9]+\\\\/[a-zA-Z0-9]+'}, {'alias': '/signup/<id>', 'regex': '\\\\/signup\\\\/[0-9a-f\\\\-]+'}, {'alias': '/playlists/<playlist_id>', 'regex': '\\\\/playlists\\\\/[a-zA-Z0-9]+'}, {'alias': '/destinations/<destination_id>', 'regex': '\\\\/destinations?\\\\/[0-9a-zA-Z\\\\-]+'}, {'alias': '/properties/<property_id>', 'regex': '\\\\/properties\\\\/[0-9a-f\\\\-]+'}, {'alias': '/sources/<source_id>', 'regex': '\\\\/sources\\\\/[0-9a-zA-Z\\\\-]+'}, {'alias': '/reset', 'regex': '\\\\/reset\\\\/[0-9a-zA-Z\\\\-]+'}, {'alias': '/actions/<action_id>', 'regex': '\\\\/actions\\\\/[0-9]+'}, {'alias': '/shared-metrics/<metric_id>', 'regex': '\\\\/shared-metrics\\\\/[0-9]+'}]",
+    "cache_target_age": "2025-01-20T23:43:16.443321Z",
+    "calculation_trigger": null,
+    "columns": [
+        "context.columns.breakdown_value",
+        "context.columns.visitors",
+        "context.columns.views",
+        "context.columns.bounce_rate"
+    ],
+    "error": null,
+    "hasMore": true,
+    "hogql": "SELECT\n    counts.breakdown_value AS `context.columns.breakdown_value`,\n    tuple(counts.visitors, counts.previous_visitors) AS `context.columns.visitors`,\n    tuple(counts.views, counts.previous_views) AS `context.columns.views`,\n    tuple(bounce.bounce_rate, bounce.previous_bounce_rate) AS `context.columns.bounce_rate`\nFROM\n    (SELECT\n        breakdown_value,\n        uniqIf(filtered_person_id, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2025-01-06 00:00:00'))), less(start_timestamp, assumeNotNull(toDateTime('2025-01-20 23:59:59'))))) AS visitors,\n        uniqIf(filtered_person_id, false) AS previous_visitors,\n        sumIf(filtered_pageview_count, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2025-01-06 00:00:00'))), less(start_timestamp, assumeNotNull(toDateTime('2025-01-20 23:59:59'))))) AS views,\n        sumIf(filtered_pageview_count, false) AS previous_views\n    FROM\n        (SELECT\n            any(person_id) AS filtered_person_id,\n            count() AS filtered_pageview_count,\n            replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(events.properties.$pathname, '\\\\/person\\\\/[^\\\\/]+', '/person/<id>'), '.*sessionRecordingId=[a-zA-Z]+', 'Any Session Recording Route'), '.*\\\\/insights\\\\/[0-9a-zA-Z]+', '/insights/<insight_id>'), '\\\\/project\\\\/\\\\d+', '/project/<team_id>'), '\\\\/dashboard\\\\/[0-9]+', '/dashboard/<dashboard_id>'), '\\\\/feature_flags\\\\/[0-9]+', '/feature_flags/<feature_flag_id>'), '\\\\/replay\\\\/[0-9a-f\\\\-]+', '/replay/<replay_id>'), '\\\\/cohorts\\\\/[0-9]+', '/cohorts/<cohort_id>'), '\\\\/experiments\\\\/[0-9]+', '/experiments/<experiment_id>'), '\\\\/surveys\\\\/[0-9a-f\\\\-]+', '/surveys/<survey_id>'), '\\\\/events\\\\/[0-9a-f\\\\-]+', '/events/<event_id>'), '\\\\/verify_email\\\\/[0-9a-f\\\\-]+', '/verify_email/<id>'), '\\\\/community\\\\/profiles\\\\/[0-9]+', '/community/profiles/<id>'), '\\\\/notebooks\\\\/[a-zA-Z0-9]+', '/notebooks/<notebook_id>'), '\\\\/groups\\\\/[0-9]+\\\\/[a-zA-Z0-9]+', '/groups/<id>'), '\\\\/signup\\\\/[0-9a-f\\\\-]+', '/signup/<id>'), '\\\\/playlists\\\\/[a-zA-Z0-9]+', '/playlists/<playlist_id>'), '\\\\/destinations?\\\\/[0-9a-zA-Z\\\\-]+', '/destinations/<destination_id>'), '\\\\/properties\\\\/[0-9a-f\\\\-]+', '/properties/<property_id>'), '\\\\/sources\\\\/[0-9a-zA-Z\\\\-]+', '/sources/<source_id>'), '\\\\/reset\\\\/[0-9a-zA-Z\\\\-]+', '/reset'), '\\\\/actions\\\\/[0-9]+', '/actions/<action_id>'), '\\\\/shared-metrics\\\\/[0-9]+', '/shared-metrics/<metric_id>') AS breakdown_value,\n            session.session_id AS session_id,\n            min(session.$start_timestamp) AS start_timestamp\n        FROM\n            events\n        WHERE\n            and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2025-01-06 00:00:00'))), less(timestamp, assumeNotNull(toDateTime('2025-01-20 23:59:59')))), false), 1, 1, notEquals(breakdown_value, NULL))\n        GROUP BY\n            session_id,\n            breakdown_value)\n    GROUP BY\n        breakdown_value) AS counts\n    LEFT JOIN (SELECT\n        breakdown_value,\n        avgIf(is_bounce, and(greaterOrEquals(start_timestamp, assumeNotNull(toDateTime('2025-01-06 00:00:00'))), less(start_timestamp, assumeNotNull(toDateTime('2025-01-20 23:59:59'))))) AS bounce_rate,\n        avgIf(is_bounce, false) AS previous_bounce_rate\n    FROM\n        (SELECT\n            replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(replaceRegexpAll(session.$entry_pathname, '\\\\/person\\\\/[^\\\\/]+', '/person/<id>'), '.*sessionRecordingId=[a-zA-Z]+', 'Any Session Recording Route'), '.*\\\\/insights\\\\/[0-9a-zA-Z]+', '/insights/<insight_id>'), '\\\\/project\\\\/\\\\d+', '/project/<team_id>'), '\\\\/dashboard\\\\/[0-9]+', '/dashboard/<dashboard_id>'), '\\\\/feature_flags\\\\/[0-9]+', '/feature_flags/<feature_flag_id>'), '\\\\/replay\\\\/[0-9a-f\\\\-]+', '/replay/<replay_id>'), '\\\\/cohorts\\\\/[0-9]+', '/cohorts/<cohort_id>'), '\\\\/experiments\\\\/[0-9]+', '/experiments/<experiment_id>'), '\\\\/surveys\\\\/[0-9a-f\\\\-]+', '/surveys/<survey_id>'), '\\\\/events\\\\/[0-9a-f\\\\-]+', '/events/<event_id>'), '\\\\/verify_email\\\\/[0-9a-f\\\\-]+', '/verify_email/<id>'), '\\\\/community\\\\/profiles\\\\/[0-9]+', '/community/profiles/<id>'), '\\\\/notebooks\\\\/[a-zA-Z0-9]+', '/notebooks/<notebook_id>'), '\\\\/groups\\\\/[0-9]+\\\\/[a-zA-Z0-9]+', '/groups/<id>'), '\\\\/signup\\\\/[0-9a-f\\\\-]+', '/signup/<id>'), '\\\\/playlists\\\\/[a-zA-Z0-9]+', '/playlists/<playlist_id>'), '\\\\/destinations?\\\\/[0-9a-zA-Z\\\\-]+', '/destinations/<destination_id>'), '\\\\/properties\\\\/[0-9a-f\\\\-]+', '/properties/<property_id>'), '\\\\/sources\\\\/[0-9a-zA-Z\\\\-]+', '/sources/<source_id>'), '\\\\/reset\\\\/[0-9a-zA-Z\\\\-]+', '/reset'), '\\\\/actions\\\\/[0-9]+', '/actions/<action_id>'), '\\\\/shared-metrics\\\\/[0-9]+', '/shared-metrics/<metric_id>') AS breakdown_value,\n            any(session.$is_bounce) AS is_bounce,\n            session.session_id AS session_id,\n            min(session.$start_timestamp) AS start_timestamp\n        FROM\n            events\n        WHERE\n            and(or(equals(events.event, '$pageview'), equals(events.event, '$screen')), notEquals(breakdown_value, NULL), or(and(greaterOrEquals(timestamp, assumeNotNull(toDateTime('2025-01-06 00:00:00'))), less(timestamp, assumeNotNull(toDateTime('2025-01-20 23:59:59')))), false), 1, 1)\n        GROUP BY\n            session_id,\n            breakdown_value)\n    GROUP BY\n        breakdown_value) AS bounce ON equals(counts.breakdown_value, bounce.breakdown_value)\nORDER BY\n    `context.columns.visitors` DESC,\n    `context.columns.views` DESC,\n    `context.columns.breakdown_value` ASC\nLIMIT 11\nOFFSET 0",
+    "is_cached": true,
+    "last_refresh": "2025-01-20T21:43:16.443321Z",
+    "limit": 10,
+    "modifiers": {
+        "bounceRateDurationSeconds": null,
+        "bounceRatePageViewMode": "uniq_page_screen_autocaptures",
+        "customChannelTypeRules": [],
+        "dataWarehouseEventsModifiers": null,
+        "debug": null,
+        "inCohortVia": "auto",
+        "materializationMode": "legacy_null_as_null",
+        "optimizeJoinedFilters": false,
+        "personsArgMaxVersion": "auto",
+        "personsJoinMode": null,
+        "personsOnEventsMode": "person_id_override_properties_on_events",
+        "propertyGroupsMode": "optimized",
+        "s3TableUseInvalidColumns": null,
+        "sessionTableVersion": "auto",
+        "useMaterializedViews": true
+    },
+    "next_allowed_client_refresh": "2025-01-20T21:58:16.443321Z",
+    "offset": 0,
+    "query_status": null,
+    "results": [
+        ["/", [76095, 72341], [233693, 241023], [0.1182, 0.1162]],
+        ["/login", [53629, 51234], [192373, 195481], [0.03184, 0.02984]],
+        ["/project/<team_id>", [33811, 35102], [331828, 328192], [0.009685, 0.008685]],
+        ["/project/<team_id>/dashboard", [16314, 15892], [131470, 134829], [0.010872, 0.009872]],
+        ["/insights/<insight_id>", [16249, 16892], [516739, 509234], [0.007644, 0.008644]],
+        ["/project/<team_id>/insights", [15902, 15234], [148649, 152938], [0.007896, 0.006896]],
+        ["/project/<team_id>/web", [15687, 16234], [198440, 195234], [0.007481, 0.008481]],
+        ["/pricing", [15295, 14892], [24103, 25234], [0.2477, 0.2457]],
+        ["/project/<team_id>/replay/home", [15189, 15892], [632756, 628192], [0.009924, 0.008924]],
+        ["/project/<team_id>/dashboard/<dashboard_id>", [14598, 14129], [259451, 262938], [0.007145, 0.006145]]
+    ],
+    "samplingRate": null,
+    "timezone": "US/Pacific",
+    "timings": [],
+    "types": [
+        ["context.columns.breakdown_value", "Nullable(String)"],
+        ["context.columns.visitors", "Tuple(UInt64, UInt64)"],
+        ["context.columns.views", "Tuple(UInt64, UInt64)"],
+        ["context.columns.bounce_rate", "Tuple(Nullable(Float64), Nullable(Float64))"]
+    ]
+}

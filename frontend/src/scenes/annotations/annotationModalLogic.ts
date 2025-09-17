@@ -1,9 +1,11 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { urlToAction } from 'kea-router'
+
+import '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -39,28 +41,13 @@ export interface AnnotationModalForm {
 
 export const annotationModalLogic = kea<annotationModalLogicType>([
     path(['scenes', 'annotations', 'annotationModalLogic']),
-    connect({
+    connect(() => ({
         actions: [
             annotationsModel,
-            [
-                'loadAnnotationsNext',
-                'loadAnnotationsSuccess',
-                'replaceAnnotation',
-                'appendAnnotations',
-                'deleteAnnotation',
-            ],
+            ['loadAnnotationsSuccess', 'replaceAnnotation', 'appendAnnotations', 'deleteAnnotation'],
         ],
-        values: [
-            annotationsModel,
-            ['annotations', 'annotationsLoading', 'next', 'loadingNext'],
-            teamLogic,
-            ['timezone'],
-            userLogic,
-            ['user'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
-    }),
+        values: [annotationsModel, ['annotations', 'annotationsLoading'], teamLogic, ['timezone'], userLogic, ['user']],
+    })),
     actions({
         openModalToCreateAnnotation: (
             initialDate?: Dayjs | null,
@@ -81,8 +68,10 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
             dashboardId,
         }),
         closeModal: true,
+        setScope: (scope: AnnotationType['scope'] | null) => ({ scope }),
     }),
     reducers(() => ({
+        scope: [null as AnnotationType['scope'] | null, { setScope: (_, { scope }) => scope }],
         isModalOpen: [
             false,
             {

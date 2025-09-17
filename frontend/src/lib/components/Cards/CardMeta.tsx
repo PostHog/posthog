@@ -1,11 +1,16 @@
 import './CardMeta.scss'
 
 import clsx from 'clsx'
+import React from 'react'
+import { Transition } from 'react-transition-group'
+
+import { IconPieChart } from '@posthog/icons'
+
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { IconRefresh, IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { Transition } from 'react-transition-group'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
 
 import { InsightColor } from '~/types'
 
@@ -22,29 +27,32 @@ export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>
     showEditingControls?: boolean
     /** Whether the  controls for showing details should be enabled or not. */
     showDetailsControls?: boolean
-    refresh?: () => void
-    refreshDisabledReason?: string
-    meta?: JSX.Element | null
+    content?: JSX.Element | null
     metaDetails?: JSX.Element | null
-    moreButtons?: JSX.Element | null
+    /** Buttons to show in the editing controls dropdown. */
+    moreButtons?: JSX.Element
+    /** Tooltip for the editing controls dropdown. */
+    moreTooltip?: string
+    /** Tooltip for the details button. */
+    detailsTooltip?: string
     topHeading?: JSX.Element | null
-    samplingNotice?: JSX.Element | null
+    samplingFactor?: number | null
 }
 
 export function CardMeta({
     ribbonColor,
     showEditingControls,
     showDetailsControls,
-    refresh,
-    refreshDisabledReason,
-    meta,
+    content: meta,
     metaDetails,
     moreButtons,
+    moreTooltip,
     topHeading,
     areDetailsShown,
     setAreDetailsShown,
+    detailsTooltip,
     className,
-    samplingNotice,
+    samplingFactor,
 }: CardMetaProps): JSX.Element {
     const { ref: primaryRef, width: primaryWidth } = useResizeObserver()
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
@@ -52,14 +60,7 @@ export function CardMeta({
     const showDetailsButtonLabel = !!primaryWidth && primaryWidth > 480
 
     return (
-        <div
-            className={clsx(
-                'CardMeta',
-                className,
-                showDetailsControls && 'CardMeta--with-details',
-                areDetailsShown && 'CardMeta--details-shown'
-            )}
-        >
+        <div className={clsx('CardMeta', className, areDetailsShown && 'CardMeta--details-shown')}>
             <div className="CardMeta__primary" ref={primaryRef}>
                 {ribbonColor &&
                     ribbonColor !==
@@ -68,28 +69,41 @@ export function CardMeta({
                     )}
                 <div className="CardMeta__main">
                     <div className="CardMeta__top">
-                        <h5>{topHeading}</h5>
+                        <h5>
+                            {topHeading}
+                            {samplingFactor && samplingFactor < 1 && (
+                                <Tooltip
+                                    title={`Results calculated from ${100 * samplingFactor}% of users`}
+                                    placement="right"
+                                >
+                                    <IconPieChart
+                                        className="ml-1.5 text-base align-[-0.25em]"
+                                        style={{ color: 'var(--primary-3000-hover)' }}
+                                    />
+                                </Tooltip>
+                            )}
+                        </h5>
                         <div className="CardMeta__controls">
                             {showDetailsControls && setAreDetailsShown && (
-                                <LemonButton
-                                    icon={!areDetailsShown ? <IconSubtitles /> : <IconSubtitlesOff />}
-                                    onClick={() => setAreDetailsShown((state) => !state)}
-                                    size="small"
-                                    active={areDetailsShown}
-                                >
-                                    {showDetailsButtonLabel && `${!areDetailsShown ? 'Show' : 'Hide'} details`}
-                                </LemonButton>
+                                <Tooltip title={detailsTooltip}>
+                                    <LemonButton
+                                        icon={!areDetailsShown ? <IconSubtitles /> : <IconSubtitlesOff />}
+                                        onClick={() => setAreDetailsShown((state) => !state)}
+                                        size="small"
+                                        active={areDetailsShown}
+                                    >
+                                        {showDetailsButtonLabel && `${!areDetailsShown ? 'Show' : 'Hide'} details`}
+                                    </LemonButton>
+                                </Tooltip>
                             )}
-                            {showEditingControls && refresh && (
-                                <LemonButton
-                                    icon={<IconRefresh />}
-                                    size="small"
-                                    onClick={() => refresh()}
-                                    disabledReason={refreshDisabledReason}
-                                />
-                            )}
-                            {samplingNotice ? samplingNotice : null}
-                            {showEditingControls && <More overlay={moreButtons} />}
+                            {showEditingControls &&
+                                (moreTooltip ? (
+                                    <Tooltip title={moreTooltip}>
+                                        <More overlay={moreButtons} />
+                                    </Tooltip>
+                                ) : (
+                                    <More overlay={moreButtons} />
+                                ))}
                         </div>
                     </div>
                     {meta}

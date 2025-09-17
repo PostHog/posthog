@@ -1,7 +1,8 @@
-import { Properties } from '@posthog/plugin-scaffold'
-import * as Sentry from '@sentry/node'
-import { ProducerRecord } from 'kafkajs'
 import { Counter } from 'prom-client'
+
+import { Properties } from '@posthog/plugin-scaffold'
+
+import { TopicMessage } from '~/kafka/producer'
 
 import { defaultConfig } from '../../config/config'
 import { KAFKA_PERSON } from '../../config/kafka-topics'
@@ -14,11 +15,20 @@ import {
     RawPerson,
     TimestampFormat,
 } from '../../types'
-import { status } from '../../utils/status'
-import { castTimestampOrNow } from '../../utils/utils'
+import { logger } from '../../utils/logger'
+import { areMapsEqual, castTimestampOrNow } from '../../utils/utils'
+import {
+    eventToPersonProperties,
+    initialCampaignParams,
+    initialEventToPersonProperties,
+} from '../../worker/ingestion/persons/person-property-utils'
+import { captureException } from '../posthog'
 
 export function unparsePersonPartial(person: Partial<InternalPerson>): Partial<RawPerson> {
-    return { ...(person as BasePerson), ...(person.created_at ? { created_at: person.created_at.toISO() } : {}) }
+    return {
+        ...(person as BasePerson),
+        ...(person.created_at ? { created_at: person.created_at.toISO() ?? undefined } : {}),
+    }
 }
 
 export function escapeQuotes(input: string): string {
@@ -40,60 +50,20 @@ export function timeoutGuard(
     message: string,
     context?: Record<string, any> | (() => Record<string, any>),
     timeout = defaultConfig.TASK_TIMEOUT * 1000,
-    sendToSentry = true
+    sendException = true,
+    reportMetric?: () => void
 ): NodeJS.Timeout {
     return setTimeout(() => {
         const ctx = typeof context === 'function' ? context() : context
-        status.warn('⌛', message, ctx)
-        if (sendToSentry) {
-            Sentry.captureMessage(message, ctx ? { extra: ctx } : undefined)
+        logger.warn('⌛', message, ctx)
+        if (sendException) {
+            captureException(message, ctx ? { extra: ctx } : undefined)
+        }
+        if (reportMetric) {
+            reportMetric()
         }
     }, timeout)
 }
-
-// when changing this set, be sure to update the frontend as well (taxonomy.tsx (eventToPersonProperties))
-export const eventToPersonProperties = new Set([
-    // mobile params
-    '$app_build',
-    '$app_name',
-    '$app_namespace',
-    '$app_version',
-    // web params
-    '$browser',
-    '$browser_version',
-    '$device_type',
-    '$current_url',
-    '$pathname',
-    '$os',
-    '$os_name', // $os_name is a special case, it's treated as an alias of $os!
-    '$os_version',
-    '$referring_domain',
-    '$referrer',
-    // campaign params - automatically added by posthog-js here https://github.com/PostHog/posthog-js/blob/master/src/utils/event-utils.ts
-    'utm_source',
-    'utm_medium',
-    'utm_campaign',
-    'utm_content',
-    'utm_name',
-    'utm_term',
-    'gclid', // google ads
-    'gad_source', // google ads
-    'gclsrc', // google ads 360
-    'dclid', // google display ads
-    'gbraid', // google ads, web to app
-    'wbraid', // google ads, app to web
-    'fbclid', // facebook
-    'msclkid', // microsoft
-    'twclid', // twitter
-    'li_fat_id', // linkedin
-    'mc_cid', // mailchimp campaign id
-    'igshid', // instagram
-    'ttclid', // tiktok
-    'rdt_cid', // reddit
-])
-export const initialEventToPersonProperties = new Set(
-    Array.from(eventToPersonProperties, (key) => `$initial_${key.replace('$', '')}`)
-)
 
 /** If we get new UTM params, make sure we set those  **/
 export function personInitialAndUTMProperties(properties: Properties): Properties {
@@ -133,7 +103,41 @@ export function personInitialAndUTMProperties(properties: Properties): Propertie
     return propertiesCopy
 }
 
-export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted = false): ProducerRecord {
+export function hasDifferenceWithProposedNewNormalisationMode(properties: Properties): boolean {
+    // this functions checks if there would be a difference in the properties if we strip the initial campaign params
+    // when any $set_once initial eventToPersonProperties are present. This will often return true for events from
+    // posthog-js, but it is unknown if this will be the case for other SDKs.
+    if (
+        !properties.$set_once ||
+        !Object.keys(properties.$set_once).some((key) => initialEventToPersonProperties.has(key))
+    ) {
+        return false
+    }
+
+    const propertiesForPerson: [string, any][] = Object.entries(properties).filter(([key]) =>
+        eventToPersonProperties.has(key)
+    )
+
+    const maybeSetOnce: [string, any][] = propertiesForPerson.map(([key, value]) => [
+        `$initial_${key.replace('$', '')}`,
+        value,
+    ])
+
+    if (maybeSetOnce.length === 0) {
+        return false
+    }
+
+    const filteredMayBeSetOnce = maybeSetOnce.filter(([key]) => !initialCampaignParams.has(key))
+
+    const setOnce = new Map(Object.entries({ ...Object.fromEntries(maybeSetOnce), ...(properties.$set_once || {}) }))
+    const filteredSetOnce = new Map(
+        Object.entries({ ...Object.fromEntries(filteredMayBeSetOnce), ...(properties.$set_once || {}) })
+    )
+
+    return !areMapsEqual(setOnce, filteredSetOnce)
+}
+
+export function generateKafkaPersonUpdateMessage(person: InternalPerson, isDeleted = false): TopicMessage {
     return {
         topic: KAFKA_PERSON,
         messages: [

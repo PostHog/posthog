@@ -1,6 +1,7 @@
 from datetime import datetime
 
 import pytest
+
 from django.db import connection
 
 from posthog.async_migrations.examples.test_migration import Migration
@@ -9,16 +10,9 @@ from posthog.async_migrations.runner import (
     run_async_migration_next_op,
     start_async_migration,
 )
-from posthog.async_migrations.test.util import (
-    AsyncMigrationBaseTest,
-    create_async_migration,
-)
+from posthog.async_migrations.test.util import AsyncMigrationBaseTest, create_async_migration
 from posthog.async_migrations.utils import update_async_migration
-from posthog.models.async_migration import (
-    AsyncMigration,
-    AsyncMigrationError,
-    MigrationStatus,
-)
+from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from posthog.models.utils import UUIDT
 
 pytestmark = pytest.mark.async_migrations

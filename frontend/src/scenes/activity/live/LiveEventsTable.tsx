@@ -1,14 +1,28 @@
-import { IconPauseFilled, IconPlayFilled } from '@posthog/icons'
-import { LemonButton, Spinner, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TZLabel } from 'lib/components/TZLabel'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
 
-import type { LiveEvent } from '~/types'
+import { IconLive, IconPauseFilled, IconPlayFilled } from '@posthog/icons'
+import { LemonButton, LemonTabs, Spinner, Tooltip } from '@posthog/lemon-ui'
+
+import { PageHeader } from 'lib/components/PageHeader'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { TZLabel } from 'lib/components/TZLabel'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { IconRefresh } from 'lib/lemon-ui/icons'
+import { liveEventsTableLogic } from 'scenes/activity/live/liveEventsTableLogic'
+import { PersonDisplay } from 'scenes/persons/PersonDisplay'
+import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
+
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { EventCopyLinkButton } from '~/queries/nodes/DataTable/EventRowActions'
+import { ActivityTab, LiveEvent } from '~/types'
+
+import { EventName } from 'products/actions/frontend/components/EventName'
 
 const columns: LemonTableColumns<LiveEvent> = [
     {
@@ -17,6 +31,16 @@ const columns: LemonTableColumns<LiveEvent> = [
         className: 'max-w-80',
         render: function Render(_, event: LiveEvent) {
             return <PropertyKeyInfo value={event.event} type={TaxonomicFilterGroupType.Events} />
+        },
+    },
+    {
+        title: 'Person distinct ID',
+        tooltip:
+            'Some events may be missing a person profile – this is expected, because live events are streamed before person processing completes',
+        key: 'person',
+        className: 'max-w-80',
+        render: function Render(_, event: LiveEvent) {
+            return <PersonDisplay person={{ distinct_id: event.distinct_id }} />
         },
     },
     {
@@ -35,18 +59,59 @@ const columns: LemonTableColumns<LiveEvent> = [
             return <TZLabel time={event.timestamp} />
         },
     },
+    {
+        dataIndex: '__more' as any,
+        render: function Render(_, event: LiveEvent) {
+            return (
+                <More
+                    overlay={
+                        <Tooltip title="It may take up to a few minutes for the event to show up in the Explore view">
+                            <EventCopyLinkButton event={event} />
+                        </Tooltip>
+                    }
+                />
+            )
+        },
+        width: 0,
+    },
 ]
 
 export function LiveEventsTable(): JSX.Element {
-    const { events, stats, streamPaused } = useValues(liveEventsTableLogic)
-    const { pauseStream, resumeStream } = useActions(liveEventsTableLogic)
+    const { events, stats, streamPaused, filters } = useValues(liveEventsTableLogic)
+    const { pauseStream, resumeStream, setFilters, clearEvents } = useActions(liveEventsTableLogic)
 
     return (
-        <div data-attr="manage-events-table">
+        <SceneContent data-attr="manage-events-table">
+            <PageHeader tabbedPage />
+            <LemonTabs
+                activeKey={ActivityTab.LiveEvents}
+                tabs={[
+                    {
+                        key: ActivityTab.ExploreEvents,
+                        label: 'Explore',
+                        link: urls.activity(ActivityTab.ExploreEvents),
+                    },
+                    {
+                        key: ActivityTab.LiveEvents,
+                        label: 'Live',
+                        link: urls.activity(ActivityTab.LiveEvents),
+                    },
+                ]}
+                sceneInset
+            />
+            <SceneTitleSection
+                name="Live events"
+                description="Real-time events from your app or website."
+                resourceType={{
+                    type: 'live events',
+                    forceIcon: <IconLive />,
+                }}
+            />
+            <SceneDivider />
             <div className="mb-4 flex w-full justify-between items-center">
                 <div className="flex justify-center">
                     <Tooltip title="Estimate of users active in the last 30 seconds." placement="right">
-                        <div className="flex flex-justify-center items-center bg-bg-light px-3 py-2 rounded border border-3000 text-xs font-medium text-gray-600 space-x-2.5">
+                        <div className="flex justify-center items-center bg-surface-primary px-3 py-2 rounded border border-primary text-xs font-medium text-secondary gap-x-2.5">
                             <span className="relative flex h-2.5 w-2.5">
                                 <span
                                     className={clsx(
@@ -67,7 +132,21 @@ export function LiveEventsTable(): JSX.Element {
                         </div>
                     </Tooltip>
                 </div>
-                <div>
+
+                <div className="flex gap-2">
+                    <LemonButton
+                        icon={<IconRefresh className="w-4 h-4" />}
+                        type="secondary"
+                        onClick={clearEvents}
+                        size="small"
+                        tooltip="Clear events"
+                    />
+                    <EventName
+                        value={filters.eventType}
+                        onChange={(value) => setFilters({ ...filters, eventType: value })}
+                        placeholder="Filter by event"
+                        allEventsOption="clear"
+                    />
                     <LemonButton
                         icon={
                             streamPaused ? (
@@ -78,6 +157,7 @@ export function LiveEventsTable(): JSX.Element {
                         }
                         type="secondary"
                         onClick={streamPaused ? resumeStream : pauseStream}
+                        size="small"
                     >
                         {streamPaused ? 'Play' : 'Pause'}
                     </LemonButton>
@@ -103,6 +183,12 @@ export function LiveEventsTable(): JSX.Element {
                 }
                 nouns={['event', 'events']}
             />
-        </div>
+        </SceneContent>
     )
+}
+
+export const scene: SceneExport = {
+    component: LiveEventsTable,
+    logic: liveEventsTableLogic,
+    settingSectionId: 'environment-autocapture',
 }

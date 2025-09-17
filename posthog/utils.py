@@ -1,53 +1,57 @@
-import asyncio
-import base64
-import dataclasses
-import datetime
-import datetime as dt
-import gzip
-import hashlib
-import json
 import os
 import re
-import secrets
-import string
+import gzip
+import json
 import time
 import uuid
 import zlib
-from collections.abc import Generator, Mapping
+import base64
+import string
+import asyncio
+import hashlib
+import secrets
+import datetime
+import datetime as dt
+import dataclasses
+from collections.abc import Callable, Generator, Mapping, Sequence
+from contextlib import contextmanager
 from enum import Enum
 from functools import lru_cache, wraps
 from operator import itemgetter
 from typing import TYPE_CHECKING, Any, Optional, Union, cast
 from urllib.parse import unquote, urljoin, urlparse
 from zoneinfo import ZoneInfo
-from rest_framework import serializers
 
-import lzstring
-import posthoganalytics
+from django.apps import apps
+from django.conf import settings
+from django.core.cache import cache
+from django.db import ProgrammingError
+from django.db.utils import DatabaseError
+from django.http import HttpRequest, HttpResponse
+from django.template.loader import get_template
+from django.urls import URLPattern, re_path
+from django.utils import timezone
+from django.utils.cache import patch_cache_control
+
 import pytz
+import orjson
+import lzstring
 import structlog
+import posthoganalytics
 from asgiref.sync import async_to_sync
 from celery.result import AsyncResult
 from celery.schedules import crontab
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
-from django.conf import settings
-from django.core.cache import cache
-from django.db.utils import DatabaseError
-from django.http import HttpRequest, HttpResponse
-from django.template.loader import get_template
-from django.utils import timezone
-from django.utils.cache import patch_cache_control
+from rest_framework import serializers
 from rest_framework.request import Request
-from sentry_sdk import configure_scope
-from sentry_sdk.api import capture_exception
+from rest_framework.utils.encoders import JSONEncoder
+from user_agents import parse
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
-from posthog.exceptions import (
-    RequestParsingError,
-    UnspecifiedCompressionFallbackParsingError,
-)
+from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
+from posthog.exceptions_capture import capture_exception
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.metrics import KLUDGES_COUNTER
 from posthog.redis import get_client
@@ -55,9 +59,10 @@ from posthog.redis import get_client
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
-    from posthog.models import Team, User
+    from posthog.models import Dashboard, InsightVariable, Team, User
 
 DATERANGE_MAP = {
+    "second": datetime.timedelta(seconds=1),
     "minute": datetime.timedelta(minutes=1),
     "hour": datetime.timedelta(hours=1),
     "day": datetime.timedelta(days=1),
@@ -73,17 +78,6 @@ logger = structlog.get_logger(__name__)
 
 # https://stackoverflow.com/questions/4060221/how-to-reliably-open-a-file-in-the-same-directory-as-a-python-script
 __location__ = os.path.realpath(os.path.join(os.getcwd(), os.path.dirname(__file__)))
-
-
-def format_label_date(date: datetime.datetime, interval: str = "default") -> str:
-    date_formats = {
-        "default": "%-d-%b-%Y",
-        "minute": "%-d-%b-%Y %H:%M",
-        "hour": "%-d-%b-%Y %H:%M",
-        "month": "%b %Y",
-    }
-    labels_format = date_formats.get(interval, date_formats["default"])
-    return date.strftime(labels_format)
 
 
 class PotentialSecurityProblemException(Exception):
@@ -173,9 +167,16 @@ def relative_date_parse_with_delta_mapping(
     timezone_info: ZoneInfo,
     *,
     always_truncate: bool = False,
+    human_friendly_comparison_periods: bool = False,
     now: Optional[datetime.datetime] = None,
+    increase: bool = False,
 ) -> tuple[datetime.datetime, Optional[dict[str, int]], str | None]:
-    """Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string."""
+    """
+    Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string.
+
+    :increase controls whether to add relative delta to the current time or subtract
+        Should later control this using +/- infront of the input regex
+    """
     try:
         try:
             # This supports a few formats, but we primarily care about:
@@ -194,59 +195,23 @@ def relative_date_parse_with_delta_mapping(
             parsed_dt = parsed_dt.astimezone(timezone_info)
         return parsed_dt, None, None
 
-    regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-zA-Z])(?P<position>Start|End)?"
+    regex = r"\-?(?P<number>[0-9]+)?(?P<kind>[hdwmqyHDWMQY])(?P<position>Start|End)?"
     match = re.search(regex, input)
     parsed_dt = (now or dt.datetime.now()).astimezone(timezone_info)
     delta_mapping: dict[str, int] = {}
     if not match:
         return parsed_dt, delta_mapping, None
-    elif match.group("type") == "h":
-        if match.group("number"):
-            delta_mapping["hours"] = int(match.group("number"))
-        if match.group("position") == "Start":
-            delta_mapping["minute"] = 0
-            delta_mapping["second"] = 0
-            delta_mapping["microsecond"] = 0
-        elif match.group("position") == "End":
-            delta_mapping["minute"] = 59
-            delta_mapping["second"] = 59
-            delta_mapping["microsecond"] = 999999
-    elif match.group("type") == "d":
-        if match.group("number"):
-            delta_mapping["days"] = int(match.group("number"))
-        if match.group("position") == "Start":
-            delta_mapping["hour"] = 0
-            delta_mapping["minute"] = 0
-            delta_mapping["second"] = 0
-            delta_mapping["microsecond"] = 0
-        elif match.group("position") == "End":
-            delta_mapping["hour"] = 23
-            delta_mapping["minute"] = 59
-            delta_mapping["second"] = 59
-            delta_mapping["microsecond"] = 999999
-    elif match.group("type") == "w":
-        if match.group("number"):
-            delta_mapping["weeks"] = int(match.group("number"))
-    elif match.group("type") == "m":
-        if match.group("number"):
-            delta_mapping["months"] = int(match.group("number"))
-        if match.group("position") == "Start":
-            delta_mapping["day"] = 1
-        elif match.group("position") == "End":
-            delta_mapping["day"] = 31
-    elif match.group("type") == "q":
-        if match.group("number"):
-            delta_mapping["weeks"] = 13 * int(match.group("number"))
-    elif match.group("type") == "y":
-        if match.group("number"):
-            delta_mapping["years"] = int(match.group("number"))
-        if match.group("position") == "Start":
-            delta_mapping["month"] = 1
-            delta_mapping["day"] = 1
-        elif match.group("position") == "End":
-            delta_mapping["month"] = 12
-            delta_mapping["day"] = 31
-    parsed_dt -= relativedelta(**delta_mapping)  # type: ignore
+
+    delta_mapping = get_delta_mapping_for(
+        **match.groupdict(),
+        human_friendly_comparison_periods=human_friendly_comparison_periods,
+    )
+
+    if increase:
+        parsed_dt += relativedelta(**delta_mapping)  # type: ignore
+    else:
+        parsed_dt -= relativedelta(**delta_mapping)  # type: ignore
+
     if always_truncate:
         # Truncate to the start of the hour for hour-precision datetimes, to the start of the day for larger intervals
         # TODO: Remove this from this function, this should not be the responsibility of it
@@ -257,14 +222,98 @@ def relative_date_parse_with_delta_mapping(
     return parsed_dt, delta_mapping, match.group("position") or None
 
 
+def get_delta_mapping_for(
+    *,
+    kind: str,
+    number: Optional[str] = None,
+    position: Optional[str] = None,
+    human_friendly_comparison_periods: bool = False,
+) -> dict[str, int]:
+    delta_mapping: dict[str, int] = {}
+
+    if kind == "h":
+        if number:
+            delta_mapping["hours"] = int(number)
+        if position == "Start":
+            delta_mapping["minute"] = 0
+            delta_mapping["second"] = 0
+            delta_mapping["microsecond"] = 0
+        elif position == "End":
+            delta_mapping["minute"] = 59
+            delta_mapping["second"] = 59
+            delta_mapping["microsecond"] = 999999
+    elif kind == "d":
+        if number:
+            delta_mapping["days"] = int(number)
+        if position == "Start":
+            delta_mapping["hour"] = 0
+            delta_mapping["minute"] = 0
+            delta_mapping["second"] = 0
+            delta_mapping["microsecond"] = 0
+        elif position == "End":
+            delta_mapping["hour"] = 23
+            delta_mapping["minute"] = 59
+            delta_mapping["second"] = 59
+            delta_mapping["microsecond"] = 999999
+    elif kind == "w":
+        if number:
+            delta_mapping["weeks"] = int(number)
+    elif kind == "m":
+        if number:
+            if human_friendly_comparison_periods:
+                delta_mapping["weeks"] = 4
+            else:
+                delta_mapping["months"] = int(number)
+        if position == "Start":
+            delta_mapping["day"] = 1
+        elif position == "End":
+            delta_mapping["day"] = 31
+    elif kind == "M":
+        if number:
+            delta_mapping["minutes"] = int(number)
+    elif kind == "q":
+        if number:
+            delta_mapping["weeks"] = 13 * int(number)
+    elif kind == "y":
+        if number:
+            if human_friendly_comparison_periods:
+                delta_mapping["weeks"] = 52
+            else:
+                delta_mapping["years"] = int(number)
+        if position == "Start":
+            delta_mapping["month"] = 1
+            delta_mapping["day"] = 1
+        elif position == "End":
+            delta_mapping["day"] = 31
+
+    return delta_mapping
+
+
 def relative_date_parse(
     input: str,
     timezone_info: ZoneInfo,
     *,
     always_truncate: bool = False,
+    human_friendly_comparison_periods: bool = False,
     now: Optional[datetime.datetime] = None,
+    increase: bool = False,
 ) -> datetime.datetime:
-    return relative_date_parse_with_delta_mapping(input, timezone_info, always_truncate=always_truncate, now=now)[0]
+    return relative_date_parse_with_delta_mapping(
+        input,
+        timezone_info,
+        always_truncate=always_truncate,
+        human_friendly_comparison_periods=human_friendly_comparison_periods,
+        now=now,
+        increase=increase,
+    )[0]
+
+
+def human_list(items: Sequence[str]) -> str:
+    """Join iterable of strings into a human-readable list ("a, b, and c").
+    Uses the Oxford comma only when there are at least 3 items."""
+    if len(items) < 3:
+        return " and ".join(items)
+    return ", ".join(items[:-1]) + f", and {items[-1]}"
 
 
 def get_js_url(request: HttpRequest) -> str:
@@ -277,68 +326,63 @@ def get_js_url(request: HttpRequest) -> str:
     return settings.JS_URL
 
 
-def render_template(
-    template_name: str,
+def get_context_for_template(
     request: HttpRequest,
     context: Optional[dict] = None,
-    *,
     team_for_public_context: Optional["Team"] = None,
-) -> HttpResponse:
-    """Render Django template.
-
-    If team_for_public_context is provided, this means this is a public page such as a shared dashboard.
-    """
-
+) -> dict:
     if context is None:
         context = {}
-    template = get_template(template_name)
 
     context["opt_out_capture"] = settings.OPT_OUT_CAPTURE
     context["self_capture"] = settings.SELF_CAPTURE
     context["region"] = get_instance_region()
 
-    if sentry_dsn := os.environ.get("SENTRY_DSN"):
-        context["sentry_dsn"] = sentry_dsn
-    if sentry_environment := os.environ.get("SENTRY_ENVIRONMENT"):
-        context["sentry_environment"] = sentry_environment
+    if settings.STRIPE_PUBLIC_KEY:
+        context["stripe_public_key"] = settings.STRIPE_PUBLIC_KEY
 
     context["git_rev"] = get_git_commit_short()  # Include commit in prod for the `console.info()` message
     if settings.DEBUG and not settings.TEST:
         context["debug"] = True
         context["git_branch"] = get_git_branch()
+        # Add vite dev scripts for development only when explicitly using Vite
+        if not settings.E2E_TESTING and os.environ.get("POSTHOG_USE_VITE"):
+            context["vite_dev_scripts"] = """
+        <script type="module">
+            import RefreshRuntime from 'http://localhost:8234/@react-refresh'
+            RefreshRuntime.injectIntoGlobalHook(window)
+            window.$RefreshReg$ = () => {}
+            window.$RefreshSig$ = () => (type) => type
+            window.__vite_plugin_react_preamble_installed__ = true
+        </script>
+        <!-- Vite development server -->
+        <script type="module" src="http://localhost:8234/@vite/client"></script>
+        <script type="module" src="http://localhost:8234/src/index.tsx"></script>"""
 
-    context["js_posthog_ui_host"] = "''"
+    context["js_posthog_ui_host"] = ""
 
     if settings.E2E_TESTING:
         context["e2e_testing"] = True
-        context["js_posthog_api_key"] = "'phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO'"
-        context["js_posthog_host"] = "'https://internal-t.posthog.com'"
-        context["js_posthog_ui_host"] = "'https://us.posthog.com'"
+        context["js_posthog_api_key"] = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"
+        context["js_posthog_host"] = "https://internal-j.posthog.com"
+        context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     elif settings.SELF_CAPTURE:
-        api_token = get_self_capture_api_token(request)
-
-        if api_token:
-            context["js_posthog_api_key"] = f"'{api_token}'"
-            context["js_posthog_host"] = "window.location.origin"
+        if posthoganalytics.api_key:
+            context["js_posthog_api_key"] = posthoganalytics.api_key
+            context["js_posthog_host"] = ""  # Becomes location.origin in the frontend
     else:
-        context["js_posthog_api_key"] = "'sTMFPsFhdP1Ssg'"
-        context["js_posthog_host"] = "'https://internal-t.posthog.com'"
-        context["js_posthog_ui_host"] = "'https://us.posthog.com'"
+        context["js_posthog_api_key"] = "sTMFPsFhdP1Ssg"
+        context["js_posthog_host"] = "https://internal-j.posthog.com"
+        context["js_posthog_ui_host"] = "https://us.posthog.com"
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
     context["js_kea_verbose_logging"] = settings.KEA_VERBOSE_LOGGING
     context["js_url"] = get_js_url(request)
 
-    try:
-        year_in_hog_url = f"/year_in_posthog/2023/{str(request.user.uuid)}"  # type: ignore
-    except:
-        year_in_hog_url = None
-
     posthog_app_context: dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         "anonymous": not request.user or not request.user.is_authenticated,
-        "year_in_hog_url": year_in_hog_url,
     }
 
     posthog_bootstrap: dict[str, Any] = {}
@@ -346,20 +390,24 @@ def render_template(
 
     # Set the frontend app context
     if not request.GET.get("no-preloaded-app-context"):
+        from posthog.api.project import ProjectSerializer
         from posthog.api.shared import TeamPublicSerializer
         from posthog.api.team import TeamSerializer
         from posthog.api.user import UserSerializer
+        from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
 
         posthog_app_context = {
             "current_user": None,
+            "current_project": None,
             "current_team": None,
             "preflight": json.loads(preflight_check(request).getvalue()),
             "default_event_name": "$pageview",
             "switched_team": getattr(request, "switched_team", None),
             "suggested_users_with_access": getattr(request, "suggested_users_with_access", None),
             "commit_sha": context["git_rev"],
+            "livestream_host": settings.LIVESTREAM_HOST,
             **posthog_app_context,
         }
 
@@ -371,9 +419,22 @@ def render_template(
         elif request.user.pk:
             user = cast("User", request.user)
             user_permissions = UserPermissions(user=user, team=user.team)
+            user_access_control = UserAccessControl(user=user, team=user.team)
+            posthog_app_context["effective_resource_access_control"] = {
+                resource: user_access_control.effective_access_level_for_resource(resource)
+                for resource in ACCESS_CONTROL_RESOURCES
+            }
+            posthog_app_context["resource_access_control"] = {
+                resource: user_access_control.access_level_for_resource(resource)
+                for resource in ACCESS_CONTROL_RESOURCES
+            }
             user_serialized = UserSerializer(
                 request.user,
-                context={"request": request, "user_permissions": user_permissions},
+                context={
+                    "request": request,
+                    "user_permissions": user_permissions,
+                    "user_access_control": user_access_control,
+                },
                 many=False,
             )
             posthog_app_context["current_user"] = user_serialized.data
@@ -381,13 +442,25 @@ def render_template(
             if user.team:
                 team_serialized = TeamSerializer(
                     user.team,
-                    context={"request": request, "user_permissions": user_permissions},
+                    context={
+                        "request": request,
+                        "user_permissions": user_permissions,
+                        "user_access_control": user_access_control,
+                    },
                     many=False,
                 )
                 posthog_app_context["current_team"] = team_serialized.data
+                project_serialized = ProjectSerializer(
+                    user.team.project,
+                    context={"request": request, "user_permissions": user_permissions},
+                    many=False,
+                )
+                posthog_app_context["current_project"] = project_serialized.data
                 posthog_app_context["frontend_apps"] = get_frontend_apps(user.team.pk)
                 posthog_app_context["default_event_name"] = get_default_event_name(user.team)
 
+    # JSON dumps here since there may be objects like Queries
+    # that are not serializable by Django's JSON serializer
     context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
 
     if posthog_distinct_id:
@@ -422,29 +495,64 @@ def render_template(
 
     context["posthog_js_uuid_version"] = settings.POSTHOG_JS_UUID_VERSION
 
+    return context
+
+
+def render_template(
+    template_name: str,
+    request: HttpRequest,
+    context: Optional[dict] = None,
+    *,
+    team_for_public_context: Optional["Team"] = None,
+    status_code: Optional[int] = None,
+) -> HttpResponse:
+    """Render Django template.
+
+    If team_for_public_context is provided, this means this is a public page such as a shared dashboard.
+    """
+
+    context = get_context_for_template(request, context, team_for_public_context)
+    template = get_template(template_name)
+
     html = template.render(context, request=request)
     response = HttpResponse(html)
+    if status_code:
+        response.status_code = status_code
     if not request.user.is_anonymous:
         patch_cache_control(response, no_store=True)
+
     return response
 
 
-def get_self_capture_api_token(request: Optional[HttpRequest]) -> Optional[str]:
-    from posthog.models import Team
+async def initialize_self_capture_api_token():
+    """
+    Configures `posthoganalytics` for self-capture, in an ASGI-compatible, async way.
+    """
 
-    # Get the current user's team (or first team in the instance) to set self capture configs
-    team: Optional[Team] = None
-    if request and getattr(request, "user", None) and getattr(request.user, "team", None):
-        team = request.user.team  # type: ignore
-    else:
-        try:
-            team = Team.objects.only("api_token").first()
-        except Exception:
-            pass
+    User = apps.get_model("posthog", "User")
+    Team = apps.get_model("posthog", "Team")
+    try:
+        user = (
+            await User.objects.filter(last_login__isnull=False)
+            .order_by("-last_login")
+            .select_related("current_team")
+            .afirst()
+        )
+        # Get the current user's team (or first team in the instance) to set self capture configs
+        team = None
+        if user and getattr(user, "current_team", None):
+            team = user.current_team
+        else:
+            team = await Team.objects.only("api_token").afirst()
+        local_api_key = team.api_token if team else None
+    except (User.DoesNotExist, Team.DoesNotExist, ProgrammingError):
+        local_api_key = None
 
-    if team:
-        return team.api_token
-    return None
+    # This is running _after_ PostHogConfig.ready(), so we re-enable posthoganalytics while setting the params
+    if local_api_key is not None:
+        posthoganalytics.disabled = False
+        posthoganalytics.api_key = local_api_key
+        posthoganalytics.host = settings.SITE_URL
 
 
 def get_default_event_name(team: "Team"):
@@ -528,6 +636,21 @@ def get_ip_address(request: HttpRequest) -> str:
     return ip
 
 
+def get_short_user_agent(request: HttpRequest) -> str:
+    """Returns browser and OS info from user agent, eg: 'Chrome 135.0.0 on macOS 10.15'"""
+    user_agent_str = request.META.get("HTTP_USER_AGENT")
+    if not user_agent_str:
+        return ""
+
+    user_agent = parse(user_agent_str)
+
+    # strip the last (patch/build) number from the version, it can change frequently
+    browser_version = ".".join(str(x) for x in user_agent.browser.version[:3])
+    os_version = ".".join(str(x) for x in user_agent.os.version[:2])
+
+    return f"{user_agent.browser.family} {browser_version} on {user_agent.os.family} {os_version}"
+
+
 def dict_from_cursor_fetchall(cursor):
     columns = [col[0] for col in cursor.description]
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
@@ -556,11 +679,17 @@ def get_compare_period_dates(
     if interval == "hour":
         # Align previous period time range with that of the current period, so that results are comparable day-by-day
         # (since variations based on time of day are major)
-        new_date_from = new_date_from.replace(hour=date_from.hour, minute=0, second=0, microsecond=0)
-        new_date_to = (new_date_from + diff).replace(minute=59, second=59, microsecond=999999)
+        new_date_from = new_date_from.replace(
+            hour=date_from.hour, minute=date_from.minute, second=date_from.second, microsecond=date_from.microsecond
+        )
+        new_date_to = (new_date_from + diff).replace(
+            minute=date_to.minute, second=date_to.second, microsecond=date_to.microsecond
+        )
     elif interval != "minute":
-        # Align previous period time range to day boundaries
-        new_date_from = new_date_from.replace(hour=0, minute=0, second=0, microsecond=0)
+        # Align previous period time range to same boundaries as current period
+        new_date_from = new_date_from.replace(
+            hour=date_from.hour, minute=date_from.minute, second=date_from.second, microsecond=date_from.microsecond
+        )
         # Handle date_from = -7d, -14d etc. specially
         if (
             interval == "day"
@@ -578,7 +707,9 @@ def get_compare_period_dates(
             # As a quick fix for the most common week-by-week case, we just always add a day to counteract the woes
             # of relative date ranges:
             new_date_from += datetime.timedelta(days=1)
-        new_date_to = (new_date_from + diff).replace(hour=23, minute=59, second=59, microsecond=999999)
+        new_date_to = (new_date_from + diff).replace(
+            hour=date_to.hour, minute=date_to.minute, second=date_to.second, microsecond=date_to.microsecond
+        )
     return new_date_from, new_date_to
 
 
@@ -668,7 +799,7 @@ def decompress(data: Any, compression: str):
                 return fallback
             except Exception:
                 # Increment a separate counter for JSON parsing failures after all decompression attempts
-                # We do this because we're no longer tracking these fallbacks in Sentry (since they're not actionable defects),
+                # We do this because we're no longer tracking these fallbacks in error tracking (since they're not actionable defects),
                 # but we still want to know how often they occur.
                 KLUDGES_COUNTER.labels(kludge="json_parse_failure_after_unspecified_gzip_fallback").inc()
                 raise UnspecifiedCompressionFallbackParsingError(f"Invalid JSON: {error_main}")
@@ -691,23 +822,25 @@ def load_data_from_request(request):
         if data:
             KLUDGES_COUNTER.labels(kludge="data_in_get_param").inc()
 
-    # add the data in sentry's scope in case there's an exception
-    with configure_scope() as scope:
+    # add the data in the scope in case there's an exception
+    with posthoganalytics.new_context():
         if isinstance(data, dict):
-            scope.set_context("data", data)
-        scope.set_tag(
+            posthoganalytics.tag("data", data)
+        posthoganalytics.tag(
             "origin",
             request.headers.get("origin", request.headers.get("remote_host", "unknown")),
         )
-        scope.set_tag("referer", request.headers.get("referer", "unknown"))
+        posthoganalytics.tag("referer", request.headers.get("referer", "unknown"))
         # since version 1.20.0 posthog-js adds its version to the `ver` query parameter as a debug signal here
-        scope.set_tag("library.version", request.GET.get("ver", "unknown"))
+        posthoganalytics.tag("library.version", request.GET.get("ver", "unknown"))
 
-    compression = (
-        request.GET.get("compression") or request.POST.get("compression") or request.headers.get("content-encoding", "")
-    ).lower()
+        compression = (
+            request.GET.get("compression")
+            or request.POST.get("compression")
+            or request.headers.get("content-encoding", "")
+        ).lower()
 
-    return decompress(data, compression)
+        return decompress(data, compression)
 
 
 class SingletonDecorator:
@@ -789,17 +922,12 @@ def is_celery_alive() -> bool:
 
 def is_plugin_server_alive() -> bool:
     try:
-        ping = get_client().get("@posthog-plugin-server/ping")
-        return bool(ping and parser.isoparse(ping) > timezone.now() - relativedelta(seconds=30))
+        from posthog.plugins.plugin_server_api import get_plugin_server_status
+
+        plugin_server_status = get_plugin_server_status()
+        return plugin_server_status.status_code == 200
     except BaseException:
         return False
-
-
-def get_plugin_server_version() -> Optional[str]:
-    cache_key_value = get_client().get("@posthog-plugin-server/version")
-    if cache_key_value:
-        return cache_key_value.decode("utf-8")
-    return None
 
 
 def get_plugin_server_job_queues() -> Optional[list[str]]:
@@ -846,7 +974,7 @@ def get_instance_realm() -> str:
 
 def get_instance_region() -> Optional[str]:
     """
-    Returns the region for the current Cloud instance. `US` or 'EU'.
+    Returns the region for the current Cloud instance. `US` or `EU`.
     """
     return settings.CLOUD_DEPLOYMENT
 
@@ -858,6 +986,7 @@ def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool
     - if on PostHog Cloud
     - if running end-to-end tests
     - if there's no organization yet
+    - if DEBUG is True
     - if an appropriate license is active and MULTI_ORG_ENABLED is True
     """
     from posthog.models.organization import Organization
@@ -866,6 +995,7 @@ def get_can_create_org(user: Union["AbstractBaseUser", "AnonymousUser"]) -> bool
         is_cloud()  # There's no limit of organizations on Cloud
         or (settings.DEMO and user.is_anonymous)  # Demo users can have a single demo org, but not more
         or settings.E2E_TESTING
+        or settings.DEBUG
         or not Organization.objects.filter(for_internal_metrics=False).exists()  # Definitely can create an org if zero
     ):
         return True
@@ -1043,16 +1173,43 @@ def cache_requested_by_client(request: Request) -> bool | str:
     return _request_has_key_set("use_cache", request)
 
 
-def filters_override_requested_by_client(request: Request) -> Optional[dict]:
-    raw_filters = request.query_params.get("filters_override")
+def filters_override_requested_by_client(request: Request, dashboard: Optional["Dashboard"]) -> dict:
+    from posthog.auth import SharingAccessTokenAuthentication
 
-    if raw_filters is not None:
-        try:
-            return json.loads(raw_filters)
-        except Exception:
-            raise serializers.ValidationError({"filters_override": "Invalid JSON passed in filters_override parameter"})
+    dashboard_filters = dashboard.filters if dashboard else {}
+    raw_override = request.query_params.get("filters_override")
 
-    return None
+    # Security: Don't allow overrides when accessing via sharing tokens
+    if not raw_override or isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
+        return dashboard_filters
+
+    try:
+        request_filters = json.loads(raw_override)
+    except Exception:
+        raise serializers.ValidationError({"filters_override": "Invalid JSON passed in filters_override parameter"})
+
+    return {**dashboard_filters, **request_filters}
+
+
+def variables_override_requested_by_client(
+    request: Optional[Request], dashboard: Optional["Dashboard"], variables: list["InsightVariable"]
+) -> Optional[dict[str, dict]]:
+    from posthog.api.insight_variable import map_stale_to_latest
+    from posthog.auth import SharingAccessTokenAuthentication
+
+    dashboard_variables = (dashboard and dashboard.variables) or {}
+    raw_override = request.query_params.get("variables_override") if request else None
+
+    # Security: Don't allow overrides when accessing via sharing tokens
+    if not raw_override or (request and isinstance(request.successful_authenticator, SharingAccessTokenAuthentication)):
+        return map_stale_to_latest(dashboard_variables, variables)
+
+    try:
+        request_variables = json.loads(raw_override)
+    except Exception:
+        raise serializers.ValidationError({"variables_override": "Invalid JSON passed in variables_override parameter"})
+
+    return map_stale_to_latest({**dashboard_variables, **request_variables}, variables)
 
 
 def _request_has_key_set(key: str, request: Request, allowed_values: Optional[list[str]] = None) -> bool | str:
@@ -1082,6 +1239,14 @@ def str_to_bool(value: Any) -> bool:
     if not value:
         return False
     return str(value).lower() in ("y", "yes", "t", "true", "on", "1")
+
+
+def safe_int(value: Any, default: Optional[int] = None) -> Optional[int]:
+    """Safely convert a value to integer, returning default if conversion fails."""
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return default
 
 
 def get_helm_info_env() -> dict:
@@ -1352,19 +1517,61 @@ async def wait_for_parallel_celery_group(task: Any, expires: Optional[datetime.d
 def patchable(fn):
     """
     Decorator which allows patching behavior of a function at run-time.
+    Supports chaining multiple patches in sequence, where earlier patches
+    are applied before later ones.
 
-    Used in benchmarking scripts.
+    Used in benchmarking scripts and tests.
     """
+
+    import posthog
+
+    if not posthog.settings.TEST:
+        return fn
 
     @wraps(fn)
     def inner(*args, **kwargs):
-        return inner._impl(*args, **kwargs)  # type: ignore
+        # Execute patches in sequence: first patch → second patch → ... → original function
+        return execute_patch_chain(0, *args, **kwargs)
+
+    # Initialize empty patch list
+    inner._patch_list = []  # type: ignore[attr-defined]
+
+    # Function to execute the patch chain starting from a specific index
+    def execute_patch_chain(index, *args, **kwargs):
+        # If we've gone through all patches, execute the original function
+        if index >= len(inner._patch_list):  # type: ignore[attr-defined]
+            return fn(*args, **kwargs)
+
+        # Execute the current patch, passing a function that will invoke the next patch
+        next_fn = lambda *a, **kw: execute_patch_chain(index + 1, *a, **kw)
+        return inner._patch_list[index](next_fn, *args, **kwargs)  # type: ignore[attr-defined]
+
+    inner._execute_patch_chain = execute_patch_chain  # type: ignore[attr-defined]
 
     def patch(wrapper):
-        inner._impl = lambda *args, **kw: wrapper(fn, *args, **kw)  # type: ignore
+        # Add the wrapper to the end of the patch list
+        inner._patch_list.append(wrapper)  # type: ignore[attr-defined]
 
-    inner._impl = fn  # type: ignore
-    inner._patch = patch  # type: ignore
+    def unpatch():
+        # Remove the most recent patch if there is one
+        if inner._patch_list:  # type: ignore[attr-defined]
+            inner._patch_list.pop()  # type: ignore[attr-defined]
+
+    @contextmanager
+    def temp_patch(wrapper):
+        """
+        Context manager for temporary patching. Adds the wrapper to the patch list
+        and removes it when the 'with' block exits.
+        """
+        patch(wrapper)
+        try:
+            yield
+        finally:
+            unpatch()
+
+    inner._patch = patch  # type: ignore[attr-defined]
+    inner._unpatch = unpatch  # type: ignore[attr-defined]
+    inner._temp_patch = temp_patch  # type: ignore[attr-defined]
 
     return inner
 
@@ -1418,3 +1625,40 @@ def get_from_dict_or_attr(obj: Any, key: str):
         return getattr(obj, key, None)
     else:
         raise AttributeError(f"Object {obj} has no key {key}")
+
+
+def is_relative_url(url: str | None) -> bool:
+    """
+    Returns True if `url` is a relative URL (e.g. "/foo/bar" or "/")
+    """
+    if url is None:
+        return False
+
+    parsed = urlparse(url)
+
+    return (
+        parsed.scheme == "" and parsed.netloc == "" and parsed.path.startswith("/") and not parsed.path.startswith("//")
+    )
+
+
+def to_json(obj: dict) -> bytes:
+    # pydantic doesn't sort keys reliably, so use orjson to serialize to json
+    option = orjson.OPT_SORT_KEYS | orjson.OPT_NON_STR_KEYS
+    json_string = orjson.dumps(obj, default=JSONEncoder().default, option=option)
+
+    return json_string
+
+
+def opt_slash_path(route: str, view: Callable, name: Optional[str] = None) -> URLPattern:
+    """Catches path with or without trailing slash, taking into account query param and hash."""
+    # Ignoring the type because while name can be optional on re_path, mypy doesn't agree
+    return re_path(rf"^{route}/?(?:[?#].*)?$", view, name=name)  # type: ignore
+
+
+def get_current_user_from_thread() -> Optional["User"]:
+    from threading import current_thread
+
+    request = getattr(current_thread(), "request", None)
+    if request and hasattr(request, "user"):
+        return request.user
+    return None

@@ -1,19 +1,9 @@
 import json
 from typing import Union, cast
 
-import sentry_sdk
-
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.trends.display import TrendsDisplay
-from posthog.hogql_queries.insights.trends.utils import get_properties_chain
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.team.team import Team
 from posthog.schema import (
     ActionsNode,
+    Breakdown as BreakdownSchema,
     BreakdownFilter,
     BreakdownType,
     DataWarehouseNode,
@@ -23,9 +13,17 @@ from posthog.schema import (
     MultipleBreakdownType,
     TrendsQuery,
 )
-from posthog.schema import (
-    Breakdown as BreakdownSchema,
-)
+
+from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.timings import HogQLTimings
+
+from posthog.hogql_queries.insights.trends.display import TrendsDisplay
+from posthog.hogql_queries.insights.trends.utils import get_properties_chain
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.team.team import Team
 
 BREAKDOWN_OTHER_STRING_LABEL = "$$_posthog_breakdown_other_$$"
 BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
@@ -64,9 +62,6 @@ class Breakdown:
         self.timings = timings
         self.modifiers = modifiers
         self.limit_context = limit_context
-
-        if self.enabled:
-            sentry_sdk.set_tag("breakdown_enabled", True)
 
     @property
     def enabled(self) -> bool:
@@ -227,8 +222,9 @@ class Breakdown:
                     cast(list[BreakdownSchema], self._breakdown_filter.breakdowns), lookup_values
                 ):
                     actors_filter = self._get_actors_query_where_expr(
-                        breakdown_value=breakdown.property,
+                        breakdown_value=str(breakdown.property),
                         breakdown_type=breakdown.type,
+                        normalize_url=breakdown.normalize_url,
                         lookup_value=str(
                             lookup_value
                         ),  # numeric values are only in cohorts, so it's a safe convertion here
@@ -248,6 +244,7 @@ class Breakdown:
                         self._breakdown_filter.breakdown
                     ),  # all other value types were excluded already
                     breakdown_type=self._breakdown_filter.breakdown_type,
+                    normalize_url=self._breakdown_filter.breakdown_normalize_url,
                     lookup_value=str(
                         lookup_values
                     ),  # numeric values are only in cohorts, so it's a safe convertion here
@@ -265,6 +262,7 @@ class Breakdown:
         breakdown_value: str,
         breakdown_type: BreakdownType | MultipleBreakdownType | None,
         lookup_value: str,
+        normalize_url: bool | None = None,
         histogram_bin_count: int | None = None,
         group_type_index: int | None = None,
     ):
@@ -325,7 +323,7 @@ class Breakdown:
                 raise ValueError("Breakdown value must be a valid JSON array if the the bin count is selected.")
 
         return ast.CompareOperation(
-            left=self.get_replace_null_values_transform(left),
+            left=self._get_breakdown_values_transform(left, normalize_url=normalize_url),
             op=ast.CompareOperationOp.Eq,
             right=ast.Constant(value=lookup_value),
         )
@@ -371,7 +369,7 @@ class Breakdown:
                 expr=hogql_to_string(ast.Constant(value=cohort_breakdown)),
             )
 
-        if breakdown_type == "hogql":
+        if breakdown_type == "hogql" or breakdown_type == "event_metadata":
             return ast.Alias(alias=alias, expr=self._get_breakdown_values_transform(parse_expr(cast(str, value))))
 
         properties_chain = get_properties_chain(

@@ -1,0 +1,86 @@
+.PlayerMeta {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    overflow: hidden;
+
+    .PlayerMetaPersonProperties {
+        padding: 0.5rem;
+        overflow: auto;
+        background: var(--color-bg-primary);
+        border-bottom: 1px solid transparent;
+    }
+
+    &:not(.PlayerMeta--fullscreen) {
+        .PlayerMetaPersonProperties {
+            transition:
+                200ms height ease-out,
+                200ms border-bottom-color ease-out;
+
+            &--enter {
+                height: 0;
+            }
+
+            &--enter-active,
+            &--enter-done {
+                height: 14rem;
+                border-bottom-color: var(--color-border-primary);
+            }
+
+            &--exit {
+                height: 14rem;
+                border-bottom-color: var(--color-border-primary);
+            }
+
+            &--exit-active {
+                height: 0;
+            }
+        }
+
+        .LemonModal & {
+            .PlayerMeta__top {
+                padding-right: 3.5rem !important;
+            }
+        }
+    }
+
+    &--fullscreen {
+        .PlayerMetaPersonProperties {
+            position: fixed;
+            top: 48px;
+            bottom: 97px; // NOTE: This isn't perfect but for now hardcoded to match the bottom area size.
+            left: 0;
+            z-index: 1;
+            width: 100%;
+            max-width: 40rem;
+            border-right: 1px solid var(--color-border-primary);
+            transition: 200ms transform ease-out;
+
+            &--enter {
+                transform: translateX(-100%);
+            }
+
+            &--enter-active,
+            &--enter-done {
+                transform: translateX(0);
+            }
+
+            &--exit {
+                transform: translateX(0);
+            }
+
+            &--exit-active {
+                transform: translateX(-100%);
+            }
+        }
+    }
+
+    .Link {
+        color: var(--text-3000);
+
+        &:hover {
+            color: var(--color-accent);
+        }
+    }
+}

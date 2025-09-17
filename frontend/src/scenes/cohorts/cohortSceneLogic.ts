@@ -1,9 +1,10 @@
 import { kea, key, path, props, selectors } from 'kea'
+
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
-import { Breadcrumb } from '~/types'
+import { Breadcrumb, ProjectTreeRef } from '~/types'
 
 import { CohortLogicProps } from './cohortEditLogic'
 import type { cohortSceneLogicType } from './cohortSceneLogicType'
@@ -19,11 +20,6 @@ export const cohortSceneLogic = kea<cohortSceneLogicType>([
             (cohortsById, cohortId): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.PersonsManagement,
-                        name: 'People',
-                        path: urls.persons(),
-                    },
-                    {
                         key: 'cohorts',
                         name: 'Cohorts',
                         path: urls.cohorts(),
@@ -34,6 +30,10 @@ export const cohortSceneLogic = kea<cohortSceneLogicType>([
                     },
                 ]
             },
+        ],
+        projectTreeRef: [
+            () => [(_, props: CohortLogicProps) => props.id],
+            (id): ProjectTreeRef => ({ type: 'cohort', ref: id === 'new' ? null : String(id) }),
         ],
     }),
 ])

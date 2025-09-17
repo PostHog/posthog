@@ -1,28 +1,25 @@
-import datetime as dt
 import json
 import uuid
+from datetime import UTC, datetime
 from typing import Any, Literal, Optional, Union
 from zoneinfo import ZoneInfo
 
-from dateutil.parser import isoparse
 from django.utils import timezone
+
+from dateutil.parser import isoparse
 from rest_framework import serializers
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.models import Group
-from posthog.models.element.element import (
-    Element,
-    chain_to_elements,
-    elements_to_string,
-)
+from posthog.models.element.element import Element, chain_to_elements, elements_to_string
 from posthog.models.event.sql import BULK_INSERT_EVENT_SQL, INSERT_EVENT_SQL
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.settings import TEST
 
-ZERO_DATE = dt.datetime(1970, 1, 1)
+ZERO_DATE = datetime(1970, 1, 1)
 
 
 def create_event(
@@ -30,22 +27,22 @@ def create_event(
     event: str,
     team: Team,
     distinct_id: str,
-    timestamp: Optional[Union[dt.datetime, str]] = None,
+    timestamp: Optional[Union[datetime, str]] = None,
     properties: Optional[dict] = None,
     elements: Optional[list[Element]] = None,
     person_id: Optional[uuid.UUID] = None,
     person_properties: Optional[dict] = None,
-    person_created_at: Optional[Union[dt.datetime, str]] = None,
+    person_created_at: Optional[Union[datetime, str]] = None,
     group0_properties: Optional[dict] = None,
     group1_properties: Optional[dict] = None,
     group2_properties: Optional[dict] = None,
     group3_properties: Optional[dict] = None,
     group4_properties: Optional[dict] = None,
-    group0_created_at: Optional[Union[dt.datetime, str]] = None,
-    group1_created_at: Optional[Union[dt.datetime, str]] = None,
-    group2_created_at: Optional[Union[dt.datetime, str]] = None,
-    group3_created_at: Optional[Union[dt.datetime, str]] = None,
-    group4_created_at: Optional[Union[dt.datetime, str]] = None,
+    group0_created_at: Optional[Union[datetime, str]] = None,
+    group1_created_at: Optional[Union[datetime, str]] = None,
+    group2_created_at: Optional[Union[datetime, str]] = None,
+    group3_created_at: Optional[Union[datetime, str]] = None,
+    group4_created_at: Optional[Union[datetime, str]] = None,
     person_mode: Literal["full", "propertyless", "force_upgrade"] = "full",
 ) -> str:
     if properties is None:
@@ -65,7 +62,8 @@ def create_event(
         "event": event,
         "properties": json.dumps(properties),
         "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
-        "team_id": team.pk,
+        "team_id": team.id,
+        "project_id": team.project_id,
         "distinct_id": str(distinct_id),
         "elements_chain": elements_chain,
         "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
@@ -91,7 +89,7 @@ def create_event(
 
 
 def format_clickhouse_timestamp(
-    raw_timestamp: Optional[Union[dt.datetime, str]],
+    raw_timestamp: Optional[Union[datetime, str]],
     default=None,
 ) -> str:
     if default is None:
@@ -124,8 +122,8 @@ def bulk_create_events(
     params: dict[str, Any] = {}
     for index, event in enumerate(events):
         datetime64_default_timestamp = timezone.now().astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S")
-        _timestamp = event.get("_timestamp") or dt.datetime.now()
-        timestamp = event.get("timestamp") or dt.datetime.now()
+        _timestamp = event.get("_timestamp") or datetime.now()
+        timestamp = event.get("timestamp") or datetime.now()
         if isinstance(timestamp, str):
             timestamp = isoparse(timestamp)
         # Offset timezone-naive datetime by project timezone, to facilitate @also_test_with_different_timezones
@@ -173,7 +171,7 @@ def bulk_create_events(
         )
 
         #  use person properties mapping to populate person properties in given event
-        team_id = event["team"].pk
+        team_id = event.get("team_id") or event["team"].pk
         person_mode = event.get("person_mode", "full")
         if person_mapping and person_mapping.get(event["distinct_id"]):
             person = person_mapping[event["distinct_id"]]
@@ -331,8 +329,8 @@ class ClickhouseEventSerializer(serializers.Serializer):
         return event["event"]
 
     def get_timestamp(self, event):
-        date = event["timestamp"].replace(tzinfo=dt.UTC)
-        return date.astimezone().isoformat()
+        dt = event["timestamp"].replace(tzinfo=UTC)
+        return dt.astimezone().isoformat()
 
     def get_person(self, event):
         if not self.context.get("people") or event["distinct_id"] not in self.context["people"]:
@@ -369,7 +367,7 @@ def get_agg_event_count_for_teams(team_ids: list[Union[str, int]]) -> int:
 
 
 def get_agg_events_with_groups_count_for_teams_and_period(
-    team_ids: list[Union[str, int]], begin: dt.datetime, end: dt.datetime
+    team_ids: list[Union[str, int]], begin: datetime, end: datetime
 ) -> int:
     result = sync_execute(
         """

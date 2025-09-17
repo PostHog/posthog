@@ -1,0 +1,26 @@
+{
+    "name": "Downsampling Plugin",
+    "url": "https://github.com/posthog/downsampling-plugin",
+    "description": "Reduces event volume coming into PostHog",
+    "main": "src/index.ts",
+    "posthogVersion": ">= 1.24.0",
+    "config": [
+        {
+            "key": "percentage",
+            "hint": "Reduces events flowing in to the percentage value above",
+            "name": "% of events to keep",
+            "type": "string",
+            "default": "100",
+            "required": false
+        },
+        {
+            "key": "samplingMethod",
+            "hint": "`Distinct ID aware sampling` will sample based on distinct IDs, meaning that a user's events will all be ingested or all be dropped at a given sample percentage.",
+            "name": "Sampling method",
+            "type": "choice",
+            "choices": ["Random sampling", "Distinct ID aware sampling"],
+            "default": "Distinct ID aware sampling",
+            "required": false
+        }
+    ]
+}

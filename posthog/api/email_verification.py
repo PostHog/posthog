@@ -1,9 +1,10 @@
-import posthoganalytics
 from django.contrib.auth.models import AbstractBaseUser
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
-from rest_framework import exceptions
-from sentry_sdk import capture_exception
 
+import posthoganalytics
+from rest_framework import exceptions
+
+from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.tasks.email import send_email_verification
 
@@ -14,7 +15,7 @@ def is_email_verification_disabled(user: User) -> bool:
     # using disabled here so that the default state (if no flag exists) is that verification defaults to ON.
     return user.organization is not None and posthoganalytics.feature_enabled(
         VERIFICATION_DISABLED_FLAG,
-        user.organization.id,
+        str(user.organization.id),
         groups={"organization": str(user.organization.id)},
         group_properties={"organization": {"id": str(user.organization.id)}},
     )
@@ -25,7 +26,9 @@ class EmailVerificationTokenGenerator(PasswordResetTokenGenerator):
         # Due to type differences between the user model and the token generator, we need to
         # re-fetch the user from the database to get the correct type.
         usable_user: User = User.objects.get(pk=user.pk)
-        return f"{usable_user.pk}{usable_user.email}{usable_user.pending_email}{timestamp}"
+        login_timestamp = "" if user.last_login is None else user.last_login.replace(microsecond=0, tzinfo=None)
+
+        return f"{usable_user.pk}{usable_user.email}{usable_user.pending_email}{login_timestamp}{timestamp}"
 
 
 email_verification_token_generator = EmailVerificationTokenGenerator()
@@ -33,10 +36,10 @@ email_verification_token_generator = EmailVerificationTokenGenerator()
 
 class EmailVerifier:
     @staticmethod
-    def create_token_and_send_email_verification(user: User) -> None:
+    def create_token_and_send_email_verification(user: User, next_url: str | None = None) -> None:
         token = email_verification_token_generator.make_token(user)
         try:
-            send_email_verification(user.pk, token)
+            send_email_verification(user.pk, token, next_url)
         except Exception as e:
             capture_exception(Exception(f"Verification email failed: {e}"))
             raise exceptions.APIException(

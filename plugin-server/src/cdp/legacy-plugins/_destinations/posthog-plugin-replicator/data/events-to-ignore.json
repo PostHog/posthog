@@ -1,0 +1,29 @@
+[
+    {
+        "distinct_id": "1234",
+        "event": "my-event-alpha",
+        "properties": {
+            "$ip": "127.0.0.1",
+            "foo": "bar"
+        },
+        "token": "phc_1234"
+    },
+    {
+        "distinct_id": "1234",
+        "event": "my-event-beta",
+        "properties": {
+            "$ip": "127.0.0.1",
+            "foo": "bar"
+        },
+        "token": "phc_1234"
+    },
+    {
+        "distinct_id": "1234",
+        "event": "my-event-gamma",
+        "properties": {
+            "$ip": "127.0.0.1",
+            "foo": "bar"
+        },
+        "token": "phc_1234"
+    }
+]

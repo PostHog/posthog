@@ -1,11 +1,12 @@
-import './SideBar.scss'
+import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { LemonTab, LemonTabs } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
 
 import { ChartDisplayType } from '~/types'
 
-import { dataVisualizationLogic, SideBarTab } from '../dataVisualizationLogic'
+import { SideBarTab, dataVisualizationLogic } from '../dataVisualizationLogic'
+import { ConditionalFormattingTab } from './ConditionalFormatting/ConditionalFormattingTab'
 import { DisplayTab } from './DisplayTab'
 import { SeriesTab } from './SeriesTab'
 
@@ -21,6 +22,11 @@ const TABS_TO_CONTENT: Record<SideBarTab, TabContent> = {
         content: <SeriesTab />,
         shouldShow: (): boolean => true,
     },
+    [SideBarTab.ConditionalFormatting]: {
+        label: 'Conditional formatting',
+        content: <ConditionalFormattingTab />,
+        shouldShow: (displayType: ChartDisplayType): boolean => displayType === ChartDisplayType.ActionsTable,
+    },
     [SideBarTab.Display]: {
         label: 'Display',
         content: <DisplayTab />,
@@ -29,21 +35,32 @@ const TABS_TO_CONTENT: Record<SideBarTab, TabContent> = {
     },
 }
 
-const ContentWrapper = ({ children }: { children: JSX.Element }): JSX.Element => {
-    return <div className="SideBar bg-bg-light border p-4 rounded-t-none border-t-0">{children}</div>
-}
-
 export const SideBar = (): JSX.Element => {
     const { activeSideBarTab, visualizationType } = useValues(dataVisualizationLogic)
     const { setSideBarTab } = useActions(dataVisualizationLogic)
 
-    const tabs: LemonTab<string>[] = Object.values(TABS_TO_CONTENT)
-        .filter((n) => n.shouldShow(visualizationType))
-        .map((tab, index) => ({
-            label: tab.label,
-            key: Object.keys(TABS_TO_CONTENT)[index],
-            content: <ContentWrapper>{tab.content}</ContentWrapper>,
-        }))
+    const tabs: LemonTab<string>[] = useMemo(
+        () =>
+            Object.entries(TABS_TO_CONTENT)
+                .filter(([_, tab]) => tab.shouldShow(visualizationType))
+                .map(([key, tab]) => ({
+                    label: tab.label,
+                    key,
+                })),
+        [visualizationType]
+    )
 
-    return <LemonTabs activeKey={activeSideBarTab} onChange={(tab) => setSideBarTab(tab as SideBarTab)} tabs={tabs} />
+    return (
+        <div className="bg-surface-primary w-[18rem] flex flex-col">
+            <LemonTabs
+                size="small"
+                activeKey={activeSideBarTab}
+                onChange={(tab) => setSideBarTab(tab as SideBarTab)}
+                tabs={tabs}
+                className="pt-1"
+                barClassName="px-3"
+            />
+            <div className="flex-1 overflow-y-auto">{TABS_TO_CONTENT[activeSideBarTab].content}</div>
+        </div>
+    )
 }

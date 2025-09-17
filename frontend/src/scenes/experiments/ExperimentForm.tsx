@@ -1,174 +1,200 @@
-import './Experiment.scss'
-
-import { IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonDivider, LemonInput, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { Form, Group } from 'kea-forms'
+import { useState } from 'react'
+
+import { IconPlusSmall, IconToggle, IconTrash } from '@posthog/icons'
+import {
+    LemonBanner,
+    LemonCheckbox,
+    LemonInput,
+    LemonModal,
+    LemonTable,
+    LemonTextArea,
+    Link,
+    Tooltip,
+} from '@posthog/lemon-ui'
+
 import { ExperimentVariantNumber } from 'lib/components/SeriesGlyph'
 import { MAX_EXPERIMENT_VARIANTS } from 'lib/constants'
-import { IconChevronLeft } from 'lib/lemon-ui/icons'
+import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { useEffect } from 'react'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { cn } from 'lib/utils/css-classes'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
+import { FeatureFlagFiltersSection } from 'scenes/feature-flags/FeatureFlagFilters'
+import { urls } from 'scenes/urls'
 
-import { Query } from '~/queries/Query/Query'
-import { InsightType } from '~/types'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { FeatureFlagType } from '~/types'
 
-import { EXPERIMENT_INSIGHT_ID } from './constants'
 import { experimentLogic } from './experimentLogic'
-import { ExperimentInsightCreator } from './MetricSelector'
+import { featureFlagEligibleForExperiment } from './utils'
 
-const StepInfo = (): JSX.Element => {
-    const { experiment } = useValues(experimentLogic)
-    const { addExperimentGroup, removeExperimentGroup, moveToNextFormStep } = useActions(experimentLogic)
+const ExperimentFormFields = (): JSX.Element => {
+    const { formMode, experiment, groupTypes, aggregationLabel, hasPrimaryMetricSet, validExistingFeatureFlag } =
+        useValues(experimentLogic)
+    const { addVariant, removeVariant, setExperiment, submitExperiment, setExperimentType, validateFeatureFlag } =
+        useActions(experimentLogic)
+    const { webExperimentsAvailable, unavailableFeatureFlagKeys } = useValues(experimentsLogic)
+    const { groupsAccessStatus } = useValues(groupsAccessLogic)
+
+    const { reportExperimentFeatureFlagModalOpened, reportExperimentFeatureFlagSelected } = useActions(eventUsageLogic)
+
+    const [showFeatureFlagSelector, setShowFeatureFlagSelector] = useState(false)
 
     return (
-        <div>
-            <div className="space-y-8">
-                <div className="space-y-6 max-w-120">
-                    <LemonField name="name" label="Name">
-                        <LemonInput placeholder="Pricing page conversion" data-attr="experiment-name" />
-                    </LemonField>
-                    <LemonField
-                        name="feature_flag_key"
-                        label="Feature flag key"
-                        help="Each experiment is backed by a feature flag. You'll use this key in your code."
+        <SceneContent>
+            <SceneTitleSection
+                name={experiment.name}
+                description={null}
+                resourceType={{
+                    type: 'experiment',
+                }}
+                canEdit
+                onNameChange={(name) => {
+                    setExperiment({ name })
+                }}
+                forceEdit={formMode === 'create'}
+            />
+            <SceneDivider />
+
+            {hasPrimaryMetricSet && formMode !== 'duplicate' && (
+                <LemonBanner type="info" className="my-4">
+                    Fill out the details below to create your experiment based off of the insight.
+                </LemonBanner>
+            )}
+            {formMode === 'duplicate' && (
+                <LemonBanner type="info" className="my-4">
+                    We'll copy all settings, including metrics and exposure configuration, from the&nbsp;
+                    <Link target="_blank" className="font-semibold items-center" to={urls.experiment(experiment.id)}>
+                        original experiment
+                        <IconOpenInNew fontSize="18" />
+                    </Link>
+                    .
+                </LemonBanner>
+            )}
+
+            <SceneSection title="Feature flag key" description="Each experiment is backed by a feature flag.">
+                <LemonField
+                    name="feature_flag_key"
+                    className="max-w-120"
+                    help={
+                        <div className="flex items-center justify-between">
+                            <LemonButton
+                                type="secondary"
+                                size="xsmall"
+                                onClick={() => {
+                                    reportExperimentFeatureFlagModalOpened()
+                                    setShowFeatureFlagSelector(true)
+                                }}
+                            >
+                                <IconToggle className="mr-1" />
+                                Link to existing feature flag
+                            </LemonButton>
+                        </div>
+                    }
+                >
+                    <LemonInput
+                        placeholder="pricing-page-conversion"
+                        data-attr="experiment-feature-flag-key"
+                        onFocus={() => {
+                            // Auto-generate feature flag key from experiment name when focusing on empty field
+                            if (!experiment.feature_flag_key && experiment.name) {
+                                setExperiment({
+                                    feature_flag_key: generateFeatureFlagKey(
+                                        experiment.name,
+                                        unavailableFeatureFlagKeys
+                                    ),
+                                })
+                            }
+                        }}
+                    />
+                </LemonField>
+            </SceneSection>
+
+            <SceneDivider />
+            <SceneSection title="Hypothesis / Description" description="Add your hypothesis for this test">
+                <LemonField name="description" className="max-w-120">
+                    <LemonTextArea
+                        placeholder="The goal of this experiment is ..."
+                        data-attr="experiment-description"
+                    />
+                </LemonField>
+            </SceneSection>
+
+            <SceneDivider />
+
+            <SelectExistingFeatureFlagModal
+                isOpen={showFeatureFlagSelector}
+                onClose={() => setShowFeatureFlagSelector(false)}
+                onSelect={(flag) => {
+                    reportExperimentFeatureFlagSelected(flag.key)
+                    setExperiment({
+                        feature_flag_key: flag.key,
+                        parameters: {
+                            ...experiment.parameters,
+                            feature_flag_variants: flag.filters?.multivariate?.variants || [],
+                        },
+                    })
+                    validateFeatureFlag(flag.key)
+                    setShowFeatureFlagSelector(false)
+                }}
+            />
+
+            {webExperimentsAvailable && (
+                <>
+                    <SceneSection
+                        title="Experiment type"
+                        description="Select your experiment setup, this cannot be changed once saved."
+                        className={cn('gap-y-0 mt-6')}
                     >
-                        <LemonInput placeholder="pricing-page-conversion" data-attr="experiment-feature-flag-key" />
-                    </LemonField>
-                    <LemonField name="description" label="Description">
-                        <LemonTextArea
-                            placeholder="The goal of this experiment is ..."
-                            data-attr="experiment-description"
-                        />
-                    </LemonField>
-                </div>
-                <div className="mt-10">
-                    <h3 className="mb-1">Variants</h3>
-                    <div className="text-xs text-muted">Add up to 9 variants to test against your control.</div>
-                    <LemonDivider />
-                    <div className="grid grid-cols-2 gap-4 max-w-160">
-                        <div className="max-w-60">
-                            <h3>Control</h3>
-                            <div className="flex items-center">
-                                <Group key={0} name={['parameters', 'feature_flag_variants', 0]}>
-                                    <ExperimentVariantNumber index={0} className="h-7 w-7 text-base" />
-                                    <LemonField name="key" className="ml-2 flex-grow">
-                                        <LemonInput
-                                            disabled
-                                            data-attr="experiment-variant-key"
-                                            data-key-index={0}
-                                            className="ph-ignore-input"
-                                            fullWidth
-                                            autoComplete="off"
-                                            autoCapitalize="off"
-                                            autoCorrect="off"
-                                            spellCheck={false}
-                                        />
-                                    </LemonField>
-                                </Group>
-                            </div>
-                            <div className="text-muted text-xs mt-2">
-                                Included automatically, cannot be edited or removed
-                            </div>
-                        </div>
-                        <div className="max-w-100">
-                            <h3>Test(s)</h3>
-                            {experiment.parameters.feature_flag_variants?.map((_, index) => {
-                                if (index === 0) {
-                                    return null
-                                }
-
-                                return (
-                                    <Group key={index} name={['parameters', 'feature_flag_variants', index]}>
-                                        <div
-                                            key={`variant-${index}`}
-                                            className={`flex items-center space-x-2 ${index > 1 && 'mt-2'}`}
-                                        >
-                                            <ExperimentVariantNumber index={index} className="h-7 w-7 text-base" />
-                                            <LemonField name="key" className="flex-grow">
-                                                <LemonInput
-                                                    data-attr="experiment-variant-key"
-                                                    data-key-index={index.toString()}
-                                                    className="ph-ignore-input"
-                                                    fullWidth
-                                                    autoComplete="off"
-                                                    autoCapitalize="off"
-                                                    autoCorrect="off"
-                                                    spellCheck={false}
-                                                />
-                                            </LemonField>
-                                            <div className={`${index === 1 && 'pr-9'}`}>
-                                                {index !== 1 && (
-                                                    <Tooltip title="Delete this variant" placement="top-start">
-                                                        <LemonButton
-                                                            size="small"
-                                                            icon={<IconTrash />}
-                                                            onClick={() => removeExperimentGroup(index)}
-                                                        />
-                                                    </Tooltip>
-                                                )}
-                                            </div>
+                        <LemonRadio
+                            value={experiment.type}
+                            className="flex flex-col gap-2"
+                            onChange={(type) => {
+                                setExperimentType(type)
+                            }}
+                            options={[
+                                {
+                                    value: 'product',
+                                    description: (
+                                        <div className="text-xs text-secondary">
+                                            Use custom code to manage how variants modify your product.
                                         </div>
-                                    </Group>
-                                )
-                            })}
-                            <div className="text-muted text-xs ml-9 mr-20 mt-2">
-                                Alphanumeric, hyphens and underscores only
-                            </div>
-                            {(experiment.parameters.feature_flag_variants.length ?? 0) < MAX_EXPERIMENT_VARIANTS && (
-                                <LemonButton
-                                    className="ml-9 mt-2"
-                                    type="secondary"
-                                    onClick={() => addExperimentGroup()}
-                                    icon={<IconPlusSmall />}
-                                    data-attr="add-test-variant"
-                                >
-                                    Add test variant
-                                </LemonButton>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <LemonButton
-                className="mt-2"
-                type="primary"
-                data-attr="continue-experiment-creation"
-                onClick={() => moveToNextFormStep()}
-            >
-                Continue
-            </LemonButton>
-        </div>
-    )
-}
-
-const StepGoal = (): JSX.Element => {
-    const { experiment, experimentInsightType, groupTypes, aggregationLabel } = useValues(experimentLogic)
-    const { setExperiment, setNewExperimentInsight, createExperiment } = useActions(experimentLogic)
-
-    // insightLogic
-    const logic = insightLogic({ dashboardItemId: EXPERIMENT_INSIGHT_ID })
-    const { insightProps } = useValues(logic)
-
-    // insightDataLogic
-    const { query } = useValues(insightDataLogic(insightProps))
-
-    return (
-        <div>
-            <div className="space-y-8">
-                {groupTypes.size > 0 && (
-                    <div>
-                        <h3 className="mb-1">Participant type</h3>
-                        <div className="text-xs text-muted">
-                            The type on which to aggregate metrics. You can change this at any time during the
-                            experiment.
-                        </div>
-                        <LemonDivider />
+                                    ),
+                                    label: 'Product experiment',
+                                },
+                                {
+                                    value: 'web',
+                                    label: 'No-code web experiment',
+                                    description: (
+                                        <div className="text-xs text-secondary">
+                                            Define variants on your website using the PostHog toolbar, no coding
+                                            required.
+                                        </div>
+                                    ),
+                                },
+                            ]}
+                        />
+                    </SceneSection>
+                    <SceneDivider />
+                </>
+            )}
+            {groupsAccessStatus === GroupsAccessStatus.AlreadyUsing && (
+                <>
+                    <SceneSection
+                        title="Participant type"
+                        description="Determines on what level you want to aggregate metrics. You can change this later, but flag values for users will change so you need to reset the experiment for accurate results."
+                        className={cn('gap-y-0 mt-6')}
+                    >
                         <LemonRadio
                             value={
                                 experiment.parameters.aggregation_group_type_index != undefined
@@ -184,7 +210,6 @@ const StepGoal = (): JSX.Element => {
                                         aggregation_group_type_index: groupTypeIndex ?? undefined,
                                     },
                                 })
-                                setNewExperimentInsight()
                             }}
                             options={[
                                 { value: -1, label: 'Persons' },
@@ -194,126 +219,338 @@ const StepGoal = (): JSX.Element => {
                                 })),
                             ]}
                         />
-                    </div>
-                )}
-                <div>
-                    <h3 className="mb-1">Goal type</h3>
-                    <div className="text-xs text-muted font-medium tracking-normal">
-                        You can change this at any time during the experiment.
-                    </div>
-                    <LemonDivider />
-                    <div data-attr="experiment-goal-type-select">
-                        <LemonRadio
-                            className="space-y-2 -mt-2"
-                            value={experimentInsightType}
-                            onChange={(val) => {
-                                val &&
-                                    setNewExperimentInsight({
-                                        insight: val,
-                                        properties: experiment?.filters?.properties,
-                                    })
-                            }}
-                            options={[
-                                {
-                                    value: InsightType.FUNNELS,
-                                    label: (
-                                        <div className="translate-y-2">
-                                            <div>Conversion funnel</div>
-                                            <div className="text-xs text-muted">
-                                                Track how many people complete a sequence of actions and/or events
-                                            </div>
-                                        </div>
-                                    ),
-                                },
-                                {
-                                    value: InsightType.TRENDS,
-                                    label: (
-                                        <div className="translate-y-2">
-                                            <div>Trend</div>
-                                            <div className="text-xs text-muted">
-                                                Track the total count of a specific event or action.
-                                            </div>
-                                        </div>
-                                    ),
-                                },
-                            ]}
-                        />
-                    </div>
-                </div>
-                <div>
-                    <h3 className="mb-1">Goal criteria</h3>
-                    <div className="text-xs text-muted">
-                        {experimentInsightType === InsightType.FUNNELS
-                            ? 'Create the funnel you want to measure.'
-                            : 'Select a single metric to track.'}
-                    </div>
-                    <LemonDivider />
-                    <div
-                        data-attr="experiment-goal-input"
-                        className="p-4 border rounded mt-4 w-full lg:w-3/4 bg-bg-light"
+                    </SceneSection>
+                    <SceneDivider />
+                </>
+            )}
+            {validExistingFeatureFlag && (
+                <>
+                    <SceneSection
+                        title="Variants"
+                        description="Existing feature flag configuration will be applied to the experiment."
                     >
-                        <ExperimentInsightCreator insightProps={insightProps} />
+                        <LemonBanner type="info">
+                            <div className="flex items-center">
+                                <div>Existing feature flag configuration will be applied to the experiment.</div>
+                                <Link
+                                    to={urls.featureFlag(validExistingFeatureFlag.id as number)}
+                                    target="_blank"
+                                    className="flex items-center"
+                                >
+                                    <IconOpenInNew className="ml-1" />
+                                </Link>
+                            </div>
+                        </LemonBanner>
+                    </SceneSection>
+                    <SceneDivider />
+                </>
+            )}
+            {!validExistingFeatureFlag && (
+                <>
+                    <SceneSection
+                        title="Variants"
+                        description={
+                            <>Add up to {MAX_EXPERIMENT_VARIANTS - 1} variants to test against your control.</>
+                        }
+                    >
+                        <div className="grid grid-cols-2 gap-4 max-w-160">
+                            <div className="max-w-60">
+                                <h3 className={cn('text-sm')}>Control</h3>
+                                <div className="flex items-center">
+                                    <Group key={0} name={['parameters', 'feature_flag_variants', 0]}>
+                                        <ExperimentVariantNumber index={0} className="h-7 w-7 text-base" />
+                                        <LemonField name="key" className="ml-2 flex-grow">
+                                            <LemonInput
+                                                disabled
+                                                data-attr="experiment-variant-key"
+                                                data-key-index={0}
+                                                className="ph-ignore-input"
+                                                fullWidth
+                                                autoComplete="off"
+                                                autoCapitalize="off"
+                                                autoCorrect="off"
+                                                spellCheck={false}
+                                            />
+                                        </LemonField>
+                                    </Group>
+                                </div>
+                                <div className="text-secondary text-xs mt-2">
+                                    Included automatically, cannot be edited or removed
+                                </div>
+                            </div>
+                            <div className="max-w-100">
+                                <h3 className={cn('text-sm')}>Test(s)</h3>
+                                {experiment.parameters.feature_flag_variants?.map((_, index) => {
+                                    if (index === 0) {
+                                        return null
+                                    }
+
+                                    return (
+                                        <Group key={index} name={['parameters', 'feature_flag_variants', index]}>
+                                            <div
+                                                key={`variant-${index}`}
+                                                className={`flex items-center deprecated-space-x-2 ${
+                                                    index > 1 && 'mt-2'
+                                                }`}
+                                            >
+                                                <ExperimentVariantNumber index={index} className="h-7 w-7 text-base" />
+                                                <LemonField name="key" className="flex-grow">
+                                                    <LemonInput
+                                                        data-attr="experiment-variant-key"
+                                                        data-key-index={index.toString()}
+                                                        className="ph-ignore-input"
+                                                        fullWidth
+                                                        autoComplete="off"
+                                                        autoCapitalize="off"
+                                                        autoCorrect="off"
+                                                        spellCheck={false}
+                                                    />
+                                                </LemonField>
+                                                <div className={`${index === 1 && 'pr-9'}`}>
+                                                    {index !== 1 && (
+                                                        <Tooltip title="Delete this variant" placement="top-start">
+                                                            <LemonButton
+                                                                size="small"
+                                                                icon={<IconTrash />}
+                                                                onClick={() => removeVariant(index)}
+                                                            />
+                                                        </Tooltip>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </Group>
+                                    )
+                                })}
+                                <div className="text-secondary text-xs ml-9 mr-20 mt-2">
+                                    Alphanumeric, hyphens and underscores only
+                                </div>
+                                {(experiment.parameters.feature_flag_variants.length ?? 0) <
+                                    MAX_EXPERIMENT_VARIANTS && (
+                                    <LemonButton
+                                        className="ml-9 mt-2"
+                                        type="secondary"
+                                        onClick={() => addVariant()}
+                                        icon={<IconPlusSmall />}
+                                        data-attr="add-test-variant"
+                                    >
+                                        Add test variant
+                                    </LemonButton>
+                                )}
+                            </div>
+                        </div>
+                    </SceneSection>
+                    <SceneDivider />
+                    <div className={cn('mt-6 pb-2 max-w-150 mt-0 pb-0')}>
+                        <LemonField name="parameters.ensure_experience_continuity">
+                            {({ value, onChange }) => (
+                                <label className="border rounded p-4 group" htmlFor="continuity-checkbox">
+                                    <LemonCheckbox
+                                        id="continuity-checkbox"
+                                        label="Persist flag across authentication steps"
+                                        onChange={() => onChange(!value)}
+                                        fullWidth
+                                        checked={value}
+                                    />
+                                    <div className="text-secondary text-sm pl-6">
+                                        If your feature flag is evaluated for anonymous users, use this option to ensure
+                                        the flag value remains consistent after the user logs in. Depending on your
+                                        setup, this option may not always be appropriate. Note that this feature
+                                        requires creating profiles for anonymous users.{' '}
+                                        <Link
+                                            to="https://posthog.com/docs/feature-flags/creating-feature-flags#persisting-feature-flags-across-authentication-steps"
+                                            target="_blank"
+                                        >
+                                            Learn more
+                                        </Link>
+                                    </div>
+                                </label>
+                            )}
+                        </LemonField>
                     </div>
-                </div>
-                <div className="pb-4">
-                    <h3>Goal preview</h3>
-                    <div className="mt-4 w-full lg:w-3/4">
-                        <BindLogic logic={insightLogic} props={insightProps}>
-                            <Query query={query} context={{ insightProps }} readOnly />
-                        </BindLogic>
-                    </div>
-                </div>
-            </div>
+                </>
+            )}
             <LemonButton
-                className="mt-2"
+                className={cn('w-fit')}
                 type="primary"
                 data-attr="save-experiment"
-                onClick={() => createExperiment(true)}
+                onClick={() => submitExperiment()}
             >
                 Save as draft
             </LemonButton>
+        </SceneContent>
+    )
+}
+
+export const HoldoutSelector = (): JSX.Element => {
+    const { experiment, holdouts } = useValues(experimentLogic)
+    const { setExperiment } = useActions(experimentLogic)
+
+    const holdoutOptions = holdouts.map((holdout) => ({
+        value: holdout.id,
+        label: holdout.name,
+    }))
+    holdoutOptions.unshift({ value: null, label: 'No holdout' })
+
+    return (
+        <div className="mt-4 mb-8">
+            <LemonSelect
+                options={holdoutOptions}
+                value={experiment.holdout_id || null}
+                onChange={(value) => {
+                    setExperiment({
+                        ...experiment,
+                        holdout_id: value,
+                    })
+                }}
+                data-attr="experiment-holdout-selector"
+            />
         </div>
     )
 }
 
 export function ExperimentForm(): JSX.Element {
-    const { currentFormStep, props } = useValues(experimentLogic)
-    const { setCurrentFormStep } = useActions(experimentLogic)
-
-    const stepComponents = {
-        0: <StepInfo />,
-        1: <StepGoal />,
-    }
-    const CurrentStepComponent = (currentFormStep && stepComponents[currentFormStep]) || <StepInfo />
-
-    useEffect(() => {
-        setCurrentFormStep(0)
-    }, [])
+    const { props } = useValues(experimentLogic)
 
     return (
         <div>
-            {currentFormStep > 0 && (
-                <LemonButton
-                    icon={<IconChevronLeft />}
-                    type="secondary"
-                    className="my-4"
-                    onClick={() => {
-                        setCurrentFormStep(currentFormStep - 1)
-                    }}
-                >
-                    Back
-                </LemonButton>
-            )}
             <Form
                 id="experiment-step"
                 logic={experimentLogic}
                 formKey="experiment"
                 props={props}
                 enableFormOnSubmit
-                className="space-y-6 experiment-form"
+                className="deprecated-space-y-6 experiment-form"
             >
-                {CurrentStepComponent}
+                <ExperimentFormFields />
             </Form>
         </div>
+    )
+}
+
+const generateFeatureFlagKey = (name: string, unavailableFeatureFlagKeys: Set<string>): string => {
+    const baseKey = name
+        .toLowerCase()
+        .replace(/[^A-Za-z0-9-_]+/g, '-')
+        .replace(/-+$/, '')
+        .replace(/^-+/, '')
+
+    let key = baseKey
+    let counter = 1
+
+    while (unavailableFeatureFlagKeys.has(key)) {
+        key = `${baseKey}-${counter}`
+        counter++
+    }
+    return key
+}
+
+const SelectExistingFeatureFlagModal = ({
+    isOpen,
+    onClose,
+    onSelect,
+}: {
+    isOpen: boolean
+    onClose: () => void
+    onSelect: (flag: FeatureFlagType) => void
+}): JSX.Element => {
+    const {
+        featureFlagModalFeatureFlags,
+        featureFlagModalFeatureFlagsLoading,
+        featureFlagModalFilters,
+        featureFlagModalPagination,
+    } = useValues(experimentsLogic)
+    const { setFeatureFlagModalFilters, resetFeatureFlagModalFilters } = useActions(experimentsLogic)
+
+    const handleClose = (): void => {
+        resetFeatureFlagModalFilters()
+        onClose()
+    }
+
+    const filtersSection = (
+        <div className="mb-4">
+            <FeatureFlagFiltersSection
+                filters={featureFlagModalFilters}
+                setFeatureFlagsFilters={setFeatureFlagModalFilters}
+                searchPlaceholder="Search for feature flags"
+                filtersConfig={{ search: true, type: true }}
+            />
+        </div>
+    )
+
+    return (
+        <LemonModal isOpen={isOpen} onClose={handleClose} title="Choose an existing feature flag">
+            <div className="deprecated-space-y-2">
+                <div className="text-muted mb-2 max-w-xl">
+                    Select an existing feature flag to use with this experiment. The feature flag must use multiple
+                    variants with <code>'control'</code> as the first, and not be associated with an existing
+                    experiment.
+                </div>
+                {filtersSection}
+                <LemonTable
+                    id="ff"
+                    dataSource={featureFlagModalFeatureFlags.results}
+                    loading={featureFlagModalFeatureFlagsLoading}
+                    useURLForSorting={false}
+                    columns={[
+                        {
+                            title: 'Key',
+                            dataIndex: 'key',
+                            sorter: (a, b) => (a.key || '').localeCompare(b.key || ''),
+                            render: (key, flag) => (
+                                <div className="flex items-center">
+                                    <div className="font-semibold">{key}</div>
+                                    <Link
+                                        to={urls.featureFlag(flag.id as number)}
+                                        target="_blank"
+                                        className="flex items-center"
+                                    >
+                                        <IconOpenInNew className="ml-1" />
+                                    </Link>
+                                </div>
+                            ),
+                        },
+                        {
+                            title: 'Name',
+                            dataIndex: 'name',
+                            sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
+                        },
+                        {
+                            title: null,
+                            render: function RenderActions(_, flag) {
+                                let disabledReason: string | undefined = undefined
+                                try {
+                                    featureFlagEligibleForExperiment(flag)
+                                } catch (error) {
+                                    disabledReason = (error as Error).message
+                                }
+                                return (
+                                    <LemonButton
+                                        size="xsmall"
+                                        type="primary"
+                                        disabledReason={disabledReason}
+                                        onClick={() => {
+                                            onSelect(flag)
+                                            handleClose()
+                                        }}
+                                    >
+                                        Select
+                                    </LemonButton>
+                                )
+                            },
+                        },
+                    ]}
+                    emptyState="No feature flags match these filters."
+                    pagination={featureFlagModalPagination}
+                    onSort={(newSorting) =>
+                        setFeatureFlagModalFilters({
+                            order: newSorting
+                                ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                : undefined,
+                            page: 1,
+                        })
+                    }
+                />
+            </div>
+        </LemonModal>
     )
 }

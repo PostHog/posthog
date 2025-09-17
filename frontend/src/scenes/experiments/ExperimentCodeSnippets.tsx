@@ -1,4 +1,5 @@
 import { Link } from '@posthog/lemon-ui'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 function ServerSideWarning(): JSX.Element {
@@ -7,7 +8,7 @@ function ServerSideWarning(): JSX.Element {
             <p>
                 <b>Warning:</b> Server side experiment metrics require you to manually send the feature flag
                 information.{' '}
-                <Link to="https://posthog.com/tutorials/experiments#step-2-sending-the-right-events" target="_blank">
+                <Link to="https://posthog.com/docs/experiments/adding-experiment-code" target="_blank">
                     See this tutorial for more information.
                 </Link>
             </p>
@@ -18,6 +19,36 @@ function ServerSideWarning(): JSX.Element {
 interface SnippetProps {
     flagKey: string
     variant: string
+}
+
+export function AndroidSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
+    return (
+        <>
+            <CodeSnippet language={Language.Kotlin} wrap>
+                {`if (PostHog.getFeatureFlag("${flagKey}") == "${variant}") {
+    // do something
+} else {
+    // It's a good idea to let control variant always be the default behaviour,
+    // so if something goes wrong with flag evaluation, you don't break your app.
+}`}
+            </CodeSnippet>
+        </>
+    )
+}
+
+export function IOSSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
+    return (
+        <>
+            <CodeSnippet language={Language.Swift} wrap>
+                {`if (PostHogSDK.shared.getFeatureFlag("${flagKey}") as? String == "${variant}") {
+    // do something
+} else {
+    // It's a good idea to let control variant always be the default behaviour,
+    // so if something goes wrong with flag evaluation, you don't break your app.
+}`}
+            </CodeSnippet>
+        </>
+    )
 }
 
 export function NodeJSSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
@@ -53,9 +84,46 @@ export function JSSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
                 <b>Test that it works</b>
             </div>
             <CodeSnippet language={Language.JavaScript} wrap>
-                {`posthog.featureFlags.override({'${flagKey}': '${variant}'})`}
+                {`posthog.featureFlags.overrideFeatureFlags({ flags: {'${flagKey}': '${variant}'} })`}
             </CodeSnippet>
         </div>
+    )
+}
+
+export function ReactSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
+    return (
+        <>
+            <CodeSnippet language={Language.JavaScript} wrap>
+                {`// You can either use the useFeatureFlagVariantKey hook,
+// or you can use the feature flags component - https://posthog.com/docs/libraries/react#feature-flags-react-component
+
+// Method one: using the useFeatureFlagVariantKey hook
+import { useFeatureFlagVariantKey } from 'posthog-js/react'
+
+function App() {
+    const variant = useFeatureFlagVariantKey('${flagKey}')
+    if (variant === '${variant}') {
+        // do something
+    }
+}
+
+// Method two: using the feature flags component
+import { PostHogFeature } from 'posthog-js/react'
+
+function App() {
+    return (
+        <PostHogFeature flag='${flagKey}' match='${variant}'>
+            <div>
+                {/* the component to show */}
+            </div>
+        </PostHogFeature>
+    )
+}
+
+// You can also test your code by overriding the feature flag:
+posthog.featureFlags.overrideFeatureFlags({ flags: {'${flagKey}': '${variant}'} })`}
+            </CodeSnippet>
+        </>
     )
 }
 
@@ -94,13 +162,14 @@ export function GolangSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
     return (
         <>
             <CodeSnippet language={Language.Go} wrap>
-                {`experimentFlagValue, err := client.GetFeatureFlag(
-                    FeatureFlagPayload{
-                        Key:        '${flagKey}',
-                        DistinctId: "distinct-id",
-                    })
-
-if (experimentFlagValue == '${variant}' ) {
+                {`experimentFlagValue, err := client.GetFeatureFlag(posthog.FeatureFlagPayload{
+    Key:        '${flagKey}',
+    DistinctId: "distinct-id",
+})
+if err != nil {
+    // Handle error (e.g. capture error and fallback to default behaviour)
+}
+if experimentFlagValue == '${variant}' {
     // Do something differently for this user
 } else {
     // It's a good idea to let control variant always be the default behaviour,
@@ -108,6 +177,26 @@ if (experimentFlagValue == '${variant}' ) {
 }`}
             </CodeSnippet>
             <ServerSideWarning />
+        </>
+    )
+}
+
+export function FlutterSnippet({ flagKey, variant }: SnippetProps): JSX.Element {
+    const clientSuffix = 'await Posthog().'
+    const flagFunction = 'getFeatureFlag'
+    const variantSuffix = ` == '${variant}'`
+
+    return (
+        <>
+            <CodeSnippet language={Language.Dart} wrap>
+                {`if (${clientSuffix}${flagFunction}('${flagKey}')${variantSuffix}) {
+  // Do something differently for this user
+} else {
+  // It's a good idea to let control variant always be the default behaviour,
+  // so if something goes wrong with flag evaluation, you don't break your app.
+}
+            `}
+            </CodeSnippet>
         </>
     )
 }

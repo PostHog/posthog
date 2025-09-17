@@ -4,6 +4,10 @@
     .ProfilePicture {
         margin-right: 0.5rem;
         transition: opacity 200ms ease;
+
+        &.sm {
+            margin-right: 0.25rem;
+        }
     }
 
     a:hover {

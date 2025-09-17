@@ -1,6 +1,6 @@
 from typing import Any
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.async_deletion.delete import AsyncDeletionProcess, logger
 

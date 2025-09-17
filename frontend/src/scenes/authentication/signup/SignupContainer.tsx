@@ -1,6 +1,8 @@
-import { IconCheckCircle } from '@posthog/icons'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+
+import { IconCheckCircle } from '@posthog/icons'
+
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { CLOUD_HOSTNAMES } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'

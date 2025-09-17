@@ -14,11 +14,13 @@ export interface UploadedLogoProps {
     entityId: number | string
     mediaId?: string | null
     /** @default 'medium' */
-    size?: 'xsmall' | 'medium' | 'xlarge'
+    size?: 'xsmall' | 'small' | 'medium' | 'xlarge'
+    /** Use the outlined lettermark for signifying projects, to differentiate them from organizations. */
+    outlinedLettermark?: boolean
 }
 
 export const UploadedLogo = React.forwardRef<HTMLDivElement, UploadedLogoProps>(function UploadedLogo(
-    { name, mediaId, entityId, size = 'medium' },
+    { name, mediaId, entityId, size = 'medium', outlinedLettermark },
     ref
 ) {
     const [isLoadingImage, setIsLoadingImage] = useState(true)
@@ -29,7 +31,7 @@ export const UploadedLogo = React.forwardRef<HTMLDivElement, UploadedLogoProps>(
             // just using the last 4 bytes of the UUID as the entity ID
             entityId = parseInt(entityId.split('-').at(-1)!, 16)
         }
-        return <Lettermark index={entityId} name={name} size={size} />
+        return <Lettermark index={entityId} name={name} size={size} outlined={outlinedLettermark} />
     }
 
     return (
@@ -39,8 +41,10 @@ export const UploadedLogo = React.forwardRef<HTMLDivElement, UploadedLogoProps>(
                 size === 'xlarge'
                     ? 'size-16 rounded before:absolute before:inset-0 before:border before:rounded'
                     : size === 'medium'
-                    ? 'size-6 rounded-sm'
-                    : 'size-4 rounded-sm'
+                      ? 'size-6 rounded-xs'
+                      : size === 'small'
+                        ? 'size-5 rounded-xs'
+                        : 'size-4 rounded-xs'
             )}
             ref={ref}
         >

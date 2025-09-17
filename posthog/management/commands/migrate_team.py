@@ -1,22 +1,12 @@
-import datetime as dt
 import logging
+import datetime as dt
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
 from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS
-from posthog.batch_exports.service import (
-    backfill_export,
-    disable_and_delete_export,
-    sync_batch_export,
-)
-from posthog.models import (
-    BatchExport,
-    BatchExportBackfill,
-    BatchExportDestination,
-    BatchExportRun,
-    Team,
-)
+from posthog.batch_exports.service import backfill_export, disable_and_delete_export, sync_batch_export
+from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun, Team
 from posthog.temporal.common.client import sync_connect
 
 logger = logging.getLogger(__name__)
@@ -103,9 +93,10 @@ class Command(BaseCommand):
         )
 
         try:
-            existing_export = BatchExport.objects.get(
+            existing_export: BatchExport = BatchExport.objects.get(
                 team=team, destination__type="HTTP", name=EXPORT_NAME, deleted=False
             )
+            is_existing_export = True
 
             display_existing(existing_export=existing_export, verbose=verbose)
 
@@ -116,10 +107,10 @@ class Command(BaseCommand):
                 print()  # noqa: T201
 
                 disable_and_delete_export(existing_export)
-                existing_export = None
+                is_existing_export = False
                 display("Deleted existing batch export and backfill")
         except BatchExport.DoesNotExist:
-            existing_export = None
+            is_existing_export = False
             display("No existing migration was found")
         except BatchExport.MultipleObjectsReturned:
             raise CommandError(
@@ -130,7 +121,7 @@ class Command(BaseCommand):
             # User didn't provide any arguments to create a migration, so they must have just wanted
             # to check the status and/or delete the existing migration.
             return
-        elif existing_export:
+        elif is_existing_export:
             display(
                 "Existing migration job already exists and it wasn't deleted, exiting without creating a new batch export"
             )
@@ -162,8 +153,8 @@ def display_existing(*, existing_export: BatchExport, verbose: bool):
             interval=existing_export.interval,
             created_at=existing_export.created_at,
             last_updated_at=existing_export.last_updated_at,
-            exclude_events=existing_export.destination.exclude_events,
-            include_events=existing_export.destination.include_events,
+            exclude_events=existing_export.destination.config.get("exclude_events", []),
+            include_events=existing_export.destination.config.get("include_events", []),
         )
         display(
             "Existing migration backfill (verbose details)",

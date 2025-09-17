@@ -2,8 +2,12 @@ import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path,
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
+import posthog from 'posthog-js'
+import { v4 as uuidv4 } from 'uuid'
+
 import api from 'lib/api'
 import { ENTITY_MATCH_TYPE } from 'lib/constants'
+import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
@@ -11,6 +15,7 @@ import {
     applyAllCriteriaGroup,
     applyAllNestedCriteria,
     cleanCriteria,
+    createCohortDataNodeLogicKey,
     createCohortFormData,
     isCohortCriteriaGroup,
     validateGroup,
@@ -18,8 +23,10 @@ import {
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { urls } from 'scenes/urls'
 
+import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel, processCohort } from '~/models/cohortsModel'
-import { DataTableNode, Node, NodeKind } from '~/queries/schema'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { DataTableNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode } from '~/queries/utils'
 import {
     AnyCohortCriteriaType,
@@ -67,6 +74,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         }),
         setQuery: (query: Node) => ({ query }),
         duplicateCohort: (asStatic: boolean) => ({ asStatic }),
+        updateCohortCount: true,
     }),
 
     reducers(({ props }) => ({
@@ -96,7 +104,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                             state,
                             (criteriaList) => [
                                 ...criteriaList.slice(0, criteriaIndex),
-                                criteriaList[criteriaIndex],
+                                {
+                                    ...criteriaList[criteriaIndex],
+                                    sort_key: uuidv4(),
+                                },
                                 ...criteriaList.slice(criteriaIndex),
                             ],
                             groupIndex
@@ -104,7 +115,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     }
                     return applyAllCriteriaGroup(state, (groupList) => [
                         ...groupList.slice(0, groupIndex),
-                        groupList[groupIndex],
+                        {
+                            ...groupList[groupIndex],
+                            sort_key: uuidv4(),
+                        },
                         ...groupList.slice(groupIndex),
                     ])
                 },
@@ -112,11 +126,14 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     if (groupIndex !== undefined) {
                         return applyAllNestedCriteria(
                             state,
-                            (criteriaList) => [...criteriaList, NEW_CRITERIA],
+                            (criteriaList) => [...criteriaList, { ...NEW_CRITERIA, sort_key: uuidv4() }],
                             groupIndex
                         )
                     }
-                    return applyAllCriteriaGroup(state, (groupList) => [...groupList, NEW_CRITERIA_GROUP])
+                    return applyAllCriteriaGroup(state, (groupList) => [
+                        ...groupList,
+                        { ...NEW_CRITERIA_GROUP, sort_key: uuidv4() },
+                    ])
                 },
                 removeFilter: (state, { groupIndex, criteriaIndex }) => {
                     if (criteriaIndex !== undefined) {
@@ -142,8 +159,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                                 isCohortCriteriaGroup(oldCriteria)
                                     ? oldCriteria
                                     : criteriaI === criteriaIndex
-                                    ? cleanCriteria({ ...oldCriteria, ...newCriteria })
-                                    : oldCriteria
+                                      ? cleanCriteria({ ...oldCriteria, ...newCriteria })
+                                      : oldCriteria
                             ),
                         groupIndex
                     ),
@@ -193,7 +210,11 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 },
             }),
             submit: (cohort) => {
-                actions.saveCohort(cohort)
+                if (cohort.id !== 'new') {
+                    actions.saveCohort(cohort)
+                } else {
+                    actions.saveCohort({ ...cohort, _create_in_folder: 'Unfiled/Cohorts' })
+                }
             },
         },
     })),
@@ -208,6 +229,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         const cohort = await api.cohorts.get(id)
                         breakpoint()
                         cohortsModel.actions.updateCohort(cohort)
+                        actions.setCohort(cohort)
                         actions.checkIfFinishedCalculating(cohort)
                         return processCohort(cohort)
                     } catch (error: any) {
@@ -218,8 +240,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     }
                 },
                 saveCohort: async ({ cohortParams }, breakpoint) => {
-                    let cohort = { ...cohortParams }
                     const existingCohort = values.cohort
+                    let cohort = { ...existingCohort, ...cohortParams }
                     const cohortFormData = createCohortFormData(cohort)
 
                     try {
@@ -237,18 +259,63 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         }
                     } catch (error: any) {
                         breakpoint()
+
+                        // Only capture exception if we don't have proper error details
+                        // This indicates an unexpected failure (network, timeout, etc.)
+                        if (!error.detail) {
+                            console.error('Cohort creation failed unexpectedly:', error, {
+                                cohort_name: cohort.name,
+                                operation_type: cohort.id === 'new' ? 'create' : 'update',
+                                is_static: cohort.is_static,
+                            })
+                            posthog.captureException(error, {
+                                cohort_operation: 'Cohort creation failed unexpectedly',
+                                // Cohort context (most valuable)
+                                cohort_name: cohort.name,
+                                is_static: cohort.is_static,
+                                operation_type: cohort.id === 'new' ? 'create' : 'update',
+                                has_csv: !!cohortFormData.get?.('csv'),
+                                file_size: (() => {
+                                    const csvFile = cohortFormData.get?.('csv')
+                                    return csvFile instanceof File ? csvFile.size : undefined
+                                })(),
+
+                                // Error context
+                                error_status: error.status,
+                                error_status_text: error.statusText,
+                                error_message: error.message,
+                                error_name: error.name,
+                                error_type: typeof error,
+
+                                // Browser context
+                                user_agent: navigator.userAgent.substring(0, 100),
+                                is_online: navigator.onLine,
+
+                                // Request context
+                                timestamp: new Date().toISOString(),
+                            })
+                        }
+
                         lemonToast.error(error.detail || 'Failed to save cohort')
                         return values.cohort
                     }
 
                     cohort.is_calculating = true // this will ensure there is always a polling period to allow for backend calculation task to run
                     breakpoint()
+
                     delete cohort['csv']
                     actions.setCohort(cohort)
+                    refreshTreeItem('cohort', cohort.id)
                     lemonToast.success('Cohort saved. Please wait up to a few minutes for it to be calculated', {
                         toastId: `cohort-saved-${key}`,
                     })
                     actions.checkIfFinishedCalculating(cohort)
+                    if (cohort.id !== 'new') {
+                        const mountedDataNodeLogic = dataNodeLogic.findMounted({
+                            key: createCohortDataNodeLogicKey(cohort.id),
+                        })
+                        mountedDataNodeLogic?.actions.loadData('force_blocking')
+                    }
                     return processCohort(cohort)
                 },
                 onCriteriaChange: ({ newGroup, id }) => {
@@ -268,6 +335,13 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     }
                     return processCohort(cohort)
                 },
+                updateCohortCount: async () => {
+                    const cohort = await api.cohorts.get(values.cohort.id)
+                    return {
+                        ...values.cohort,
+                        count: cohort.count,
+                    }
+                },
             },
         ],
         duplicatedCohort: [
@@ -282,7 +356,8 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                         } else {
                             const data = { ...values.cohort }
                             data.name += ' (dynamic copy)'
-                            cohort = await api.cohorts.create(data)
+                            const cohortFormData = createCohortFormData(data)
+                            cohort = await api.cohorts.create(cohortFormData as Partial<CohortType>)
                         }
                         lemonToast.success(
                             'Cohort duplicated. Please wait up to a few minutes for it to be calculated',
@@ -310,15 +385,16 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             cohortsModel.findMounted()?.actions.deleteCohort({ id: values.cohort.id, name: values.cohort.name })
             router.actions.push(urls.cohorts())
         },
-        submitCohort: () => {
-            if (values.cohortHasErrors) {
-                lemonToast.error('There was an error submiting this cohort. Make sure the cohort filters are correct.')
-            }
+        submitCohortFailure: () => {
+            scrollToFormError({
+                extraErrorSelectors: ['.CohortCriteriaRow__Criteria--error'],
+                fallbackErrorMessage:
+                    'There was an error submitting this cohort. Make sure the cohort filters are correct.',
+            })
         },
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
             if (cohort.is_calculating) {
                 actions.setPollTimeout(
-                    // eslint-disable-next-line @typescript-eslint/no-misused-promises
                     window.setTimeout(async () => {
                         const newCohort = await api.cohorts.get(cohort.id)
                         breakpoint()
@@ -326,7 +402,14 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     }, 1000)
                 )
             } else {
-                actions.setCohort(cohort)
+                // Only update calculation-related fields, preserve user edits for other fields
+                const calculationFields = {
+                    is_calculating: cohort.is_calculating,
+                    errors_calculating: cohort.errors_calculating,
+                    last_calculation: cohort.last_calculation,
+                    count: cohort.count,
+                }
+                actions.setCohort({ ...values.cohort, ...calculationFields })
                 cohortsModel.actions.updateCohort(cohort)
                 personsLogic.findMounted({ syncWithUrl: true })?.actions.loadCohorts() // To ensure sync on person page
                 if (values.pollTimeout) {

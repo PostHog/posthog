@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { DateFilterLogicProps, DateFilterView } from 'lib/components/DateFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { dateMapping } from 'lib/utils'
@@ -83,7 +84,7 @@ describe('dateFilterLogic', () => {
         await expectLogic(withDateFrom, () => {
             withDateFrom.actions.setDate(null, null)
         })
-        expect(onChange).toHaveBeenCalledWith(null, null)
+        expect(onChange).toHaveBeenCalledWith(null, null, false)
     })
 
     it('can receive Custom as date props', async () => {

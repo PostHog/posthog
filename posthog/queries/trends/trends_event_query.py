@@ -1,8 +1,9 @@
 from typing import Any
 
+from posthog.schema import PersonsOnEventsMode
+
 from posthog.models.property.util import get_property_string_expr
 from posthog.queries.trends.trends_event_query_base import TrendsEventQueryBase
-from posthog.schema import PersonsOnEventsMode
 
 
 class TrendsEventQuery(TrendsEventQueryBase):

@@ -1,20 +1,18 @@
 from typing import Any
-from unittest.mock import patch
 
 import pytest
+from posthog.test.base import BaseTest
+from unittest.mock import patch
+
 from celery import states
 from celery.result import AsyncResult
 
 from posthog.async_migrations.examples.test_migration import Migration
-from posthog.async_migrations.runner import (
-    run_async_migration_next_op,
-    run_async_migration_operations,
-)
+from posthog.async_migrations.runner import run_async_migration_next_op, run_async_migration_operations
 from posthog.async_migrations.test.util import create_async_migration
 from posthog.models.async_migration import AsyncMigration, MigrationStatus
 from posthog.models.instance_setting import set_instance_setting
 from posthog.tasks.async_migrations import check_async_migration_health
-from posthog.test.base import BaseTest
 
 TEST_MIGRATION_DESCRIPTION = Migration("TEST_MIGRATION").description
 MOCK_CELERY_TASK_ID = "some_task_id"

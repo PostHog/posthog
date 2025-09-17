@@ -1,4 +1,5 @@
 import { router } from 'kea-router'
+
 import { CLICK_TARGETS, elementToSelector, matchesDataAttribute } from 'lib/actionUtils'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -47,9 +48,10 @@ export async function createActionFromEvent(
     event: EventType,
     increment: number,
     dataAttributes: string[],
+    createInFolder: string | null = null,
     recurse: typeof createActionFromEvent = createActionFromEvent
 ): Promise<void> {
-    const actionData: Pick<ActionType, 'name' | 'steps'> = {
+    const actionData: Pick<ActionType, 'name' | 'steps' | '_create_in_folder'> = {
         name: '',
         steps: [
             {
@@ -63,7 +65,9 @@ export async function createActionFromEvent(
                 ...(event.elements?.length > 0 ? elementsToAction(event.elements) : {}),
             },
         ],
+        ...(typeof createInFolder === 'string' ? { _create_in_folder: createInFolder } : {}),
     }
+
     if (event.event === '$autocapture') {
         actionData.name = autoCaptureEventToDescription(event)
         if (dataAttributes?.length > 0 && event.elements.length > 0) {
@@ -102,8 +106,8 @@ export async function createActionFromEvent(
     try {
         action = await api.actions.create(actionData)
     } catch (response: any) {
-        if (response.type === 'validation_error' && response.code === 'unique' && increment < 30) {
-            return recurse(teamId, event, increment + 1, dataAttributes, recurse)
+        if (response.data?.type === 'validation_error' && response.data?.code === 'unique' && increment < 30) {
+            return recurse(teamId, event, increment + 1, dataAttributes, createInFolder, recurse)
         }
         lemonToast.error(
             <>

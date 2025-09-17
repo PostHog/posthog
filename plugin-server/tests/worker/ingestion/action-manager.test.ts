@@ -1,23 +1,22 @@
 import { Hub, PropertyOperator } from '../../../src/types'
-import { createHub } from '../../../src/utils/db/hub'
+import { closeHub, createHub } from '../../../src/utils/db/hub'
 import { PostgresUse } from '../../../src/utils/db/postgres'
 import { ActionManager } from '../../../src/worker/ingestion/action-manager'
 import { resetTestDatabase } from '../../helpers/sql'
 
 describe('ActionManager', () => {
     let hub: Hub
-    let closeServer: () => Promise<void>
     let actionManager: ActionManager
 
     beforeEach(async () => {
-        ;[hub, closeServer] = await createHub()
+        hub = await createHub()
         await resetTestDatabase()
-        actionManager = new ActionManager(hub.postgres, hub)
+        actionManager = new ActionManager(hub.postgres, hub.pubSub)
         await actionManager.start()
     })
 
     afterEach(async () => {
-        await closeServer()
+        await closeHub(hub)
     })
 
     const TEAM_ID = 2
@@ -55,7 +54,6 @@ describe('ActionManager', () => {
             'testKey'
         )
 
-        // This is normally dispatched by Django and broadcasted by Piscina
         await actionManager.reloadAction(TEAM_ID, ACTION_ID)
 
         const reloadedAction = actionManager.getTeamActions(TEAM_ID)
@@ -82,7 +80,6 @@ describe('ActionManager', () => {
             ],
         })
 
-        // This is normally dispatched by Django and broadcasted by Piscina
         actionManager.dropAction(TEAM_ID, ACTION_ID)
 
         const droppedAction = actionManager.getTeamActions(TEAM_ID)
@@ -124,7 +121,6 @@ describe('ActionManager', () => {
             'testKey'
         )
 
-        // This is normally dispatched by Django and broadcasted by Piscina
         await actionManager.reloadAction(TEAM_ID, ACTION_ID)
 
         const droppedAction = actionManager.getTeamActions(TEAM_ID)
@@ -136,7 +132,7 @@ describe('ActionManager', () => {
         jest.spyOn(hub.db, 'fetchAllActionsGroupedByTeam')
         jest.spyOn(hub.db, 'fetchAction')
 
-        const manager = new ActionManager(hub.postgres, hub)
+        const manager = new ActionManager(hub.postgres, hub.pubSub)
 
         await manager.start()
         await manager.reloadAllActions()

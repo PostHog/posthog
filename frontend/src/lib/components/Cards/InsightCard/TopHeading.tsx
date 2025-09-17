@@ -1,7 +1,7 @@
 import { dateFilterToText } from 'lib/utils'
 import { InsightTypeMetadata, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 
-import { NodeKind } from '~/queries/schema'
+import { Node, NodeKind } from '~/queries/schema/schema-general'
 import {
     containsHogQLQuery,
     dateRangeFor,
@@ -9,11 +9,10 @@ import {
     isInsightQueryNode,
     isInsightVizNode,
 } from '~/queries/utils'
-import { QueryBasedInsightModel } from '~/types'
 
-export function TopHeading({ insight }: { insight: QueryBasedInsightModel }): JSX.Element {
-    const { query } = insight
+import { InsightFreshness } from './InsightFreshness'
 
+export function TopHeading({ query, lastRefresh }: { query: Node | null; lastRefresh?: string | null }): JSX.Element {
     let insightType: InsightTypeMetadata
 
     if (query?.kind) {
@@ -43,9 +42,15 @@ export function TopHeading({ insight }: { insight: QueryBasedInsightModel }): JS
         dateText = dateFilterToText(date_from, date_to, defaultDateRange)
     }
     return (
-        <>
+        <div className="flex items-center gap-1">
             <span title={insightType?.description}>{insightType?.name}</span>
-            {dateText ? <> • {dateText}</> : null}
-        </>
+            {dateText ? (
+                <>
+                    {' '}
+                    • <span className="whitespace-nowrap">{dateText}</span>
+                </>
+            ) : null}
+            {lastRefresh ? <InsightFreshness lastRefresh={lastRefresh} /> : null}
+        </div>
     )
 }

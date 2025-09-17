@@ -1,10 +1,10 @@
 import json
 from functools import cached_property
 
-import structlog
 from django.conf import settings
 from django.utils.timezone import now
-from sentry_sdk import capture_exception
+
+import structlog
 
 from posthog.async_migrations.definition import (
     AsyncMigrationDefinition,
@@ -12,10 +12,11 @@ from posthog.async_migrations.definition import (
     AsyncMigrationOperationSQL,
 )
 from posthog.async_migrations.utils import execute_op_clickhouse, run_optimize_table
+from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.kafka_engine import STORAGE_POLICY
 from posthog.clickhouse.table_engines import ReplacingMergeTree
-from posthog.client import sync_execute
 from posthog.constants import AnalyticsDBMS
+from posthog.exceptions_capture import capture_exception
 from posthog.models.async_migration import AsyncMigration
 from posthog.models.person.person import Person
 from posthog.models.person.sql import PERSONS_TABLE_MV_SQL
@@ -254,7 +255,7 @@ class Migration(AsyncMigrationDefinition):
             INSERT INTO {PERSON_TABLE_NAME} (
                 id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version
             )
-            VALUES {', '.join(values)}
+            VALUES {", ".join(values)}
             """,
             params,
         )

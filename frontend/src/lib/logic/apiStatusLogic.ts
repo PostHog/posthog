@@ -1,4 +1,5 @@
 import { actions, kea, listeners, path, reducers } from 'kea'
+
 import api from 'lib/api'
 import { userLogic } from 'scenes/userLogic'
 
@@ -9,7 +10,9 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
     actions({
         onApiResponse: (response?: Response, error?: any) => ({ response, error }),
         setInternetConnectionIssue: (issue: boolean) => ({ issue }),
-        setTimeSensitiveAuthenticationRequired: (required: boolean) => ({ required }),
+        setTimeSensitiveAuthenticationRequired: (required: boolean | [resolve: () => void, reject: () => void]) => ({
+            required,
+        }),
     }),
 
     reducers({
@@ -21,7 +24,9 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
         ],
 
         timeSensitiveAuthenticationRequired: [
-            false,
+            // When a tuple with resolve/reject is passed, one of these will be called
+            // when re-authentication succeeds or fails/is dismissed
+            false as boolean | [resolve: () => void, reject: () => void],
             {
                 setTimeSensitiveAuthenticationRequired: (_, { required }) => required,
             },
@@ -48,7 +53,7 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                         actions.setTimeSensitiveAuthenticationRequired(true)
                     }
                 }
-            } catch (e) {
+            } catch {
                 // Pass
             }
 

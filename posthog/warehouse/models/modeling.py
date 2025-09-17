@@ -1,7 +1,7 @@
-import collections.abc
-import dataclasses
 import enum
 import uuid
+import dataclasses
+import collections.abc
 
 from django.contrib.postgres import indexes as pg_indexes
 from django.core.exceptions import ObjectDoesNotExist
@@ -9,15 +9,14 @@ from django.db import connection, models, transaction
 
 from posthog.hogql import ast
 from posthog.hogql.database.database import Database, create_hogql_database
+from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
+from posthog.hogql.resolver_utils import extract_select_queries
+
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.models.utils import (
-    CreatedMetaFields,
-    UpdatedMetaFields,
-    UUIDModel,
-    uuid7,
-)
+from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, uuid7
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from posthog.warehouse.models.table import DataWarehouseTable
 
@@ -56,7 +55,7 @@ class LabelTreeField(models.Field):
 
 
 class LabelQuery(models.Lookup):
-    """Implement a lookup for ltree label queries using the ~ operator."""
+    """Implement a lookup for an ltree label query using the ~ operator."""
 
     lookup_name = "lquery"
 
@@ -71,7 +70,24 @@ class LabelQuery(models.Lookup):
         return "%s ~ %s" % (lhs, rhs), params  # noqa: UP031
 
 
+class LabelQueryArray(models.Lookup):
+    """Implement a lookup for an array of ltree label queries using the ? operator."""
+
+    lookup_name = "lqueryarray"
+
+    def __init__(self, *args, **kwargs):
+        self.prepare_rhs = False
+        super().__init__(*args, **kwargs)
+
+    def as_sql(self, compiler, connection):
+        lhs, lhs_params = self.process_lhs(compiler, connection)
+        rhs, rhs_params = self.process_rhs(compiler, connection)
+        params = lhs_params + rhs_params
+        return "%s ? %s" % (lhs, rhs), params  # noqa: UP031
+
+
 LabelTreeField.register_lookup(LabelQuery)
+LabelTreeField.register_lookup(LabelQueryArray)
 
 
 def get_parents_from_model_query(model_query: str) -> set[str]:
@@ -82,8 +98,8 @@ def get_parents_from_model_query(model_query: str) -> set[str]:
 
     hogql_query = parse_select(model_query)
 
-    if isinstance(hogql_query, ast.SelectUnionQuery):
-        queries = hogql_query.select_queries
+    if isinstance(hogql_query, ast.SelectSetQuery):
+        queries = list(extract_select_queries(hogql_query))
     else:
         queries = [hogql_query]
 
@@ -97,8 +113,8 @@ def get_parents_from_model_query(model_query: str) -> set[str]:
             for name, cte in query.ctes.items():
                 ctes.add(name)
 
-                if isinstance(cte.expr, ast.SelectUnionQuery):
-                    queries.extend(cte.expr.select_queries)
+                if isinstance(cte.expr, ast.SelectSetQuery):
+                    queries.extend(list(extract_select_queries(cte.expr)))
                 elif isinstance(cte.expr, ast.SelectQuery):
                     queries.append(cte.expr)
 
@@ -107,17 +123,24 @@ def get_parents_from_model_query(model_query: str) -> set[str]:
         if join is None:
             continue
 
-        if isinstance(join.table, ast.SelectQuery):
-            if join.table.view_name is not None:
-                parents.add(join.table.view_name)
-                continue
-
-            queries.append(join.table)
-        elif isinstance(join.table, ast.SelectUnionQuery):
-            queries.extend(join.table.select_queries)
-
         while join is not None:
-            parent_name = join.table.chain[0]  # type: ignore
+            if isinstance(join.table, ast.SelectQuery):
+                if join.table.view_name is not None:
+                    parents.add(join.table.view_name)
+                    break
+
+                queries.append(join.table)
+                break
+            elif isinstance(join.table, ast.SelectSetQuery):
+                queries.extend(list(extract_select_queries(join.table)))
+                break
+
+            if isinstance(join.table, ast.Placeholder):
+                parent_name = join.table.field
+            elif isinstance(join.table, ast.Field):
+                parent_name = ".".join(str(s) for s in join.table.chain)
+            else:
+                raise ValueError(f"No handler for {join.table.__class__.__name__} in get_parents_from_model_query")
 
             if parent_name not in ctes and isinstance(parent_name, str):
                 parents.add(parent_name)
@@ -294,15 +317,16 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         Returns:
             A tuple with the model path and a `bool` indicating whether it was created or not.
         """
-        posthog_tables = self.get_hogql_database(team).get_posthog_tables()
-        if posthog_source_name not in posthog_tables:
+        try:
+            self.get_hogql_database(team).get_table(posthog_source_name)
+        except QueryError:
             raise ValueError(f"Provided source {posthog_source_name} is not a PostHog table")
 
         return self.get_or_create(path=[posthog_source_name], team=team, defaults={"saved_query": None})
 
     def get_hogql_database(self, team: Team) -> Database:
         """Get the HogQL database for given team."""
-        return create_hogql_database(team_id=team.pk, team_arg=team)
+        return create_hogql_database(team=team)
 
     def get_or_create_root_path_for_data_warehouse_table(
         self, data_warehouse_table: DataWarehouseTable
@@ -336,15 +360,9 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         parent_paths = []
         for parent in get_parents_from_model_query(query):
             try:
-                parent_path, _ = self.get_or_create_root_path_for_posthog_source(parent, team)
-            except ValueError:
-                pass
-            else:
-                parent_paths.append(parent_path)
-                continue
-
-            try:
-                parent_query = DataWarehouseSavedQuery.objects.filter(team=team, name=parent).get()
+                parent_query = (
+                    DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(team=team, name=parent).get()
+                )
             except ObjectDoesNotExist:
                 pass
             else:
@@ -356,11 +374,31 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
                 continue
 
             try:
-                parent_table = DataWarehouseTable.objects.filter(team=team, name=parent).get()
-            except ObjectDoesNotExist:
+                table = self.get_hogql_database(team).get_table(parent)
+                if not isinstance(table, HogQLDataWarehouseTable):
+                    raise ObjectDoesNotExist()
+
+                if table.table_id:
+                    parent_table = (
+                        DataWarehouseTable.objects.exclude(deleted=True).filter(team=team, id=table.table_id).get()
+                    )
+                else:
+                    parent_table = (
+                        DataWarehouseTable.objects.exclude(deleted=True).filter(team=team, name=table.name).get()
+                    )
+
+            except (ObjectDoesNotExist, QueryError):
                 pass
             else:
                 parent_path, _ = self.get_or_create_root_path_for_data_warehouse_table(parent_table)
+                parent_paths.append(parent_path)
+                continue
+
+            try:
+                parent_path, _ = self.get_or_create_root_path_for_posthog_source(parent, team)
+            except ValueError:
+                pass
+            else:
                 parent_paths.append(parent_path)
                 continue
 
@@ -415,10 +453,18 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
                         parent_id = parent
                     else:
                         try:
-                            parent_query = DataWarehouseSavedQuery.objects.filter(team=team, name=parent).get()
+                            parent_query = (
+                                DataWarehouseSavedQuery.objects.exclude(deleted=True)
+                                .filter(team=team, name=parent)
+                                .get()
+                            )
                         except ObjectDoesNotExist:
                             try:
-                                parent_table = DataWarehouseTable.objects.filter(team=team, name=parent).get()
+                                parent_table = (
+                                    DataWarehouseTable.objects.exclude(deleted=True)
+                                    .filter(team=team, name=parent)
+                                    .get()
+                                )
                             except ObjectDoesNotExist:
                                 raise UnknownParentError(parent, query)
                             else:
@@ -480,7 +526,7 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         return DAG(edges=edges, nodes=nodes)
 
 
-class DataWarehouseModelPath(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+class DataWarehouseModelPath(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     """Django model to represent paths to a data warehouse model.
 
     A data warehouse model is represented by a saved query, and the path to it contains all

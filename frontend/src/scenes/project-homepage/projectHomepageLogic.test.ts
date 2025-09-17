@@ -15,9 +15,9 @@ describe('projectHomepageLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team/dashboards/1/': dashboardJson,
-                '/api/projects/:team/insights/': { results: ['result from api'] },
-                '/api/projects/:team/persons/': { results: ['result from api'] },
+                '/api/environments/:team_id/dashboards/1/': dashboardJson,
+                '/api/environments/:team_id/insights/': { results: ['result from api'] },
+                '/api/environments/:team_id/persons/': { results: ['result from api'] },
             },
         })
         initKeaTests()
@@ -27,8 +27,5 @@ describe('projectHomepageLogic', () => {
 
     it('does not load recent insights onMount', async () => {
         await expectLogic(logic).toNotHaveDispatchedActions(['loadRecentInsights', 'loadRecentInsightsSuccess'])
-    })
-    it('loads persons onMount', async () => {
-        await expectLogic(logic).toDispatchActions(['loadPersons', 'loadPersonsSuccess'])
     })
 })

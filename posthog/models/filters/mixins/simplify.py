@@ -1,5 +1,7 @@
 from typing import TYPE_CHECKING, Any, Literal, TypeVar, cast
 
+from posthog.schema import PropertyOperator
+
 from posthog.constants import PropertyOperatorType
 from posthog.models.property import GroupTypeIndex, PropertyGroup
 
@@ -107,12 +109,14 @@ class SimplifyFilterMixin:
             from posthog.models.cohort.util import simplified_cohort_filter_properties
 
             try:
-                cohort = Cohort.objects.get(pk=property.value, team_id=team.pk)
+                cohort = Cohort.objects.get(pk=property.value, team__project_id=team.project_id)
             except Cohort.DoesNotExist:
                 # :TODO: Handle non-existing resource in-query instead
                 return PropertyGroup(type=PropertyOperatorType.AND, values=[property])
 
-            return simplified_cohort_filter_properties(cohort, team, property.negation)
+            return simplified_cohort_filter_properties(
+                cohort, team, property.negation or property.operator == PropertyOperator.NOT_IN.value
+            )
 
         # PropertyOperatorType doesn't really matter here, since only one value.
         return PropertyGroup(type=PropertyOperatorType.AND, values=[property])

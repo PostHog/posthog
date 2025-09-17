@@ -1,47 +1,11 @@
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, date
+from datetime import date, datetime
 from difflib import get_close_matches
 from typing import Literal, Optional, Union, cast
 from uuid import UUID
 
-from posthog.clickhouse.property_groups import property_groups
-from posthog.hogql import ast
-from posthog.hogql.base import AST
-from posthog.hogql.constants import (
-    MAX_SELECT_RETURNED_ROWS,
-    HogQLGlobalSettings,
-)
-from posthog.hogql.functions import (
-    ADD_OR_NULL_DATETIME_FUNCTIONS,
-    FIRST_ARG_DATETIME_FUNCTIONS,
-    find_hogql_aggregation,
-    find_hogql_posthog_function,
-    find_hogql_function,
-)
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import Table, FunctionCallTable, SavedQuery
-from posthog.hogql.database.database import create_hogql_database
-from posthog.hogql.database.s3_table import S3Table
-from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError, ResolutionError
-from posthog.hogql.escape_sql import (
-    escape_clickhouse_identifier,
-    escape_clickhouse_string,
-    escape_hogql_identifier,
-    escape_hogql_string,
-)
-from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES, validate_function_args, HOGQL_COMPARISON_MAPPING
-from posthog.hogql.modifiers import create_default_modifiers_for_team, set_default_in_cohort_via
-from posthog.hogql.resolver import resolve_types
-from posthog.hogql.resolver_utils import lookup_field_by_name
-from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
-from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
-from posthog.hogql.transforms.property_types import build_property_swapper, PropertySwapper
-from posthog.hogql.visitor import Visitor, clone_expr
-from posthog.models.property import PropertyName, TableColumn
-from posthog.models.team.team import WeekStartDay
-from posthog.models.team import Team
-from posthog.models.utils import UUIDT
 from posthog.schema import (
     HogQLQueryModifiers,
     InCohortVia,
@@ -49,6 +13,63 @@ from posthog.schema import (
     PersonsOnEventsMode,
     PropertyGroupsMode,
 )
+
+from posthog.hogql import ast
+from posthog.hogql.ast import Constant, StringType
+from posthog.hogql.base import _T_AST, AST
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_max_limit_for_context
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import create_hogql_database
+from posthog.hogql.database.models import DANGEROUS_NoTeamIdCheckTable, FunctionCallTable, SavedQuery, Table
+from posthog.hogql.database.s3_table import DataWarehouseTable, S3Table
+from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError, ResolutionError
+from posthog.hogql.escape_sql import (
+    escape_clickhouse_identifier,
+    escape_clickhouse_string,
+    escape_hogql_identifier,
+    escape_hogql_string,
+    safe_identifier,
+)
+from posthog.hogql.functions import (
+    ADD_OR_NULL_DATETIME_FUNCTIONS,
+    FIRST_ARG_DATETIME_FUNCTIONS,
+    SURVEY_FUNCTIONS,
+    find_hogql_aggregation,
+    find_hogql_function,
+    find_hogql_posthog_function,
+)
+from posthog.hogql.functions.mapping import (
+    ALL_EXPOSED_FUNCTION_NAMES,
+    HOGQL_COMPARISON_MAPPING,
+    is_allowed_parametric_function,
+    validate_function_args,
+)
+from posthog.hogql.modifiers import create_default_modifiers_for_team, set_default_in_cohort_via
+from posthog.hogql.resolver import resolve_types
+from posthog.hogql.resolver_utils import lookup_field_by_name
+from posthog.hogql.transforms.in_cohort import resolve_in_cohorts, resolve_in_cohorts_conjoined
+from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
+from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
+from posthog.hogql.visitor import Visitor, clone_expr
+
+from posthog.clickhouse.materialized_columns import (
+    MaterializedColumn,
+    TablesWithMaterializedColumns,
+    get_materialized_column_for_property,
+)
+from posthog.clickhouse.property_groups import property_groups
+from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
+from posthog.models.property import PropertyName, TableColumn
+from posthog.models.surveys.util import (
+    filter_survey_sent_events_by_unique_submission,
+    get_survey_response_clickhouse_query,
+)
+from posthog.models.team import Team
+from posthog.models.team.team import WeekStartDay
+from posthog.models.utils import UUIDT
+from posthog.settings import CLICKHOUSE_DATABASE
+
+CHANNEL_DEFINITION_DICT = f"{CLICKHOUSE_DATABASE}.channel_definition_dict"
 
 
 def team_id_guard_for_table(table_type: Union[ast.TableType, ast.TableAliasType], context: HogQLContext) -> ast.Expr:
@@ -70,14 +91,16 @@ def to_printed_hogql(query: ast.Expr, team: Team, modifiers: Optional[HogQLQuery
         clone_expr(query),
         dialect="hogql",
         context=HogQLContext(
-            team_id=team.pk, enable_select_queries=True, modifiers=create_default_modifiers_for_team(team, modifiers)
+            team_id=team.pk,
+            enable_select_queries=True,
+            modifiers=create_default_modifiers_for_team(team, modifiers),
         ),
         pretty=True,
     )
 
 
 def print_ast(
-    node: ast.Expr,
+    node: _T_AST,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[list[ast.SelectQuery]] = None,
@@ -98,14 +121,21 @@ def print_ast(
 
 
 def prepare_ast_for_printing(
-    node: ast.Expr,
+    node: _T_AST,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[list[ast.SelectQuery]] = None,
     settings: Optional[HogQLGlobalSettings] = None,
-) -> ast.Expr | None:
-    with context.timings.measure("create_hogql_database"):
-        context.database = context.database or create_hogql_database(context.team_id, context.modifiers, context.team)
+) -> _T_AST | None:
+    if context.database is None:
+        with context.timings.measure("create_hogql_database"):
+            # Passing both `team_id` and `team` because `team` is not always available in the context
+            context.database = create_hogql_database(
+                context.team_id,
+                modifiers=context.modifiers,
+                team=context.team,
+                timings=context.timings,
+            )
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
 
@@ -145,7 +175,7 @@ def prepare_ast_for_printing(
                 person_properties=context.property_swapper.person_properties,
                 event_properties=context.property_swapper.event_properties,
                 context=context,
-                setTimeZones=True,
+                setTimeZones=context.modifiers.convertToProjectTimezone is not False,
             ).visit(node)
 
         # We support global query settings, and local subquery settings.
@@ -165,7 +195,7 @@ def prepare_ast_for_printing(
 
 
 def print_prepared_ast(
-    node: ast.Expr,
+    node: _T_AST,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[list[ast.SelectQuery]] = None,
@@ -193,6 +223,7 @@ class JoinExprResponse:
 class PrintableMaterializedColumn:
     table: Optional[str]
     column: str
+    is_nullable: bool
 
     def __str__(self) -> str:
         if self.table is None:
@@ -226,7 +257,14 @@ class PrintableMaterializedPropertyGroupItem:
         return f"{self.__qualified_column}[{self.property_name}]"
 
 
-class _Printer(Visitor):
+def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
+    expr_type = expr.type
+    while isinstance(expr_type, ast.FieldAliasType):
+        expr_type = expr_type.type
+    return expr_type
+
+
+class _Printer(Visitor[str]):
     # NOTE: Call "print_ast()", not this class directly.
 
     def __init__(
@@ -258,7 +296,7 @@ class _Printer(Visitor):
         self.stack.pop()
 
         if len(self.stack) == 0 and self.dialect == "clickhouse" and self.settings:
-            if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectUnionQuery):
+            if not isinstance(node, ast.SelectQuery) and not isinstance(node, ast.SelectSetQuery):
                 raise QueryError("Settings can only be applied to SELECT queries")
             settings = self._print_settings(self.settings)
             if settings is not None:
@@ -266,17 +304,25 @@ class _Printer(Visitor):
 
         return response
 
-    def visit_select_union_query(self, node: ast.SelectUnionQuery):
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
         self._indent -= 1
-        queries = [self.visit(expr) for expr in node.select_queries]
+        ret = self.visit(node.initial_select_query)
         if self.pretty:
-            query = f"\n{self.indent(1)}UNION ALL\n{self.indent(1)}".join([query.strip() for query in queries])
-        else:
-            query = " UNION ALL ".join(queries)
+            ret = ret.strip()
+        for expr in node.subsequent_select_queries:
+            query = self.visit(expr.select_query)
+            if self.pretty:
+                query = query.strip()
+            if expr.set_operator is not None:
+                if self.pretty:
+                    ret += f"\n{self.indent(1)}{expr.set_operator}\n{self.indent(1)}"
+                else:
+                    ret += f" {expr.set_operator} "
+            ret += query
         self._indent += 1
         if len(self.stack) > 1:
-            return f"({query.strip()})"
-        return query
+            return f"({ret.strip()})"
+        return ret
 
     def visit_select_query(self, node: ast.SelectQuery):
         if self.dialect == "clickhouse":
@@ -285,9 +331,15 @@ class _Printer(Visitor):
             if not self.context.team_id:
                 raise InternalHogQLError("Full SELECT queries are disabled if context.team_id is not set")
 
-        # if we are the first parsed node in the tree, or a child of a SelectUnionQuery, mark us as a top level query
-        part_of_select_union = len(self.stack) >= 2 and isinstance(self.stack[-2], ast.SelectUnionQuery)
+        # if we are the first parsed node in the tree, or a child of a SelectSetQuery, mark us as a top level query
+        part_of_select_union = len(self.stack) >= 2 and isinstance(self.stack[-2], ast.SelectSetQuery)
         is_top_level_query = len(self.stack) <= 1 or (len(self.stack) == 2 and part_of_select_union)
+        is_last_query_in_union = (
+            part_of_select_union
+            and isinstance(self.stack[0], ast.SelectSetQuery)
+            and len(self.stack[0].subsequent_select_queries) > 0
+            and self.stack[0].subsequent_select_queries[-1].select_query == node
+        )
 
         # We will add extra clauses onto this from the joined tables
         where = node.where
@@ -346,6 +398,9 @@ class _Printer(Visitor):
                         else:
                             # Non-unique hidden alias. Skip.
                             column = column.expr
+                    elif isinstance(column, ast.Call):
+                        column_alias = safe_identifier(print_prepared_ast(column, self.context, dialect="hogql"))
+                        column = ast.Alias(alias=column_alias, expr=column)
                     columns.append(self.visit(column))
             else:
                 columns = [self.visit(column) for column in node.select]
@@ -394,16 +449,23 @@ class _Printer(Visitor):
 
         limit = node.limit
         if self.context.limit_top_select and is_top_level_query:
+            max_limit = get_max_limit_for_context(self.context.limit_context or LimitContext.QUERY)
+
             if limit is not None:
                 if isinstance(limit, ast.Constant) and isinstance(limit.value, int):
-                    limit.value = min(limit.value, MAX_SELECT_RETURNED_ROWS)
+                    limit.value = min(limit.value, max_limit)
                 else:
                     limit = ast.Call(
                         name="min2",
-                        args=[ast.Constant(value=MAX_SELECT_RETURNED_ROWS), limit],
+                        args=[ast.Constant(value=max_limit), limit],
                     )
             else:
-                limit = ast.Constant(value=MAX_SELECT_RETURNED_ROWS)
+                limit = ast.Constant(value=max_limit)
+
+        if node.limit_by is not None:
+            clauses.append(
+                f"LIMIT {self.visit(node.limit_by.n)} {f'OFFSET {self.visit(node.limit_by.offset_value)}' if node.limit_by.offset_value else ''} BY {', '.join([self.visit(expr) for expr in node.limit_by.exprs])}"
+            )
 
         if limit is not None:
             clauses.append(f"LIMIT {self.visit(limit)}")
@@ -411,8 +473,14 @@ class _Printer(Visitor):
                 clauses.append("WITH TIES")
             if node.offset is not None:
                 clauses.append(f"OFFSET {self.visit(node.offset)}")
-            if node.limit_by is not None:
-                clauses.append(f"BY {', '.join([self.visit(expr) for expr in node.limit_by])}")
+
+        if (
+            self.context.output_format
+            and self.dialect == "clickhouse"
+            and is_top_level_query
+            and (not part_of_select_union or is_last_query_in_union)
+        ):
+            clauses.append(f"FORMAT{space}{self.context.output_format}")
 
         if node.settings is not None and self.dialect == "clickhouse":
             settings = self._print_settings(node.settings)
@@ -451,11 +519,12 @@ class _Printer(Visitor):
                 raise ImpossibleASTError(f"Invalid table type {type(table_type).__name__} in join_expr")
 
             # :IMPORTANT: This assures a "team_id" where clause is present on every selected table.
-            # Skip function call tables like numbers(), s3(), etc.
+            # Skip warehouse tables and tables with an explicit skip.
             if (
                 self.dialect == "clickhouse"
-                and not isinstance(table_type.table, FunctionCallTable)
+                and not isinstance(table_type.table, DataWarehouseTable)
                 and not isinstance(table_type.table, SavedQuery)
+                and not isinstance(table_type.table, DANGEROUS_NoTeamIdCheckTable)
             ):
                 extra_where = team_id_guard_for_table(node.type, self.context)
 
@@ -464,13 +533,15 @@ class _Printer(Visitor):
 
                 # Edge case. If we are joining an s3 table, we must wrap it in a subquery for the join to work
                 if isinstance(table_type.table, S3Table) and (
-                    node.next_join or node.join_type == "JOIN" or node.join_type == "GLOBAL JOIN"
+                    node.next_join
+                    or node.join_type == "JOIN"
+                    or (node.join_type and node.join_type.startswith("GLOBAL "))
                 ):
                     sql = f"(SELECT * FROM {sql})"
             else:
                 sql = table_type.table.to_printed_hogql()
 
-            if isinstance(table_type.table, FunctionCallTable) and not isinstance(table_type.table, S3Table):
+            if isinstance(table_type.table, FunctionCallTable) and table_type.table.requires_args:
                 if node.table_args is None:
                     raise QueryError(f"Table function '{table_type.table.name}' requires arguments")
 
@@ -499,7 +570,7 @@ class _Printer(Visitor):
         elif isinstance(node.type, ast.SelectQueryType):
             join_strings.append(self.visit(node.table))
 
-        elif isinstance(node.type, ast.SelectUnionQueryType):
+        elif isinstance(node.type, ast.SelectSetQueryType):
             join_strings.append(self.visit(node.table))
 
         elif isinstance(node.type, ast.SelectViewType) and node.alias is not None:
@@ -515,6 +586,11 @@ class _Printer(Visitor):
                 join_strings.append(self._print_identifier(node.type.table.to_printed_hogql()))
             else:
                 raise ImpossibleASTError(f"Unexpected LazyTableType for: {node.type.table.to_printed_hogql()}")
+
+        elif self.dialect == "hogql":
+            join_strings.append(self.visit(node.table))
+            if node.alias is not None:
+                join_strings.append(f"AS {self._print_identifier(node.alias)}")
         else:
             raise QueryError(
                 f"Only selecting from a table or a subquery is supported. Unexpected type: {node.type.__class__.__name__}"
@@ -608,12 +684,6 @@ class _Printer(Visitor):
         if self.context.modifiers.propertyGroupsMode != PropertyGroupsMode.OPTIMIZED:
             return None
 
-        def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
-            expr_type = expr.type
-            while isinstance(expr_type, ast.FieldAliasType):
-                expr_type = expr_type.type
-            return expr_type
-
         if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
             # For commutative operations, we can rewrite the expression with parameters in either order without
             # affecting the result.
@@ -645,7 +715,7 @@ class _Printer(Visitor):
             else:
                 assert constant_expr is not None  # appease mypy - if we got this far, we should have a constant
 
-            property_source = self.__get_materialized_property_source(property_type)
+            property_source = self.__get_materialized_property_source_for_property_type(property_type)
             if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
                 return None
 
@@ -655,15 +725,24 @@ class _Printer(Visitor):
                     # the ``values`` subcolumn of the map.
                     return f"not({property_source.has_expr})"
 
-                printed_expr = f"equals({property_source.value_expr}, {self.visit(constant_expr)})"
-                if constant_expr.value == "":
-                    # If we're comparing to an empty string literal, we need to disambiguate this from the default value
-                    # for the ``Map(String, String)`` type used for storing property group values by also ensuring that
-                    # the property key is present in the map. If this is in a ``WHERE`` clause, this also ensures we can
-                    # still use the data skipping index on keys, even though the values index cannot be used.
-                    printed_expr = f"and({property_source.has_expr}, {printed_expr})"
+                # Equality comparisons to boolean constants can skip NULL checks while maintaining our desired result
+                # (i.e. comparisons with NULL evaluate to false) since the value expression will return an empty string
+                # if the property doesn't exist in the map.
+                if constant_expr.value is True:
+                    return f"equals({property_source.value_expr}, 'true')"
+                elif constant_expr.value is False:
+                    return f"equals({property_source.value_expr}, 'false')"
 
-                return printed_expr
+                if isinstance(constant_expr.type, ast.StringType):
+                    printed_expr = f"equals({property_source.value_expr}, {self.visit(constant_expr)})"
+                    if constant_expr.value == "":
+                        # If we're comparing to an empty string literal, we need to disambiguate this from the default value
+                        # for the ``Map(String, String)`` type used for storing property group values by also ensuring that
+                        # the property key is present in the map. If this is in a ``WHERE`` clause, this also ensures we can
+                        # still use the data skipping index on keys, even though the values index cannot be used.
+                        printed_expr = f"and({property_source.has_expr}, {printed_expr})"
+
+                    return printed_expr
 
             elif node.op == ast.CompareOperationOp.NotEq:
                 if constant_expr.value is None:
@@ -681,7 +760,7 @@ class _Printer(Visitor):
             if left_type is None or len(left_type.chain) > 1:
                 return None
 
-            property_source = self.__get_materialized_property_source(left_type)
+            property_source = self.__get_materialized_property_source_for_property_type(left_type)
             if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
                 return None
 
@@ -691,20 +770,23 @@ class _Printer(Visitor):
                 elif node.right.value == "":
                     # If the RHS is the empty string, we need to disambiguate it from the default value for missing keys.
                     return f"and({property_source.has_expr}, equals({property_source.value_expr}, {self.visit(node.right)}))"
-                else:
+                elif isinstance(node.right.type, ast.StringType):
                     return f"in({property_source.value_expr}, {self.visit(node.right)})"
             elif isinstance(node.right, ast.Tuple):
                 # If any of the values on the RHS are the empty string, we need to disambiguate it from the default
-                # value for missing keys. NULLs should also be dropped, but everything else can be passed through as-is.
+                # value for missing keys. NULLs should also be dropped, but everything else we can directly compare
+                # (strings) can be passed through as-is
                 default_value_expr: ast.Constant | None = None
                 for expr in node.right.exprs[:]:
                     if not isinstance(expr, ast.Constant):
                         return None  # only optimize constants for now, see above
-                    elif expr.value is None:
+                    if expr.value is None:
                         node.right.exprs.remove(expr)
                     elif expr.value == "":
                         default_value_expr = expr
                         node.right.exprs.remove(expr)
+                    elif not isinstance(expr.type, ast.StringType):
+                        return None
                 if len(node.right.exprs) > 0:
                     # TODO: Check to see if it'd be faster to do equality comparison here instead?
                     printed_expr = f"in({property_source.value_expr}, {self.visit(node.right)})"
@@ -738,7 +820,14 @@ class _Printer(Visitor):
 
         # :HACK: until the new type system is out: https://github.com/PostHog/posthog/pull/17267
         # If we add a ifNull() around `events.timestamp`, we lose on the performance of the index.
-        if ("toTimeZone(" in left and ".timestamp" in left) or ("toTimeZone(" in right and ".timestamp" in right):
+        if ("toTimeZone(" in left and (".timestamp" in left or "_timestamp" in left)) or (
+            "toTimeZone(" in right and (".timestamp" in right or "_timestamp" in right)
+        ):
+            not_nullable = True
+        hack_sessions_timestamp = (
+            "fromUnixTimestamp(intDiv(toUInt64(bitShiftRight(raw_sessions.session_id_v7, 80)), 1000))"
+        )
+        if hack_sessions_timestamp == left or hack_sessions_timestamp == right:
             not_nullable = True
 
         constant_lambda = None
@@ -767,8 +856,10 @@ class _Printer(Visitor):
             value_if_one_side_is_null = True
         elif node.op == ast.CompareOperationOp.In:
             op = f"in({left}, {right})"
+            return op
         elif node.op == ast.CompareOperationOp.NotIn:
             op = f"notIn({left}, {right})"
+            return op
         elif node.op == ast.CompareOperationOp.GlobalIn:
             op = f"globalIn({left}, {right})"
         elif node.op == ast.CompareOperationOp.GlobalNotIn:
@@ -805,6 +896,12 @@ class _Printer(Visitor):
             constant_lambda = lambda left_op, right_op: (
                 left_op <= right_op if left_op is not None and right_op is not None else False
             )
+        # only used for hogql direct printing (no prepare called)
+        elif node.op == ast.CompareOperationOp.InCohort:
+            op = f"{left} IN COHORT {right}"
+        # only used for hogql direct printing (no prepare called)
+        elif node.op == ast.CompareOperationOp.NotInCohort:
+            op = f"{left} NOT IN COHORT {right}"
         else:
             raise ImpossibleASTError(f"Unknown CompareOperationOp: {node.op.name}")
 
@@ -864,11 +961,6 @@ class _Printer(Visitor):
             if value_if_both_sides_are_null == value_if_one_side_is_null:
                 return "1" if value_if_one_side_is_null is True else "0"
 
-        # "in" and "not in" return 0/1 when the right operator is null, so optimize if the left operand is not nullable
-        if node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn:
-            if not nullable_left or (isinstance(node.left, ast.Constant) and node.left.value is not None):
-                return op
-
         # No constants, so check for nulls in SQL
         if value_if_one_side_is_null is True and value_if_both_sides_are_null is True:
             return f"ifNull({op}, 1)"
@@ -907,7 +999,7 @@ class _Printer(Visitor):
             return self.context.add_value(node.value)
 
     def visit_field(self, node: ast.Field):
-        if node.type is None:
+        if node.type is None and self.dialect != "hogql":
             field = ".".join([self._print_hogql_identifier_or_index(identifier) for identifier in node.chain])
             raise ImpossibleASTError(f"Field {field} has no type")
 
@@ -937,27 +1029,37 @@ class _Printer(Visitor):
         # XXX: A lot of this is duplicated (sometimes just copy/pasted) from the null equality comparison logic -- it
         # might make sense to make it so that ``isNull``/``isNotNull`` is rewritten to comparison expressions before
         # this step, similar to how ``equals``/``notEquals`` are interpreted as their comparison operation counterparts.
-        def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
-            expr_type = expr.type
-            while isinstance(expr_type, ast.FieldAliasType):
-                expr_type = expr_type.type
-            return expr_type
 
-        if node.name in ("isNull", "isNotNull"):
-            assert len(node.args) == 1, "expected unary call"
-            arg_type = resolve_field_type(node.args[0])
-            # TODO: can probably optimize chained operations, but will need more thought
-            if isinstance(arg_type, ast.PropertyType) and len(arg_type.chain) == 1:
-                property_source = self.__get_materialized_property_source(arg_type)
-                if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
+        match node:
+            case ast.Call(name="isNull" | "isNotNull" as function_name, args=[field]):
+                # TODO: can probably optimize chained operations, but will need more thought
+                field_type = resolve_field_type(field)
+                if isinstance(field_type, ast.PropertyType) and len(field_type.chain) == 1:
+                    property_source = self.__get_materialized_property_source_for_property_type(field_type)
+                    if not isinstance(property_source, PrintableMaterializedPropertyGroupItem):
+                        return None
+
+                    match function_name:
+                        case "isNull":
+                            return f"not({property_source.has_expr})"
+                        case "isNotNull":
+                            return property_source.has_expr
+                        case _:
+                            raise ValueError(f"unexpected node name: {function_name}")
+            case ast.Call(name="JSONHas", args=[field, ast.Constant(value=property_name)]):
+                # TODO: can probably optimize chained operations here as well
+                field_type = resolve_field_type(field)
+                if not isinstance(field_type, ast.FieldType):
                     return None
 
-                if node.name == "isNull":
-                    return f"not({property_source.has_expr})"
-                elif node.name == "isNotNull":
-                    return property_source.has_expr
-                else:
-                    raise ValueError("unexpected node name")
+                # TRICKY: Materialized property columns do not currently support null values (see comment in
+                # `visit_property_type`) so checking whether or not a property is set for a row cannot safely use that
+                # field and falls back to the equivalent ``JSONHas(properties, ...)`` call instead. However, if this
+                # property is part of *any* property group, we can use that column instead to evaluate this expression
+                # more efficiently -- even if the materialized column would be a better choice in other situations.
+                for property_source in self.__get_all_materialized_property_sources(field_type, str(property_name)):
+                    if isinstance(property_source, PrintableMaterializedPropertyGroupItem):
+                        return property_source.has_expr
 
         return None  # nothing to optimize
 
@@ -966,6 +1068,55 @@ class _Printer(Visitor):
         # skipping indexes can be used when possible.
         if optimized_property_group_call := self.__get_optimized_property_group_call(node):
             return optimized_property_group_call
+
+        # Validate parametric arguments
+        if func_meta := (
+            find_hogql_aggregation(node.name)
+            or find_hogql_function(node.name)
+            or find_hogql_posthog_function(node.name)
+        ):
+            if func_meta.parametric_first_arg:
+                if not node.args:
+                    raise QueryError(f"Missing arguments in function '{node.name}'")
+                # Check that the first argument is a constant string
+                first_arg = node.args[0]
+                if not isinstance(first_arg, ast.Constant):
+                    raise QueryError(
+                        f"Expected constant string as first arg in function '{node.name}', got {first_arg.__class__.__name__}"
+                    )
+                if not isinstance(first_arg.type, StringType) or not isinstance(first_arg.value, str):
+                    raise QueryError(
+                        f"Expected constant string as first arg in function '{node.name}', got {first_arg.type.__class__.__name__} '{first_arg.value}'"
+                    )
+                # Check that the constant string is within our allowed set of functions
+                if not is_allowed_parametric_function(first_arg.value):
+                    raise QueryError(
+                        f"Invalid parametric function in '{node.name}', '{first_arg.value}' is not supported."
+                    )
+
+        # Handle format strings in function names before checking function type
+        if func_meta := (
+            find_hogql_aggregation(node.name)
+            or find_hogql_function(node.name)
+            or find_hogql_posthog_function(node.name)
+        ):
+            if func_meta.using_placeholder_arguments:
+                # Check if using positional arguments (e.g. {0}, {1})
+                if func_meta.using_positional_arguments:
+                    # For positional arguments, pass the args as a dictionary
+                    arg_arr = [self.visit(arg) for arg in node.args]
+                    try:
+                        return func_meta.clickhouse_name.format(*arg_arr)
+                    except (KeyError, IndexError) as e:
+                        raise QueryError(f"Invalid argument reference in function '{node.name}': {str(e)}")
+                else:
+                    # Original sequential placeholder behavior
+                    placeholder_count = func_meta.clickhouse_name.count("{}")
+                    if len(node.args) != placeholder_count:
+                        raise QueryError(
+                            f"Function '{node.name}' requires exactly {placeholder_count} argument{'s' if placeholder_count != 1 else ''}"
+                        )
+                    return func_meta.clickhouse_name.format(*[self.visit(arg) for arg in node.args])
 
         if node.name in HOGQL_COMPARISON_MAPPING:
             op = HOGQL_COMPARISON_MAPPING[node.name]
@@ -1000,7 +1151,9 @@ class _Printer(Visitor):
                 )
 
             # check that we're not running inside another aggregate
-            for stack_node in self.stack:
+            for stack_node in reversed(self.stack):
+                if isinstance(stack_node, ast.SelectQuery):
+                    break
                 if stack_node != node and isinstance(stack_node, ast.Call) and find_hogql_aggregation(stack_node.name):
                     raise QueryError(
                         f"Aggregation '{node.name}' cannot be nested inside another aggregation '{stack_node.name}'."
@@ -1011,10 +1164,17 @@ class _Printer(Visitor):
 
             params_part = f"({', '.join(params)})" if params is not None else ""
             args_part = f"({f'DISTINCT ' if node.distinct else ''}{', '.join(args)})"
-            return f"{func_meta.clickhouse_name}{params_part}{args_part}"
+
+            return f"{node.name if self.dialect == 'hogql' else func_meta.clickhouse_name}{params_part}{args_part}"
 
         elif func_meta := find_hogql_function(node.name):
-            validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
+            validate_function_args(
+                node.args,
+                func_meta.min_args,
+                func_meta.max_args,
+                node.name,
+            )
+
             if func_meta.min_params:
                 if node.params is None:
                     raise QueryError(f"Function '{node.name}' requires parameters in addition to arguments")
@@ -1027,9 +1187,36 @@ class _Printer(Visitor):
                 )
 
             if self.dialect == "clickhouse":
+                args_count = len(node.args) - func_meta.passthrough_suffix_args_count
+                node_args, passthrough_suffix_args = node.args[:args_count], node.args[args_count:]
+
+                if node.name in SURVEY_FUNCTIONS:
+                    if node.name == "getSurveyResponse":
+                        question_index_obj = node_args[0]
+                        if not isinstance(question_index_obj, ast.Constant):
+                            raise QueryError("getSurveyResponse first argument must be a constant")
+                        if (
+                            not isinstance(question_index_obj.value, int | str)
+                            or not str(question_index_obj.value).lstrip("-").isdigit()
+                        ):
+                            raise QueryError("getSurveyResponse first argument must be a valid integer")
+                        second_arg = node_args[1] if len(node_args) > 1 else None
+                        third_arg = node_args[2] if len(node_args) > 2 else None
+                        question_id = str(second_arg.value) if isinstance(second_arg, ast.Constant) else None
+                        is_multiple_choice = bool(third_arg.value) if isinstance(third_arg, ast.Constant) else False
+                        return get_survey_response_clickhouse_query(
+                            int(question_index_obj.value), question_id, is_multiple_choice
+                        )
+
+                    elif node.name == "uniqueSurveySubmissionsFilter":
+                        survey_id = node_args[0]
+                        if not isinstance(survey_id, ast.Constant):
+                            raise QueryError("uniqueSurveySubmissionsFilter first argument must be a constant")
+                        return filter_survey_sent_events_by_unique_submission(survey_id.value)
+
                 if node.name in FIRST_ARG_DATETIME_FUNCTIONS:
                     args: list[str] = []
-                    for idx, arg in enumerate(node.args):
+                    for idx, arg in enumerate(node_args):
                         if idx == 0:
                             if isinstance(arg, ast.Call) and arg.name in ADD_OR_NULL_DATETIME_FUNCTIONS:
                                 args.append(f"assumeNotNull(toDateTime({self.visit(arg)}))")
@@ -1039,7 +1226,7 @@ class _Printer(Visitor):
                             args.append(self.visit(arg))
                 elif node.name == "concat":
                     args = []
-                    for arg in node.args:
+                    for arg in node_args:
                         if isinstance(arg, ast.Constant):
                             if arg.value is None:
                                 args.append("''")
@@ -1058,10 +1245,30 @@ class _Printer(Visitor):
                         else:
                             args.append(f"ifNull(toString({self.visit(arg)}), '')")
                 else:
-                    args = [self.visit(arg) for arg in node.args]
+                    args = [self.visit(arg) for arg in node_args]
 
+                # Some of these `isinstance` checks are here just to make our type system happy
+                # We have some guarantees in place to ensure that the arguments are string/constants anyway
+                # Here's to hoping Python's type system gets as smart as TS's one day
                 if func_meta.suffix_args:
-                    args += [self.visit(arg) for arg in func_meta.suffix_args]
+                    for suffix_arg in func_meta.suffix_args:
+                        if len(passthrough_suffix_args) > 0:
+                            if not all(isinstance(arg, ast.Constant) for arg in passthrough_suffix_args):
+                                raise QueryError(
+                                    f"Suffix argument '{suffix_arg.value}' expects ast.Constant arguments, but got {', '.join([type(arg).__name__ for arg in passthrough_suffix_args])}"
+                                )
+
+                            suffix_arg_args_values = [
+                                arg.value for arg in passthrough_suffix_args if isinstance(arg, ast.Constant)
+                            ]
+
+                            if isinstance(suffix_arg.value, str):
+                                suffix_arg.value = suffix_arg.value.format(*suffix_arg_args_values)
+                            else:
+                                raise QueryError(
+                                    f"Suffix argument '{suffix_arg.value}' expects a string, but got {type(suffix_arg.value).__name__}"
+                                )
+                        args.append(self.visit(suffix_arg))
 
                 relevant_clickhouse_name = func_meta.clickhouse_name
                 if func_meta.overloads:
@@ -1086,11 +1293,34 @@ class _Printer(Visitor):
                     if not has_tz_override:
                         args.append(self.visit(ast.Constant(value=self._get_timezone())))
 
+                    # If the datetime is in correct format, use optimal toDateTime, it's stricter but faster
+                    # and it allows CH to use index efficiently.
+                    if (
+                        relevant_clickhouse_name == "parseDateTime64BestEffortOrNull"
+                        and len(node.args) == 1
+                        and isinstance(node.args[0], Constant)
+                        and isinstance(node.args[0].type, StringType)
+                    ):
+                        relevant_clickhouse_name = "parseDateTime64BestEffort"
+                        pattern_with_microseconds_str = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{1,6}$"
+                        pattern_mysql_str = r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$"
+                        if re.match(pattern_with_microseconds_str, node.args[0].value):
+                            relevant_clickhouse_name = "toDateTime64"
+                        elif re.match(pattern_mysql_str, node.args[0].value) or re.match(
+                            r"^\d{4}-\d{2}-\d{2}$", node.args[0].value
+                        ):
+                            relevant_clickhouse_name = "toDateTime"
                     if (
                         relevant_clickhouse_name == "now64"
                         and (len(node.args) == 0 or (has_tz_override and len(node.args) == 1))
                     ) or (
-                        relevant_clickhouse_name == "parseDateTime64BestEffortOrNull"
+                        relevant_clickhouse_name
+                        in (
+                            "parseDateTime64BestEffortOrNull",
+                            "parseDateTime64BestEffortUSOrNull",
+                            "parseDateTime64BestEffort",
+                            "toDateTime64",
+                        )
                         and (len(node.args) == 1 or (has_tz_override and len(node.args) == 2))
                     ):
                         # These two CH functions require a precision argument before timezone
@@ -1113,25 +1343,46 @@ class _Printer(Visitor):
                 args_part = f"({', '.join(args)})"
                 return f"{relevant_clickhouse_name}{params_part}{args_part}"
             else:
-                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args ])})"
+                return f"{node.name}({', '.join([self.visit(arg) for arg in node.args])})"
         elif func_meta := find_hogql_posthog_function(node.name):
-            validate_function_args(node.args, func_meta.min_args, func_meta.max_args, node.name)
+            validate_function_args(
+                node.args,
+                func_meta.min_args,
+                func_meta.max_args,
+                node.name,
+            )
+
             args = [self.visit(arg) for arg in node.args]
 
-            if self.dialect in ("hogql", "clickhouse"):
+            if self.dialect == "clickhouse":
                 if node.name == "hogql_lookupDomainType":
-                    return f"coalesce(dictGetOrNull('channel_definition_dict', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('channel_definition_dict', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
+                    return f"coalesce(dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'domain_type', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'domain_type', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
                 elif node.name == "hogql_lookupPaidSourceType":
-                    return f"coalesce(dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce({args[0]}, ''), 'source')) , dictGetOrNull('channel_definition_dict', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
+                    return f"coalesce(dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'type_if_paid', (coalesce({args[0]}, ''), 'source')) , dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'type_if_paid', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
                 elif node.name == "hogql_lookupPaidMediumType":
-                    return (
-                        f"dictGetOrNull('channel_definition_dict', 'type_if_paid', (coalesce({args[0]}, ''), 'medium'))"
-                    )
+                    return f"dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'type_if_paid', (coalesce({args[0]}, ''), 'medium'))"
                 elif node.name == "hogql_lookupOrganicSourceType":
-                    return f"coalesce(dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('channel_definition_dict', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
+                    return f"coalesce(dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'type_if_organic', (coalesce({args[0]}, ''), 'source')), dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'type_if_organic', (cutToFirstSignificantSubdomain(coalesce({args[0]}, '')), 'source')))"
                 elif node.name == "hogql_lookupOrganicMediumType":
-                    return f"dictGetOrNull('channel_definition_dict', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
-            raise QueryError(f"Unexpected unresolved HogQL function '{node.name}(...)'")
+                    return f"dictGetOrNull('{CHANNEL_DEFINITION_DICT}', 'type_if_organic', (coalesce({args[0]}, ''), 'medium'))"
+                elif node.name == "convertCurrency":  # convertCurrency(from_currency, to_currency, amount, timestamp)
+                    from_currency, to_currency, amount, *_rest = args
+                    date = args[3] if len(args) > 3 and args[3] else "today()"
+                    return f"if(equals({from_currency}, {to_currency}), toDecimal64({amount}, 10), if(dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64({amount}, 10), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {from_currency}, {date}, toDecimal64(0, 10))), dictGetOrDefault(`{CLICKHOUSE_DATABASE}`.`{EXCHANGE_RATE_DICTIONARY_NAME}`, 'rate', {to_currency}, {date}, toDecimal64(0, 10)))))"
+
+                relevant_clickhouse_name = func_meta.clickhouse_name
+                if "{}" in relevant_clickhouse_name:
+                    if len(args) != 1:
+                        raise QueryError(f"Function '{node.name}' requires exactly one argument")
+                    return relevant_clickhouse_name.format(args[0])
+
+                params = [self.visit(param) for param in node.params] if node.params is not None else None
+                params_part = f"({', '.join(params)})" if params is not None else ""
+                args_part = f"({', '.join(args)})"
+                return f"{relevant_clickhouse_name}{params_part}{args_part}"
+
+            # If hogql dialect, just keep it as is
+            return f"{node.name}({', '.join(args)})"
         else:
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)
             if len(close_matches) > 0:
@@ -1141,7 +1392,9 @@ class _Printer(Visitor):
             raise QueryError(f"Unsupported function call '{node.name}(...)'")
 
     def visit_placeholder(self, node: ast.Placeholder):
-        raise QueryError(f"Placeholders, such as {{{node.field}}}, are not supported in this context")
+        if node.field is None:
+            raise QueryError("You can not use placeholders here")
+        raise QueryError(f"Unresolved placeholder: {{{node.field}}}")
 
     def visit_alias(self, node: ast.Alias):
         # Skip hidden aliases completely.
@@ -1221,7 +1474,7 @@ class _Printer(Visitor):
             isinstance(type.table_type, ast.SelectQueryType)
             or isinstance(type.table_type, ast.SelectQueryAliasType)
             or isinstance(type.table_type, ast.SelectViewType)
-            or isinstance(type.table_type, ast.SelectUnionQueryType)
+            or isinstance(type.table_type, ast.SelectSetQueryType)
         ):
             field_sql = self._print_identifier(type.name)
             if isinstance(type.table_type, ast.SelectQueryAliasType) or isinstance(type.table_type, ast.SelectViewType):
@@ -1242,22 +1495,32 @@ class _Printer(Visitor):
 
         return field_sql
 
-    def __get_materialized_property_source(
+    def __get_materialized_property_source_for_property_type(
         self, type: ast.PropertyType
     ) -> PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem | None:
         """
-        Find a materialized property for the first part of the property chain.
+        Find the most efficient materialized property source for the provided property type.
+        """
+        for source in self.__get_all_materialized_property_sources(type.field_type, str(type.chain[0])):
+            return source
+        return None
+
+    def __get_all_materialized_property_sources(
+        self, field_type: ast.FieldType, property_name: str
+    ) -> Iterable[PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem]:
+        """
+        Find all materialized property sources for the provided field type and property name, ordered from what is
+        likely to be the most efficient access path to the least efficient.
         """
         # TODO: It likely makes sense to make this independent of whether or not property groups are used.
         if self.context.modifiers.materializationMode == "disabled":
-            return None
+            return
 
-        field_type = type.field_type
         field = field_type.resolve_database_field(self.context)
 
         # check for a materialised column
         table = field_type.table_type
-        while isinstance(table, ast.TableAliasType):
+        while isinstance(table, ast.TableAliasType) or isinstance(table, ast.VirtualTableType):
             table = table.table_type
 
         if isinstance(table, ast.TableType):
@@ -1269,50 +1532,54 @@ class _Printer(Visitor):
                 raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
             field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
-            materialized_column = self._get_materialized_column(table_name, type.chain[0], field_name)
-            if materialized_column:
-                return PrintableMaterializedColumn(
+            materialized_column = self._get_materialized_column(table_name, property_name, field_name)
+            if materialized_column is not None:
+                yield PrintableMaterializedColumn(
                     self.visit(field_type.table_type),
-                    self._print_identifier(materialized_column),
+                    self._print_identifier(materialized_column.name),
+                    is_nullable=materialized_column.is_nullable,
                 )
-            elif self.context.modifiers.propertyGroupsMode in (
+
+            if self.context.modifiers.propertyGroupsMode in (
                 PropertyGroupsMode.ENABLED,
                 PropertyGroupsMode.OPTIMIZED,
             ):
-                property_name = str(type.chain[0])
                 # For now, we're assuming that properties are in either no groups or one group, so just using the
                 # first group returned is fine. If we start putting properties in multiple groups, this should be
                 # revisited to find the optimal set (i.e. smallest set) of groups to read from.
                 for property_group_column in property_groups.get_property_group_columns(
                     table_name, field_name, property_name
                 ):
-                    return PrintableMaterializedPropertyGroupItem(
+                    yield PrintableMaterializedPropertyGroupItem(
                         self.visit(field_type.table_type),
                         self._print_identifier(property_group_column),
                         self.context.add_value(property_name),
                     )
-        elif (
-            self.context.within_non_hogql_query
-            and (isinstance(table, ast.SelectQueryAliasType) and table.alias == "events__pdi__person")
-            or (isinstance(table, ast.VirtualTableType) and table.field == "poe")
+        elif self.context.within_non_hogql_query and (
+            isinstance(table, ast.SelectQueryAliasType) and table.alias == "events__pdi__person"
         ):
             # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
             if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
-                materialized_column = self._get_materialized_column("events", str(type.chain[0]), "person_properties")
+                materialized_column = self._get_materialized_column("events", property_name, "person_properties")
             else:
-                materialized_column = self._get_materialized_column("person", str(type.chain[0]), "properties")
-            if materialized_column:
-                return PrintableMaterializedColumn(None, self._print_identifier(materialized_column))
-
-        return None
+                materialized_column = self._get_materialized_column("person", property_name, "properties")
+            if materialized_column is not None:
+                yield PrintableMaterializedColumn(
+                    None,
+                    self._print_identifier(materialized_column.name),
+                    is_nullable=materialized_column.is_nullable,
+                )
 
     def visit_property_type(self, type: ast.PropertyType):
         if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
             return f"{self._print_identifier(type.joined_subquery.alias)}.{self._print_identifier(type.joined_subquery_field_name)}"
 
-        materialized_property_source = self.__get_materialized_property_source(type)
+        materialized_property_source = self.__get_materialized_property_source_for_property_type(type)
         if materialized_property_source is not None:
-            if isinstance(materialized_property_source, PrintableMaterializedColumn):
+            if (
+                isinstance(materialized_property_source, PrintableMaterializedColumn)
+                and not materialized_property_source.is_nullable
+            ):
                 # TODO: rematerialize all columns to properly support empty strings and "null" string values.
                 if self.context.modifiers.materializationMode == MaterializationMode.LEGACY_NULL_AS_STRING:
                     materialized_property_sql = f"nullIf({materialized_property_source}, '')"
@@ -1391,8 +1658,10 @@ class _Printer(Visitor):
             if len(node.order_by) == 0:
                 raise ImpossibleASTError("ORDER BY must have at least one argument")
             strings.append("ORDER BY")
+            columns = []
             for expr in node.order_by:
-                strings.append(self.visit(expr))
+                columns.append(self.visit(expr))
+            strings.append(", ".join(columns))
 
         if node.frame_method is not None:
             if node.frame_method == "ROWS":
@@ -1403,26 +1672,68 @@ class _Printer(Visitor):
                 raise ImpossibleASTError(f"Invalid frame method {node.frame_method}")
             if node.frame_start and node.frame_end is None:
                 strings.append(self.visit(node.frame_start))
-
             elif node.frame_start is not None and node.frame_end is not None:
                 strings.append("BETWEEN")
                 strings.append(self.visit(node.frame_start))
                 strings.append("AND")
                 strings.append(self.visit(node.frame_end))
-
             else:
                 raise ImpossibleASTError("Frame start and end must be specified together")
         return " ".join(strings)
 
     def visit_window_function(self, node: ast.WindowFunction):
         identifier = self._print_identifier(node.name)
-        exprs = ", ".join(self.visit(expr) for expr in node.exprs or [])
-        args = "(" + (", ".join(self.visit(arg) for arg in node.args or [])) + ")" if node.args else ""
-        if node.over_expr or node.over_identifier:
-            over = f"({self.visit(node.over_expr)})" if node.over_expr else self._print_identifier(node.over_identifier)
+        exprs = [self.visit(expr) for expr in node.exprs or []]
+        cloned_node = cast(ast.WindowFunction, clone_expr(node))
+
+        # For compatibility with postgresql syntax, convert lag/lead to lagInFrame/leadInFrame and add default window frame if needed
+        if identifier in ("lag", "lead"):
+            identifier = f"{identifier}InFrame"
+            # Wrap the first expression (value) and third expression (default) in toNullable()
+            # The second expression (offset) must remain a non-nullable integer
+            if len(exprs) > 0:
+                exprs[0] = f"toNullable({exprs[0]})"  # value
+            # If there's no window frame specified, add the default one
+            if not cloned_node.over_expr and not cloned_node.over_identifier:
+                cloned_node.over_expr = self._create_default_window_frame(cloned_node)
+            # If there's an over_identifier, we need to extract the new window expr just for this function
+            elif cloned_node.over_identifier:
+                # Find the last select query to look up the window definition
+                last_select = self._last_select()
+                if last_select and last_select.window_exprs and cloned_node.over_identifier in last_select.window_exprs:
+                    base_window = last_select.window_exprs[cloned_node.over_identifier]
+                    # Create a new window expr based on the referenced one
+                    cloned_node.over_expr = ast.WindowExpr(
+                        partition_by=base_window.partition_by,
+                        order_by=base_window.order_by,
+                        frame_method="ROWS" if not base_window.frame_method else base_window.frame_method,
+                        frame_start=base_window.frame_start
+                        or ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=None),
+                        frame_end=base_window.frame_end
+                        or ast.WindowFrameExpr(frame_type="FOLLOWING", frame_value=None),
+                    )
+                    cloned_node.over_identifier = None
+            # If there's an ORDER BY but no frame, add the default frame
+            elif cloned_node.over_expr and cloned_node.over_expr.order_by and not cloned_node.over_expr.frame_method:
+                cloned_node.over_expr = self._create_default_window_frame(cloned_node)
+
+        # Handle any additional function arguments
+        args = f"({', '.join(self.visit(arg) for arg in cloned_node.args)})" if cloned_node.args else ""
+
+        if cloned_node.over_expr or cloned_node.over_identifier:
+            over = (
+                f"({self.visit(cloned_node.over_expr)})"
+                if cloned_node.over_expr
+                else self._print_identifier(cloned_node.over_identifier)
+            )
         else:
             over = "()"
-        return f"{identifier}({exprs}){args} OVER {over}"
+
+        # Handle the case where we have both regular expressions and function arguments
+        if cloned_node.args:
+            return f"{identifier}({', '.join(exprs)}){args} OVER {over}"
+        else:
+            return f"{identifier}({', '.join(exprs)}) OVER {over}"
 
     def visit_window_frame_expr(self, node: ast.WindowFrameExpr):
         if node.frame_type == "PRECEDING":
@@ -1433,6 +1744,46 @@ class _Printer(Visitor):
             return "CURRENT ROW"
         else:
             raise ImpossibleASTError(f"Invalid frame type {node.frame_type}")
+
+    def visit_hogqlx_tag(self, node: ast.HogQLXTag):
+        if self.dialect != "hogql":
+            raise QueryError("Printing HogQLX tags is only supported in HogQL queries")
+
+        attributes = []
+        children = []
+        for attribute in node.attributes:
+            if isinstance(attribute, ast.HogQLXAttribute) and attribute.name == "children":
+                if isinstance(attribute.value, list):
+                    children.extend(attribute.value)
+                else:
+                    children.append(attribute.value)
+            else:
+                attributes.append(attribute)
+
+        tag = f"<{self._print_identifier(node.kind)}"
+        if attributes:
+            tag += " " + (" ".join(self.visit(a) for a in attributes))
+        if children:
+            children_contents = [
+                self.visit(child) if isinstance(child, ast.HogQLXTag) else "{" + self.visit(child) + "}"
+                for child in children
+            ]
+            tag += ">" + ("".join(children_contents)) + "</" + self._print_identifier(node.kind) + ">"
+        else:
+            tag += " />"
+
+        return tag
+
+    def visit_hogqlx_attribute(self, node: ast.HogQLXAttribute):
+        if self.dialect != "hogql":
+            raise QueryError("Printing HogQLX tags is only supported in HogQL queries")
+        if isinstance(node.value, ast.HogQLXTag):
+            value = self.visit(node.value)
+        elif isinstance(node.value, list):
+            value = "{[" + (", ".join(self.visit(x) for x in node.value)) + "]}"
+        else:
+            value = "{" + self.visit(node.value) + "}"
+        return f"{self._print_identifier(node.name)}={value}"
 
     def _last_select(self) -> Optional[ast.SelectQuery]:
         """Find the last SELECT query in the stack."""
@@ -1452,7 +1803,9 @@ class _Printer(Visitor):
             return str(name)
         return escape_hogql_identifier(name)
 
-    def _print_escaped_string(self, name: float | int | str | list | tuple | datetime | date) -> str:
+    def _print_escaped_string(
+        self, name: float | int | str | list | tuple | datetime | date | UUID | UUIDT | None
+    ) -> str:
         if self.dialect == "clickhouse":
             return escape_clickhouse_string(name, timezone=self._get_timezone())
         return escape_hogql_string(name, timezone=self._get_timezone())
@@ -1462,19 +1815,14 @@ class _Printer(Visitor):
 
     def _get_materialized_column(
         self, table_name: str, property_name: PropertyName, field_name: TableColumn
-    ) -> Optional[str]:
-        try:
-            from ee.clickhouse.materialized_columns.columns import (
-                TablesWithMaterializedColumns,
-                get_materialized_columns,
-            )
-
-            materialized_columns = get_materialized_columns(cast(TablesWithMaterializedColumns, table_name))
-            return materialized_columns.get((property_name, field_name), None)
-        except ModuleNotFoundError:
-            return None
+    ) -> MaterializedColumn | None:
+        return get_materialized_column_for_property(
+            cast(TablesWithMaterializedColumns, table_name), field_name, property_name
+        )
 
     def _get_timezone(self) -> str:
+        if self.context.modifiers.convertToProjectTimezone is False:
+            return "UTC"
         return self.context.database.get_timezone() if self.context.database else "UTC"
 
     def _get_week_start_day(self) -> WeekStartDay:
@@ -1485,10 +1833,17 @@ class _Printer(Visitor):
             return node.value is None
         elif isinstance(node.type, ast.PropertyType):
             return True
+        elif isinstance(node.type, ast.ConstantType):
+            return node.type.nullable
+        elif isinstance(node.type, ast.CallType):
+            return node.type.return_type.nullable
         elif isinstance(node.type, ast.FieldType):
             return node.type.is_nullable(self.context)
         elif isinstance(node, ast.Alias):
             return self._is_nullable(node.expr)
+        elif isinstance(node.type, ast.FieldAliasType):
+            if (field_type := resolve_field_type(node)) and isinstance(field_type, ast.FieldType):
+                return field_type.is_nullable(self.context)
 
         # we don't know if it's nullable, so we assume it can be
         return True
@@ -1511,3 +1866,24 @@ class _Printer(Visitor):
         if len(pairs) > 0:
             return f"SETTINGS {', '.join(pairs)}"
         return None
+
+    def _create_default_window_frame(self, node: ast.WindowFunction):
+        # For lag/lead functions, we need to order by the first argument by default
+        order_by: Optional[list[ast.OrderExpr]] = None
+        if node.over_expr and node.over_expr.order_by:
+            order_by = [cast(ast.OrderExpr, clone_expr(expr)) for expr in node.over_expr.order_by]
+        elif node.exprs is not None and len(node.exprs) > 0:
+            order_by = [ast.OrderExpr(expr=clone_expr(node.exprs[0]), order="ASC")]
+
+        # Preserve existing PARTITION BY if provided via an existing OVER () clause
+        partition_by: Optional[list[ast.Expr]] = None
+        if node.over_expr and node.over_expr.partition_by:
+            partition_by = [cast(ast.Expr, clone_expr(expr)) for expr in node.over_expr.partition_by]
+
+        return ast.WindowExpr(
+            partition_by=partition_by,
+            order_by=order_by,
+            frame_method="ROWS",
+            frame_start=ast.WindowFrameExpr(frame_type="PRECEDING", frame_value=None),
+            frame_end=ast.WindowFrameExpr(frame_type="FOLLOWING", frame_value=None),
+        )

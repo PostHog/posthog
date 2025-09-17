@@ -1,0 +1,107 @@
+---
+description: Rules for writing Python services at PostHog (Python servers powered by the Django framework)
+globs: *.py
+alwaysApply: false
+---
+
+You are an expert in Python, Django, and scalable web application development.
+
+Key Principles
+  - Write clear, technical responses with precise Django examples.
+  - Use Django's built-in features and tools wherever possible to leverage its full capabilities.
+  - Prioritize readability and maintainability; follow Django's coding style guide (PEP 8 compliance for the most part, with the one exception being 120 characters per line instead of 79).
+  - Use descriptive variable and function names; adhere to naming conventions (e.g., lowercase with underscores for functions and variables).
+
+Django/Python
+  - Use Django REST Framework viewsets for API endpoints.
+  - Leverage Django’s ORM for database interactions; avoid raw SQL queries unless necessary for performance.
+  - Use Django’s built-in user model and authentication framework for user management.
+  - Follow the MVT (Model-View-Template) pattern strictly for clear separation of concerns.
+  - Use middleware judiciously to handle cross-cutting concerns like authentication, logging, and caching.
+
+Error Handling and Validation
+  - Implement error handling at the view level and use Django's built-in error handling mechanisms.
+  - Prefer try-except blocks for handling exceptions in business logic and views.
+  - Customize error pages (e.g., 404, 500) to improve user experience and provide helpful information.
+  - Use Django signals to decouple error handling and logging from core business logic.
+
+Dependencies
+  - Django
+  - Django REST Framework (for API development)
+  - Celery (for background tasks)
+  - Redis (for caching and task queues)
+  - PostgreSQL (preferred databases for production)
+
+Django-Specific Guidelines
+  - Use Django templates for rendering HTML and DRF serializers for JSON responses.
+  - Keep business logic in models and forms; keep views light and focused on request handling.
+  - Use Django's URL dispatcher (urls.py) to define clear and RESTful URL patterns.
+  - Apply Django's security best practices (e.g., CSRF protection, SQL injection protection, XSS prevention).
+  - Leverage Django’s caching framework to optimize performance for frequently accessed data.
+  - Use Django’s middleware for common tasks such as authentication, logging, and security.
+
+Performance Optimization
+  - Optimize query performance using Django ORM's select_related and prefetch_related for related object fetching.
+  - Use Django’s cache framework with backend support (e.g., Redis or Memcached) to reduce database load.
+  - Implement database indexing and query optimization techniques for better performance.
+  - Use asynchronous views and background tasks (via Celery) for I/O-bound or long-running operations.
+  - Optimize static file handling with Django’s static file management system (e.g., WhiteNoise or CDN integration).
+
+Logging
+  - As a general rule, we should have logs for every expected and unexpected actions of the application, using the appropriate log level.
+  - We should also be logging these exceptions to error tracking with the PostHog Python SDK. Python exceptions should almost always be captured automatically without extra instrumentation, but custom ones (such as failed requests to external services, query errors, or Celery task failures) can be tracked using capture_exception().
+
+Log Levels
+  - A log level or log severity is a piece of information telling how important a given log message is:
+    - DEBUG: should be used for information that may be needed for diagnosing issues and troubleshooting or when running application in the test environment for the purpose of making sure everything is running correctly
+    - INFO: should be used as standard log level, indicating that something happened
+    - WARN: should be used when something unexpected happened but the code can continue the work
+    - ERROR: should be used when the application hits an issue preventing one or more functionalities from properly functioning
+
+Logging Format
+  - django-structlog is the default logging library we use (see docs). It's a structured logging framework that adds cohesive metadata on each logs that makes it easier to track events or incidents.
+  - Structured logging means that you don’t write hard-to-parse and hard-to-keep-consistent prose in your logs but that you log events that happen in a context instead.
+
+  (example)
+
+  ```python
+  import structlog
+  logger = structlog.get_logger(__name__)
+  logger.debug("event_sent_to_kafka", event_uuid=str(event_uuid), kafka_topic=topic)
+  ```
+
+  will produce:
+
+  ```sh
+  2021-10-28T13:46:40.099007Z [debug] event_sent_to_kafka [posthog.api.capture] event_uuid=017cc727-1662-0000-630c-d35f6a29bae3 kafka_topic=default
+  As you can see above, the log contains all the information needed to understand the app behaviour.
+  ```
+
+Security
+  - Don’t log sensitive information. Make sure you never log:
+    - authorization tokens
+    - passwords
+    - financial data
+    - health data
+    - PII (Personal Identifiable Information)
+
+Testing
+  - After adding or updating tests, make sure they pass, by running them with pytest. Before running tests command, you must activate the dev environment with `flox activate`, then activate the venv. If that fails, instead find the Python venv at `.venv`, or `venv`, or `env`, in this order.
+  - When rerunning previously failed tests, specify the specific tests to re-run.
+  - All new packages and most new significant functionality should come with unit tests
+  - Significant features should come with integration and/or end-to-end tests
+  - Analytics-related queries should be covered by snapshot tests for ease of reviewing
+  - Always consider if you can simplify a test by using the `parameterized.expand` decorator
+
+Unit tests
+  - A good unit test should:
+    - focus on a single use-case at a time
+    - have a minimal set of assertions per test
+    - demonstrate every use case. The rule of thumb is: if it can happen, it should be covered
+
+Integration tests
+  - Integration tests should ensure that the feature works end-to-end. They must cover all the important use cases of the feature.
+  
+Running commands
+- Use `uv sync` instead of `pip install -r ...`, and `uv add PACKAGE` instead of `pip install PACKAGE`. If there is an import error, first activate the venv at `.flox/cache/venv/` or alternatively `.venv/`.
+Refer to Django documentation for best practices in views, models, forms, and security considerations.

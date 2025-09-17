@@ -1,7 +1,8 @@
-from posthog.dbrouter import ReplicaRouter
 from posthog.test.base import BaseTest
-from posthog.models.user import User
+
+from posthog.dbrouter import ReplicaRouter
 from posthog.models.team import Team
+from posthog.models.user import User
 
 
 class TestReplicaRouter(BaseTest):

@@ -1,7 +1,8 @@
 import Fuse from 'fuse.js'
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import posthog from 'posthog-js'
+
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -26,11 +27,11 @@ export const sceneDashboardChoiceModalLogic = kea<sceneDashboardChoiceModalLogic
     path((key) => ['lib', 'components', 'SceneDashboardChoice', 'sceneDashboardChoiceModalLogic', key || 'unknown']),
     props({} as SceneDashboardChoiceModalProps),
     key((props) => `${props.scene}`),
-    connect({
+    connect(() => ({
         logic: [eventUsageLogic],
         actions: [teamLogic, ['updateCurrentTeam'], userLogic, ['setUserScenePersonalisation']],
         values: [teamLogic, ['currentTeam'], userLogic, ['user'], dashboardsModel, ['nameSortedDashboards']],
-    }),
+    })),
     actions({
         showSceneDashboardChoiceModal: () => true,
         closeSceneDashboardChoiceModal: () => true,

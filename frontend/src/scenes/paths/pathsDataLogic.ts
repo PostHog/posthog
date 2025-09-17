@@ -1,31 +1,27 @@
 import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { router } from 'kea-router'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { OpenPersonsModalProps, openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
-import { openPersonsModal, OpenPersonsModalProps } from 'scenes/trends/persons-modal/PersonsModal'
 import { urls } from 'scenes/urls'
 
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { InsightActorsQuery, InsightVizNode, NodeKind, PathsQuery } from '~/queries/schema'
+import { InsightActorsQuery, InsightVizNode, NodeKind, PathsLink, PathsQuery } from '~/queries/schema/schema-general'
 import { isPathsQuery } from '~/queries/utils'
 import { ActionFilter, InsightLogicProps, PathType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import type { pathsDataLogicType } from './pathsDataLogicType'
 import { PathNodeData } from './pathUtils'
+import type { pathsDataLogicType } from './pathsDataLogicType'
+import { Paths, PathsNode } from './types'
 
 export const DEFAULT_STEP_LIMIT = 5
 
 const DEFAULT_PATH_LOGIC_KEY = 'default_path_key'
-
-export interface PathNode {
-    target: string
-    source: string
-    value: number
-}
 
 export const pathsDataLogic = kea<pathsDataLogicType>([
     path((key) => ['scenes', 'paths', 'pathsDataLogic', key]),
@@ -44,6 +40,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
                 'pathsFilter',
                 'funnelPathsFilter',
                 'dateRange',
+                'theme',
             ],
             featureFlagLogic,
             ['featureFlags'],
@@ -60,14 +57,14 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
     selectors({
         results: [
             (s) => [s.insightQuery, s.insightData],
-            (insightQuery, insightData): PathNode[] => {
-                return isPathsQuery(insightQuery) ? insightData?.result ?? [] : []
+            (insightQuery, insightData): PathsLink[] => {
+                return isPathsQuery(insightQuery) ? (insightData?.result ?? []) : []
             },
         ],
         paths: [
             (s) => [s.results],
-            (results) => {
-                const nodes: Record<string, any> = {}
+            (results): Paths => {
+                const nodes: Record<string, PathsNode> = {}
                 for (const path of results) {
                     if (!nodes[path.source]) {
                         nodes[path.source] = { name: path.source }
@@ -171,7 +168,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>([
             }
 
             if (events.length > 0) {
-                router.actions.push(urls.insightNew(undefined, undefined, query))
+                router.actions.push(urls.insightNew({ query }))
             }
         },
     })),

@@ -1,5 +1,5 @@
-from typing import Optional, TYPE_CHECKING
 from abc import ABC
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from .ast import Expr
@@ -8,6 +8,7 @@ if TYPE_CHECKING:
 
 
 class BaseHogQLError(Exception, ABC):
+    message: str
     start: Optional[int]
     end: Optional[int]
 

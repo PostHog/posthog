@@ -1,8 +1,9 @@
-import datetime
 import os
+import datetime
+import subprocess
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, Optional, cast
+from typing import Any, Literal, Optional, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -10,6 +11,7 @@ from django.core import exceptions
 from django.db import models
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
+
 from rest_framework.exceptions import ValidationError
 from semantic_version.base import SimpleSpec
 
@@ -18,9 +20,9 @@ from posthog.constants import FROZEN_POSTHOG_VERSION
 from posthog.models.organization import Organization
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
-from posthog.plugins.access import can_configure_plugins, can_install_plugins
+from posthog.plugins.access import can_install_plugins
 from posthog.plugins.plugin_server_api import populate_plugin_capabilities_on_workers, reload_plugins_on_workers
-from posthog.plugins.site import get_decide_site_apps
+from posthog.plugins.site import get_decide_site_apps, get_decide_site_functions
 from posthog.plugins.utils import (
     download_plugin_archive,
     extract_plugin_code,
@@ -29,10 +31,10 @@ from posthog.plugins.utils import (
     parse_url,
 )
 
-from .utils import UUIDModel, sane_repr
+from .utils import UUIDTModel, sane_repr
 
 try:
-    from posthog.client import sync_execute
+    from posthog.clickhouse.client import sync_execute
 except ImportError:
     pass
 
@@ -272,6 +274,18 @@ class PluginAttachment(models.Model):
     file_size = models.IntegerField()
     contents = models.BinaryField()
 
+    def parse_contents(self) -> str | None:
+        contents: bytes | None = self.contents
+        if not contents:
+            return None
+
+        try:
+            if self.content_type == "application/json" or self.content_type == "text/plain":
+                return contents.decode("utf-8")
+            return None
+        except Exception:
+            return None
+
 
 class PluginStorage(models.Model):
     plugin_config = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
@@ -301,6 +315,28 @@ class PluginLogEntryType(StrEnum):
     ERROR = "ERROR"
 
 
+class TranspilerError(Exception):
+    pass
+
+
+def transpile(input_string: str, type: Literal["site", "frontend"] = "site") -> Optional[str]:
+    from posthog.settings.base_variables import BASE_DIR
+
+    transpiler_path = os.path.join(BASE_DIR, "common/plugin_transpiler/dist/index.js")
+    if type not in ["site", "frontend"]:
+        raise Exception('Invalid type. Must be "site" or "frontend".')
+
+    process = subprocess.Popen(
+        ["node", transpiler_path, "--type", type], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    )
+    stdout, stderr = process.communicate(input=input_string.encode())
+
+    if process.returncode != 0:
+        error = stderr.decode()
+        raise TranspilerError(error)
+    return stdout.decode()
+
+
 class PluginSourceFileManager(models.Manager):
     def sync_from_plugin_archive(
         self, plugin: Plugin, plugin_json_parsed: Optional[dict[str, Any]] = None
@@ -317,8 +353,10 @@ class PluginSourceFileManager(models.Manager):
             plugin_json, index_ts, frontend_tsx, site_ts = extract_plugin_code(plugin.archive, plugin_json_parsed)
         except ValueError as e:
             raise exceptions.ValidationError(f"{e} in plugin {plugin}")
+
         # If frontend.tsx or index.ts are not present in the archive, make sure they aren't found in the DB either
         filenames_to_delete = []
+
         # Save plugin.json
         plugin_json_instance, _ = PluginSourceFile.objects.update_or_create(
             plugin=plugin,
@@ -330,36 +368,58 @@ class PluginSourceFileManager(models.Manager):
                 "error": None,
             },
         )
+
         # Save frontend.tsx
         frontend_tsx_instance: Optional[PluginSourceFile] = None
         if frontend_tsx is not None:
+            transpiled = None
+            status = None
+            error = None
+            try:
+                transpiled = transpile(frontend_tsx, type="site")
+                status = PluginSourceFile.Status.TRANSPILED
+            except Exception as e:
+                error = str(e)
+                status = PluginSourceFile.Status.ERROR
             frontend_tsx_instance, _ = PluginSourceFile.objects.update_or_create(
                 plugin=plugin,
                 filename="frontend.tsx",
                 defaults={
                     "source": frontend_tsx,
-                    "transpiled": None,
-                    "status": None,
-                    "error": None,
+                    "transpiled": transpiled,
+                    "status": status,
+                    "error": error,
                 },
             )
         else:
             filenames_to_delete.append("frontend.tsx")
-        # Save frontend.tsx
+
+        # Save site.ts
         site_ts_instance: Optional[PluginSourceFile] = None
         if site_ts is not None:
+            transpiled = None
+            status = None
+            error = None
+            try:
+                transpiled = transpile(site_ts, type="site")
+                status = PluginSourceFile.Status.TRANSPILED
+            except Exception as e:
+                error = str(e)
+                status = PluginSourceFile.Status.ERROR
+
             site_ts_instance, _ = PluginSourceFile.objects.update_or_create(
                 plugin=plugin,
                 filename="site.ts",
                 defaults={
                     "source": site_ts,
-                    "transpiled": None,
-                    "status": None,
-                    "error": None,
+                    "transpiled": transpiled,
+                    "status": status,
+                    "error": error,
                 },
             )
         else:
             filenames_to_delete.append("site.ts")
+
         # Save index.ts
         index_ts_instance: Optional[PluginSourceFile] = None
         if index_ts is not None:
@@ -377,10 +437,13 @@ class PluginSourceFileManager(models.Manager):
             )
         else:
             filenames_to_delete.append("index.ts")
+
         # Make sure files are gone
         PluginSourceFile.objects.filter(plugin=plugin, filename__in=filenames_to_delete).delete()
+
         # Trigger plugin server reload and code transpilation
         plugin.save()
+
         return (
             plugin_json_instance,
             index_ts_instance,
@@ -389,7 +452,7 @@ class PluginSourceFileManager(models.Manager):
         )
 
 
-class PluginSourceFile(UUIDModel):
+class PluginSourceFile(UUIDTModel):
     class Meta:
         constraints = [models.UniqueConstraint(name="unique_filename_for_plugin", fields=("plugin_id", "filename"))]
 
@@ -459,32 +522,9 @@ def fetch_plugin_log_entries(
         clickhouse_kwargs["types"] = type_filter
     clickhouse_query = f"""
         SELECT id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id FROM plugin_log_entries
-        WHERE {' AND '.join(clickhouse_where_parts)} ORDER BY timestamp DESC {f'LIMIT {limit}' if limit else ''}
+        WHERE {" AND ".join(clickhouse_where_parts)} ORDER BY timestamp DESC {f"LIMIT {limit}" if limit else ""}
     """
     return [PluginLogEntry(*result) for result in cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))]
-
-
-def validate_plugin_job_payload(plugin: Plugin, job_type: str, payload: dict[str, Any], *, is_staff: bool):
-    if not plugin.public_jobs:
-        raise ValidationError("Plugin has no public jobs")
-    if job_type not in plugin.public_jobs:
-        raise ValidationError(f"Unknown plugin job: {repr(job_type)}")
-
-    payload_spec = plugin.public_jobs[job_type].get("payload", {})
-    for key, field_options in payload_spec.items():
-        if field_options.get("required", False) and key not in payload:
-            raise ValidationError(f"Missing required job field: {key}")
-        if (
-            field_options.get("staff_only", False)
-            and not is_staff
-            and key in payload
-            and payload.get(key) != field_options.get("default")
-        ):
-            raise ValidationError(f"Field is only settable for admins: {key}")
-
-    for key in payload:
-        if key not in payload_spec:
-            raise ValidationError(f"Unknown field for job: {key}")
 
 
 @receiver(models.signals.post_save, sender=Organization)
@@ -499,23 +539,10 @@ def preinstall_plugins_for_new_organization(sender, instance: Organization, crea
                     is_preinstalled=True,
                 )
             except Exception as e:
-                print(
+                print(  # noqa: T201 allow print statement
                     f"⚠️ Cannot preinstall plugin from {plugin_url}, skipping it for organization {instance.name}:\n",
                     e,
                 )
-
-
-@receiver(models.signals.post_save, sender=Team)
-def enable_preinstalled_plugins_for_new_team(sender, instance: Team, created: bool, **kwargs):
-    if created and can_configure_plugins(instance.organization):
-        for order, preinstalled_plugin in enumerate(Plugin.objects.filter(is_preinstalled=True)):
-            PluginConfig.objects.create(
-                team=instance,
-                plugin=preinstalled_plugin,
-                enabled=True,
-                order=order,
-                config=preinstalled_plugin.get_default_config(),
-            )
 
 
 @mutable_receiver([post_save, post_delete], sender=Plugin)
@@ -537,7 +564,7 @@ def plugin_config_reload_needed(sender, instance, created=None, **kwargs):
 
 
 def sync_team_inject_web_apps(team: Team):
-    inject_web_apps = len(get_decide_site_apps(team)) > 0
+    inject_web_apps = len(get_decide_site_apps(team)) > 0 or len(get_decide_site_functions(team)) > 0
     if inject_web_apps != team.inject_web_apps:
         team.inject_web_apps = inject_web_apps
         team.save(update_fields=["inject_web_apps"])

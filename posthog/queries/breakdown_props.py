@@ -2,13 +2,11 @@ from typing import Any, Optional, Union, cast
 
 from django.forms import ValidationError
 
-from posthog.constants import (
-    BREAKDOWN_TYPES,
-    MONTHLY_ACTIVE,
-    WEEKLY_ACTIVE,
-    PropertyOperatorType,
-)
+from posthog.schema import PersonsOnEventsMode
+
 from posthog.hogql.hogql import HogQLContext
+
+from posthog.constants import BREAKDOWN_TYPES, MONTHLY_ACTIVE, WEEKLY_ACTIVE, PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import format_filter_query
 from posthog.models.entity import Entity
@@ -29,13 +27,9 @@ from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_on_events_v2_sql import PERSON_DISTINCT_ID_OVERRIDES_JOIN_SQL
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
-from posthog.schema import PersonsOnEventsMode
-from posthog.session_recordings.queries.session_query import SessionQuery
-from posthog.queries.trends.sql import (
-    HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL,
-    TOP_ELEMENTS_ARRAY_OF_KEY_SQL,
-)
+from posthog.queries.trends.sql import HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL, TOP_ELEMENTS_ARRAY_OF_KEY_SQL
 from posthog.queries.util import PersonPropertiesMode, alias_poe_mode_for_legacy
+from posthog.session_recordings.queries.session_query import SessionQuery
 
 ALL_USERS_COHORT_ID = 0
 
@@ -153,7 +147,7 @@ def get_breakdown_prop_values(
         entity_filter, entity_params = FunnelEventQuery(
             filter,
             team,
-            person_on_events_mode=team.person_on_events_mode,
+            person_on_events_mode=alias_poe_mode_for_legacy(team.person_on_events_mode),
         )._get_entity_query()
         entity_format_params = {"entity_query": entity_filter}
     else:
@@ -359,9 +353,9 @@ def _format_all_query(team: Team, filter: Filter, **kwargs) -> tuple[str, dict]:
 def format_breakdown_cohort_join_query(team: Team, filter: Filter, **kwargs) -> tuple[str, list, dict]:
     entity = kwargs.pop("entity", None)
     cohorts = (
-        Cohort.objects.filter(team_id=team.pk, pk__in=[b for b in filter.breakdown if b != "all"])
+        Cohort.objects.filter(team__project_id=team.project_id, pk__in=[b for b in filter.breakdown if b != "all"])
         if isinstance(filter.breakdown, list)
-        else Cohort.objects.filter(team_id=team.pk, pk=filter.breakdown)
+        else Cohort.objects.filter(team__project_id=team.project_id, pk=filter.breakdown)
     )
     cohort_queries, params = _parse_breakdown_cohorts(list(cohorts), filter.hogql_context)
     ids = [cohort.pk for cohort in cohorts]

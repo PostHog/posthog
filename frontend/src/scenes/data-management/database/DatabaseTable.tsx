@@ -1,18 +1,20 @@
-import { LemonButton, LemonSelect, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { useCallback } from 'react'
+
+import { LemonButton, LemonSelect, Spinner, lemonToast } from '@posthog/lemon-ui'
+
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { useCallback } from 'react'
 import { dataWarehouseJoinsLogic } from 'scenes/data-warehouse/external/dataWarehouseJoinsLogic'
 import { dataWarehouseSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSceneLogic'
 import { viewLinkLogic } from 'scenes/data-warehouse/viewLinkLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { DatabaseSchemaTable, DatabaseSerializedFieldType } from '~/queries/schema'
+import { DatabaseSchemaTable, DatabaseSerializedFieldType } from '~/queries/schema/schema-general'
 
 interface DatabaseTableProps {
     table: string
@@ -21,17 +23,26 @@ interface DatabaseTableProps {
     schemaOnChange?: (columnKey: string, columnType: DatabaseSerializedFieldType) => void
 }
 
-const nonEditableSchemaTypes = ['lazy_table', 'virtual_table', 'field_traverser', 'expression', 'view'] as const
+const nonEditableSchemaTypes = [
+    'lazy_table',
+    'virtual_table',
+    'field_traverser',
+    'expression',
+    'view',
+    'materialized_view',
+] as const
 type NonEditableSchemaTypes = Extract<DatabaseSerializedFieldType, (typeof nonEditableSchemaTypes)[number]>
 const editSchemaOptions: Record<Exclude<DatabaseSerializedFieldType, NonEditableSchemaTypes>, string> = {
     integer: 'Integer',
     float: 'Float',
+    decimal: 'Decimal',
     string: 'String',
     datetime: 'DateTime',
     date: 'Date',
     boolean: 'Boolean',
     array: 'Array',
     json: 'JSON',
+    unknown: 'Unknown',
 }
 const editSchemaOptionsAsArray = Object.keys(editSchemaOptions).map((n) => ({ value: n, label: editSchemaOptions[n] }))
 
@@ -61,7 +72,7 @@ const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName:
                         fullWidth
                         onClick={() => {
                             void deleteWithUndo({
-                                endpoint: `projects/${currentTeamId}/warehouse_view_link`,
+                                endpoint: `environments/${currentTeamId}/warehouse_view_link`,
                                 object: {
                                     id: join.id,
                                     name: `${join.field_name} on ${join.source_table_name}`,
@@ -70,6 +81,8 @@ const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName:
                                     loadDatabase()
                                     loadJoins()
                                 },
+                            }).catch((e) => {
+                                lemonToast.error(`Failed to delete warehouse view link: ${e.detail}`)
                             })
                         }}
                     >
@@ -77,7 +90,7 @@ const JoinsMoreMenu = ({ tableName, fieldName }: { tableName: string; fieldName:
                     </LemonButton>
                 </>
             ),
-        [joinsLoading, join]
+        [joinsLoading, join] // oxlint-disable-line react-hooks/exhaustive-deps
     )
 
     return <More overlay={overlay()} />

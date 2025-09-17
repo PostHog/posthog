@@ -1,0 +1,7 @@
+fun arrayMap(func, arr) {
+  let result := []
+  for (let i in arr) {
+    result := arrayPushBack(result, func(i))
+  }
+  return result
+}

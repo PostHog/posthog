@@ -2,29 +2,34 @@ from datetime import UTC, datetime
 from typing import Optional, cast
 
 from freezegun import freeze_time
+from posthog.test.base import BaseTest
 
 from hogql_parser import parse_select
+
+from posthog.schema import (
+    BaseMathType,
+    ChartDisplayType,
+    Compare,
+    CompareFilter,
+    DateRange,
+    EventsNode,
+    IntervalType,
+    MathGroupTypeIndex,
+    TrendsFilter,
+    TrendsQuery,
+)
+
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import print_ast
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
-from posthog.schema import (
-    BaseMathType,
-    ChartDisplayType,
-    Compare,
-    CompareFilter,
-    EventsNode,
-    InsightDateRange,
-    IntervalType,
-    TrendsFilter,
-    TrendsQuery,
-)
-from posthog.test.base import BaseTest
 
-default_query = TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=InsightDateRange(date_from="-7d"))
+from posthog.constants import UNIQUE_GROUPS
+from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
+
+default_query = TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=DateRange(date_from="-7d"))
 
 
 class TestTrendsActorsQueryBuilder(BaseTest):
@@ -339,9 +344,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         self.team.timezone = "Europe/Berlin"
 
         trends_query = default_query.model_copy(
-            update={
-                "dateRange": InsightDateRange(date_from="2024-05-08T14:29:13.634000Z", date_to=None, explicitDate=True)
-            },
+            update={"dateRange": DateRange(date_from="2024-05-08T14:29:13.634000Z", date_to=None, explicitDate=True)},
             deep=True,
         )
         with freeze_time("2024-05-08T15:32:00.000Z"):
@@ -353,7 +356,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
     def test_date_range_explicit_date_to(self):
         trends_query = default_query.model_copy(
             update={
-                "dateRange": InsightDateRange(
+                "dateRange": DateRange(
                     date_from="2024-05-08T14:29:13.634000Z", date_to="2024-05-08T14:32:57.692000Z", explicitDate=True
                 )
             },
@@ -370,7 +373,7 @@ class TestTrendsActorsQueryBuilder(BaseTest):
         trends_query = default_query.model_copy(
             update={
                 "series": [EventsNode(event="$pageview", math=BaseMathType.MONTHLY_ACTIVE)],
-                "dateRange": InsightDateRange(
+                "dateRange": DateRange(
                     date_from="2024-05-08T14:29:13.634000Z", date_to="2024-05-08T14:32:57.692000Z", explicitDate=True
                 ),
             },
@@ -381,3 +384,30 @@ class TestTrendsActorsQueryBuilder(BaseTest):
                 self._get_date_where_sql(trends_query=trends_query, time_frame="2024-05-08"),
                 "greaterOrEquals(timestamp, greatest(minus(toDateTime('2024-05-07 22:00:00.000000'), toIntervalDay(29)), toDateTime('2024-05-08 14:29:13.634000'))), less(timestamp, least(toDateTime('2024-05-08 22:00:00.000000'), toDateTime('2024-05-08 14:32:57.692000')))",
             )
+
+    def test_actor_id_expr_for_groups_math(self):
+        maths = [BaseMathType.DAU, UNIQUE_GROUPS, BaseMathType.WEEKLY_ACTIVE, BaseMathType.MONTHLY_ACTIVE]
+        for math in maths:
+            with self.subTest(math=math):
+                trends_query = default_query.model_copy(
+                    update={
+                        "series": [
+                            EventsNode(event="$pageview", math=math, math_group_type_index=MathGroupTypeIndex.NUMBER_0)
+                        ]
+                    }
+                )
+
+                builder = self._get_builder(trends_query=trends_query)
+
+                self.assertEqual(builder._actor_id_expr(), ast.Field(chain=["e", "$group_0"]))
+                self.assertIsNone(builder._actor_distinct_id_expr())
+                self.assertEqual(
+                    builder._filter_empty_actors_expr(),
+                    [
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.NotEq,
+                            left=ast.Field(chain=["e", "$group_0"]),
+                            right=ast.Constant(value=""),
+                        )
+                    ],
+                )

@@ -51,7 +51,7 @@ export function InsightSaveButton({
                 'data-attr': 'insight-save-dropdown',
             }}
         >
-            {disabled ? 'No changes to be saved' : addingToDashboard ? 'Save & add to dashboard' : 'Save'}
+            {disabled ? 'No changes' : addingToDashboard ? 'Save & add to dashboard' : 'Save'}
         </LemonButton>
     )
 }

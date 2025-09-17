@@ -1,16 +1,19 @@
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import {
+    compareInsightTopLevelSections,
     extractObjectDiffKeys,
     formatAggregationValue,
     formatBreakdownLabel,
     formatBreakdownType,
     getDisplayNameFromEntityFilter,
     getDisplayNameFromEntityNode,
+    getTrendDatasetKey,
 } from 'scenes/insights/utils'
+import { IndexedTrendResult } from 'scenes/trends/types'
 
-import { ActionsNode, BreakdownFilter, EventsNode, NodeKind } from '~/queries/schema'
+import { ActionsNode, BreakdownFilter, EventsNode, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
 import { isEventsNode } from '~/queries/utils'
-import { Entity, EntityFilter, FilterType, InsightType } from '~/types'
+import { CompareLabelType, Entity, EntityFilter, FilterType, InsightType } from '~/types'
 
 const createFilter = (id?: Entity['id'], name?: string, custom_name?: string): EntityFilter => {
     return {
@@ -398,6 +401,28 @@ describe('formatBreakdownLabel()', () => {
         expect(formatBreakdownLabel('661', breakdownFilter2, undefined, formatter, 0)).toEqual('661s')
     })
 
+    it('handles large stringified numbers', () => {
+        const formatter = (_breakdown: any, v: any): any => `${v}s`
+
+        const breakdownFilter1: BreakdownFilter = {
+            breakdown: '$session_duration',
+            breakdown_type: 'session',
+        }
+        expect(formatBreakdownLabel('661', breakdownFilter1, undefined, formatter)).toEqual('661s')
+
+        const breakdownFilter2: BreakdownFilter = {
+            breakdowns: [
+                {
+                    property: '$session_duration',
+                    type: 'session',
+                },
+            ],
+        }
+        expect(formatBreakdownLabel('987654321012345678', breakdownFilter2, undefined, formatter, 0)).toEqual(
+            '987654321012345678s'
+        )
+    })
+
     it('handles array first', () => {
         const formatter = (_: any, value: any, type: any): any => (type === 'session' ? `${value}s` : value)
 
@@ -469,5 +494,207 @@ describe('formatBreakdownType()', () => {
         }
 
         expect(formatBreakdownType(breakdownFilter)).toEqual('Cohort')
+    })
+})
+
+describe('getTrendDatasetKey()', () => {
+    it('handles a simple insight', () => {
+        const dataset: Partial<IndexedTrendResult> = {
+            label: '$pageview',
+            action: {
+                id: '$pageview',
+                type: 'events',
+                order: 0,
+            },
+        }
+
+        expect(getTrendDatasetKey(dataset as IndexedTrendResult)).toEqual('{"series":0}')
+    })
+
+    it('handles insights with breakdowns', () => {
+        const dataset: Partial<IndexedTrendResult> = {
+            label: 'Opera::US',
+            action: {
+                id: '$pageview',
+                type: 'events',
+                order: 0,
+            },
+            breakdown_value: ['Opera', 'US'],
+        }
+
+        expect(getTrendDatasetKey(dataset as IndexedTrendResult)).toEqual(
+            '{"series":0,"breakdown_value":["Opera","US"]}'
+        )
+    })
+
+    it('handles insights with compare against previous', () => {
+        const dataset: Partial<IndexedTrendResult> = {
+            label: '$pageview',
+            action: {
+                id: '$pageview',
+                type: 'events',
+                order: 0,
+            },
+            compare: true,
+            compare_label: CompareLabelType.Current,
+        }
+
+        expect(getTrendDatasetKey(dataset as IndexedTrendResult)).toEqual('{"series":0,"compare_label":"current"}')
+    })
+
+    it('handles insights with formulas', () => {
+        const dataset: Partial<IndexedTrendResult> = {
+            label: 'Formula (A+B)',
+            action: undefined,
+        }
+
+        expect(getTrendDatasetKey(dataset as IndexedTrendResult)).toEqual('{"series":"formula"}')
+    })
+
+    it('handles insights with non-array breakdown values', () => {
+        const dataset: Partial<IndexedTrendResult> = {
+            label: 'Opera',
+            action: {
+                id: '$pageview',
+                type: 'events',
+                order: 0,
+            },
+            breakdown_value: 'Opera',
+        }
+
+        expect(getTrendDatasetKey(dataset as IndexedTrendResult)).toEqual('{"series":0,"breakdown_value":["Opera"]}')
+    })
+})
+
+describe('compareTopLevelSections()', () => {
+    it('compares top-level sections', () => {
+        const obj1: InsightQueryNode = {
+            kind: NodeKind.TrendsQuery,
+            series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+            interval: 'day',
+        }
+        const obj2: InsightQueryNode = {
+            kind: NodeKind.FunnelsQuery,
+            series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+            interval: 'day',
+        }
+
+        expect(compareInsightTopLevelSections(obj1, obj2)).toEqual(['Insight type'])
+    })
+
+    it('compares source fields', () => {
+        const obj1: InsightQueryNode = {
+            kind: NodeKind.TrendsQuery,
+            series: [],
+            interval: 'day',
+        }
+        const obj2: InsightQueryNode = {
+            kind: NodeKind.TrendsQuery,
+            series: [],
+            interval: 'week',
+        }
+
+        expect(compareInsightTopLevelSections(obj1, obj2)).toEqual(['Interval'])
+    })
+
+    it('compares multiple source fields', () => {
+        const obj1: InsightQueryNode = {
+            kind: NodeKind.TrendsQuery,
+            series: [],
+            interval: 'day',
+            breakdownFilter: undefined,
+            dateRange: { date_from: '-7d' },
+        }
+        const obj2: InsightQueryNode = {
+            kind: NodeKind.TrendsQuery,
+            series: [],
+            interval: 'week',
+            breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+            dateRange: { date_from: '-30d' },
+        }
+
+        expect(compareInsightTopLevelSections(obj1, obj2)).toEqual(['Breakdowns', 'Date range', 'Interval'])
+    })
+
+    it('handles unknown source fields', () => {
+        const obj1 = { kind: NodeKind.TrendsQuery, series: [], unknownField: 'value1' } as any
+        const obj2 = { kind: NodeKind.TrendsQuery, series: [], unknownField: 'value2' } as any
+
+        expect(compareInsightTopLevelSections(obj1, obj2)).toEqual(['unknownField'])
+    })
+
+    it('handles nested objects in source fields', () => {
+        const obj1: InsightQueryNode = {
+            kind: NodeKind.TrendsQuery,
+            series: [],
+            breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+        }
+        const obj2: InsightQueryNode = {
+            kind: NodeKind.TrendsQuery,
+            series: [],
+            breakdownFilter: { breakdown: '$os', breakdown_type: 'event' },
+        }
+
+        expect(compareInsightTopLevelSections(obj1, obj2)).toEqual(['Breakdowns'])
+    })
+
+    it('handles arrays in source fields', () => {
+        const obj1: InsightQueryNode = {
+            kind: NodeKind.TrendsQuery,
+            series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+        }
+        const obj2: InsightQueryNode = {
+            kind: NodeKind.TrendsQuery,
+            series: [
+                { kind: NodeKind.EventsNode, event: '$pageview' },
+                { kind: NodeKind.EventsNode, event: '$autocapture' },
+            ],
+        }
+
+        expect(compareInsightTopLevelSections(obj1, obj2)).toEqual(['Series'])
+    })
+
+    it('returns empty array when no differences', () => {
+        const obj1: InsightQueryNode = {
+            kind: NodeKind.TrendsQuery,
+            series: [],
+            interval: 'day',
+        }
+        const obj2: InsightQueryNode = {
+            kind: NodeKind.TrendsQuery,
+            series: [],
+            interval: 'day',
+        }
+
+        expect(compareInsightTopLevelSections(obj1, obj2)).toEqual([])
+    })
+
+    it('handles arrays with same elements in different order', () => {
+        const obj1: InsightQueryNode = {
+            kind: NodeKind.TrendsQuery,
+            series: [
+                { kind: NodeKind.EventsNode, event: '$pageview' },
+                { kind: NodeKind.EventsNode, event: '$autocapture' },
+            ],
+        }
+        const obj2: InsightQueryNode = {
+            kind: NodeKind.TrendsQuery,
+            series: [
+                { kind: NodeKind.EventsNode, event: '$autocapture' },
+                { kind: NodeKind.EventsNode, event: '$pageview' },
+            ],
+        }
+
+        expect(compareInsightTopLevelSections(obj1, obj2)).toEqual([])
+    })
+
+    it('handles null/undefined objects', () => {
+        expect(
+            compareInsightTopLevelSections(null as any, { kind: NodeKind.TrendsQuery, series: [] } as InsightQueryNode)
+        ).toEqual(['Insight type'])
+        expect(
+            compareInsightTopLevelSections({ kind: NodeKind.TrendsQuery, series: [] } as InsightQueryNode, null as any)
+        ).toEqual(['Insight type'])
+        expect(compareInsightTopLevelSections(null as any, null as any)).toEqual([])
     })
 })

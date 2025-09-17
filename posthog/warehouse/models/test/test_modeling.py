@@ -1,7 +1,10 @@
 import pytest
+from posthog.test.base import BaseTest
+
 from django.db.utils import ProgrammingError
 
-from posthog.test.base import BaseTest
+from posthog.models import DataWarehouseTable
+from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource, ExternalDataSourceType
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from posthog.warehouse.models.modeling import (
     DataWarehouseModelPath,
@@ -21,6 +24,35 @@ from posthog.warehouse.models.modeling import (
             {"events"},
         ),
         ("select 1", set()),
+        (
+            """
+            select *
+            from (
+              select 1 as id, *
+              from events
+              inner join (
+                select * from
+                (
+                  select number
+                  from numbers(10)
+                )
+              ) num on events.id = num.number
+            )
+            """,
+            {"events", "numbers"},
+        ),
+        ("select * from (select * from (select * from (select * from events)))", {"events"}),
+        (
+            """
+            select *
+            from (
+              select number from numbers(5)
+              union all
+              select event from events
+            )
+            """,
+            {"numbers", "events"},
+        ),
     ],
 )
 def test_get_parents_from_model_query(query: str, parents: set[str]):
@@ -51,6 +83,66 @@ class TestModelPath(BaseTest):
         self.assertEqual(len(paths), 2)
         self.assertIn(["events", saved_query.id.hex], paths)
         self.assertIn(["persons", saved_query.id.hex], paths)
+
+    def test_create_from_warehouse_table_old_notation_nodes_query(self):
+        """Test creation of a model path from a query that reads from a managed source using old notation."""
+
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.STRIPE)
+        table = DataWarehouseTable.objects.create(team=self.team, name="stripe_invoice", external_data_source=source)
+        ExternalDataSchema.objects.create(team=self.team, name="Invoice", source=source, table=table)
+
+        query = """\
+          select *
+          from stripe_invoice
+        """
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="my_model",
+            query={"query": query},
+        )
+
+        model_paths = DataWarehouseModelPath.objects.create_from_saved_query(saved_query)
+        paths = [model_path.path for model_path in model_paths]
+
+        self.assertEqual(len(paths), 1)
+        self.assertIn([table.id.hex, saved_query.id.hex], paths)
+
+    def test_create_from_warehouse_table_new_notation_nodes_query(self):
+        """Test creation of a model path from a query that reads from a managed source using new notation."""
+
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.STRIPE)
+        table = DataWarehouseTable.objects.create(team=self.team, name="stripe_invoice", external_data_source=source)
+        ExternalDataSchema.objects.create(team=self.team, name="Invoice", source=source, table=table)
+
+        query = """\
+          select *
+          from stripe.invoice
+        """
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="my_model",
+            query={"query": query},
+        )
+
+        model_paths = DataWarehouseModelPath.objects.create_from_saved_query(saved_query)
+        paths = [model_path.path for model_path in model_paths]
+
+        self.assertEqual(len(paths), 1)
+        self.assertIn([table.id.hex, saved_query.id.hex], paths)
+
+    def test_create_from_table_functions_root_nodes_query(self):
+        query = "select * from numbers(10)"
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="my_model",
+            query={"query": query},
+        )
+
+        model_paths = DataWarehouseModelPath.objects.create_from_saved_query(saved_query)
+        paths = [model_path.path for model_path in model_paths]
+
+        self.assertEqual(len(paths), 1)
+        self.assertIn(["numbers", saved_query.id.hex], paths)
 
     def test_create_from_existing_path(self):
         """Test creation of a model path from a query that reads from another query."""

@@ -1,19 +1,20 @@
 import json
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import Enum, auto
-from typing import Any, Optional, Union
-
-from datetime import UTC
+from typing import Any, Optional, Union, overload
 from zoneinfo import ZoneInfo
+
+from django.utils import timezone
+
 from rest_framework.exceptions import ValidationError
 from django.utils import timezone
 
+from posthog.schema import PersonsOnEventsMode
+
 from posthog.cache_utils import cache_for
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
-from posthog.models.team import Team
-from posthog.models.team.team import WeekStartDay
+from posthog.models.team.team import Team, WeekStartDay
 from posthog.queries.insight import insight_sync_execute
-from posthog.schema import PersonsOnEventsMode
 
 
 class PersonPropertiesMode(Enum):
@@ -41,7 +42,11 @@ class PersonPropertiesMode(Enum):
     """
 
 
-def alias_poe_mode_for_legacy(persons_on_events_mode: PersonsOnEventsMode) -> PersonsOnEventsMode:
+@overload
+def alias_poe_mode_for_legacy(persons_on_events_mode: PersonsOnEventsMode) -> PersonsOnEventsMode: ...
+@overload
+def alias_poe_mode_for_legacy(persons_on_events_mode: PersonsOnEventsMode | None) -> PersonsOnEventsMode | None: ...
+def alias_poe_mode_for_legacy(persons_on_events_mode: PersonsOnEventsMode | None) -> PersonsOnEventsMode | None:
     if persons_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
         # PERSON_ID_OVERRIDE_PROPERTIES_JOINED is not implemented in legacy insights
         # It's functionally the same as DISABLED, just slower - hence aliasing to DISABLED
@@ -97,6 +102,7 @@ def get_earliest_timestamp(team_id: int) -> datetime:
         query_type="get_earliest_timestamp",
         team_id=team_id,
     )
+
     if len(results) > 0:
         return results[0][0]
     else:
@@ -187,13 +193,8 @@ def correct_result_for_sampling(
 
 
 def get_person_properties_mode(team: Team) -> PersonPropertiesMode:
-    if alias_poe_mode_for_legacy(team.person_on_events_mode) == PersonsOnEventsMode.DISABLED:
-        return PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN
-
-    if (
-        alias_poe_mode_for_legacy(team.person_on_events_mode)
-        == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
-    ):
+    if team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
         return PersonPropertiesMode.DIRECT_ON_EVENTS_WITH_POE_V2
-
-    return PersonPropertiesMode.DIRECT_ON_EVENTS
+    if team.person_on_events_mode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
+        return PersonPropertiesMode.DIRECT_ON_EVENTS
+    return PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN

@@ -2,10 +2,11 @@ import './Animation.scss'
 
 import { Player } from '@lottiefiles/react-lottie-player'
 import clsx from 'clsx'
-import { animations, AnimationType, getAnimationSource } from 'lib/animations/animations'
+import { useEffect, useState } from 'react'
+
+import { AnimationType, animations, getAnimationSource } from 'lib/animations/animations'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { inStorybookTestRunner } from 'lib/utils'
-import { useEffect, useState } from 'react'
 
 export interface AnimationProps {
     /** Animation to show */
@@ -21,7 +22,7 @@ export function Animation({
     className,
     style,
     delay = 300,
-    type = AnimationType.LaptopHog,
+    type = AnimationType.MusicHog,
     size = 'large',
 }: AnimationProps): JSX.Element {
     const [visible, setVisible] = useState(delay === 0)
@@ -46,7 +47,7 @@ export function Animation({
             try {
                 const source = await getAnimationSource(type)
                 !unmounted && setSource(source)
-            } catch (e) {
+            } catch {
                 !unmounted && setShowFallbackSpinner(true)
             }
         }

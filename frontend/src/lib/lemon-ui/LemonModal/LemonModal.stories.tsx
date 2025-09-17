@@ -1,6 +1,7 @@
 import { Meta, StoryFn } from '@storybook/react'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useState } from 'react'
+
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { LemonModal, LemonModalProps } from './LemonModal'
 
@@ -124,7 +125,7 @@ export const WithCustomContent: StoryFn<typeof LemonModal> = () => {
                 inline
                 simple
             >
-                <div className="bg-muted-alt rounded">
+                <div className="rounded">
                     <LemonModal.Header>
                         <h3>I am a custom header</h3>
                     </LemonModal.Header>

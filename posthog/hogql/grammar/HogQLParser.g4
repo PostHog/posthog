@@ -51,10 +51,12 @@ kvPairList: kvPair (COMMA kvPair)* COMMA?;
 
 
 // SELECT statement
-select: (selectUnionStmt | selectStmt | hogqlxTagElement) EOF;
+select: (selectSetStmt | selectStmt | hogqlxTagElement) EOF;
 
-selectUnionStmt: selectStmtWithParens (UNION ALL selectStmtWithParens)*;
-selectStmtWithParens: selectStmt | LPAREN selectUnionStmt RPAREN | placeholder;
+selectStmtWithParens: selectStmt | LPAREN selectSetStmt RPAREN | placeholder;
+
+subsequentSelectSetClause: (EXCEPT | UNION ALL | UNION DISTINCT | INTERSECT | INTERSECT DISTINCT) selectStmtWithParens;
+selectSetStmt: selectStmtWithParens (subsequentSelectSetClause)*;
 
 selectStmt:
     with=withClause?
@@ -68,6 +70,7 @@ selectStmt:
     havingClause?
     windowClause?
     orderByClause?
+    limitByClause?
     (limitAndOffsetClause | offsetOnlyClause)?
     settingsClause?
     ;
@@ -83,10 +86,10 @@ groupByClause: GROUP BY ((CUBE | ROLLUP) LPAREN columnExprList RPAREN | columnEx
 havingClause: HAVING columnExpr;
 orderByClause: ORDER BY orderExprList;
 projectionOrderByClause: ORDER BY columnExprList;
+limitByClause: LIMIT limitExpr BY columnExprList;
 limitAndOffsetClause
-    : LIMIT columnExpr (COMMA columnExpr)? ((WITH TIES) | BY columnExprList)? // compact OFFSET-optional form
+    : LIMIT columnExpr (COMMA columnExpr)? (WITH TIES)? // compact OFFSET-optional form
     | LIMIT columnExpr (WITH TIES)? OFFSET columnExpr // verbose OFFSET-included form with WITH TIES
-    | LIMIT columnExpr OFFSET columnExpr (BY columnExprList)? // verbose OFFSET-included form with BY
     ;
 offsetOnlyClause: OFFSET columnExpr;
 settingsClause: SETTINGS settingExprList;
@@ -115,6 +118,7 @@ joinConstraintClause
     ;
 
 sampleClause: SAMPLE ratioExpr (OFFSET ratioExpr)?;
+limitExpr: columnExpr ((COMMA | OFFSET) columnExpr)?;
 orderExprList: orderExpr (COMMA orderExpr)*;
 orderExpr: columnExpr (ASCENDING | DESCENDING | DESC)? (NULLS (FIRST | LAST))? (COLLATE STRING_LITERAL)?;
 ratioExpr: placeholder | numberLiteral (SLASH numberLiteral)?;
@@ -147,6 +151,7 @@ columnExpr
     | CAST LPAREN columnExpr AS columnTypeExpr RPAREN                                     # ColumnExprCast
     | DATE STRING_LITERAL                                                                 # ColumnExprDate
 //    | EXTRACT LPAREN interval FROM columnExpr RPAREN                                      # ColumnExprExtract   // Interferes with a function call
+    | INTERVAL STRING_LITERAL                                                             # ColumnExprIntervalString
     | INTERVAL columnExpr interval                                                        # ColumnExprInterval
     | SUBSTRING LPAREN columnExpr FROM columnExpr (FOR columnExpr)? RPAREN                # ColumnExprSubstring
     | TIMESTAMP STRING_LITERAL                                                            # ColumnExprTimestamp
@@ -154,6 +159,7 @@ columnExpr
     | identifier (LPAREN columnExprs=columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList=columnExprList? RPAREN)? OVER LPAREN windowExpr RPAREN # ColumnExprWinFunction
     | identifier (LPAREN columnExprs=columnExprList? RPAREN) (LPAREN DISTINCT? columnArgList=columnExprList? RPAREN)? OVER identifier               # ColumnExprWinFunctionTarget
     | identifier (LPAREN columnExprs=columnExprList? RPAREN)? LPAREN DISTINCT? columnArgList=columnExprList? RPAREN                                 # ColumnExprFunction
+    | columnExpr LPAREN selectSetStmt RPAREN                                              # ColumnExprCallSelect
     | columnExpr LPAREN columnExprList? RPAREN                                            # ColumnExprCall
     | hogqlxTagElement                                                                    # ColumnExprTagElement
     | templateString                                                                      # ColumnExprTemplateString
@@ -201,7 +207,7 @@ columnExpr
     | <assoc=right> columnExpr QUERY columnExpr COLON columnExpr                          # ColumnExprTernaryOp
     | columnExpr (AS identifier | AS STRING_LITERAL)                                      # ColumnExprAlias
     | (tableIdentifier DOT)? ASTERISK                                                     # ColumnExprAsterisk  // single-column only
-    | LPAREN selectUnionStmt RPAREN                                                       # ColumnExprSubquery  // single-column only
+    | LPAREN selectSetStmt RPAREN                                                         # ColumnExprSubquery  // single-column only
     | LPAREN columnExpr RPAREN                                                            # ColumnExprParens    // single-column only
     | LPAREN columnExprList RPAREN                                                        # ColumnExprTuple
     | LBRACKET columnExprList? RBRACKET                                                   # ColumnExprArray
@@ -218,20 +224,26 @@ columnLambdaExpr:
     ARROW (columnExpr | block)
     ;
 
+hogqlxChildElement
+    : hogqlxTagElement
+    | hogqlxText
+    | LBRACE columnExpr RBRACE;
+
+hogqlxText : HOGQLX_TEXT_TEXT ;
 
 hogqlxTagElement
-    : LT identifier hogqlxTagAttribute* SLASH GT                                        # HogqlxTagElementClosed
-    | LT identifier hogqlxTagAttribute* GT (hogqlxTagElement | (LBRACE columnExpr RBRACE))? LT SLASH identifier GT     # HogqlxTagElementNested
+    : LT identifier hogqlxTagAttribute* SLASH_GT                                          # HogqlxTagElementClosed
+    | LT identifier hogqlxTagAttribute* GT hogqlxChildElement* LT_SLASH identifier GT     # HogqlxTagElementNested
     ;
 hogqlxTagAttribute
-    :   identifier '=' string
-    |   identifier '=' LBRACE columnExpr RBRACE
+    :   identifier EQ_SINGLE string
+    |   identifier EQ_SINGLE LBRACE columnExpr RBRACE
     |   identifier
     ;
 
 withExprList: withExpr (COMMA withExpr)* COMMA?;
 withExpr
-    : identifier AS LPAREN selectUnionStmt RPAREN    # WithExprSubquery
+    : identifier AS LPAREN selectSetStmt RPAREN    # WithExprSubquery
     // NOTE: asterisk and subquery goes before |columnExpr| so that we can mark them as multi-column expressions.
     | columnExpr AS identifier                       # WithExprColumn
     ;
@@ -246,13 +258,13 @@ nestedIdentifier: identifier (DOT identifier)*;
 tableExpr
     : tableIdentifier                    # TableExprIdentifier
     | tableFunctionExpr                  # TableExprFunction
-    | LPAREN selectUnionStmt RPAREN      # TableExprSubquery
+    | LPAREN selectSetStmt RPAREN      # TableExprSubquery
     | tableExpr (alias | AS identifier)  # TableExprAlias
     | hogqlxTagElement                   # TableExprTag
     | placeholder                        # TableExprPlaceholder
     ;
 tableFunctionExpr: identifier LPAREN tableArgList? RPAREN;
-tableIdentifier: (databaseIdentifier DOT)? identifier;
+tableIdentifier: (databaseIdentifier DOT)? nestedIdentifier;
 tableArgList: columnExpr (COMMA columnExpr)* COMMA?;
 
 // Databases
@@ -293,7 +305,7 @@ keywordForAlias
 alias: IDENTIFIER | keywordForAlias;  // |interval| can't be an alias, otherwise 'INTERVAL 1 SOMETHING' becomes ambiguous.
 identifier: IDENTIFIER | interval | keyword;
 enumValue: string EQ_SINGLE numberLiteral;
-placeholder: LBRACE nestedIdentifier RBRACE;
+placeholder: LBRACE columnExpr RBRACE;
 
 string: STRING_LITERAL | templateString;
 templateString : QUOTE_SINGLE_TEMPLATE stringContents* QUOTE_SINGLE ;

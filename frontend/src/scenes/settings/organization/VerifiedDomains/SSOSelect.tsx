@@ -1,5 +1,7 @@
-import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+
 import { SocialLoginIcon } from 'lib/components/SocialLoginButton/SocialLoginIcon'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -11,9 +13,16 @@ export interface SSOSelectInterface {
     loading: boolean
     onChange: (value: SSOProvider | '') => void
     samlAvailable: boolean
+    disabledReason?: string | null
 }
 
-export function SSOSelect({ value, loading, onChange, samlAvailable }: SSOSelectInterface): JSX.Element | null {
+export function SSOSelect({
+    value,
+    loading,
+    onChange,
+    samlAvailable,
+    disabledReason,
+}: SSOSelectInterface): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
 
     if (!preflight) {
@@ -46,7 +55,7 @@ export function SSOSelect({ value, loading, onChange, samlAvailable }: SSOSelect
             value={value}
             options={options}
             loading={loading}
-            disabledReason={loading ? 'Cannot change while loading' : undefined}
+            disabledReason={loading ? 'Cannot change while loading' : disabledReason}
             fullWidth
             onChange={onChange}
         />

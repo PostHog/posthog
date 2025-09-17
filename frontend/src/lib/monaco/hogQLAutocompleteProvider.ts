@@ -1,11 +1,18 @@
 import { BuiltLogic } from 'kea'
-import type { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
 import { languages } from 'monaco-editor'
 
-import { performQuery } from '~/queries/query'
-import { AutocompleteCompletionItem, HogLanguage, HogQLAutocomplete, NodeKind } from '~/queries/schema'
+import type { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
 
-const convertCompletionItemKind = (kind: AutocompleteCompletionItem['kind']): languages.CompletionItemKind => {
+import { performQuery } from '~/queries/query'
+import {
+    AutocompleteCompletionItemKind,
+    HogLanguage,
+    HogQLAutocomplete,
+    NodeKind,
+} from '~/queries/schema/schema-general'
+import { setLatestVersionsOnQuery } from '~/queries/utils'
+
+const convertCompletionItemKind = (kind: AutocompleteCompletionItemKind): languages.CompletionItemKind => {
     switch (kind) {
         case 'Method':
             return languages.CompletionItemKind.Method
@@ -68,7 +75,7 @@ const convertCompletionItemKind = (kind: AutocompleteCompletionItem['kind']): la
     }
 }
 
-const kindToSortText = (kind: AutocompleteCompletionItem['kind'], label: string): string => {
+const kindToSortText = (kind: AutocompleteCompletionItemKind, label: string): string => {
     if (kind === 'Variable') {
         return `1-${label}`
     }
@@ -97,17 +104,20 @@ export const hogQLAutocompleteProvider = (type: HogLanguage): languages.Completi
             lineNumber: position.lineNumber,
             column: word.endColumn,
         })
-        const query: HogQLAutocomplete = {
-            kind: NodeKind.HogQLAutocomplete,
-            language: type,
-            // Use the text from the model instead of logic due to a race condition on the logic values updating quick enough
-            query: model.getValue(),
-            filters: logic.isMounted() ? logic.props.metadataFilters : undefined,
-            globals: logic.isMounted() ? logic.props.globals : undefined,
-            sourceQuery: logic.isMounted() ? logic.props.sourceQuery : undefined,
-            startPosition: startOffset,
-            endPosition: endOffset,
-        }
+        const query: HogQLAutocomplete = setLatestVersionsOnQuery(
+            {
+                kind: NodeKind.HogQLAutocomplete,
+                language: type,
+                // Use the text from the model instead of logic due to a race condition on the logic values updating quick enough
+                query: model.getValue(),
+                filters: logic.isMounted() ? logic.props.metadataFilters : undefined,
+                globals: logic.isMounted() ? logic.props.globals : undefined,
+                sourceQuery: logic.isMounted() ? logic.props.sourceQuery : undefined,
+                startPosition: startOffset,
+                endPosition: endOffset,
+            },
+            { recursion: false }
+        )
         const response = await performQuery<HogQLAutocomplete>(query)
         const completionItems = response.suggestions
         const suggestions = completionItems.map<languages.CompletionItem>((item) => {

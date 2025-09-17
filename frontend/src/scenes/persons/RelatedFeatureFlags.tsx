@@ -1,8 +1,10 @@
-import { LemonInput, LemonSelect, LemonSnack, LemonTable, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { IconInfo } from '@posthog/icons'
+import { LemonInput, LemonSelect, LemonSnack, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { capitalizeFirstLetter } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { urls } from 'scenes/urls'
 
@@ -11,7 +13,8 @@ import { FeatureFlagReleaseType } from '~/types'
 import { RelatedFeatureFlag, relatedFeatureFlagsLogic } from './relatedFeatureFlagsLogic'
 
 interface Props {
-    distinctId: string
+    distinctId: string | null
+    groupTypeIndex?: number
     groups?: { [key: string]: string }
 }
 
@@ -33,11 +36,11 @@ const featureFlagMatchMapping = {
     [FeatureFlagMatchReason.Disabled]: 'Disabled',
 }
 
-export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element {
-    const { filteredMappedFlags, relatedFeatureFlagsLoading, searchTerm, filters } = useValues(
-        relatedFeatureFlagsLogic({ distinctId, groups })
-    )
-    const { setSearchTerm, setFilters } = useActions(relatedFeatureFlagsLogic({ distinctId, groups }))
+export function RelatedFeatureFlags({ distinctId, groupTypeIndex, groups }: Props): JSX.Element {
+    const relatedFlagsLogic = relatedFeatureFlagsLogic({ distinctId, groupTypeIndex, groups })
+    const { filteredMappedFlags, relatedFeatureFlagsLoading, searchTerm, filters, pagination } =
+        useValues(relatedFlagsLogic)
+    const { setSearchTerm, setFilters } = useActions(relatedFlagsLogic)
 
     const columns: LemonTableColumns<RelatedFeatureFlag> = [
         {
@@ -81,15 +84,39 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
             render: function Render(_, featureFlag: RelatedFeatureFlag) {
                 return (
                     <div className="break-words">
-                        {featureFlag.active && featureFlag.value
-                            ? capitalizeFirstLetter(featureFlag.value.toString())
-                            : 'False'}
+                        {featureFlag.active && featureFlag.value ? featureFlag.value.toString() : 'false'}
                     </div>
                 )
             },
         },
         {
-            title: 'Match evaluation',
+            title: (
+                <div className="inline-flex items-center deprecated-space-x-1">
+                    <div>Match evaluation</div>
+                    <Tooltip
+                        title={
+                            <div className="deprecated-space-y-2">
+                                <div>
+                                    This column simulates the feature flag evaluation based on the selected distinct ID,
+                                    current properties, and groups associated with the user. If the actual flag value
+                                    differs, it could be due to different inputs used during evaluation.
+                                </div>
+                                <div>
+                                    If you are using local flag evaluation, you must ensure that you provide any person
+                                    properties, groups, or group properties used to evaluate the release conditions of
+                                    the flag. Read more in the{' '}
+                                    <Link to="https://posthog.com/docs/feature-flags/local-evaluation#step-3-evaluate-your-feature-flag">
+                                        documentation.
+                                    </Link>
+                                </div>
+                            </div>
+                        }
+                        closeDelayMs={200}
+                    >
+                        <IconInfo className="text-secondary text-base ml-1" />
+                    </Tooltip>
+                </div>
+            ),
             dataIndex: 'evaluation',
             width: 150,
             render: function Render(_, featureFlag: RelatedFeatureFlag) {
@@ -207,7 +234,12 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
                     />
                 </div>
             </div>
-            <LemonTable columns={columns} loading={relatedFeatureFlagsLoading} dataSource={filteredMappedFlags} />
+            <LemonTable
+                columns={columns}
+                loading={relatedFeatureFlagsLoading}
+                dataSource={filteredMappedFlags}
+                pagination={pagination}
+            />
         </>
     )
 }

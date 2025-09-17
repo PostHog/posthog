@@ -1,23 +1,21 @@
-import asyncio
-import collections
-import datetime as dt
 import json
-import typing
 import uuid
+import typing
+import datetime as dt
+import collections
 
 import pytest
-import temporalio.client
-from asgiref.sync import async_to_sync
+
 from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import CommandError
 
-from posthog.api.test.batch_exports.conftest import describe_schedule, start_test_worker
+from asgiref.sync import async_to_sync
+
+from posthog.api.test.batch_exports.conftest import describe_schedule
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
-from posthog.management.commands.create_batch_export_from_app import (
-    map_plugin_config_to_destination,
-)
+from posthog.management.commands.create_batch_export_from_app import map_plugin_config_to_destination
 from posthog.models import Plugin, PluginAttachment, PluginConfig
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.codec import EncryptionCodec
@@ -103,7 +101,7 @@ def redshift_plugin(organization) -> typing.Generator[Plugin, None, None]:
     plugin.delete()
 
 
-test_snowflake_config = {
+test_snowflake_config: dict[str, typing.Any] = {
     "account": "snowflake-account",
     "username": "test-user",
     "password": "test-password",
@@ -113,7 +111,7 @@ test_snowflake_config = {
     "table": "test-table",
     "role": "test-role",
 }
-test_s3_config = {
+test_s3_config: dict[str, typing.Any] = {
     "awsAccessKey": "access-key",
     "awsSecretAccessKey": "secret-access-key",
     "s3BucketName": "test-bucket",
@@ -122,7 +120,7 @@ test_s3_config = {
     "compression": "gzip",
     "eventsToIgnore": "$feature_flag_called",
 }
-test_bigquery_config = {
+test_bigquery_config: dict[str, typing.Any] = {
     "tableId": "my_table_id",
     "datasetId": "my_dataset_id",
     "googleCloudKeyJson": {
@@ -139,7 +137,7 @@ test_bigquery_config = {
     },
     "exportEventsToIgnore": "$feature_flag_called,$pageleave,$pageview,$rageclick,$identify",
 }
-test_postgres_config = {
+test_postgres_config: dict[str, typing.Any] = {
     "host": "localhost",
     "port": "5432",
     "dbName": "dev",
@@ -150,7 +148,7 @@ test_postgres_config = {
     "eventsToIgnore": "$feature_flag_called",
     "hasSelfSignedCert": "Yes",
 }
-test_postgres_config_with_database_url = {
+test_postgres_config_with_database_url: dict[str, typing.Any] = {
     "port": "54322",
     "dbName": "prod",
     "host": "localhost",
@@ -161,7 +159,7 @@ test_postgres_config_with_database_url = {
     "eventsToIgnore": "$feature_flag_called,$pageleave,$pageview,$rageclick,$identify",
     "hasSelfSignedCert": "Yes",
 }
-test_redshift_config = {
+test_redshift_config: dict[str, typing.Any] = {
     "clusterHost": "localhost",
     "clusterPort": "5439",
     "dbName": "dev",
@@ -178,7 +176,7 @@ PluginConfigParams = collections.namedtuple(
 
 
 @pytest.fixture
-def config(request) -> dict[str, str]:
+def config(request) -> dict[str, typing.Any]:
     """Dispatch into one of the configurations for testing according to export/plugin type."""
     if isinstance(request.param, tuple):
         params = PluginConfigParams(*request.param)
@@ -426,16 +424,16 @@ def test_create_batch_export_from_app(
 
     codec = EncryptionCodec(settings=settings)
     decoded_payload = async_to_sync(codec.decode)(schedule.schedule.action.args)
-    args = json.loads(decoded_payload[0].data)
+    input_args = json.loads(decoded_payload[0].data)
 
     # Common inputs
-    assert args["team_id"] == plugin_config.team.pk
-    assert args["batch_export_id"] == str(batch_export_data["id"])
-    assert args["interval"] == interval
+    assert input_args["team_id"] == plugin_config.team.pk
+    assert input_args["batch_export_id"] == str(batch_export_data["id"])
+    assert input_args["interval"] == interval
 
     # Type specific inputs
     for key, expected in config.items():
-        assert args[key] == expected
+        assert input_args[key] == expected
 
 
 @pytest.mark.django_db
@@ -498,72 +496,13 @@ def test_create_batch_export_from_app_with_disabled_plugin(
 
     codec = EncryptionCodec(settings=settings)
     decoded_payload = async_to_sync(codec.decode)(schedule.schedule.action.args)
-    args = json.loads(decoded_payload[0].data)
+    input_args = json.loads(decoded_payload[0].data)
 
     # Common inputs
-    assert args["team_id"] == plugin_config.team.pk
-    assert args["batch_export_id"] == str(batch_export_data["id"])
-    assert args["interval"] == interval
+    assert input_args["team_id"] == plugin_config.team.pk
+    assert input_args["batch_export_id"] == str(batch_export_data["id"])
+    assert input_args["interval"] == interval
 
     # Type specific inputs
     for key, expected in config.items():
-        assert args[key] == expected
-
-
-@async_to_sync
-async def wait_for_workflow_executions(
-    temporal: temporalio.client.Client, query: str, timeout: int = 30, sleep: int = 1
-):
-    """Wait for Workflow Executions matching query."""
-    workflows = [workflow async for workflow in temporal.list_workflows(query=query)]
-
-    total = 0
-    while not workflows:
-        total += sleep
-
-        if total > timeout:
-            raise TimeoutError(f"No backfill Workflow Executions after {timeout} seconds")
-
-        await asyncio.sleep(sleep)
-        workflows = [workflow async for workflow in temporal.list_workflows(query=query)]
-
-    return workflows
-
-
-@pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize("interval", ("hour", "day"))
-@pytest.mark.parametrize(
-    "plugin_config",
-    (
-        ("S3", False),
-        ("Snowflake", False),
-        ("BigQuery", False),
-        ("Redshift", False),
-        ("Postgres", False),
-        ("Postgres", False, True),
-    ),
-    indirect=True,
-)
-def test_create_batch_export_from_app_with_backfill(interval, plugin_config):
-    """Test a live run of the create_batch_export_from_app command with the backfill flag set."""
-    args = (
-        f"--plugin-config-id={plugin_config.id}",
-        f"--team-id={plugin_config.team.id}",
-        f"--interval={interval}",
-        "--backfill-batch-export",
-    )
-    export_type, _ = map_plugin_config_to_destination(plugin_config)
-
-    temporal = sync_connect()
-
-    with start_test_worker(temporal):
-        output = call_command("create_batch_export_from_app", *args)
-
-        batch_export_data = json.loads(output)
-        batch_export_id = str(batch_export_data["id"])
-        workflows = wait_for_workflow_executions(temporal, query=f'TemporalScheduledById="{batch_export_id}"')
-
-        # In the event the test takes too long, we may spawn more than one run
-        assert len(workflows) >= 1
-        workflow_execution = workflows[0]
-        assert workflow_execution.workflow_type == f"{export_type.lower()}-export"
+        assert input_args[key] == expected

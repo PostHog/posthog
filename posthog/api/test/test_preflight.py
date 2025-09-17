@@ -1,15 +1,18 @@
 from datetime import datetime
 from typing import cast
-from unittest.mock import patch
 
 import pytest
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
+from unittest.mock import patch
+
+from django.utils import timezone
+
 from rest_framework import status
 
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization
 from posthog.models.organization_invite import OrganizationInvite
-from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 
 
 class TestPreflight(APIBaseTest, QueryMatchingTest):
@@ -54,7 +57,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
         preflight = {
             "opt_out_capture": False,
             "licensed_users_available": None,
-            "site_url": "http://localhost:8000",
+            "site_url": "http://localhost:8010",
             "can_create_org": False,
             "instance_preferences": {"debug_queries": True, "disable_paid_fs": False},
             "object_storage": False,
@@ -207,7 +210,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
                                 "debug_queries": False,
                                 "disable_paid_fs": True,
                             },
-                            "site_url": "http://localhost:8000",
+                            "site_url": "http://localhost:8010",
                             "available_social_auth_providers": {
                                 "google-oauth2": True,
                                 "github": False,
@@ -245,7 +248,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
                 super(LicenseManager, cast(LicenseManager, License.objects)).create(
                     key="key_123",
                     plan="free_clickhouse",
-                    valid_until=datetime(2038, 1, 19, 3, 14, 7),
+                    valid_until=timezone.make_aware(datetime(2038, 1, 19, 3, 14, 7)),
                     max_users=3,
                 )
 
@@ -281,7 +284,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             super(LicenseManager, cast(LicenseManager, License.objects)).create(
                 key="key_123",
                 plan="enterprise",
-                valid_until=datetime(2038, 1, 19, 3, 14, 7),
+                valid_until=timezone.make_aware(datetime(2038, 1, 19, 3, 14, 7)),
             )
             TEST_clear_instance_license_cache()
             with self.settings(MULTI_ORG_ENABLED=True):

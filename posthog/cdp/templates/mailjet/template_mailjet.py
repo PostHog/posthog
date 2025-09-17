@@ -1,26 +1,30 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
-
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 # See https://dev.mailjet.com/email/reference/contacts/contact-list/
 
-common_inputs_schemas = [
-    {
-        "key": "api_key",
-        "type": "string",
-        "label": "Mailjet API Key",
-        "secret": True,
-        "required": True,
-    },
-    {
-        "key": "email",
-        "type": "string",
-        "label": "Email of the user",
-        "description": "Where to find the email for the user to be checked with Mailjet",
-        "default": "{person.properties.email}",
-        "secret": False,
-        "required": True,
-    },
-]
+input_api_key = {
+    "key": "api_key",
+    "type": "string",
+    "label": "Mailjet API Key",
+    "secret": True,
+    "required": True,
+}
+input_secret_key = {
+    "key": "secret_key",
+    "type": "string",
+    "label": "Mailjet Secret Key",
+    "secret": True,
+    "required": True,
+}
+input_email = {
+    "key": "email",
+    "type": "string",
+    "label": "Email of the user",
+    "description": "Where to find the email for the user to be checked with Mailjet",
+    "default": "{person.properties.email}",
+    "secret": False,
+    "required": True,
+}
 
 common_filters = {
     "events": [{"id": "$identify", "name": "$identify", "type": "events", "order": 0}],
@@ -29,13 +33,17 @@ common_filters = {
 }
 
 
-template_create_contact: HogFunctionTemplate = HogFunctionTemplate(
+template_create_contact: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
+    free=False,
+    type="destination",
     id="template-mailjet-create-contact",
-    name="Add contacts to Mailjet",
-    description="Updates a contact in Mailjet",
+    name="Mailjet",
+    description="Add contacts to Mailjet",
     icon_url="/static/services/mailjet.png",
-    hog="""
+    category=["Email Marketing"],
+    code_language="hog",
+    code="""
 if (empty(inputs.email)) {
     return false
 }
@@ -43,7 +51,7 @@ if (empty(inputs.email)) {
 fetch(f'https://api.mailjet.com/v3/REST/contact/', {
     'method': 'POST',
     'headers': {
-        'Authorization': f'Bearer {inputs.api_key}',
+        'Authorization': f'Basic {base64Encode(f'{inputs.api_key}:{inputs.secret_key}')}',
         'Content-Type': 'application/json'
     },
     'body': {
@@ -54,7 +62,9 @@ fetch(f'https://api.mailjet.com/v3/REST/contact/', {
 })
 """.strip(),
     inputs_schema=[
-        *common_inputs_schemas,
+        input_api_key,
+        input_secret_key,
+        input_email,
         {
             "key": "name",
             "type": "string",
@@ -78,13 +88,17 @@ fetch(f'https://api.mailjet.com/v3/REST/contact/', {
 )
 
 
-template_update_contact_list: HogFunctionTemplate = HogFunctionTemplate(
+template_update_contact_list: HogFunctionTemplateDC = HogFunctionTemplateDC(
     status="beta",
+    free=False,
+    type="destination",
     id="template-mailjet-update-contact-list",
-    name="Update a Mailjet contact list",
-    description="Updates a contact in Mailjet",
+    name="Mailjet",
+    description="Update a Mailjet contact list",
     icon_url="/static/services/mailjet.png",
-    hog="""
+    category=["Email Marketing"],
+    code_language="hog",
+    code="""
 if (empty(inputs.email)) {
     return false
 }
@@ -92,7 +106,7 @@ if (empty(inputs.email)) {
 fetch(f'https://api.mailjet.com/v3/REST/contact/{inputs.email}/managecontactlists', {
     'method': 'POST',
     'headers': {
-        'Authorization': f'Bearer {inputs.api_key}',
+        'Authorization': f'Basic {base64Encode(f'{inputs.api_key}:{inputs.secret_key}')}',
         'Content-Type': 'application/json'
     },
     'body': {
@@ -106,7 +120,9 @@ fetch(f'https://api.mailjet.com/v3/REST/contact/{inputs.email}/managecontactlist
 })
 """.strip(),
     inputs_schema=[
-        *common_inputs_schemas,
+        input_api_key,
+        input_secret_key,
+        input_email,
         {
             "key": "contact_list_id",
             "type": "string",

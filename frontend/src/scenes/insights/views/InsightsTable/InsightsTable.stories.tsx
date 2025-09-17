@@ -1,10 +1,10 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { getCachedResults } from '~/queries/nodes/InsightViz/utils'
 import { BaseMathType, InsightLogicProps } from '~/types'
@@ -25,16 +25,24 @@ const Template: StoryFn<typeof InsightsTable> = (props, { parameters }) => {
 
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const insight = require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json')
-    const filters = { ...insight.filters, ...parameters.mergeFilters }
-    const cachedInsight = { ...insight, short_id: dashboardItemId, filters }
+    const cachedInsight = {
+        ...insight,
+        short_id: dashboardItemId,
+        query: {
+            ...insight.query,
+            source: {
+                ...insight.query.source,
+                ...(parameters.mergeQuerySource ? parameters.mergeQuerySource : {}),
+            },
+        },
+    }
 
     const insightProps = { dashboardItemId, doNotLoad: true, cachedInsight } as InsightLogicProps
-    const querySource = filtersToQueryNode(filters)
 
     const dataNodeLogicProps: DataNodeLogicProps = {
-        query: querySource,
+        query: cachedInsight.query.source,
         key: insightVizDataNodeKey(insightProps),
-        cachedResults: getCachedResults(insightProps.cachedInsight, querySource),
+        cachedResults: getCachedResults(cachedInsight, cachedInsight.query.source),
         doNotLoad: insightProps.doNotLoad,
     }
 
@@ -62,25 +70,19 @@ Embedded.args = {
 
 export const Hourly: Story = Template.bind({})
 Hourly.parameters = {
-    mergeFilters: { interval: 'hour' },
+    mergeQuerySource: { interval: 'hour' },
 }
 
 export const Aggregation: Story = Template.bind({})
 Aggregation.parameters = {
-    mergeFilters: {
-        events: [
+    mergeQuerySource: {
+        series: [
             {
-                id: '$pageview',
+                event: '$pageview',
+                kind: 'EventsNode',
                 name: '$pageview',
-                type: 'events',
-                order: 0,
                 math: BaseMathType.UniqueSessions,
             },
         ],
     },
-}
-
-export const CanEditSeriesName: Story = Template.bind({})
-CanEditSeriesName.args = {
-    canEditSeriesNameInline: true,
 }

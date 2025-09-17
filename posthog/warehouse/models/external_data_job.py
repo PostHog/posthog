@@ -1,20 +1,25 @@
+from uuid import UUID
+
+from django.conf import settings
 from django.db import models
 from django.db.models import Prefetch
-from django.conf import settings
+
 from posthog.models.team import Team
-from posthog.models.utils import CreatedMetaFields, UUIDModel, UpdatedMetaFields, sane_repr
-from posthog.settings import TEST
-from posthog.warehouse.s3 import get_s3_client
-from uuid import UUID
-from posthog.warehouse.util import database_sync_to_async
+from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
+from posthog.sync import database_sync_to_async
 
 
-class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
         FAILED = "Failed", "Failed"
         COMPLETED = "Completed", "Completed"
-        CANCELLED = "Cancelled", "Cancelled"
+        BILLING_LIMIT_REACHED = "BillingLimitReached", "BillingLimitReached"
+        BILLING_LIMIT_TOO_LOW = "BillingLimitTooLow", "BillingLimitTooLow"
+
+    class PipelineVersion(models.TextChoices):
+        V1 = "v1-dlt-sync", "v1-dlt-sync"
+        V2 = "v2-non-dlt", "v2-non-dlt"
 
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     pipeline = models.ForeignKey("posthog.ExternalDataSource", related_name="jobs", on_delete=models.CASCADE)
@@ -26,27 +31,26 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     workflow_id = models.CharField(max_length=400, null=True, blank=True)
     workflow_run_id = models.CharField(max_length=400, null=True, blank=True)
 
+    pipeline_version = models.CharField(max_length=400, choices=PipelineVersion.choices, null=True, blank=True)
+    billable = models.BooleanField(default=True, null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    storage_delta_mib = models.FloatField(null=True, blank=True, default=0)
+
     __repr__ = sane_repr("id")
 
     def folder_path(self) -> str:
-        return f"team_{self.team_id}_{self.pipeline.source_type}_{str(self.schema_id)}".lower().replace("-", "_")
-
-    def deprecated_folder_path(self) -> str:
-        return f"team_{self.team_id}_{self.pipeline.source_type}_{str(self.pk)}".lower().replace("-", "_")
+        if self.schema:
+            return self.schema.folder_path()
+        else:
+            raise ValueError("Job does not have a schema")
 
     def url_pattern_by_schema(self, schema: str) -> str:
-        if TEST:
-            return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{settings.BUCKET}/{self.folder_path()}/{schema.lower()}/"
+        if settings.USE_LOCAL_SETUP:
+            return (
+                f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{settings.BUCKET_PATH}/{self.folder_path()}/{schema.lower()}/"
+            )
 
-        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/{self.folder_path()}/{schema.lower()}/"
-
-    def delete_deprecated_data_in_bucket(self) -> None:
-        s3 = get_s3_client()
-
-        if s3.exists(f"{settings.BUCKET_URL}/{self.deprecated_folder_path()}"):
-            s3.delete(f"{settings.BUCKET_URL}/{self.deprecated_folder_path()}", recursive=True)
-
-        return
+        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/{settings.BUCKET_PATH}/{self.folder_path()}/{schema.lower()}/"
 
 
 @database_sync_to_async
@@ -56,20 +60,6 @@ def get_external_data_job(job_id: UUID) -> ExternalDataJob:
     return ExternalDataJob.objects.prefetch_related(
         "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
     ).get(pk=job_id)
-
-
-@database_sync_to_async
-def aget_external_data_jobs_by_schema_id(schema_id: UUID) -> list[ExternalDataJob]:
-    from posthog.warehouse.models import ExternalDataSchema
-
-    return list(
-        ExternalDataJob.objects.prefetch_related(
-            "pipeline", Prefetch("schema", queryset=ExternalDataSchema.objects.prefetch_related("source"))
-        )
-        .filter(schema_id=schema_id)
-        .order_by("-created_at")
-        .all()
-    )
 
 
 @database_sync_to_async

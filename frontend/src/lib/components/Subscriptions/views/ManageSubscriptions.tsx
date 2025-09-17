@@ -1,10 +1,12 @@
-import { IconEllipsis } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { IconSlack } from 'lib/lemon-ui/icons'
+
+import { IconEllipsis } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
+import { IconSlack } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 
 import { SubscriptionType } from '~/types'
@@ -89,12 +91,12 @@ export function ManageSubscriptions({
             </LemonModal.Header>
             <LemonModal.Content>
                 {subscriptionsLoading && !subscriptions.length ? (
-                    <div className="space-y-2">
+                    <div className="deprecated-space-y-2">
                         <LemonSkeleton className="w-1/2 h-4" />
                         <LemonSkeleton.Row repeat={2} />
                     </div>
                 ) : subscriptions.length ? (
-                    <div className="space-y-2">
+                    <div className="deprecated-space-y-2">
                         <div>
                             <strong>{subscriptions?.length}</strong>
                             {' active '}

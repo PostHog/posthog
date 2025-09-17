@@ -1,6 +1,8 @@
 import dataclasses
-from typing import Literal, Optional, get_args, TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, Optional
 
+from posthog.api.hog_function_template import HogFunctionTemplateSerializer
+from posthog.models.hog_function_template import HogFunctionTemplate
 
 if TYPE_CHECKING:
     from posthog.models.plugin import PluginConfig
@@ -8,31 +10,56 @@ else:
     PluginConfig = None
 
 
-SubTemplateId = Literal["early_access_feature_enrollment", "survey_response"]
+SubTemplateId = Literal[
+    "activity-log",
+    "error-tracking-issue-created",
+    "error-tracking-issue-reopened",
+    "insight-alert-firing",
+]
 
-SUB_TEMPLATE_ID: tuple[SubTemplateId, ...] = get_args(SubTemplateId)
+
+# Keep in sync with HogFunctionType
+HogFunctionTemplateType = Literal[
+    "destination",
+    "site_destination",
+    "internal_destination",
+    "source_webhook",
+    "site_app",
+    "transformation",
+]
 
 
 @dataclasses.dataclass(frozen=True)
-class HogFunctionSubTemplate:
-    id: SubTemplateId
-    name: str
-    description: Optional[str] = None
+class HogFunctionMapping:
+    name: Optional[str] = None
     filters: Optional[dict] = None
-    masking: Optional[dict] = None
     inputs: Optional[dict] = None
+    inputs_schema: Optional[list[dict]] = None
 
 
 @dataclasses.dataclass(frozen=True)
-class HogFunctionTemplate:
-    status: Literal["alpha", "beta", "stable", "free"]
+class HogFunctionMappingTemplate:
+    name: str
+    include_by_default: Optional[bool] = None
+    filters: Optional[dict] = None
+    inputs: Optional[dict] = None
+    inputs_schema: Optional[list[dict]] = None
+
+
+@dataclasses.dataclass(frozen=True)
+class HogFunctionTemplateDC:
+    status: Literal["alpha", "beta", "stable", "deprecated", "coming_soon", "hidden"]
+    free: bool
+    type: HogFunctionTemplateType
     id: str
     name: str
-    description: str
-    hog: str
+    code: str
+    code_language: Literal["javascript", "hog"]
     inputs_schema: list[dict]
-    sub_templates: Optional[list[HogFunctionSubTemplate]] = None
+    category: list[str]
+    description: Optional[str] = None
     filters: Optional[dict] = None
+    mapping_templates: Optional[list[HogFunctionMappingTemplate]] = None
     masking: Optional[dict] = None
     icon_url: Optional[str] = None
 
@@ -46,30 +73,15 @@ class HogFunctionTemplateMigrator:
         raise NotImplementedError()
 
 
-SUB_TEMPLATE_COMMON: dict[SubTemplateId, HogFunctionSubTemplate] = {
-    "survey_response": HogFunctionSubTemplate(
-        id="survey_response",
-        name="Survey Response",
-        filters={
-            "events": [
-                {
-                    "id": "survey sent",
-                    "type": "events",
-                    "properties": [
-                        {
-                            "key": "$survey_response",
-                            "type": "event",
-                            "value": "is_set",
-                            "operator": "is_set",
-                        },
-                    ],
-                }
-            ]
-        },
-    ),
-    "early_access_feature_enrollment": HogFunctionSubTemplate(
-        id="early_access_feature_enrollment",
-        name="Early Access Feature Enrollment",
-        filters={"events": [{"id": "$feature_enrollment_update", "type": "events"}]},
-    ),
-}
+def sync_template_to_db(template_data: dict | HogFunctionTemplateDC) -> HogFunctionTemplate:
+    if isinstance(template_data, HogFunctionTemplateDC):
+        template_data = dataclasses.asdict(template_data)
+
+    template = HogFunctionTemplate.get_template(template_data["id"])
+    if template:
+        serializer = HogFunctionTemplateSerializer(template, data=template_data)
+    else:
+        serializer = HogFunctionTemplateSerializer(data=template_data)
+
+    serializer.is_valid(raise_exception=True)
+    return serializer.save()

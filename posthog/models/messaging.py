@@ -3,7 +3,7 @@ import hashlib
 from django.conf import settings
 from django.db import models
 
-from .utils import UUIDModel
+from .utils import UUIDTModel
 
 
 def get_email_hash(email: str) -> str:
@@ -19,8 +19,24 @@ class MessagingRecordManager(models.Manager):
 
         return super().get_or_create(defaults, **kwargs)
 
+    def filter(self, *args, **kwargs):
+        raw_email = kwargs.pop("raw_email", None)
 
-class MessagingRecord(UUIDModel):
+        if raw_email:
+            kwargs["email_hash"] = get_email_hash(raw_email)
+
+        return super().filter(*args, **kwargs)
+
+    def get(self, *args, **kwargs):
+        raw_email = kwargs.pop("raw_email", None)
+
+        if raw_email:
+            kwargs["email_hash"] = get_email_hash(raw_email)
+
+        return super().get(*args, **kwargs)
+
+
+class MessagingRecord(UUIDTModel):
     objects = MessagingRecordManager()
 
     email_hash = models.CharField(max_length=1024)

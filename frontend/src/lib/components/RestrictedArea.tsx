@@ -15,7 +15,7 @@ export enum RestrictionScope {
     /** Current organization-wide membership level will be used. */
     Organization = 'organization',
     /** Effective level for the current project will be used. */
-    Project = 'project',
+    Project = 'project', // TODO: Rename, as this is actually the environment scope
 }
 
 export interface UseRestrictedAreaProps {
@@ -27,7 +27,10 @@ export interface RestrictedAreaProps extends UseRestrictedAreaProps {
     Component: (props: RestrictedComponentProps) => JSX.Element
 }
 
-export function useRestrictedArea({ scope, minimumAccessLevel }: UseRestrictedAreaProps): null | string {
+export function useRestrictedArea({
+    scope = RestrictionScope.Organization,
+    minimumAccessLevel,
+}: UseRestrictedAreaProps): null | string {
     const { currentOrganization } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
 
@@ -56,7 +59,7 @@ export function useRestrictedArea({ scope, minimumAccessLevel }: UseRestrictedAr
             )}s and up. Your level is ${membershipLevelToName.get(scopeAccessLevel)}.`
         }
         return null
-    }, [currentOrganization])
+    }, [currentOrganization, currentTeam]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return restrictionReason
 }

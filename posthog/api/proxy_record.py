@@ -1,17 +1,21 @@
 import asyncio
 import hashlib
+
 from django.conf import settings
+
+import posthoganalytics
 from rest_framework import serializers, status
+from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.constants import GENERAL_PURPOSE_TASK_QUEUE
+from posthog.event_usage import groups
 from posthog.models import ProxyRecord
+from posthog.models.organization import Organization
 from posthog.permissions import OrganizationAdminWritePermissions
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.proxy_service import CreateManagedProxyInputs, DeleteManagedProxyInputs
-
-from rest_framework.response import Response
 
 
 def generate_target_cname(organization_id, domain) -> str:
@@ -20,6 +24,20 @@ def generate_target_cname(organization_id, domain) -> str:
     m.update(domain.encode())
     digest = m.hexdigest()[:20]
     return f"{digest}.{settings.PROXY_BASE_CNAME}"
+
+
+def _capture_proxy_event(request, record: ProxyRecord, event_type: str) -> None:
+    organization = Organization.objects.get(id=record.organization_id)
+    posthoganalytics.capture(
+        distinct_id=str(request.user.distinct_id),
+        event=f"managed reverse proxy {event_type}",
+        properties={
+            "proxy_record_id": record.id,
+            "domain": record.domain,
+            "target_cname": record.target_cname,
+        },
+        groups=groups(organization),
+    )
 
 
 class ProxyRecordSerializer(serializers.ModelSerializer):
@@ -76,6 +94,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
         )
 
         serializer = self.get_serializer(record)
+        _capture_proxy_event(request, record, "created")
         return Response(serializer.data)
 
     def destroy(self, request, *args, pk=None, **kwargs):
@@ -105,6 +124,8 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
             )
             record.status = ProxyRecord.Status.DELETING
             record.save()
+
+            _capture_proxy_event(request, record, "deleted")
 
         return Response(
             {"success": True},

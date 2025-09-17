@@ -1,16 +1,11 @@
-from django.core.exceptions import ObjectDoesNotExist
+from rest_framework import mixins, status, viewsets
 from rest_framework.response import Response
-from posthog.api.utils import action
-from rest_framework import (
-    mixins,
-    viewsets,
-    status,
-)
+
 from posthog.api.cohort import CohortSerializer
+from posthog.api.feature_flag import CanEditFeatureFlag, FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.feature_flag import FeatureFlagSerializer
-from posthog.api.feature_flag import CanEditFeatureFlag
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.utils import action
 from posthog.models import FeatureFlag, Team
 from posthog.models.cohort import Cohort, CohortOrEmpty
 from posthog.models.filters.filter import Filter
@@ -66,7 +61,7 @@ class OrganizationFeatureFlagView(
 
         # Fetch the flag to copy
         try:
-            flag_to_copy = FeatureFlag.objects.get(key=feature_flag_key, team_id=from_project)
+            flag_to_copy = FeatureFlag.objects.get(key=feature_flag_key, team__project_id=from_project)
         except FeatureFlag.DoesNotExist:
             return Response({"error": "Feature flag to copy does not exist."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -82,9 +77,8 @@ class OrganizationFeatureFlagView(
 
         for target_project_id in target_project_ids:
             # Target project does not exist
-            try:
-                target_project = Team.objects.get(id=target_project_id)
-            except ObjectDoesNotExist:
+            target_team = Team.objects.filter(project_id=target_project_id).first()
+            if target_team is None:
                 failed_projects.append(
                     {
                         "project_id": target_project_id,
@@ -111,7 +105,7 @@ class OrganizationFeatureFlagView(
 
                     # search in destination project by name
                     destination_cohort = Cohort.objects.filter(
-                        name=original_cohort.name, team_id=target_project_id, deleted=False
+                        name=original_cohort.name, team__project_id=target_project_id, deleted=False
                     ).first()
 
                     # create new cohort in the destination project
@@ -134,7 +128,7 @@ class OrganizationFeatureFlagView(
 
                         destination_cohort_serializer = CohortSerializer(
                             data={
-                                "team": target_project,
+                                "team": target_team,
                                 "name": original_cohort.name,
                                 "groups": [],
                                 "filters": {"properties": prop_group.to_dict()},
@@ -143,7 +137,7 @@ class OrganizationFeatureFlagView(
                             },
                             context={
                                 "request": request,
-                                "team_id": target_project.id,
+                                "team_id": target_team.id,
                             },
                         )
                         destination_cohort_serializer.is_valid(raise_exception=True)
@@ -175,14 +169,16 @@ class OrganizationFeatureFlagView(
                 "rollout_percentage": flag_to_copy.rollout_percentage,
                 "ensure_experience_continuity": flag_to_copy.ensure_experience_continuity,
                 "deleted": False,
+                "evaluation_runtime": flag_to_copy.evaluation_runtime,
             }
             context = {
                 "request": request,
                 "team_id": target_project_id,
+                "project_id": target_project_id,
             }
 
             existing_flag = FeatureFlag.objects.filter(
-                key=feature_flag_key, team_id=target_project_id, deleted=False
+                key=feature_flag_key, team__project_id=target_project_id, deleted=False
             ).first()
             # Update existing flag
             if existing_flag:

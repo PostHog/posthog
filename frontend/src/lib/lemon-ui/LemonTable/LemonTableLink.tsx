@@ -1,3 +1,5 @@
+import { ReactNode } from 'react'
+
 import { LemonMarkdown } from '../LemonMarkdown'
 import { Link, LinkProps } from '../Link'
 
@@ -7,7 +9,7 @@ export function LemonTableLink({
     ...props
 }: Pick<LinkProps, 'to' | 'onClick' | 'target' | 'className'> & {
     title: JSX.Element | string
-    description?: JSX.Element | string
+    description?: ReactNode
 }): JSX.Element {
     return (
         <Link subtle {...props}>
@@ -15,7 +17,7 @@ export function LemonTableLink({
                 <div className="flex flex-row items-center font-semibold text-sm gap-1">{title}</div>
 
                 {description ? (
-                    <div className="text-text-3000 text-xs text-text-secondary-3000 mt-1">
+                    <div className="text-xs text-tertiary mt-1">
                         {typeof description === 'string' ? (
                             <LemonMarkdown className="max-w-[30rem]" lowKeyHeadings>
                                 {description}

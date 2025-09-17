@@ -1,18 +1,23 @@
 from datetime import timedelta
 from typing import TYPE_CHECKING, Optional
 
-import structlog
 from django.db import models
 from django.utils import timezone
+
+import structlog
 from rest_framework import exceptions
 
-from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
+from posthog.helpers.email_utils import EmailNormalizer, EmailValidationHelper
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
-from posthog.models.utils import UUIDModel, sane_repr
+from posthog.models.utils import UUIDTModel, sane_repr
 from posthog.utils import absolute_uri
+
+from ee.models.explicit_team_membership import ExplicitTeamMembership
+from ee.models.rbac.access_control import AccessControl
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -22,6 +27,8 @@ logger = structlog.get_logger(__name__)
 
 
 def validate_private_project_access(value):
+    from posthog.rbac.user_access_control import ACCESS_CONTROL_LEVELS_MEMBER
+
     if not isinstance(value, list):
         raise exceptions.ValidationError("The field must be a list of dictionaries.")
     for item in value:
@@ -31,11 +38,19 @@ def validate_private_project_access(value):
             raise exceptions.ValidationError('Each dictionary must contain "id" and "level" keys.')
         if not isinstance(item["id"], int):
             raise exceptions.ValidationError('The "id" field must be an integer.')
-        if item["level"] not in ExplicitTeamMembership.Level.values:
-            raise exceptions.ValidationError('The "level" field must be either "member" or "admin".')
+        # This is a temporary fix to support both the old ExplicitTeamMembership.Level int and the new ACCESS_CONTROL_LEVELS_MEMBER
+        # In the future it will only check for ACCESS_CONTROL_LEVELS_MEMBER str
+        valid_levels = list(ExplicitTeamMembership.Level.values) + list(ACCESS_CONTROL_LEVELS_MEMBER)
+        if item["level"] not in valid_levels:
+            raise exceptions.ValidationError('The "level" field must be a valid access level.')
 
 
-class OrganizationInvite(UUIDModel):
+class InviteExpiredException(exceptions.ValidationError):
+    def __init__(self, message="This invite has expired. Please ask your admin for a new one."):
+        super().__init__(message, code="expired")
+
+
+class OrganizationInvite(ModelActivityMixin, UUIDTModel):
     organization = models.ForeignKey(
         "posthog.Organization",
         on_delete=models.CASCADE,
@@ -74,23 +89,22 @@ class OrganizationInvite(UUIDModel):
         invite_email: Optional[str] = None,
         request_path: Optional[str] = None,
     ) -> None:
-        from .user import User
-
         _email = email or getattr(user, "email", None)
 
-        if _email and _email != self.target_email:
+        if (
+            _email
+            and self.target_email
+            and EmailNormalizer.normalize(_email) != EmailNormalizer.normalize(self.target_email)
+        ):
             raise exceptions.ValidationError(
                 "This invite is intended for another email address.",
                 code="invalid_recipient",
             )
 
         if self.is_expired():
-            raise exceptions.ValidationError(
-                "This invite has expired. Please ask your admin for a new one.",
-                code="expired",
-            )
+            raise InviteExpiredException()
 
-        if user is None and User.objects.filter(email=invite_email).exists():
+        if user is None and invite_email and EmailValidationHelper.user_exists(invite_email):
             raise exceptions.ValidationError(f"/login?next={request_path}", code="account_exists")
 
         if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():
@@ -99,9 +113,12 @@ class OrganizationInvite(UUIDModel):
                 code="user_already_member",
             )
 
-        if OrganizationMembership.objects.filter(
-            organization=self.organization, user__email=self.target_email
-        ).exists():
+        if (
+            self.target_email
+            and OrganizationMembership.objects.filter(
+                organization=self.organization, user__email__iexact=self.target_email
+            ).exists()
+        ):
             raise exceptions.ValidationError(
                 "Another user with this email address already belongs to this organization.",
                 code="existing_email_address",
@@ -111,7 +128,8 @@ class OrganizationInvite(UUIDModel):
         if not prevalidated:
             self.validate(user=user)
         user.join(organization=self.organization, level=self.level)
-        for item in self.private_project_access:
+
+        for item in self.private_project_access or []:
             try:
                 team: Team = self.organization.teams.get(id=item["id"])
                 parent_membership = OrganizationMembership.objects.get(
@@ -121,13 +139,27 @@ class OrganizationInvite(UUIDModel):
             except self.organization.teams.model.DoesNotExist:
                 # if the team doesn't exist, it was probably deleted. We can still continue with the invite.
                 continue
-            if not team.access_control:
-                continue
-            ExplicitTeamMembership.objects.create(
-                team=team,
-                parent_membership=parent_membership,
-                level=item["level"],
-            )
+
+            # This path is deprecated, and will be removed soon
+            if team.access_control:
+                ExplicitTeamMembership.objects.create(
+                    team=team,
+                    parent_membership=parent_membership,
+                    # Supporting both the old ExplicitTeamMembership.Level int and the new AccessControlLevel str
+                    level=item["level"] if isinstance(item["level"], int) else (8 if item["level"] == "admin" else 1),
+                )
+            else:
+                # New access control
+                AccessControl.objects.create(
+                    team=team,
+                    resource="project",
+                    resource_id=str(team.id),
+                    organization_member=parent_membership,
+                    # Supporting both the old ExplicitTeamMembership.Level int and the new AccessControlLevel str
+                    access_level=item["level"]
+                    if isinstance(item["level"], str)
+                    else ("admin" if item["level"] == 8 else "member"),
+                )
 
         if is_email_available(with_absolute_urls=True) and self.organization.is_member_join_email_enabled:
             from posthog.tasks.email import send_member_join
@@ -138,11 +170,29 @@ class OrganizationInvite(UUIDModel):
                     "organization_id": self.organization_id,
                 }
             )
-        OrganizationInvite.objects.filter(target_email__iexact=self.target_email).delete()
+        OrganizationInvite.objects.filter(
+            organization=self.organization, target_email__iexact=self.target_email
+        ).delete()
 
     def is_expired(self) -> bool:
         """Check if invite is older than INVITE_DAYS_VALIDITY days."""
         return self.created_at < timezone.now() - timedelta(INVITE_DAYS_VALIDITY)
+
+    def delete(self, *args, **kwargs):
+        from posthog.models.activity_logging.model_activity import get_current_user, get_was_impersonated
+        from posthog.models.signals import model_activity_signal
+
+        model_activity_signal.send(
+            sender=self.__class__,
+            scope=self.__class__.__name__,
+            before_update=self,
+            after_update=None,
+            activity="deleted",
+            user=get_current_user(),
+            was_impersonated=get_was_impersonated(),
+        )
+
+        return super().delete(*args, **kwargs)
 
     def __str__(self):
         return absolute_uri(f"/signup/{self.id}")

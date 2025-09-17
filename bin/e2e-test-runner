@@ -6,7 +6,6 @@ SKIP_RECREATE_DATABASE=false
 SKIP_SETUP_DEV=false
 
 HELP_TEXT=$(cat << EOF
-  use --skip-all-setup to only run Cypress
   use --skip-recreate-db to skip dropping and creating databases
   use --skip-migrate-db to skip running DB migrations
   use --skip-setup-dev to skip running django setup_dev command
@@ -46,7 +45,6 @@ do
     fi
 done
 
-export CYPRESS_BASE_URL=http://localhost:8080
 export SECURE_COOKIES=0
 export SKIP_SERVICE_VERSION_REQUIREMENTS=1
 export KAFKA_HOSTS=kafka:9092
@@ -65,6 +63,8 @@ export PGPASSWORD="${PGPASSWORD:=posthog}"
 export PGPORT="${PGPORT:=5432}"
 export DATABASE_URL="postgres://${PGUSER}:${PGPASSWORD}@${PGHOST}:${PGPORT}/${DATABASE}"
 export CLOUD_DEPLOYMENT=E2E
+
+echo "~~~~~~~~~~~~~ starting e2e test runner ~~~~~~~~~~~~~"
 
 source ./bin/celery-queues.env
 
@@ -101,7 +101,9 @@ $SKIP_SETUP_DEV || setupDev
 # parallel block
 # Only start webpack if not already running
 nc -vz 127.0.0.1 8234 2> /dev/null || ./bin/start-frontend &
-pnpm cypress open --config-file cypress.e2e.config.ts &
-uv pip install -r requirements.txt -r requirements-dev.txt
 python manage.py run_autoreload_celery --type=worker &
-python manage.py runserver 8080
+python manage.py runserver 8080 &
+
+pnpm --filter=@posthog/frontend build:products
+
+pnpm --filter=@posthog/playwright exec playwright test --ui

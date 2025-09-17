@@ -1,19 +1,22 @@
-from datetime import datetime, date
+from datetime import date, datetime
 from typing import Any, List, Literal  # noqa: UP035
 
-from rest_framework import viewsets, request, response, serializers, status
+from rest_framework import request, response, serializers, status, viewsets
 
-from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import TemporaryTokenAuthentication
+from posthog.schema import DateRange, HogQLFilters, HogQLQueryResponse
+
 from posthog.hogql import ast
 from posthog.hogql.ast import Constant
 from posthog.hogql.base import Expr
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
-from posthog.rate_limit import ClickHouseSustainedRateThrottle, ClickHouseBurstRateThrottle
-from posthog.schema import HogQLQueryResponse
+
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import TemporaryTokenAuthentication
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 DEFAULT_QUERY = """
@@ -65,6 +68,7 @@ class HeatmapsRequestSerializer(serializers.Serializer):
         help_text="How to aggregate the response",
         default="total_count",
     )
+    filter_test_accounts = serializers.BooleanField(required=False, default=None, allow_null=True)
 
     def validate_date(self, value, label: Literal["date_from", "date_to"]) -> date:
         try:
@@ -120,6 +124,9 @@ class HeatmapsRequestSerializer(serializers.Serializer):
             else:
                 values.pop("url_exact")
 
+        if values.get("filter_test_accounts") and not isinstance(values.get("filter_test_accounts"), bool):
+            raise serializers.ValidationError("filter_test_accounts must be a boolean")
+
         return values
 
 
@@ -158,12 +165,36 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         aggregation = request_serializer.validated_data.pop("aggregation")
         placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in request_serializer.validated_data.items()}
+        placeholders["date_to"] = placeholders.get("date_to", Constant(value=date.today().strftime("%Y-%m-%d")))
         is_scrolldepth_query = placeholders.get("type", None) == Constant(value="scrolldepth")
 
         raw_query = SCROLL_DEPTH_QUERY if is_scrolldepth_query else DEFAULT_QUERY
 
         aggregation_count = self._choose_aggregation(aggregation, is_scrolldepth_query)
         exprs = self._predicate_expressions(placeholders)
+
+        if request_serializer.validated_data.get("filter_test_accounts") is True:
+            date_from: date = request_serializer.validated_data["date_from"]
+            date_to: date | None = request_serializer.validated_data.get("date_to", None)
+            events_select = replace_filters(
+                parse_select(
+                    "SELECT distinct $session_id FROM events where notEmpty($session_id) AND {filters}", placeholders={}
+                ),
+                HogQLFilters(
+                    filterTestAccounts=True,
+                    dateRange=DateRange(
+                        date_from=date_from.strftime("%Y-%m-%d"),
+                        date_to=date_to.strftime("%Y-%m-%d") if date_to else (date.today()).strftime("%Y-%m-%d"),
+                    ),
+                ),
+                self.team,
+            )
+            session_filter_expr = ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=ast.Field(chain=["session_id"]),
+                right=events_select,
+            )
+            exprs.append(session_filter_expr)
 
         stmt = parse_select(raw_query, {"aggregation_count": aggregation_count, "predicates": ast.And(exprs=exprs)})
         context = HogQLContext(team_id=self.team.pk, limit_top_select=False)
@@ -198,9 +229,11 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         }
 
         for predicate_key in placeholders.keys():
-            predicate_expressions.append(
-                parse_expr(predicate_mapping[predicate_key], {predicate_key: placeholders[predicate_key]})
-            )
+            # we e.g. don't want to add the filter_test_accounts predicate here
+            if predicate_key in predicate_mapping:
+                predicate_expressions.append(
+                    parse_expr(predicate_mapping[predicate_key], {predicate_key: placeholders[predicate_key]})
+                )
 
         if len(predicate_expressions) == 0:
             raise serializers.ValidationError("must always generate some filter conditions")
@@ -221,7 +254,11 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         response_serializer = HeatmapsResponseSerializer(data={"results": data})
         response_serializer.is_valid(raise_exception=True)
-        return response.Response(response_serializer.data, status=status.HTTP_200_OK)
+
+        resp = response.Response(response_serializer.data, status=status.HTTP_200_OK)
+        resp["Cache-Control"] = "max-age=30"
+        resp["Vary"] = "Accept, Accept-Encoding, Query-String"
+        return resp
 
     @staticmethod
     def _return_scroll_depth_response(query_response: HogQLQueryResponse) -> response.Response:
@@ -236,7 +273,11 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         response_serializer = HeatmapsScrollDepthResponseSerializer(data={"results": data})
         response_serializer.is_valid(raise_exception=True)
-        return response.Response(response_serializer.data, status=status.HTTP_200_OK)
+
+        resp = response.Response(response_serializer.data, status=status.HTTP_200_OK)
+        resp["Cache-Control"] = "max-age=30"
+        resp["Vary"] = "Accept, Accept-Encoding, Query-String"
+        return resp
 
 
 class LegacyHeatmapViewSet(HeatmapViewSet):

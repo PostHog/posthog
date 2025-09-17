@@ -1,7 +1,10 @@
-import { IconExternal } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
+
+import { IconExternal } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { capitalizeFirstLetter } from 'lib/utils'
 import { Settings } from 'scenes/settings/Settings'
 import { settingsLogic } from 'scenes/settings/settingsLogic'
 import { SettingsLogicProps } from 'scenes/settings/types'
@@ -16,7 +19,7 @@ export const SidePanelSettings = (): JSX.Element => {
 
     const settingsLogicProps: SettingsLogicProps = {
         ...settings,
-        logicKey: 'sidepanel',
+        logicKey: `sidepanel:${settings.sectionId}`,
     }
     const { selectedSectionId, selectedLevel } = useValues(settingsLogic(settingsLogicProps))
 
@@ -25,11 +28,11 @@ export const SidePanelSettings = (): JSX.Element => {
             sectionId: selectedSectionId ?? undefined,
             settingLevelId: selectedLevel,
         })
-    }, [selectedSectionId, selectedLevel])
+    }, [selectedSectionId, selectedLevel, setSettings])
 
     return (
         <div className="flex flex-col overflow-hidden">
-            <SidePanelPaneHeader>
+            <SidePanelPaneHeader title={`${capitalizeFirstLetter(selectedLevel)} settings`}>
                 <LemonButton
                     size="small"
                     to={urls.settings(settings.sectionId ?? settings.settingLevelId, settings.settingId)}
@@ -39,7 +42,7 @@ export const SidePanelSettings = (): JSX.Element => {
                     All settings
                 </LemonButton>
             </SidePanelPaneHeader>
-            <div className="flex-1 p-4 overflow-y-auto">
+            <div className="flex-1 p-3 overflow-y-auto">
                 <Settings hideSections {...settingsLogicProps} />
             </div>
         </div>

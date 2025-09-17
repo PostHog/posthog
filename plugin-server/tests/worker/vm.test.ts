@@ -1,19 +1,21 @@
-import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
-import fetch from 'node-fetch'
+import { mockProducerObserver } from '../helpers/mocks/producer.mock'
 
-import { KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
+// eslint-disable-next-line no-restricted-imports
+import { fetch } from 'undici'
+
+import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
+
+import { KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
 import { Hub, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
 import { PluginConfig, PluginConfigVMResponse } from '../../src/types'
-import { createHub } from '../../src/utils/db/hub'
-import { delay, UUIDT } from '../../src/utils/utils'
+import { closeHub, createHub } from '../../src/utils/db/hub'
+import { UUIDT, delay } from '../../src/utils/utils'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
 import { pluginConfig39 } from '../helpers/plugins'
 import { plugin60 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 
-jest.mock('../../src/utils/status')
-jest.mock('../../src/utils/db/kafka-producer-wrapper')
-jest.mock('../../src/main/graphile-worker/graphile-worker')
+jest.mock('../../src/utils/logger')
 
 jest.setTimeout(100000)
 
@@ -42,21 +44,36 @@ export const createReadyPluginConfigVm = async (
 }
 describe('vm tests', () => {
     let hub: Hub
-    let closeHub: () => Promise<void>
 
     beforeEach(async () => {
-        ;[hub, closeHub] = await createHub()
+        hub = await createHub()
+
+        jest.mocked(fetch).mockImplementation((...args) => {
+            const responsesToUrls: Record<string, any> = {
+                'https://google.com/results.json?query=fetched': { count: 2, query: 'bla', results: [true, true] },
+                'https://app.posthog.com/api/event?token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2': { hello: 'world' },
+                'https://onevent.com/': { success: true },
+                'https://www.example.com': { example: 'data' },
+            }
+
+            const response = responsesToUrls[args[0] as unknown as string] || { fetch: 'mock' }
+
+            return Promise.resolve({
+                json: jest.fn().mockResolvedValue(response),
+            } as any)
+        })
     })
 
     afterEach(async () => {
-        await closeHub()
+        await closeHub(hub)
+        jest.mocked(fetch).mockClear()
     })
 
     test('empty plugins', async () => {
         const indexJs = ''
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
-        expect(Object.keys(vm).sort()).toEqual(['methods', 'tasks', 'usedImports', 'vm', 'vmResponseVariable'])
+        expect(Object.keys(vm).sort()).toEqual(['methods', 'usedImports', 'vm', 'vmResponseVariable'])
         expect(Object.keys(vm.methods).sort()).toEqual([
             'composeWebhook',
             'getSettings',
@@ -122,7 +139,7 @@ describe('vm tests', () => {
         })
         expect(fetch).not.toHaveBeenCalled()
         await vm.methods.teardownPlugin!()
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=hoho', undefined)
+        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=hoho', expect.anything())
     })
 
     test('processEvent', async () => {
@@ -376,7 +393,7 @@ describe('vm tests', () => {
                 event: 'export',
             }
             await vm.methods.onEvent!(event)
-            expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=export', undefined)
+            expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=export', expect.anything())
         })
 
         test('export default', async () => {
@@ -395,7 +412,10 @@ describe('vm tests', () => {
                 event: 'default export',
             }
             await vm.methods.onEvent!(event)
-            expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=default export', undefined)
+            expect(fetch).toHaveBeenCalledWith(
+                'https://google.com/results.json?query=default%20export',
+                expect.anything()
+            )
         })
     })
 
@@ -684,26 +704,28 @@ describe('vm tests', () => {
             ...defaultEvent,
             event: 'logged event',
         }
-        const queueSingleJsonMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueSingleJsonMessage')
 
         await vm.methods.processEvent!(event)
 
-        expect(queueSingleJsonMessageSpy).toHaveBeenCalledTimes(1)
-        expect(queueSingleJsonMessageSpy).toHaveBeenCalledWith({
+        expect(mockProducerObserver.produceSpy).toHaveBeenCalledTimes(1)
+        expect(mockProducerObserver.getParsedQueuedMessages()[0]).toEqual({
             topic: KAFKA_PLUGIN_LOG_ENTRIES,
-            key: expect.any(String),
-            object: {
-                id: expect.any(String),
-                instance_id: hub.instanceId.toString(),
-                message: 'logged event',
-                plugin_config_id: pluginConfig39.id,
-                plugin_id: pluginConfig39.plugin_id,
-                source: PluginLogEntrySource.Console,
-                team_id: pluginConfig39.team_id,
-                timestamp: expect.any(String),
-                type: PluginLogEntryType.Log,
-            },
-            waitForAck: false,
+            messages: [
+                {
+                    key: expect.any(String),
+                    value: {
+                        id: expect.any(String),
+                        instance_id: hub.instanceId.toString(),
+                        message: 'logged event',
+                        plugin_config_id: pluginConfig39.id,
+                        plugin_id: pluginConfig39.plugin_id,
+                        source: PluginLogEntrySource.Console,
+                        team_id: pluginConfig39.team_id,
+                        timestamp: expect.any(String),
+                        type: PluginLogEntryType.Log,
+                    },
+                },
+            ],
         })
     })
 
@@ -723,7 +745,7 @@ describe('vm tests', () => {
         }
 
         await vm.methods.processEvent!(event)
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched', undefined)
+        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched', expect.anything())
 
         expect(event.properties).toEqual({ count: 2, query: 'bla', results: [true, true] })
     })
@@ -745,7 +767,7 @@ describe('vm tests', () => {
         }
 
         await vm.methods.processEvent!(event)
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched', undefined)
+        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched', expect.anything())
 
         expect(event.properties).toEqual({ count: 2, query: 'bla', results: [true, true] })
     })
@@ -766,7 +788,7 @@ describe('vm tests', () => {
         }
 
         await vm.methods.processEvent!(event)
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched', undefined)
+        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=fetched', expect.anything())
 
         expect(event.properties).toEqual({ count: 2, query: 'bla', results: [true, true] })
     })
@@ -803,7 +825,10 @@ describe('vm tests', () => {
 
         expect(event.properties?.get).toEqual({ hello: 'world' })
         expect((fetch as any).mock.calls.length).toEqual(8)
-        expect((fetch as any).mock.calls).toEqual([
+
+        // eslint-disable-next-line no-restricted-syntax
+        const details = JSON.parse(JSON.stringify((fetch as any).mock.calls))
+        expect(details).toMatchObject([
             [
                 'https://app.posthog.com/api/event?token=THIS+IS+NOT+A+TOKEN+FOR+TEAM+2',
                 {
@@ -906,138 +931,6 @@ describe('vm tests', () => {
         expect(event.properties).toEqual(attachments)
     })
 
-    test('runEvery', async () => {
-        const indexJs = `
-            function runEveryMinute (meta) {
-
-            }
-            function runEveryHour (meta) {
-
-            }
-            function runEveryDay (meta) {
-
-            }
-        `
-        await resetTestDatabase(indexJs)
-        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
-
-        expect(Object.keys(vm.tasks).sort()).toEqual(['job', 'schedule'])
-        expect(Object.keys(vm.tasks.schedule)).toEqual(['runEveryMinute', 'runEveryHour', 'runEveryDay'])
-        expect(Object.values(vm.tasks.schedule).map((v) => v?.name)).toEqual([
-            'runEveryMinute',
-            'runEveryHour',
-            'runEveryDay',
-        ])
-        expect(Object.values(vm.tasks.schedule).map((v) => v?.type)).toEqual(['schedule', 'schedule', 'schedule'])
-        expect(Object.values(vm.tasks.schedule).map((v) => typeof v?.exec)).toEqual([
-            'function',
-            'function',
-            'function',
-        ])
-    })
-
-    test('runEvery must be a function', async () => {
-        const indexJs = `
-            function runEveryMinute(meta) {
-
-            }
-            const runEveryHour = false
-            const runEveryDay = { some: 'object' }
-        `
-        await resetTestDatabase(indexJs)
-        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
-
-        expect(Object.keys(vm.tasks.schedule)).toEqual(['runEveryMinute'])
-        expect(Object.values(vm.tasks.schedule).map((v) => v?.name)).toEqual(['runEveryMinute'])
-        expect(Object.values(vm.tasks.schedule).map((v) => v?.type)).toEqual(['schedule'])
-        expect(Object.values(vm.tasks.schedule).map((v) => typeof v?.exec)).toEqual(['function'])
-    })
-
-    test('posthog in runEvery', async () => {
-        const indexJs = `
-            async function runEveryMinute(meta) {
-                await posthog.capture('my-new-event', { random: 'properties' })
-                return 'haha'
-            }
-        `
-        await resetTestDatabase(indexJs)
-        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
-
-        const queueMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueMessage')
-
-        const response = await vm.tasks.schedule.runEveryMinute.exec()
-
-        expect(response).toBe('haha')
-        expect(queueMessageSpy).toHaveBeenCalledTimes(1)
-        expect(queueMessageSpy.mock.calls[0][0].kafkaMessage.topic).toEqual(KAFKA_EVENTS_PLUGIN_INGESTION)
-        const parsedMessage = JSON.parse(queueMessageSpy.mock.calls[0][0].kafkaMessage.messages[0].value!.toString())
-        expect(JSON.parse(parsedMessage.data)).toMatchObject({
-            distinct_id: 'plugin-id-60',
-            event: 'my-new-event',
-            properties: expect.objectContaining({
-                $lib: 'posthog-plugin-server',
-                random: 'properties',
-                distinct_id: 'plugin-id-60',
-            }),
-        })
-    })
-
-    test('posthog in runEvery with timestamp', async () => {
-        const indexJs = `
-            async function runEveryMinute(meta) {
-                await posthog.capture('my-new-event', { random: 'properties', timestamp: '2020-02-23T02:15:00Z' })
-                return 'haha'
-            }
-        `
-        await resetTestDatabase(indexJs)
-        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
-
-        const queueMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueMessage')
-
-        const response = await vm.tasks.schedule.runEveryMinute.exec()
-
-        expect(response).toBe('haha')
-        expect(queueMessageSpy).toHaveBeenCalledTimes(1)
-        expect(queueMessageSpy.mock.calls[0][0].kafkaMessage.topic).toEqual(KAFKA_EVENTS_PLUGIN_INGESTION)
-        const parsedMessage = JSON.parse(queueMessageSpy.mock.calls[0][0].kafkaMessage.messages[0].value!.toString())
-        expect(JSON.parse(parsedMessage.data)).toMatchObject({
-            timestamp: '2020-02-23T02:15:00Z', // taken out of the properties
-            distinct_id: 'plugin-id-60',
-            event: 'my-new-event',
-            properties: expect.objectContaining({ $lib: 'posthog-plugin-server', random: 'properties' }),
-        })
-    })
-
-    test('posthog.capture accepts user-defined distinct id', async () => {
-        const indexJs = `
-            function runEveryMinute(meta) {
-                posthog.capture('my-new-event', { random: 'properties', distinct_id: 'custom id' })
-                return 'haha'
-            }
-        `
-        await resetTestDatabase(indexJs)
-        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
-
-        const queueMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueMessage')
-
-        const response = await vm.tasks.schedule.runEveryMinute.exec()
-
-        expect(response).toBe('haha')
-        expect(response).toBe('haha')
-        expect(queueMessageSpy).toHaveBeenCalledTimes(1)
-        expect(queueMessageSpy.mock.calls[0][0].kafkaMessage.topic).toEqual(KAFKA_EVENTS_PLUGIN_INGESTION)
-        const parsedMessage = JSON.parse(queueMessageSpy.mock.calls[0][0].kafkaMessage.messages[0].value!.toString())
-        expect(JSON.parse(parsedMessage.data)).toMatchObject({
-            distinct_id: 'custom id',
-            event: 'my-new-event',
-            properties: expect.objectContaining({
-                $lib: 'posthog-plugin-server',
-                random: 'properties',
-                distinct_id: 'custom id',
-            }),
-        })
-    })
-
     test('onEvent', async () => {
         const indexJs = `
             async function onEvent (event, meta) {
@@ -1051,7 +944,7 @@ describe('vm tests', () => {
             event: 'onEvent',
         }
         await vm.methods.onEvent!(event)
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=onEvent', undefined)
+        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=onEvent', expect.anything())
     })
 
     test('imports', async () => {

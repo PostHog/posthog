@@ -1,5 +1,6 @@
-from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.test.base import BaseTest
+
+from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.utils import relative_date_parse
 
 
@@ -49,6 +50,7 @@ class TestLifecycleFilter(BaseTest):
                         "custom_name": None,
                         "math": "total",
                         "math_property": None,
+                        "math_property_revenue_currency": None,
                         "math_hogql": None,
                         "math_group_type_index": None,
                         "properties": {},

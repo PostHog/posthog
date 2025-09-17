@@ -1,36 +1,35 @@
 from typing import Optional, cast
 
+from posthog.schema import (
+    ActionsNode,
+    Breakdown as BreakdownSchema,
+    ChartDisplayType,
+    DataWarehouseNode,
+    DataWarehousePropertyFilter,
+    EventsNode,
+    HogQLQueryModifiers,
+    TrendsQuery,
+)
+
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext, get_breakdown_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.data_warehouse_mixin import (
-    DataWarehouseInsightQueryMixin,
-)
-from posthog.hogql_queries.insights.trends.aggregation_operations import (
-    AggregationOperations,
-)
+
+from posthog.hogql_queries.insights.data_warehouse_mixin import DataWarehouseInsightQueryMixin
+from posthog.hogql_queries.insights.trends.aggregation_operations import AggregationOperations
 from posthog.hogql_queries.insights.trends.breakdown import (
     BREAKDOWN_NULL_STRING_LABEL,
     BREAKDOWN_OTHER_STRING_LABEL,
     Breakdown,
 )
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
-from posthog.hogql_queries.insights.trends.utils import series_event_name
+from posthog.hogql_queries.insights.trends.utils import is_groups_math, series_event_name
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.team.team import Team
-from posthog.schema import (
-    ActionsNode,
-    ChartDisplayType,
-    DataWarehouseNode,
-    EventsNode,
-    HogQLQueryModifiers,
-    TrendsQuery,
-)
-from posthog.schema import Breakdown as BreakdownSchema
 
 
 class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
@@ -60,9 +59,9 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         self.modifiers = modifiers
         self.limit_context = limit_context
 
-    def build_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def build_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         breakdown = self.breakdown
-        events_query = self._get_events_subquery(False, is_actors_query=False, breakdown=breakdown)
+        events_query = self._get_events_subquery(False, breakdown=breakdown)
 
         if self._trends_display.is_total_value():
             wrapper_query = self._get_wrapper_query(events_query, breakdown=breakdown)
@@ -73,7 +72,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def _get_wrapper_query(
         self, events_query: ast.SelectQuery, breakdown: Breakdown
-    ) -> ast.SelectQuery | ast.SelectUnionQuery:
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
         if not breakdown.enabled:
             return events_query
 
@@ -125,7 +124,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         return parse_expr(
             """
             arrayMap(
-                number -> {date_from_start_of_interval} + {plus_interval}, -- NOTE: flipped the order around to use start date
+                number -> {date_from_start_of_interval} + {number_interval_period}, -- NOTE: flipped the order around to use start date
                 range(
                     0,
                     coalesce(
@@ -138,24 +137,17 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 )
             ) as date
         """,
-            placeholders={
-                **self.query_date_range.to_placeholders(),
-                "plus_interval": self.query_date_range.number_interval_periods(),
-            },
+            placeholders=self.query_date_range.to_placeholders(),
         )
 
     def _get_events_subquery(
         self,
         no_modifications: Optional[bool],
-        is_actors_query: bool,
         breakdown: Breakdown,
-        actors_query_time_frame: Optional[str] = None,
     ) -> ast.SelectQuery:
         events_filter = self._events_filter(
             ignore_breakdowns=False,
             breakdown=breakdown,
-            is_actors_query=is_actors_query,
-            actors_query_time_frame=actors_query_time_frame,
         )
 
         default_query = ast.SelectQuery(
@@ -257,8 +249,14 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             assert wrapper.group_by is not None
 
             if not self._trends_display.is_total_value():
-                default_query.select.append(day_start)
-                default_query.group_by.append(ast.Field(chain=["day_start"]))
+                assert wrapper.group_by is not None
+                assert isinstance(wrapper.select_from, ast.JoinExpr)
+                assert isinstance(wrapper.select_from.table, ast.SelectQuery)
+                assert wrapper.select_from.table.group_by is not None
+
+                # can't use "default_query" directly anymore, must use "wrapper.select_from.table"
+                wrapper.select_from.table.select.append(day_start)
+                wrapper.select_from.table.group_by.append(ast.Field(chain=["day_start"]))
 
                 wrapper.select.append(ast.Field(chain=["day_start"]))
                 wrapper.group_by.append(ast.Field(chain=["day_start"]))
@@ -284,18 +282,21 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
             if not self._trends_display.is_total_value():
                 assert wrapper.group_by is not None
+                assert isinstance(wrapper.select_from, ast.JoinExpr)
+                assert isinstance(wrapper.select_from.table, ast.SelectQuery)
+                assert wrapper.select_from.table.group_by is not None
 
-                default_query.select.append(day_start)
-                default_query.group_by.append(ast.Field(chain=["day_start"]))
+                # can't use "default_query" directly anymore, must use "wrapper.select_from.table"
+                wrapper.select_from.table.select.append(day_start)
+                wrapper.select_from.table.group_by.append(ast.Field(chain=["day_start"]))
 
                 wrapper.select.append(ast.Field(chain=["day_start"]))
                 wrapper.group_by.append(ast.Field(chain=["day_start"]))
 
             return wrapper
         # Just complex series aggregation
-        elif (
-            self._aggregation_operation.requires_query_orchestration()
-            and self._aggregation_operation.is_first_time_ever_math()
+        elif self._aggregation_operation.requires_query_orchestration() and (
+            self._aggregation_operation.is_first_time_ever_math()
         ):
             return self._aggregation_operation.get_first_time_math_query_orchestrator(
                 events_where_clause=events_filter,
@@ -312,14 +313,14 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def _outer_select_query(
         self, breakdown: Breakdown, inner_query: ast.SelectQuery
-    ) -> ast.SelectQuery | ast.SelectUnionQuery:
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
         total_array = parse_expr(
             """
             arrayMap(
                 _match_date ->
                     arraySum(
                         arraySlice(
-                            groupArray(count),
+                            groupArray(ifNull(count, 0)),
                             indexOf(groupArray(day_start) as _days_for_count, _match_date) as _index,
                             arrayLastIndex(x -> x = _match_date, _days_for_count) - _index + 1
                         )
@@ -418,7 +419,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                             i -> acc[i] + x[i],
                             range(1, length(date) + 1)
                         ),
-                        groupArray(total),
+                        groupArray(ifNull(total, 0)),
                         arrayWithConstant(length(date), reinterpretAsFloat64(0))
                     ) as total,
                     {breakdown_select}
@@ -453,7 +454,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         ) or get_breakdown_limit_for_context(self.limit_context)
 
     def _inner_select_query(
-        self, breakdown: Breakdown, inner_query: ast.SelectQuery | ast.SelectUnionQuery
+        self, breakdown: Breakdown, inner_query: ast.SelectQuery | ast.SelectSetQuery
     ) -> ast.SelectQuery:
         query = cast(
             ast.SelectQuery,
@@ -498,7 +499,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             query.ctes = {
                 "min_max": ast.CTE(
                     name="min_max",
-                    expr=self._get_events_subquery(no_modifications=False, is_actors_query=False, breakdown=breakdown),
+                    expr=self._get_events_subquery(no_modifications=False, breakdown=breakdown),
                     cte_type="subquery",
                 )
             }
@@ -530,7 +531,8 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                 if isinstance(breakdown_alias.get("histogram_bin_count"), int)
             ]
 
-            query.select.extend(
+            assert query.select_from is not None and isinstance(query.select_from.table, ast.SelectQuery)
+            query.select_from.table.select.extend(
                 [
                     # Using arrays would be more efficient here, _but_ only if there's low cardinality in breakdown_values
                     # If cardinality is high it'd blow up memory
@@ -629,9 +631,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             query.select.append(
                 ast.Alias(
                     alias="breakdown_value",
-                    expr=breakdown_array
-                    if breakdown.is_multiple_breakdown
-                    else parse_expr("{arr}[1]", placeholders={"arr": breakdown_array}),
+                    expr=(
+                        breakdown_array
+                        if breakdown.is_multiple_breakdown
+                        else parse_expr("{arr}[1]", placeholders={"arr": breakdown_array})
+                    ),
                 )
             )
 
@@ -660,14 +664,18 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
 
     def _events_filter(
         self,
-        is_actors_query: bool,
         breakdown: Breakdown | None,
         ignore_breakdowns: bool = False,
-        actors_query_time_frame: Optional[str] = None,
     ) -> ast.Expr:
         series = self.series
         filters: list[ast.Expr] = []
-        is_data_warehouse_series = isinstance(series, DataWarehouseNode)
+        is_data_warehouse_event_series = (
+            isinstance(series, DataWarehouseNode)
+            and self.modifiers.dataWarehouseEventsModifiers is not None
+            and any(
+                series.table_name == modifier.table_name for modifier in self.modifiers.dataWarehouseEventsModifiers
+            )
+        )
 
         # Dates
         if not self._aggregation_operation.requires_query_orchestration():
@@ -694,11 +702,35 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
             and len(self.team.test_account_filters) > 0
         ):
             for property in self.team.test_account_filters:
-                filters.append(property_to_expr(property, self.team))
+                if is_data_warehouse_event_series:
+                    property_clone = property.copy()
+                    if property_clone["type"] in ("event", "person"):
+                        if property_clone["type"] == "event":
+                            property_clone["key"] = f"events.properties.{property_clone['key']}"
+                        elif property_clone["type"] == "person":
+                            property_clone["key"] = f"events.person.properties.{property_clone['key']}"
+                        property_clone["type"] = "data_warehouse"
+                    expr = property_to_expr(property_clone, self.team)
+                    if (
+                        property_clone["type"] in ("group", "element")
+                        and isinstance(expr, ast.CompareOperation)
+                        and isinstance(expr.left, ast.Field)
+                    ):
+                        expr.left.chain = ["events", *expr.left.chain]
+                    filters.append(expr)
+                else:
+                    filters.append(property_to_expr(property, self.team))
 
         # Properties
-        if self.query.properties is not None and self.query.properties != [] and not is_data_warehouse_series:
-            filters.append(property_to_expr(self.query.properties, self.team))
+        if self.query.properties is not None and self.query.properties != []:
+            if is_data_warehouse_event_series:
+                data_warehouse_properties = [
+                    p for p in self.query.properties if isinstance(p, DataWarehousePropertyFilter)
+                ]
+                if data_warehouse_properties:
+                    filters.append(property_to_expr(data_warehouse_properties, self.team))
+            else:
+                filters.append(property_to_expr(self.query.properties, self.team))
 
         # Series Filters
         if series.properties is not None and series.properties != []:
@@ -712,11 +744,11 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
                     filters.append(breakdown_filter)
 
         # Ignore empty groups
-        if series.math == "unique_group" and series.math_group_type_index is not None:
+        if is_groups_math(series=series):
             filters.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.NotEq,
-                    left=ast.Field(chain=["e", f"$group_{int(series.math_group_type_index)}"]),
+                    left=ast.Field(chain=["e", f"$group_{int(cast(int, self.series.math_group_type_index))}"]),
                     right=ast.Constant(value=""),
                 )
             )
@@ -737,7 +769,7 @@ class TrendsQueryBuilder(DataWarehouseInsightQueryMixin):
         # Actions
         if isinstance(self.series, ActionsNode):
             try:
-                action = Action.objects.get(pk=int(self.series.id), team=self.team)
+                action = Action.objects.get(pk=int(self.series.id), team__project_id=self.team.project_id)
                 return action_to_expr(action)
             except Action.DoesNotExist:
                 # If an action doesn't exist, we want to return no events

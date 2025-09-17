@@ -1,4 +1,6 @@
-import { IconGear } from '@posthog/icons'
+import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
+
 import {
     LemonButton,
     LemonDialog,
@@ -8,198 +10,200 @@ import {
     LemonTable,
     LemonTag,
     LemonTagType,
-    Link,
     Spinner,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { PageHeader } from 'lib/components/PageHeader'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { cn } from 'lib/utils/css-classes'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import { LinkedHogFunctions } from 'scenes/pipeline/hogfunctions/list/LinkedHogFunctions'
+import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
+import MaxTool from 'scenes/max/MaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
+import { SurveyFeedbackButton } from 'scenes/surveys/components/SurveyFeedbackButton'
+import { SurveysEmptyState } from 'scenes/surveys/components/empty-state/SurveysEmptyState'
+import { captureMaxAISurveyCreationException, isSurveyRunning } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ActivityScope, ProductKey, ProgressStatus, PropertyFilterType, PropertyOperator, Survey } from '~/types'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { ActivityScope, ProductKey, ProgressStatus, Survey } from '~/types'
 
-import { SurveyQuestionLabel } from './constants'
-import { openSurveysSettingsDialog } from './SurveySettings'
-import { getSurveyStatus, surveysLogic, SurveysTabs } from './surveysLogic'
+import { SurveySettings, SurveysDisabledBanner } from './SurveySettings'
+import { SURVEY_CREATED_SOURCE, SURVEY_TYPE_LABEL_MAP, SurveyQuestionLabel } from './constants'
+import { SurveysTabs, getSurveyStatus, surveysLogic } from './surveysLogic'
 
 export const scene: SceneExport = {
     component: Surveys,
     logic: surveysLogic,
+    settingSectionId: 'environment-surveys',
 }
 
-export function Surveys(): JSX.Element {
+function NewSurveyButton(): JSX.Element {
+    const { loadSurveys, addProductIntent } = useActions(surveysLogic)
+    const { user } = useValues(userLogic)
+
+    return (
+        <MaxTool
+            identifier="create_survey"
+            initialMaxPrompt="Create a survey to collect "
+            suggestions={[
+                'Create an NPS survey for customers who completed checkout',
+                'Create a feedback survey asking about our new dashboard',
+                'Create a product-market fit survey for trial users',
+                'Create a quick satisfaction survey for support interactions',
+            ]}
+            context={{
+                user_id: user?.uuid,
+            }}
+            callback={(toolOutput: {
+                survey_id?: string
+                survey_name?: string
+                error?: string
+                error_message?: string
+            }) => {
+                addProductIntent({
+                    product_type: ProductKey.SURVEYS,
+                    intent_context: ProductIntentContext.SURVEY_CREATED,
+                    metadata: {
+                        survey_id: toolOutput.survey_id,
+                        source: SURVEY_CREATED_SOURCE.MAX_AI,
+                        created_successfully: !toolOutput?.error,
+                    },
+                })
+
+                if (toolOutput?.error || !toolOutput?.survey_id) {
+                    return captureMaxAISurveyCreationException(toolOutput.error, SURVEY_CREATED_SOURCE.MAX_AI)
+                }
+
+                // Refresh surveys list to show new survey, then redirect to it
+                loadSurveys()
+                router.actions.push(urls.survey(toolOutput.survey_id))
+            }}
+            position="bottom-right"
+            active={!!user?.uuid}
+            className={cn('mr-3')}
+        >
+            <LemonButton to={urls.surveyTemplates()} type="primary" data-attr="new-survey">
+                <span className="pr-3">New survey</span>
+            </LemonButton>
+        </MaxTool>
+    )
+}
+
+function Surveys(): JSX.Element {
     const {
-        surveys,
+        data: { surveys },
         searchedSurveys,
-        surveysLoading,
+        dataLoading,
         surveysResponsesCount,
         surveysResponsesCountLoading,
         searchTerm,
         filters,
-        showSurveysDisabledBanner,
         tab,
+        hasNextPage,
+        hasNextSearchPage,
     } = useValues(surveysLogic)
 
-    const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters, setTab } = useActions(surveysLogic)
+    const { deleteSurvey, updateSurvey, setSearchTerm, setSurveysFilters, setTab, loadNextPage, loadNextSearchPage } =
+        useActions(surveysLogic)
+
     const { user } = useValues(userLogic)
-    const shouldShowEmptyState = !surveysLoading && surveys.length === 0
-    const showLinkedHogFunctions = useFeatureFlag('HOG_FUNCTIONS_LINKED')
+    const shouldShowEmptyState = !dataLoading && surveys.length === 0
 
     return (
-        <div>
+        <SceneContent>
             <PageHeader
                 buttons={
                     <>
-                        <LemonButton
-                            to={urls.surveyTemplates()}
-                            type="primary"
-                            data-attr="new-survey"
-                            sideAction={{
-                                dropdown: {
-                                    placement: 'bottom-start',
-                                    actionable: true,
-                                    overlay: (
-                                        <LemonButton size="small" to={urls.survey('new')}>
-                                            Create blank survey
-                                        </LemonButton>
-                                    ),
-                                },
-                                'data-attr': 'saved-insights-new-insight-dropdown',
-                            }}
-                        >
-                            New survey
-                        </LemonButton>
+                        <SurveyFeedbackButton />
+                        <NewSurveyButton />
                     </>
                 }
-                caption={
-                    <>
-                        Check out our
-                        <Link
-                            data-attr="survey-help"
-                            to="https://posthog.com/docs/surveys?utm_medium=in-product&utm_campaign=new-survey"
-                            target="_blank"
-                        >
-                            {' '}
-                            surveys docs
-                        </Link>{' '}
-                        to learn more.
-                    </>
-                }
+                className="flex gap-2 justify-between items-center min-w-full"
                 tabbedPage
             />
+            <SurveysDisabledBanner />
+            <SceneTitleSection
+                name="Surveys"
+                description="Create surveys to collect feedback from your users"
+                resourceType={{
+                    type: 'survey',
+                }}
+            />
+            <SceneDivider />
             <LemonTabs
                 activeKey={tab}
                 onChange={(newTab) => setTab(newTab as SurveysTabs)}
                 tabs={[
                     { key: SurveysTabs.Active, label: 'Active' },
                     { key: SurveysTabs.Archived, label: 'Archived' },
-                    showLinkedHogFunctions ? { key: SurveysTabs.Notifications, label: 'Notifications' } : null,
+                    { key: SurveysTabs.Notifications, label: 'Notifications' },
                     { key: SurveysTabs.History, label: 'History' },
+                    { key: SurveysTabs.Settings, label: 'Settings' },
                 ]}
+                sceneInset={true}
             />
-
-            {tab === SurveysTabs.History ? (
-                <ActivityLog scope={ActivityScope.SURVEY} />
-            ) : tab === SurveysTabs.Notifications ? (
+            {tab === SurveysTabs.Settings && <SurveySettings />}
+            {tab === SurveysTabs.Notifications && (
                 <>
                     <p>Get notified whenever a survey result is submitted</p>
-                    <LinkedHogFunctions
-                        subTemplateId="survey_response"
-                        filters={{
-                            events: [
-                                {
-                                    id: 'survey sent',
-                                    type: 'events',
-                                    order: 0,
-                                    properties: [
-                                        {
-                                            key: '$survey_response',
-                                            type: PropertyFilterType.Event,
-                                            value: 'is_set',
-                                            operator: PropertyOperator.IsSet,
-                                        },
-                                    ],
-                                },
-                            ],
-                        }}
-                    />
+                    <LinkedHogFunctions type="destination" subTemplateIds={['survey-response']} />
                 </>
-            ) : (
-                <>
-                    <div className="space-y-2">
-                        <VersionCheckerBanner />
+            )}
 
-                        {showSurveysDisabledBanner ? (
-                            <LemonBanner
-                                type="warning"
-                                action={{
-                                    type: 'secondary',
-                                    icon: <IconGear />,
-                                    onClick: () => openSurveysSettingsDialog(),
-                                    children: 'Configure',
-                                }}
-                                className="mb-2"
-                            >
-                                Survey popovers are currently disabled for this project but there are active surveys
-                                running. Re-enable them in the settings.
-                            </LemonBanner>
-                        ) : null}
-                    </div>
+            {tab === SurveysTabs.History && <ActivityLog scope={ActivityScope.SURVEY} />}
+
+            {(tab === SurveysTabs.Active || tab === SurveysTabs.Archived) && (
+                <>
+                    <VersionCheckerBanner />
 
                     {(shouldShowEmptyState || !user?.has_seen_product_intro_for?.[ProductKey.SURVEYS]) && (
-                        <ProductIntroduction
-                            productName="Surveys"
-                            thingName="survey"
-                            description="Use surveys to gather qualitative feedback from your users on new or existing features."
-                            action={() => router.actions.push(urls.surveyTemplates())}
-                            isEmpty={surveys.length === 0}
-                            productKey={ProductKey.SURVEYS}
-                        />
+                        <SurveysEmptyState numOfSurveys={surveys.length} />
                     )}
                     {!shouldShowEmptyState && (
                         <>
                             <div>
-                                <div className="flex justify-between mb-4 gap-2 flex-wrap">
+                                <div className={cn('flex flex-wrap gap-2 justify-between mb-0')}>
                                     <LemonInput
                                         type="search"
                                         placeholder="Search for surveys"
                                         onChange={setSearchTerm}
                                         value={searchTerm || ''}
                                     />
-                                    <div className="flex items-center gap-2">
-                                        <span>
-                                            <b>Status</b>
-                                        </span>
-                                        <LemonSelect
-                                            dropdownMatchSelectWidth={false}
-                                            onChange={(status) => {
-                                                setSurveysFilters({ status })
-                                            }}
-                                            size="small"
-                                            options={[
-                                                { label: 'Any', value: 'any' },
-                                                { label: 'Draft', value: 'draft' },
-                                                { label: 'Running', value: 'running' },
-                                                { label: 'Complete', value: 'complete' },
-                                            ]}
-                                            value={filters.status}
-                                        />
+                                    <div className="flex gap-2 items-center">
+                                        {tab === SurveysTabs.Active && (
+                                            <>
+                                                <span>
+                                                    <b>Status</b>
+                                                </span>
+                                                <LemonSelect
+                                                    dropdownMatchSelectWidth={false}
+                                                    onChange={(status) => {
+                                                        setSurveysFilters({ status })
+                                                    }}
+                                                    size="small"
+                                                    options={[
+                                                        { label: 'Any', value: 'any' },
+                                                        { label: 'Draft', value: 'draft' },
+                                                        { label: 'Running', value: 'running' },
+                                                        { label: 'Complete', value: 'complete' },
+                                                    ]}
+                                                    value={filters.status}
+                                                />
+                                            </>
+                                        )}
                                         <span className="ml-1">
                                             <b>Created by</b>
                                         </span>
@@ -223,7 +227,22 @@ export function Surveys(): JSX.Element {
                                 emptyState={
                                     tab === SurveysTabs.Active ? 'No surveys. Create a new survey?' : 'No surveys found'
                                 }
-                                loading={surveysLoading}
+                                loading={dataLoading}
+                                footer={
+                                    (searchTerm ? hasNextSearchPage : hasNextPage) && (
+                                        <div className="flex justify-center p-1">
+                                            <LemonButton
+                                                onClick={searchTerm ? loadNextSearchPage : loadNextPage}
+                                                className="min-w-full text-center"
+                                                disabledReason={dataLoading ? 'Loading surveys' : ''}
+                                            >
+                                                <span className="flex-1 text-center">
+                                                    {dataLoading ? 'Loading...' : 'Load more'}
+                                                </span>
+                                            </LemonButton>
+                                        </div>
+                                    )
+                                }
                                 columns={[
                                     {
                                         dataIndex: 'name',
@@ -260,6 +279,9 @@ export function Surveys(): JSX.Element {
                                     {
                                         dataIndex: 'type',
                                         title: 'Mode',
+                                        render: function RenderType(_, survey) {
+                                            return SURVEY_TYPE_LABEL_MAP[survey.type]
+                                        },
                                     },
                                     {
                                         title: 'Question type',
@@ -269,15 +291,21 @@ export function Surveys(): JSX.Element {
                                                 : 'Multiple'
                                         },
                                     },
-                                    createdByColumn<Survey>() as LemonTableColumn<Survey, keyof Survey | undefined>,
-                                    createdAtColumn<Survey>() as LemonTableColumn<Survey, keyof Survey | undefined>,
-                                    {
-                                        title: 'Status',
-                                        width: 100,
-                                        render: function Render(_, survey: Survey) {
-                                            return <StatusTag survey={survey} />
-                                        },
-                                    },
+                                    ...(tab === SurveysTabs.Active
+                                        ? [
+                                              createdAtColumn<Survey>() as LemonTableColumn<
+                                                  Survey,
+                                                  keyof Survey | undefined
+                                              >,
+                                              {
+                                                  title: 'Status',
+                                                  width: 100,
+                                                  render: function Render(_: any, survey: Survey) {
+                                                      return <StatusTag survey={survey} />
+                                                  },
+                                              },
+                                          ]
+                                        : []),
                                     {
                                         width: 0,
                                         render: function Render(_, survey: Survey) {
@@ -300,7 +328,7 @@ export function Surveys(): JSX.Element {
                                                                         LemonDialog.open({
                                                                             title: 'Launch this survey?',
                                                                             content: (
-                                                                                <div className="text-sm text-muted">
+                                                                                <div className="text-sm text-secondary">
                                                                                     The survey will immediately start
                                                                                     displaying to users matching the
                                                                                     display conditions.
@@ -316,6 +344,8 @@ export function Surveys(): JSX.Element {
                                                                                             start_date:
                                                                                                 dayjs().toISOString(),
                                                                                         },
+                                                                                        intentContext:
+                                                                                            ProductIntentContext.SURVEY_LAUNCHED,
                                                                                     })
                                                                                 },
                                                                                 size: 'small',
@@ -331,14 +361,14 @@ export function Surveys(): JSX.Element {
                                                                     Launch survey
                                                                 </LemonButton>
                                                             )}
-                                                            {survey.start_date && !survey.end_date && (
+                                                            {isSurveyRunning(survey) && (
                                                                 <LemonButton
                                                                     fullWidth
                                                                     onClick={() => {
                                                                         LemonDialog.open({
                                                                             title: 'Stop this survey?',
                                                                             content: (
-                                                                                <div className="text-sm text-muted">
+                                                                                <div className="text-sm text-secondary">
                                                                                     The survey will no longer be visible
                                                                                     to your users.
                                                                                 </div>
@@ -353,6 +383,8 @@ export function Surveys(): JSX.Element {
                                                                                             end_date:
                                                                                                 dayjs().toISOString(),
                                                                                         },
+                                                                                        intentContext:
+                                                                                            ProductIntentContext.SURVEY_COMPLETED,
                                                                                     })
                                                                                 },
                                                                                 size: 'small',
@@ -375,7 +407,7 @@ export function Surveys(): JSX.Element {
                                                                         LemonDialog.open({
                                                                             title: 'Resume this survey?',
                                                                             content: (
-                                                                                <div className="text-sm text-muted">
+                                                                                <div className="text-sm text-secondary">
                                                                                     Once resumed, the survey will be
                                                                                     visible to your users again.
                                                                                 </div>
@@ -389,6 +421,8 @@ export function Surveys(): JSX.Element {
                                                                                         updatePayload: {
                                                                                             end_date: null,
                                                                                         },
+                                                                                        intentContext:
+                                                                                            ProductIntentContext.SURVEY_RESUMED,
                                                                                     })
                                                                                 },
                                                                                 size: 'small',
@@ -408,12 +442,14 @@ export function Surveys(): JSX.Element {
                                                             {survey.end_date && survey.archived && (
                                                                 <LemonButton
                                                                     fullWidth
-                                                                    onClick={() =>
+                                                                    onClick={() => {
                                                                         updateSurvey({
                                                                             id: survey.id,
                                                                             updatePayload: { archived: false },
+                                                                            intentContext:
+                                                                                ProductIntentContext.SURVEY_UNARCHIVED,
                                                                         })
-                                                                    }
+                                                                    }}
                                                                 >
                                                                     Unarchive
                                                                 </LemonButton>
@@ -425,7 +461,7 @@ export function Surveys(): JSX.Element {
                                                                         LemonDialog.open({
                                                                             title: 'Archive this survey?',
                                                                             content: (
-                                                                                <div className="text-sm text-muted">
+                                                                                <div className="text-sm text-secondary">
                                                                                     This action will remove the survey
                                                                                     from your active surveys list. It
                                                                                     can be restored at any time.
@@ -440,6 +476,8 @@ export function Surveys(): JSX.Element {
                                                                                         updatePayload: {
                                                                                             archived: true,
                                                                                         },
+                                                                                        intentContext:
+                                                                                            ProductIntentContext.SURVEY_ARCHIVED,
                                                                                     })
                                                                                 },
                                                                                 size: 'small',
@@ -461,7 +499,7 @@ export function Surveys(): JSX.Element {
                                                                     LemonDialog.open({
                                                                         title: 'Delete this survey?',
                                                                         content: (
-                                                                            <div className="text-sm text-muted">
+                                                                            <div className="text-sm text-secondary">
                                                                                 This action cannot be undone. All survey
                                                                                 data will be permanently removed.
                                                                             </div>
@@ -495,7 +533,7 @@ export function Surveys(): JSX.Element {
                     )}
                 </>
             )}
-        </div>
+        </SceneContent>
     )
 }
 

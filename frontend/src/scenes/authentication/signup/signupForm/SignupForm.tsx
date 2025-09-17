@@ -1,9 +1,11 @@
+import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { useEffect, useState } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -33,13 +35,13 @@ export function SignupForm(): JSX.Element | null {
     }, [panel])
 
     return !user ? (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             <h2>
                 {preflight?.demo
                     ? 'Explore PostHog yourself'
                     : panel === 0
-                    ? 'Get started'
-                    : 'Tell us a bit about yourself'}
+                      ? 'Get started'
+                      : 'Tell us a bit about yourself'}
             </h2>
             {!isSignupPanel2Submitting && signupPanel2ManualErrors?.generic && (
                 <LemonBanner type="error">

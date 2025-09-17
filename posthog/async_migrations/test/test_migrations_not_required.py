@@ -2,7 +2,7 @@ import pytest
 
 from posthog.async_migrations.setup import ALL_ASYNC_MIGRATIONS
 from posthog.async_migrations.test.util import AsyncMigrationBaseTest
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.models.person.sql import COMMENT_DISTINCT_ID_COLUMN_SQL
 
 pytestmark = pytest.mark.async_migrations

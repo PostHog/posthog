@@ -1,33 +1,83 @@
-import { objectCleanWithEmpty, objectsEqual } from 'lib/utils'
+import { objectCleanWithEmpty, objectsEqual, removeUndefinedAndNull } from 'lib/utils'
 
-import { DataNode, InsightQueryNode, Node } from '~/queries/schema'
+import { DataNode, InsightQueryNode, Node } from '~/queries/schema/schema-general'
 import {
     filterForQuery,
     filterKeyForQuery,
+    getMathTypeWarning,
     isEventsNode,
     isFunnelsQuery,
+    isHogQLQuery,
     isInsightQueryNode,
     isInsightQueryWithDisplay,
     isInsightQueryWithSeries,
     isInsightVizNode,
+    isTrendsQuery,
 } from '~/queries/utils'
-import { ChartDisplayType } from '~/types'
+import { BaseMathType, ChartDisplayType } from '~/types'
 
 type CompareQueryOpts = { ignoreVisualizationOnlyChanges: boolean }
+
+export const getVariablesFromQuery = (query: string): string[] => {
+    const re = /\{variables\.([a-z0-9_]+)\}/gm
+    const results: string[] = []
+
+    for (;;) {
+        const reResult = re.exec(query)
+        if (!reResult) {
+            break
+        }
+
+        if (reResult[1]) {
+            results.push(reResult[1])
+        }
+    }
+
+    return results
+}
 
 export const compareQuery = (a: Node, b: Node, opts?: CompareQueryOpts): boolean => {
     if (isInsightVizNode(a) && isInsightVizNode(b)) {
         const { source: sourceA, ...restA } = a
         const { source: sourceB, ...restB } = b
         return (
-            objectsEqual(objectCleanWithEmpty(restA), objectCleanWithEmpty(restB)) &&
-            compareDataNodeQuery(sourceA, sourceB, opts)
+            objectsEqual(
+                objectCleanWithEmpty(removeUndefinedAndNull(restA)),
+                objectCleanWithEmpty(removeUndefinedAndNull(restB))
+            ) && compareDataNodeQuery(sourceA, sourceB, opts)
         )
     } else if (isInsightQueryNode(a) && isInsightQueryNode(b)) {
-        return compareDataNodeQuery(a, b, opts)
+        return compareDataNodeQuery(removeUndefinedAndNull(a), removeUndefinedAndNull(b), opts)
     }
 
-    return objectsEqual(objectCleanWithEmpty(a as any), objectCleanWithEmpty(b as any))
+    return objectsEqual(
+        objectCleanWithEmpty(removeUndefinedAndNull(a as any)),
+        objectCleanWithEmpty(removeUndefinedAndNull(b as any))
+    )
+}
+
+export const haveVariablesOrFiltersChanged = (a: Node, b: Node): boolean => {
+    if (!isHogQLQuery(a) || !isHogQLQuery(b)) {
+        return false
+    }
+
+    if ((a.variables && !b.variables) || (!a.variables && b.variables)) {
+        return true
+    }
+
+    if (a.variables && b.variables) {
+        if (!objectsEqual(a.variables, b.variables)) {
+            return true
+        }
+    }
+
+    if (a.filters && b.filters) {
+        if (!objectsEqual(a.filters, b.filters)) {
+            return true
+        }
+    }
+
+    return false
 }
 
 /** Compares two queries for semantic equality to prevent double-fetching of data. */
@@ -64,26 +114,29 @@ const groupedChartDisplayTypes: Record<ChartDisplayType, ChartDisplayType> = {
     [ChartDisplayType.ActionsPie]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.ActionsTable]: ChartDisplayType.ActionsBarValue,
     [ChartDisplayType.WorldMap]: ChartDisplayType.ActionsBarValue,
+    [ChartDisplayType.CalendarHeatmap]: ChartDisplayType.ActionsBarValue,
 }
 
 /** clean insight queries so that we can check for semantic equality with a deep equality check */
-const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): InsightQueryNode => {
+export const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): InsightQueryNode => {
     const dupQuery = JSON.parse(JSON.stringify(query))
 
     // remove undefined values, empty arrays and empty objects
     const cleanedQuery = objectCleanWithEmpty(dupQuery) as InsightQueryNode
 
     if (isInsightQueryWithSeries(cleanedQuery)) {
-        cleanedQuery.series?.forEach((e) => {
+        cleanedQuery.series?.forEach((series) => {
             // event math `total` is the default
-            if (isEventsNode(e) && e.math === 'total') {
-                delete e.math
+            if (isEventsNode(series) && series.math === 'total') {
+                delete series.math
+            } else if (isTrendsQuery(cleanedQuery) && series.math && getMathTypeWarning(series.math, query, false)) {
+                series.math = BaseMathType.UniqueUsers
             }
         })
     }
 
     if (opts?.ignoreVisualizationOnlyChanges) {
-        // Keep this in sync with the backend side clean_insight_queries method
+        // Keep this in sync with posthog/schema_helpers.py `serialize_query` method
         const insightFilter = filterForQuery(cleanedQuery)
         const insightFilterKey = filterKeyForQuery(cleanedQuery)
         cleanedQuery[insightFilterKey] = {
@@ -99,11 +152,23 @@ const cleanInsightQuery = (query: InsightQueryNode, opts?: CompareQueryOpts): In
             toggledLifecycles: undefined,
             showLabelsOnSeries: undefined,
             showMean: undefined,
-            cumulative: undefined,
+            meanRetentionCalculation: undefined,
             yAxisScaleType: undefined,
             hiddenLegendIndexes: undefined,
             hiddenLegendBreakdowns: undefined,
+            resultCustomizations: undefined,
+            resultCustomizationBy: undefined,
+            goalLines: undefined,
+            dashboardDisplay: undefined,
+            showConfidenceIntervals: undefined,
+            confidenceLevel: undefined,
+            showTrendLines: undefined,
+            showMovingAverage: undefined,
+            movingAverageIntervals: undefined,
+            stacked: undefined,
         }
+
+        cleanedQuery.dataColorTheme = undefined
 
         if (isInsightQueryWithSeries(cleanedQuery)) {
             cleanedQuery.series = cleanedQuery.series.map((entity) => {

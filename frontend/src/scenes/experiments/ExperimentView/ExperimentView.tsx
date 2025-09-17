@@ -1,90 +1,265 @@
-import '../Experiment.scss'
+import { useValues } from 'kea'
+import { useState } from 'react'
 
-import { LemonDivider } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+import { LemonTabs } from '@posthog/lemon-ui'
+
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
+import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
+
+import type { CachedExperimentQueryResponse } from '~/queries/schema/schema-general'
+import { ActivityScope } from '~/types'
 
 import { ExperimentImplementationDetails } from '../ExperimentImplementationDetails'
-import { experimentLogic } from '../experimentLogic'
+import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
+import { LegacyMetricModal } from '../Metrics/LegacyMetricModal'
+import { MetricSourceModal } from '../Metrics/MetricSourceModal'
+import { SharedMetricModal } from '../Metrics/SharedMetricModal'
+import { MetricsViewLegacy } from '../MetricsView/legacy/MetricsViewLegacy'
+import { VariantDeltaTimeseries } from '../MetricsView/legacy/VariantDeltaTimeseries'
+import { Metrics } from '../MetricsView/new/Metrics'
+import { RunningTimeCalculatorModal } from '../RunningTimeCalculator/RunningTimeCalculatorModal'
 import {
-    ExperimentLoadingAnimation,
-    LoadingState,
-    NoResultsEmptyState,
-    PageHeaderCustom,
-    ResultsHeader,
-} from './components'
-import { DataCollection } from './DataCollection'
-import { DistributionTable } from './DistributionTable'
-import { ExperimentExposureModal, ExperimentGoalModal, Goal } from './Goal'
+    ExploreAsInsightButton,
+    ResultsBreakdown,
+    ResultsBreakdownSkeleton,
+    ResultsInsightInfoBanner,
+    ResultsQuery,
+} from '../components/ResultsBreakdown'
+import { experimentLogic } from '../experimentLogic'
+import { isLegacyExperiment, isLegacyExperimentQuery } from '../utils'
+import { DistributionModal, DistributionTable } from './DistributionTable'
+import { ExperimentHeader } from './ExperimentHeader'
+import { ExposureCriteriaModal } from './ExposureCriteria'
+import { Exposures } from './Exposures'
 import { Info } from './Info'
+import { LegacyExperimentHeader } from './LegacyExperimentHeader'
 import { Overview } from './Overview'
-import { ReleaseConditionsTable } from './ReleaseConditionsTable'
-import { Results } from './Results'
-import { SecondaryMetricsTable } from './SecondaryMetricsTable'
+import { ReleaseConditionsModal, ReleaseConditionsTable } from './ReleaseConditionsTable'
+import { SummaryTable } from './SummaryTable'
+import {
+    EditConclusionModal,
+    LegacyExploreButton,
+    LegacyResultsQuery,
+    LoadingState,
+    PageHeaderCustom,
+    StopExperimentModal,
+} from './components'
+
+const MetricsTab = (): JSX.Element => {
+    const {
+        experiment,
+        legacyPrimaryMetricsResults,
+        firstPrimaryMetric,
+        primaryMetricsLengthWithSharedMetrics,
+        hasMinimumExposureForResults,
+    } = useValues(experimentLogic)
+    /**
+     * we still use the legacy metric results here. Results on the new format are loaded
+     * in the primaryMetricsResults state key. We'll eventually move into using the new state.
+     */
+    const hasSomeResults = legacyPrimaryMetricsResults?.some((result) => result?.insight)
+
+    const hasSinglePrimaryMetric = primaryMetricsLengthWithSharedMetrics === 1
+
+    const firstPrimaryMetricResult = legacyPrimaryMetricsResults?.[0]
+
+    const hasLegacyResults = legacyPrimaryMetricsResults.some((result) => result != null)
+
+    /**
+     * Show a detailed results if:
+     * - there's a single primary metric
+     * - if the metric has insight results
+     * - if we have the minimum number of exposures
+     * - if it's the first primary metric (?)
+     *
+     * this is only for legacy experiments.
+     */
+    const showResultDetails =
+        hasSomeResults &&
+        hasMinimumExposureForResults &&
+        hasSinglePrimaryMetric &&
+        firstPrimaryMetric &&
+        firstPrimaryMetricResult
+
+    return (
+        <>
+            <div className="w-full mb-4">
+                <Exposures />
+            </div>
+
+            {/* Show overview if there's only a single primary metric */}
+            {hasSinglePrimaryMetric && hasMinimumExposureForResults && (
+                <div className="mb-4 mt-2">
+                    <Overview metricUuid={firstPrimaryMetric?.uuid || ''} />
+                </div>
+            )}
+            {/**
+             *  check if we should render the legacy metrics view or the new one
+             */}
+            {isLegacyExperiment(experiment) || hasLegacyResults ? (
+                <>
+                    <MetricsViewLegacy isSecondary={false} />
+                    {showResultDetails && (
+                        <div>
+                            <div className="pb-4">
+                                <SummaryTable metric={firstPrimaryMetric} displayOrder={0} isSecondary={false} />
+                            </div>
+                            {isLegacyExperimentQuery(firstPrimaryMetricResult) ? (
+                                <>
+                                    <div className="flex justify-end">
+                                        <LegacyExploreButton result={firstPrimaryMetricResult} size="xsmall" />
+                                    </div>
+                                    <div className="pb-4">
+                                        <LegacyResultsQuery
+                                            result={firstPrimaryMetricResult || null}
+                                            showTable={true}
+                                        />
+                                    </div>
+                                </>
+                            ) : (
+                                /**
+                                 * altough we don't have a great typeguard here, we know that the result is a CachedExperimentQueryResponse
+                                 * because we're only showing results for experiment queries (legacy check)
+                                 */
+                                <ResultsBreakdown
+                                    result={firstPrimaryMetricResult as CachedExperimentQueryResponse}
+                                    experiment={experiment}
+                                    metricUuid={firstPrimaryMetric?.uuid || ''}
+                                    isPrimary={true}
+                                >
+                                    {({
+                                        query,
+                                        breakdownResults,
+                                        breakdownResultsLoading,
+                                        exposureDifference,
+                                        breakdownLastRefresh,
+                                    }) => (
+                                        <div>
+                                            {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
+                                            {query && breakdownResults && (
+                                                <div>
+                                                    <div className="flex justify-end">
+                                                        <ExploreAsInsightButton query={query} />
+                                                    </div>
+                                                    <ResultsInsightInfoBanner exposureDifference={exposureDifference} />
+                                                    <div className="pb-4">
+                                                        <ResultsQuery
+                                                            query={query}
+                                                            breakdownResults={breakdownResults}
+                                                            breakdownLastRefresh={breakdownLastRefresh}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </ResultsBreakdown>
+                            )}
+                        </div>
+                    )}
+                    <MetricsViewLegacy isSecondary={true} />
+                </>
+            ) : (
+                <>
+                    <Metrics isSecondary={false} />
+                    <Metrics isSecondary={true} />
+                </>
+            )}
+        </>
+    )
+}
+const CodeTab = (): JSX.Element => {
+    const { experiment } = useValues(experimentLogic)
+
+    return (
+        <>
+            {experiment.type === 'web' ? (
+                <WebExperimentImplementationDetails experiment={experiment} />
+            ) : (
+                <ExperimentImplementationDetails experiment={experiment} />
+            )}
+        </>
+    )
+}
+
+const VariantsTab = (): JSX.Element => {
+    return (
+        <div className="deprecated-space-y-8 mt-2">
+            <ReleaseConditionsTable />
+            <DistributionTable />
+        </div>
+    )
+}
 
 export function ExperimentView(): JSX.Element {
-    const { experiment, experimentLoading, experimentResultsLoading, experimentId, experimentResults } =
-        useValues(experimentLogic)
+    const { experimentLoading, experimentId, usesNewQueryRunner } = useValues(experimentLogic)
 
-    const { updateExperimentSecondaryMetrics } = useActions(experimentLogic)
+    const [activeTabKey, setActiveTabKey] = useState<string>('metrics')
 
     return (
         <>
             <PageHeaderCustom />
-            <div className="space-y-8 experiment-view">
+            <div className="deprecated-space-y-8 experiment-view">
                 {experimentLoading ? (
                     <LoadingState />
                 ) : (
                     <>
                         <Info />
-                        {experimentResultsLoading ? (
-                            <ExperimentLoadingAnimation />
-                        ) : experimentResults && experimentResults.insight ? (
-                            <>
-                                <div>
-                                    <Overview />
-                                    <LemonDivider className="mt-4" />
-                                </div>
-                                <div className="xl:flex">
-                                    <div className="w-1/2 pr-2">
-                                        <Goal />
-                                    </div>
+                        {usesNewQueryRunner ? <ExperimentHeader /> : <LegacyExperimentHeader />}
+                        <LemonTabs
+                            activeKey={activeTabKey}
+                            onChange={(key) => setActiveTabKey(key)}
+                            tabs={[
+                                {
+                                    key: 'metrics',
+                                    label: 'Metrics',
+                                    content: <MetricsTab />,
+                                },
+                                {
+                                    key: 'code',
+                                    label: 'Code',
+                                    content: <CodeTab />,
+                                },
+                                {
+                                    key: 'variants',
+                                    label: 'Variants',
+                                    content: <VariantsTab />,
+                                },
+                                {
+                                    key: 'history',
+                                    label: 'History',
+                                    content: <ActivityLog scope={ActivityScope.EXPERIMENT} id={experimentId} />,
+                                },
+                            ]}
+                        />
 
-                                    <div className="w-1/2 xl:pl-2 mt-8 xl:mt-0">
-                                        <DataCollection />
-                                    </div>
-                                </div>
-                                <Results />
+                        <MetricSourceModal experimentId={experimentId} isSecondary={true} />
+                        <MetricSourceModal experimentId={experimentId} isSecondary={false} />
+
+                        {usesNewQueryRunner ? (
+                            <>
+                                <ExperimentMetricModal experimentId={experimentId} isSecondary={true} />
+                                <ExperimentMetricModal experimentId={experimentId} isSecondary={false} />
+                                <ExposureCriteriaModal />
+                                <RunningTimeCalculatorModal />
                             </>
                         ) : (
                             <>
-                                <div className="xl:flex">
-                                    <div className="w-1/2 pr-2">
-                                        <Goal />
-                                    </div>
-
-                                    <div className="w-1/2 xl:pl-2 mt-8 xl:mt-0">
-                                        <DataCollection />
-                                    </div>
-                                </div>
-                                <ExperimentImplementationDetails experiment={experiment} />
-                                {experiment.start_date && (
-                                    <div>
-                                        <ResultsHeader />
-                                        <NoResultsEmptyState />
-                                    </div>
-                                )}
+                                <LegacyMetricModal experimentId={experimentId} isSecondary={true} />
+                                <LegacyMetricModal experimentId={experimentId} isSecondary={false} />
                             </>
                         )}
-                        <ExperimentGoalModal experimentId={experimentId} />
-                        <ExperimentExposureModal experimentId={experimentId} />
-                        <SecondaryMetricsTable
-                            experimentId={experiment.id}
-                            onMetricsChange={(metrics) => updateExperimentSecondaryMetrics(metrics)}
-                            initialMetrics={experiment.secondary_metrics}
-                            defaultAggregationType={experiment.parameters?.aggregation_group_type_index}
-                        />
-                        <DistributionTable />
-                        <ReleaseConditionsTable />
+
+                        <SharedMetricModal experimentId={experimentId} isSecondary={true} />
+                        <SharedMetricModal experimentId={experimentId} isSecondary={false} />
+
+                        <DistributionModal experimentId={experimentId} />
+                        <ReleaseConditionsModal experimentId={experimentId} />
+
+                        <StopExperimentModal experimentId={experimentId} />
+                        <EditConclusionModal experimentId={experimentId} />
+
+                        <VariantDeltaTimeseries />
                     </>
                 )}
             </div>

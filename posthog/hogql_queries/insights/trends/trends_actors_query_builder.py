@@ -6,21 +6,6 @@ from typing import Optional, cast
 from dateutil.parser import parse
 from dateutil.relativedelta import relativedelta
 
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import action_to_expr, property_to_expr
-from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.trends.aggregation_operations import (
-    AggregationOperations,
-    FirstTimeForUserEventsQueryAlternator,
-)
-from posthog.hogql_queries.insights.trends.breakdown import Breakdown
-from posthog.hogql_queries.insights.trends.display import TrendsDisplay
-from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
-from posthog.models import Action, Team
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
@@ -32,6 +17,24 @@ from posthog.schema import (
     TrendsFilter,
     TrendsQuery,
 )
+
+from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.property import action_to_expr, property_to_expr
+from posthog.hogql.timings import HogQLTimings
+
+from posthog.hogql_queries.insights.trends.aggregation_operations import (
+    AggregationOperations,
+    FirstTimeForUserEventsQueryAlternator,
+)
+from posthog.hogql_queries.insights.trends.breakdown import Breakdown
+from posthog.hogql_queries.insights.trends.display import TrendsDisplay
+from posthog.hogql_queries.insights.trends.utils import is_groups_math
+from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
+from posthog.models import Action, Team
 
 
 class TrendsActorsQueryBuilder:
@@ -167,11 +170,12 @@ class TrendsActorsQueryBuilder:
     def is_total_value(self) -> bool:
         return self.trends_display.is_total_value()
 
-    def build_actors_query(self) -> ast.SelectQuery | ast.SelectUnionQuery:
+    def build_actors_query(self) -> ast.SelectQuery:
         return ast.SelectQuery(
             select=[
                 ast.Field(chain=["actor_id"]),
                 ast.Alias(alias="event_count", expr=self._get_actor_value_expr()),
+                *self._get_event_distinct_ids_expr(),
                 *self._get_matching_recordings_expr(),
             ],
             select_from=ast.JoinExpr(table=self._get_events_query()),
@@ -179,6 +183,11 @@ class TrendsActorsQueryBuilder:
         )
 
     def _get_events_query(self) -> ast.SelectQuery:
+        actor_col = ast.Alias(alias="actor_id", expr=self._actor_id_expr())
+        actor_distinct_id_expr = self._actor_distinct_id_expr()
+        actor_distinct_id_col = (
+            ast.Alias(alias="distinct_id", expr=actor_distinct_id_expr) if actor_distinct_id_expr else None
+        )
         columns: list[ast.Expr] = [
             ast.Alias(alias="uuid", expr=ast.Field(chain=["e", "uuid"])),
             *(
@@ -191,8 +200,8 @@ class TrendsActorsQueryBuilder:
                 if self.include_recordings
                 else []
             ),
+            *([actor_distinct_id_col] if actor_distinct_id_col else []),
         ]
-        actor_col = ast.Alias(alias="actor_id", expr=self._actor_id_expr())
 
         if self.trends_aggregation_operations.is_first_time_ever_math():
             date_from, date_to = self._date_where_expr()
@@ -200,9 +209,15 @@ class TrendsActorsQueryBuilder:
                 ast.SelectQuery(select=[]),
                 date_from,
                 date_to,
-                filters=self._events_where_expr(with_date_range_expr=False, with_event_or_action_expr=False),
+                filters=self._events_where_expr(
+                    with_date_range_expr=False, with_event_or_action_expr=False, with_breakdown_expr=False
+                ),
+                filters_with_breakdown=self._events_where_expr(
+                    with_date_range_expr=False, with_event_or_action_expr=False
+                ),
                 event_or_action_filter=self._event_or_action_where_expr(),
                 ratio=self._ratio_expr(),
+                is_first_matching_event=self.trends_aggregation_operations.is_first_matching_event(),
             )
             query_builder.append_select(actor_col)
             query_builder.extend_select(columns, aggregate=True)
@@ -236,19 +251,37 @@ class TrendsActorsQueryBuilder:
                 placeholders={
                     "timestamp": ast.Field(
                         chain=[
-                            "timestamp"
-                            if not self.trends_aggregation_operations.is_first_time_ever_math()
-                            else "min_timestamp"
+                            (
+                                "timestamp"
+                                if not self.trends_aggregation_operations.is_first_time_ever_math()
+                                else "min_timestamp"
+                            )
                         ]
                     )
                 },
             )
         ]
 
+    def _get_event_distinct_ids_expr(self) -> list[ast.Expr]:
+        if is_groups_math(self.entity):
+            return []
+
+        return [
+            ast.Alias(
+                alias="event_distinct_ids",
+                expr=ast.Call(name="groupUniqArray", args=[ast.Field(chain=["distinct_id"])]),
+            )
+        ]
+
     def _actor_id_expr(self) -> ast.Expr:
-        if self.entity.math == "unique_group" and self.entity.math_group_type_index is not None:
-            return ast.Field(chain=["e", f"$group_{int(self.entity.math_group_type_index)}"])
+        if is_groups_math(self.entity):
+            return ast.Field(chain=["e", f"$group_{int(cast(int, self.entity.math_group_type_index))}"])
         return ast.Field(chain=["e", "person_id"])
+
+    def _actor_distinct_id_expr(self) -> ast.Expr | None:
+        if is_groups_math(self.entity):
+            return None
+        return ast.Field(chain=["e", "distinct_id"])
 
     def _events_where_expr(
         self,
@@ -293,7 +326,7 @@ class TrendsActorsQueryBuilder:
         if isinstance(self.entity, ActionsNode):
             # Actions
             try:
-                action = Action.objects.get(pk=int(self.entity.id), team=self.team)
+                action = Action.objects.get(pk=int(self.entity.id), team__project_id=self.team.project_id)
                 return action_to_expr(action)
             except Action.DoesNotExist:
                 # If an action doesn't exist, we want to return no events
@@ -451,11 +484,11 @@ class TrendsActorsQueryBuilder:
         conditions: list[ast.Expr] = []
 
         # Ignore empty groups
-        if self.entity.math == "unique_group" and self.entity.math_group_type_index is not None:
+        if is_groups_math(self.entity):
             conditions.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.NotEq,
-                    left=ast.Field(chain=["e", f"$group_{int(self.entity.math_group_type_index)}"]),
+                    left=ast.Field(chain=["e", f"$group_{int(cast(int, self.entity.math_group_type_index))}"]),
                     right=ast.Constant(value=""),
                 )
             )

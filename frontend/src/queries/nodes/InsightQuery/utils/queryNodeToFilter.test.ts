@@ -1,19 +1,26 @@
 import { FunnelLayout } from 'lib/constants'
 
 import { hiddenLegendItemsToKeys, queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { FunnelsQuery, LifecycleQuery, NodeKind, PathsQuery, StickinessQuery, TrendsQuery } from '~/queries/schema'
+import {
+    FunnelsQuery,
+    LifecycleQuery,
+    NodeKind,
+    PathsQuery,
+    StickinessQuery,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import {
     BreakdownAttributionType,
     ChartDisplayType,
     FunnelConversionWindowTimeUnit,
     FunnelPathType,
-    FunnelsFilterType,
     FunnelStepReference,
     FunnelVizType,
+    FunnelsFilterType,
     InsightType,
     LifecycleFilterType,
-    PathsFilterType,
     PathType,
+    PathsFilterType,
     StepOrderValue,
     StickinessFilterType,
     TrendsFilterType,
@@ -86,6 +93,7 @@ describe('queryNodeToFilter', () => {
                 showLabelsOnSeries: true,
                 showPercentStackView: true,
                 yAxisScaleType: 'log10',
+                showMultipleYAxes: false,
                 hiddenLegendIndexes: [1, 2],
             },
             compareFilter: {
@@ -120,6 +128,7 @@ describe('queryNodeToFilter', () => {
             show_legend: true,
             show_values_on_series: true,
             y_axis_scale_type: 'log10',
+            show_multiple_y_axes: false,
         }
         expect(result).toEqual(filters)
     })

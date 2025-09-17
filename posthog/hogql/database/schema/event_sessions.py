@@ -1,13 +1,14 @@
 from copy import deepcopy
 from typing import Optional
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     FieldOrTable,
     IntegerDatabaseField,
+    LazyJoinToAdd,
     StringDatabaseField,
     VirtualTable,
-    LazyJoinToAdd,
 )
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import get_long_table_name, lookup_field_by_name
@@ -16,8 +17,8 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 class EventsSessionSubTable(VirtualTable):
     fields: dict[str, FieldOrTable] = {
-        "id": StringDatabaseField(name="$session_id"),
-        "duration": IntegerDatabaseField(name="session_duration"),
+        "id": StringDatabaseField(name="$session_id", nullable=False),
+        "duration": IntegerDatabaseField(name="session_duration", nullable=False),
     }
 
     def to_printed_clickhouse(self, context):
@@ -120,7 +121,7 @@ class WhereClauseExtractor:
             next_chain = chain_to_parse.pop(0)
             loop_type = loop_type.get_child(str(next_chain), self.context)
             if loop_type is None:
-                return False
+                return False  # type: ignore
 
         return True
 

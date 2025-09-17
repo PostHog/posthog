@@ -1,9 +1,10 @@
 import { IconInfo } from '@posthog/icons'
+
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { useDebouncedQuery } from '~/queries/hooks/useDebouncedQuery'
-import { ActorsQuery, PersonsNode } from '~/queries/schema'
+import { ActorsQuery, PersonsNode } from '~/queries/schema/schema-general'
 import { isQueryForGroup } from '~/queries/utils'
 
 type ActorType = 'person' | 'group'
@@ -20,8 +21,7 @@ interface LabelType {
 const labels: Record<ActorType, LabelType> = {
     person: {
         label: 'persons',
-        description:
-            'Search by email or Distinct ID. Email will match partially, for example: "@gmail.com". Distinct ID needs to match exactly.',
+        description: 'Search by name, email, Person ID or Distinct ID.',
     },
     group: {
         label: 'groups',
@@ -43,14 +43,14 @@ export function PersonsSearch({ query, setQuery }: PersonSearchProps): JSX.Eleme
         <div className="flex items-center gap-2">
             <LemonInput
                 type="search"
-                value={value}
+                value={value ?? ''}
                 placeholder={`Search for ${labels[target].label}`}
                 data-attr="persons-search"
                 disabled={!setQuery}
                 onChange={onChange}
             />
             <Tooltip title={labels[target].description}>
-                <IconInfo className="text-2xl text-muted-alt shrink-0" />
+                <IconInfo className="text-2xl text-secondary shrink-0" />
             </Tooltip>
         </div>
     )

@@ -1,8 +1,9 @@
 import { useActions } from 'kea'
+import { useEffect, useRef } from 'react'
+
 import { IconBookmarkBorder } from 'lib/lemon-ui/icons'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { useEffect, useRef } from 'react'
 
 import { TeamBasicType } from '~/types'
 
@@ -33,7 +34,7 @@ export function JSBookmarklet({ team }: { team: TeamBasicType }): JSX.Element {
                 <IconBookmarkBorder fontSize="1.5rem" />
                 <span className="text-base">PostHog Bookmarklet</span>
             </a>
-            <p className="text-center text-muted font-medium mt-2">
+            <p className="text-center text-secondary font-medium mt-2">
                 Drag to your bookmarks. Do not click on this link. The bookmarklet only works for the current browser
                 session.
             </p>

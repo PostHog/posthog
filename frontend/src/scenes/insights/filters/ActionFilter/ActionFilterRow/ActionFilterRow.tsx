@@ -3,6 +3,9 @@ import './ActionFilterRow.scss'
 import { DraggableSyntheticListeners } from '@dnd-kit/core'
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { BuiltLogic, useActions, useValues } from 'kea'
+import { useState } from 'react'
+
 import { IconCopy, IconEllipsis, IconFilter, IconPencil, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonBadge,
@@ -13,41 +16,54 @@ import {
     LemonSelectOption,
     LemonSelectOptions,
 } from '@posthog/lemon-ui'
-import { BuiltLogic, useActions, useValues } from 'kea'
+
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { HogQLEditor } from 'lib/components/HogQLEditor/HogQLEditor'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SeriesGlyph, SeriesLetter } from 'lib/components/SeriesGlyph'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TaxonomicPopover, TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
-import { IconWithCount } from 'lib/lemon-ui/icons'
-import { SortableDragIcon } from 'lib/lemon-ui/icons'
+import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import {
+    TaxonomicPopover,
+    TaxonomicPopoverProps,
+    TaxonomicStringPopover,
+} from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { getEventNamesForAction } from 'lib/utils'
-import { useState } from 'react'
+import { IconWithCount, SortableDragIcon } from 'lib/lemon-ui/icons'
+import { capitalizeFirstLetter, getEventNamesForAction } from 'lib/utils'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { isAllEventsEntityFilter } from 'scenes/insights/utils'
 import {
-    apiValueToMathType,
     COUNT_PER_ACTOR_MATH_DEFINITIONS,
     MathCategory,
-    mathsLogic,
-    mathTypeToApiValues,
     PROPERTY_MATH_DEFINITIONS,
+    apiValueToMathType,
+    mathTypeToApiValues,
+    mathsLogic,
 } from 'scenes/trends/mathsLogic'
 
 import { actionsModel } from '~/models/actionsModel'
-import { isInsightVizNode, isStickinessQuery } from '~/queries/utils'
+import { MathType, NodeKind } from '~/queries/schema/schema-general'
+import {
+    TRAILING_MATH_TYPES,
+    getMathTypeWarning,
+    isInsightVizNode,
+    isStickinessQuery,
+    isTrendsQuery,
+} from '~/queries/utils'
 import {
     ActionFilter,
     ActionFilter as ActionFilterType,
     BaseMathType,
     ChartDisplayCategory,
+    ChartDisplayType,
     CountPerActorMathType,
     EntityType,
     EntityTypes,
@@ -70,6 +86,7 @@ export enum MathAvailability {
     All,
     ActorsOnly,
     FunnelsOnly,
+    CalendarHeatmapOnly,
     None,
 }
 
@@ -125,6 +142,16 @@ export interface ActionFilterRowProps {
         deleteButton,
     }: Record<string, JSX.Element | string | undefined>) => JSX.Element // build your own row given these components
     trendsDisplayCategory: ChartDisplayCategory | null
+    /** Whether properties shown should be limited to just numerical types */
+    showNumericalPropsOnly?: boolean
+    /** Only allow these math types in the selector */
+    allowedMathTypes?: readonly string[]
+    /** Fields to display in the data warehouse filter popover */
+    dataWarehousePopoverFields?: DataWarehousePopoverField[]
+    /** Whether to add left padding to the filters div to align with suffix content */
+    filtersLeftPadding?: boolean
+    /** Doc link to show in the tooltip of the New Filter button */
+    addFilterDocLink?: string
 }
 
 export function ActionFilterRow({
@@ -153,11 +180,18 @@ export function ActionFilterRow({
     readOnly = false,
     renderRow,
     trendsDisplayCategory,
-}: ActionFilterRowProps): JSX.Element {
+    showNumericalPropsOnly,
+    allowedMathTypes,
+    dataWarehousePopoverFields = defaultDataWarehousePopoverFields,
+    filtersLeftPadding = false,
+    addFilterDocLink,
+    excludedProperties,
+}: ActionFilterRowProps & Pick<TaxonomicPopoverProps, 'excludedProperties'>): JSX.Element {
     const { entityFilterVisible } = useValues(logic)
     const {
         updateFilter,
         selectFilter,
+        updateFilterOptional,
         updateFilterMath,
         removeLocalFilter,
         updateFilterProperty,
@@ -167,6 +201,20 @@ export function ActionFilterRow({
     const { actions } = useValues(actionsModel)
     const { mathDefinitions } = useValues(mathsLogic)
     const { dataWarehouseTablesMap } = useValues(databaseTableListLogic)
+
+    const mountedInsightDataLogic = insightDataLogic.findMounted({ dashboardItemId: typeKey })
+    const query = mountedInsightDataLogic?.values?.query
+
+    const isFunnelContext = mathAvailability === MathAvailability.FunnelsOnly
+
+    // Always call hooks for React compliance - provide safe defaults for non-funnel contexts
+    const { insightProps: funnelInsightProps } = useValues(
+        insightLogic({ dashboardItemId: isFunnelContext ? (typeKey as any) : 'new' })
+    )
+    const { isStepOptional: funnelIsStepOptional } = useValues(funnelDataLogic(funnelInsightProps))
+
+    // Only use the funnel results when in funnel context
+    const isStepOptional = isFunnelContext ? funnelIsStepOptional : () => false
 
     const [isHogQLDropdownVisible, setIsHogQLDropdownVisible] = useState(false)
     const [isMenuVisible, setIsMenuVisible] = useState(false)
@@ -179,6 +227,7 @@ export function ActionFilterRow({
     const {
         math,
         math_property: mathProperty,
+        math_property_type: mathPropertyType,
         math_hogql: mathHogQL,
         math_group_type_index: mathGroupTypeIndex,
     } = filter
@@ -186,25 +235,33 @@ export function ActionFilterRow({
     const onClose = (): void => {
         removeLocalFilter({ ...filter, index })
     }
+
     const onMathSelect = (_: unknown, selectedMath?: string): void => {
-        const mathProperties = selectedMath
-            ? {
-                  ...mathTypeToApiValues(selectedMath),
-                  math_property:
-                      mathDefinitions[selectedMath]?.category === MathCategory.PropertyValue
-                          ? mathProperty ?? '$time'
-                          : undefined,
-                  math_hogql:
-                      mathDefinitions[selectedMath]?.category === MathCategory.HogQLExpression
-                          ? mathHogQL ?? 'count()'
-                          : undefined,
-              }
-            : {
-                  math_property: undefined,
-                  math_hogql: undefined,
-                  math_group_type_index: undefined,
-                  math: undefined,
-              }
+        let mathProperties
+        if (selectedMath) {
+            const math_property =
+                mathDefinitions[selectedMath]?.category === MathCategory.PropertyValue
+                    ? (mathProperty ?? '$time')
+                    : undefined
+            const math_hogql =
+                mathDefinitions[selectedMath]?.category === MathCategory.HogQLExpression
+                    ? (mathHogQL ?? 'count()')
+                    : undefined
+            mathProperties = {
+                ...mathTypeToApiValues(selectedMath),
+                math_property,
+                math_hogql,
+                mathPropertyType,
+            }
+        } else {
+            mathProperties = {
+                math_property: undefined,
+                mathPropertyType: undefined,
+                math_hogql: undefined,
+                math_group_type_index: undefined,
+                math: undefined,
+            }
+        }
 
         updateFilterMath({
             index,
@@ -212,11 +269,13 @@ export function ActionFilterRow({
             ...mathProperties,
         })
     }
-    const onMathPropertySelect = (_: unknown, property: string): void => {
+
+    const onMathPropertySelect = (_: unknown, property: string, groupType: TaxonomicFilterGroupType): void => {
         updateFilterMath({
             ...filter,
             math_hogql: undefined,
             math_property: property,
+            math_property_type: groupType,
             index,
         })
     }
@@ -225,6 +284,7 @@ export function ActionFilterRow({
         updateFilterMath({
             ...filter,
             math_property: undefined,
+            math_property_type: undefined,
             math_hogql: hogql,
             index,
         })
@@ -241,7 +301,7 @@ export function ActionFilterRow({
 
     const seriesIndicator =
         seriesIndicatorType === 'numeric' ? (
-            <SeriesGlyph style={{ borderColor: 'var(--border)' }}>{index + 1}</SeriesGlyph>
+            <SeriesGlyph style={{ borderColor: 'var(--color-border-primary)' }}>{index + 1}</SeriesGlyph>
         ) : (
             <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
         )
@@ -255,15 +315,16 @@ export function ActionFilterRow({
             onChange={(changedValue, taxonomicGroupType, item) => {
                 const groupType = taxonomicFilterGroupTypeToEntityType(taxonomicGroupType)
                 if (groupType === EntityTypes.DATA_WAREHOUSE) {
+                    const extraValues = Object.fromEntries(
+                        dataWarehousePopoverFields.map(({ key }) => [key, item?.[key]])
+                    )
                     updateFilter({
                         type: groupType,
                         id: changedValue ? String(changedValue) : null,
                         name: item?.name ?? '',
-                        id_field: item?.id_field,
-                        timestamp_field: item?.timestamp_field,
-                        distinct_id_field: item?.distinct_id_field,
                         table_name: item?.name,
                         index,
+                        ...extraValues,
                     })
                 } else {
                     updateFilter({
@@ -283,6 +344,9 @@ export function ActionFilterRow({
             placeholder="All events"
             placeholderClass=""
             disabled={disabled || readOnly}
+            showNumericalPropsOnly={showNumericalPropsOnly}
+            dataWarehousePopoverFields={dataWarehousePopoverFields}
+            excludedProperties={excludedProperties}
         />
     )
 
@@ -301,6 +365,7 @@ export function ActionFilterRow({
                         : undefined
                 }}
                 disabledReason={filter.id === 'empty' ? 'Please select an event first' : undefined}
+                tooltipDocLink={addFilterDocLink}
             />
         </IconWithCount>
     )
@@ -375,12 +440,11 @@ export function ActionFilterRow({
 
     return (
         <li
-            className="ActionFilterRow"
+            className="ActionFilterRow relative"
             ref={setNodeRef}
             {...attributes}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                position: 'relative',
                 zIndex: isDragging ? 1 : undefined,
                 transform: CSS.Translate.toString(transform),
                 transition,
@@ -418,16 +482,23 @@ export function ActionFilterRow({
                                             style={{ maxWidth: '100%', width: 'initial' }}
                                             mathAvailability={mathAvailability}
                                             trendsDisplayCategory={trendsDisplayCategory}
+                                            allowedMathTypes={allowedMathTypes}
+                                            query={query || {}}
                                         />
                                         {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
                                             MathCategory.PropertyValue && (
                                             <div className="flex-auto overflow-hidden">
                                                 <TaxonomicStringPopover
-                                                    groupType={TaxonomicFilterGroupType.NumericalEventProperties}
+                                                    groupType={
+                                                        mathPropertyType ||
+                                                        TaxonomicFilterGroupType.NumericalEventProperties
+                                                    }
                                                     groupTypes={[
                                                         TaxonomicFilterGroupType.DataWarehouseProperties,
                                                         TaxonomicFilterGroupType.NumericalEventProperties,
                                                         TaxonomicFilterGroupType.SessionProperties,
+                                                        TaxonomicFilterGroupType.PersonProperties,
+                                                        TaxonomicFilterGroupType.DataWarehousePersonProperties,
                                                     ]}
                                                     schemaColumns={
                                                         filter.type == TaxonomicFilterGroupType.DataWarehouse &&
@@ -438,11 +509,12 @@ export function ActionFilterRow({
                                                             : []
                                                     }
                                                     value={mathProperty}
-                                                    onChange={(currentValue) =>
-                                                        onMathPropertySelect(index, currentValue)
+                                                    onChange={(currentValue, groupType) =>
+                                                        onMathPropertySelect(index, currentValue, groupType)
                                                     }
                                                     eventNames={name ? [name] : []}
                                                     data-attr="math-property-select"
+                                                    showNumericalPropsOnly={showNumericalPropsOnly}
                                                     renderValue={(currentValue) => (
                                                         <Tooltip
                                                             title={
@@ -461,7 +533,7 @@ export function ActionFilterRow({
                                                                         Calculate{' '}
                                                                         {mathDefinitions[math ?? ''].name.toLowerCase()}{' '}
                                                                         from property <code>{currentValue}</code>. Note
-                                                                        that only {name} occurences where{' '}
+                                                                        that only {name} occurrences where{' '}
                                                                         <code>{currentValue}</code> is set with a
                                                                         numeric value will be taken into account.
                                                                     </>
@@ -530,22 +602,44 @@ export function ActionFilterRow({
                                                     {
                                                         label: () => (
                                                             <>
-                                                                <LemonCheckbox
-                                                                    className="py-1 px-2 flex-row-reverse [&_svg]:ml-1 [&>label]:gap-2.5"
-                                                                    checked={math === BaseMathType.FirstTimeForUser}
-                                                                    onChange={(checked) => {
-                                                                        onMathSelect(
-                                                                            index,
-                                                                            checked
-                                                                                ? BaseMathType.FirstTimeForUser
-                                                                                : undefined
-                                                                        )
-                                                                    }}
-                                                                    data-attr={`math-first-time-for-user-${index}`}
-                                                                    label="Count by first time for user"
-                                                                    fullWidth
+                                                                <MathSelector
+                                                                    math={math}
+                                                                    mathGroupTypeIndex={mathGroupTypeIndex}
+                                                                    index={index}
+                                                                    onMathSelect={onMathSelect}
+                                                                    disabled={readOnly}
+                                                                    style={{ maxWidth: '100%', width: 'initial' }}
+                                                                    mathAvailability={mathAvailability}
+                                                                    trendsDisplayCategory={trendsDisplayCategory}
+                                                                    query={query || {}}
                                                                 />
                                                                 <LemonDivider />
+                                                            </>
+                                                        ),
+                                                    },
+                                                    {
+                                                        label: () => (
+                                                            <>
+                                                                {index > 0 && (
+                                                                    <>
+                                                                        <Tooltip title="Optional steps show conversion rates from the last mandatory step, but are not necessary to move to the next step in the funnel">
+                                                                            <div className="px-2 py-1">
+                                                                                <LemonCheckbox
+                                                                                    checked={!!filter.optionalInFunnel}
+                                                                                    onChange={(checked) => {
+                                                                                        updateFilterOptional({
+                                                                                            ...filter,
+                                                                                            optionalInFunnel: checked,
+                                                                                            index,
+                                                                                        })
+                                                                                    }}
+                                                                                    label="Optional step"
+                                                                                />
+                                                                            </div>
+                                                                        </Tooltip>
+                                                                        <LemonDivider />
+                                                                    </>
+                                                                )}
                                                             </>
                                                         ),
                                                     },
@@ -571,7 +665,7 @@ export function ActionFilterRow({
                                             <LemonBadge
                                                 position="top-right"
                                                 size="small"
-                                                visible={math === BaseMathType.FirstTimeForUser}
+                                                visible={math !== undefined || isStepOptional(index + 1)}
                                             />
                                         </div>
                                     </>
@@ -585,30 +679,43 @@ export function ActionFilterRow({
             </div>
 
             {propertyFiltersVisible && (
-                <div className="ActionFilterRow-filters">
+                <div className={`ActionFilterRow-filters${filtersLeftPadding ? ' pl-7' : ''}`}>
                     <PropertyFilters
                         pageKey={`${index}-${value}-${typeKey}-filter`}
                         propertyFilters={filter.properties}
                         onChange={(properties) => updateFilterProperty({ properties, index })}
                         showNestedArrow={showNestedArrow}
                         disablePopover={!propertyFiltersPopover}
+                        metadataSource={
+                            filter.type == TaxonomicFilterGroupType.DataWarehouse
+                                ? {
+                                      kind: NodeKind.HogQLQuery,
+                                      query: `select ${filter.distinct_id_field} from ${filter.table_name}`,
+                                  }
+                                : undefined
+                        }
                         taxonomicGroupTypes={
                             filter.type == TaxonomicFilterGroupType.DataWarehouse
-                                ? [TaxonomicFilterGroupType.DataWarehouseProperties]
+                                ? [
+                                      TaxonomicFilterGroupType.DataWarehouseProperties,
+                                      TaxonomicFilterGroupType.HogQLExpression,
+                                  ]
                                 : propertiesTaxonomicGroupTypes
                         }
                         eventNames={
                             filter.type === TaxonomicFilterGroupType.Events && filter.id
                                 ? [String(filter.id)]
                                 : filter.type === TaxonomicFilterGroupType.Actions && filter.id
-                                ? getEventNamesForAction(parseInt(String(filter.id)), actions)
-                                : []
+                                  ? getEventNamesForAction(parseInt(String(filter.id)), actions)
+                                  : []
                         }
                         schemaColumns={
                             filter.type == TaxonomicFilterGroupType.DataWarehouse && filter.name
                                 ? Object.values(dataWarehouseTablesMap[filter.name]?.fields ?? [])
                                 : []
                         }
+                        addFilterDocLink={addFilterDocLink}
+                        excludedProperties={excludedProperties}
                     />
                 </div>
             )}
@@ -626,6 +733,9 @@ interface MathSelectorProps {
     onMathSelect: (index: number, value: any) => any
     trendsDisplayCategory: ChartDisplayCategory | null
     style?: React.CSSProperties
+    /** Only allow these math types in the selector */
+    allowedMathTypes?: readonly string[]
+    query?: Record<string, any>
 }
 
 function isPropertyValueMath(math: string | undefined): math is PropertyMathType {
@@ -636,7 +746,19 @@ function isCountPerActorMath(math: string | undefined): math is CountPerActorMat
     return !!math && math in COUNT_PER_ACTOR_MATH_DEFINITIONS
 }
 
-const TRAILING_MATH_TYPES = new Set<string>([BaseMathType.WeeklyActiveUsers, BaseMathType.MonthlyActiveUsers])
+function getDefaultPropertyMathType(
+    math: string | undefined,
+    allowedMathTypes: readonly string[] | undefined
+): PropertyMathType {
+    if (isPropertyValueMath(math)) {
+        return math
+    }
+    if (allowedMathTypes?.length) {
+        const propertyMathTypes = allowedMathTypes.filter(isPropertyValueMath)
+        return (propertyMathTypes[0] as PropertyMathType) || PropertyMathType.Average
+    }
+    return PropertyMathType.Average
+}
 
 function useMathSelectorOptions({
     math,
@@ -644,126 +766,358 @@ function useMathSelectorOptions({
     mathAvailability,
     onMathSelect,
     trendsDisplayCategory,
+    allowedMathTypes,
+    query,
+    mathGroupTypeIndex,
 }: MathSelectorProps): LemonSelectOptions<string> {
-    const mountedInsightDataLogic = insightDataLogic.findMounted()
-    const query = mountedInsightDataLogic?.values?.query
-
     const isStickiness = query && isInsightVizNode(query) && isStickinessQuery(query.source)
+    const isCalendarHeatmap =
+        query &&
+        isInsightVizNode(query) &&
+        isTrendsQuery(query.source) &&
+        query.source.trendsFilter?.display === ChartDisplayType.CalendarHeatmap
 
-    const { needsUpgradeForGroups, canStartUsingGroups, staticMathDefinitions, staticActorsOnlyMathDefinitions } =
-        useValues(mathsLogic)
+    const {
+        needsUpgradeForGroups,
+        canStartUsingGroups,
+        staticMathDefinitions,
+        funnelMathDefinitions,
+        staticActorsOnlyMathDefinitions,
+        calendarHeatmapMathDefinitions,
+        aggregationLabel,
+        groupsMathDefinitions,
+    } = useValues(mathsLogic)
 
     const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(
-        isPropertyValueMath(math) ? math : PropertyMathType.Average
+        getDefaultPropertyMathType(math, allowedMathTypes)
     )
+
     const [countPerActorMathTypeShown, setCountPerActorMathTypeShown] = useState<CountPerActorMathType>(
         isCountPerActorMath(math) ? math : CountPerActorMathType.Average
     )
 
-    const options: LemonSelectOption<string>[] = Object.entries(
-        mathAvailability != MathAvailability.ActorsOnly ? staticMathDefinitions : staticActorsOnlyMathDefinitions
+    const [uniqueActorsShown, setUniqueActorsShown] = useState<string>(
+        getActiveActor('unique_group', mathGroupTypeIndex)
     )
+    const [weeklyActiveActorsShown, setWeeklyActiveActorsShown] = useState<string>(
+        getActiveActor('weekly_active', mathGroupTypeIndex)
+    )
+    const [monthlyActiveActorsShown, setMonthlyActiveActorsShown] = useState<string>(
+        getActiveActor('monthly_active', mathGroupTypeIndex)
+    )
+
+    function getActiveActor(selectedMath: string, mathGroupTypeIndex: number | null | undefined): string {
+        if (mathGroupTypeIndex === undefined || mathGroupTypeIndex === null || selectedMath !== math) {
+            return 'users'
+        }
+        const groupKey = `unique_group::${mathGroupTypeIndex}`
+        const groupDef = groupsMathDefinitions[groupKey]
+        return groupDef ? groupKey : 'users'
+    }
+
+    let definitions = staticMathDefinitions
+    if (mathAvailability === MathAvailability.FunnelsOnly) {
+        definitions = funnelMathDefinitions
+    } else if (mathAvailability === MathAvailability.ActorsOnly) {
+        definitions = staticActorsOnlyMathDefinitions
+    } else if (mathAvailability === MathAvailability.CalendarHeatmapOnly) {
+        definitions = calendarHeatmapMathDefinitions
+    }
+    const isGroupsEnabled = !needsUpgradeForGroups && !canStartUsingGroups
+
+    const options: LemonSelectOption<string>[] = Object.entries(definitions)
         .filter(([key]) => {
+            const mathTypeKey = key as MathType
             if (isStickiness) {
                 // Remove WAU and MAU from stickiness insights
-                return !TRAILING_MATH_TYPES.has(key)
+                return !TRAILING_MATH_TYPES.has(mathTypeKey)
             }
+
+            if (allowedMathTypes) {
+                // The unique group keys are of the type 'unique_group::0', so need to strip the ::0
+                // when comparing with the GroupMathType.UniqueGroup which has the value 'unique_group'
+                const strippedKey = key.split('::')[0]
+                return allowedMathTypes.includes(strippedKey)
+            }
+
             return true
         })
         .map(([key, definition]) => {
-            const shouldWarnAboutTrailingMath =
-                TRAILING_MATH_TYPES.has(key) && trendsDisplayCategory === ChartDisplayCategory.TotalValue
+            const mathTypeKey = key as MathType
+            const warning = getMathTypeWarning(mathTypeKey, query || {}, trendsDisplayCategory === 'TotalValue')
+
             return {
-                value: key,
-                icon: shouldWarnAboutTrailingMath ? <IconWarning /> : undefined,
+                value: mathTypeKey,
+                icon: warning !== null ? <IconWarning /> : undefined,
                 label: definition.name,
-                tooltip: !shouldWarnAboutTrailingMath ? (
-                    definition.description
-                ) : (
-                    <>
-                        <p>{definition.description}</p>
-                        <i>
-                            In total value insights, it's usually not clear what date range "{definition.name}" refers
-                            to. For full clarity, we recommend using "Unique users" here instead.
-                        </i>
-                    </>
-                ),
                 'data-attr': `math-${key}-${index}`,
+                tooltip:
+                    warning === 'total' ? (
+                        <>
+                            <p>{definition.description}</p>
+                            <i>
+                                In total value insights, it's usually not clear what date range "{definition.name}"
+                                refers to. For full clarity, we recommend using "Unique users" here instead.
+                            </i>
+                        </>
+                    ) : warning === null ? (
+                        definition.description
+                    ) : (
+                        <>
+                            {warning === 'weekly' ? (
+                                <p>
+                                    Weekly active users is not meaningful when using week or month intervals because the
+                                    sliding window calculation cannot be properly applied.
+                                </p>
+                            ) : (
+                                <p>
+                                    Monthly active users is not meaningful when using month intervals because the
+                                    sliding window calculation cannot be properly applied.
+                                </p>
+                            )}
+                            <span>This query mode has the same functionality as "Unique users" for this interval.</span>
+                        </>
+                    ),
             }
         })
 
-    if (mathAvailability !== MathAvailability.ActorsOnly) {
-        options.splice(1, 0, {
-            value: countPerActorMathTypeShown,
-            label: `Count per user ${COUNT_PER_ACTOR_MATH_DEFINITIONS[countPerActorMathTypeShown].shortName}`,
-            labelInMenu: (
-                <div className="flex items-center gap-2">
-                    <span>Count per user</span>
-                    <LemonSelect
-                        value={countPerActorMathTypeShown}
-                        onSelect={(value) => {
-                            setCountPerActorMathTypeShown(value as CountPerActorMathType)
-                            onMathSelect(index, value)
-                        }}
-                        options={Object.entries(COUNT_PER_ACTOR_MATH_DEFINITIONS).map(([key, definition]) => ({
-                            value: key,
-                            label: definition.shortName,
-                            'data-attr': `math-${key}-${index}`,
-                        }))}
-                        onClick={(e) => e.stopPropagation()}
-                        size="small"
-                        dropdownMatchSelectWidth={false}
-                        optionTooltipPlacement="right"
-                    />
-                </div>
-            ),
-            tooltip: 'Statistical analysis of event count per user.',
-            'data-attr': `math-node-count-per-actor-${index}`,
-        })
-        options.push({
-            value: propertyMathTypeShown,
-            label: `Property value ${PROPERTY_MATH_DEFINITIONS[propertyMathTypeShown].shortName}`,
-            labelInMenu: (
-                <div className="flex items-center gap-2">
-                    <span>Property value</span>
-                    <LemonSelect
-                        value={propertyMathTypeShown}
-                        onSelect={(value) => {
-                            setPropertyMathTypeShown(value as PropertyMathType)
-                            onMathSelect(index, value)
-                        }}
-                        options={Object.entries(PROPERTY_MATH_DEFINITIONS).map(([key, definition]) => ({
-                            value: key,
-                            label: definition.shortName,
-                            tooltip: definition.description,
-                            'data-attr': `math-${key}-${index}`,
-                        }))}
-                        onClick={(e) => e.stopPropagation()}
-                        size="small"
-                        dropdownMatchSelectWidth={false}
-                        optionTooltipPlacement="right"
-                    />
-                </div>
-            ),
-            tooltip: 'Statistical analysis of property value.',
-            'data-attr': `math-node-property-value-${index}`,
-        })
+    if (
+        mathAvailability !== MathAvailability.ActorsOnly &&
+        mathAvailability !== MathAvailability.FunnelsOnly &&
+        mathAvailability !== MathAvailability.CalendarHeatmapOnly
+    ) {
+        // Add count per user option if any CountPerActorMathType is included in onlyMathTypes
+        const shouldShowCountPerUser =
+            !allowedMathTypes || Object.values(CountPerActorMathType).some((type) => allowedMathTypes.includes(type))
+
+        if (shouldShowCountPerUser) {
+            options.splice(1, 0, {
+                value: countPerActorMathTypeShown,
+                label: `Count per user ${COUNT_PER_ACTOR_MATH_DEFINITIONS[countPerActorMathTypeShown].shortName}`,
+                labelInMenu: (
+                    <div className="flex items-center gap-2">
+                        <span>Count per user</span>
+                        <LemonSelect
+                            value={countPerActorMathTypeShown}
+                            onSelect={(value) => {
+                                setCountPerActorMathTypeShown(value as CountPerActorMathType)
+                                onMathSelect(index, value)
+                            }}
+                            options={Object.entries(COUNT_PER_ACTOR_MATH_DEFINITIONS)
+                                .filter(([key]) => !allowedMathTypes || allowedMathTypes.includes(key))
+                                .map(([key, definition]) => ({
+                                    value: key,
+                                    label: definition.shortName,
+                                    'data-attr': `math-${key}-${index}`,
+                                }))}
+                            onClick={(e) => e.stopPropagation()}
+                            size="small"
+                            dropdownMatchSelectWidth={false}
+                            optionTooltipPlacement="right"
+                        />
+                    </div>
+                ),
+                tooltip: 'Statistical analysis of event count per user.',
+                'data-attr': `math-node-count-per-actor-${index}`,
+            })
+        }
+
+        const shouldShowPropertyValue =
+            !allowedMathTypes || Object.values(PropertyMathType).some((type) => allowedMathTypes.includes(type))
+
+        if (shouldShowPropertyValue) {
+            options.push({
+                value: propertyMathTypeShown,
+                label: `Property value ${PROPERTY_MATH_DEFINITIONS[propertyMathTypeShown].shortName}`,
+                labelInMenu: (
+                    <div className="flex items-center gap-2">
+                        <span>Property value</span>
+                        <LemonSelect
+                            value={propertyMathTypeShown}
+                            onSelect={(value) => {
+                                setPropertyMathTypeShown(value as PropertyMathType)
+                                onMathSelect(index, value)
+                            }}
+                            options={Object.entries(PROPERTY_MATH_DEFINITIONS)
+                                .filter(([key]) => !allowedMathTypes || allowedMathTypes.includes(key))
+                                .map(([key, definition]) => ({
+                                    value: key,
+                                    label: definition.shortName,
+                                    tooltip: definition.description,
+                                    'data-attr': `math-${key}-${index}`,
+                                }))}
+                            onClick={(e) => e.stopPropagation()}
+                            size="small"
+                            dropdownMatchSelectWidth={false}
+                            optionTooltipPlacement="right"
+                        />
+                    </div>
+                ),
+                tooltip: 'Statistical analysis of property value.',
+                'data-attr': `math-node-property-value-${index}`,
+            })
+        }
     }
 
-    options.push({
-        value: HogQLMathType.HogQL,
-        label: 'HogQL expression',
-        tooltip: 'Aggregate events by custom SQL expression.',
-        'data-attr': `math-node-hogql-expression-${index}`,
-    })
+    if (isGroupsEnabled && !isCalendarHeatmap) {
+        const uniqueActorsOptions = [
+            {
+                value: 'users',
+                label: 'users',
+                'data-attr': `math-users-${index}`,
+            },
+            ...Object.entries(groupsMathDefinitions).map(([key, definition]) => ({
+                value: key,
+                label: definition.shortName,
+                'data-attr': `math-${key}-${index}`,
+            })),
+        ]
+
+        const uniqueUsersIndex = options.findIndex(
+            (option) => 'value' in option && option.value === BaseMathType.UniqueUsers
+        )
+        if (uniqueUsersIndex !== -1) {
+            const isDau = uniqueActorsShown === 'users'
+            const value = isDau ? BaseMathType.UniqueUsers : uniqueActorsShown
+            const label = isDau ? 'Unique users' : `Unique ${aggregationLabel(mathGroupTypeIndex).plural}`
+            const tooltip = isDau
+                ? options[uniqueUsersIndex].tooltip
+                : groupsMathDefinitions[uniqueActorsShown].description
+            options[uniqueUsersIndex] = {
+                value,
+                label,
+                tooltip,
+                labelInMenu: (
+                    <div className="flex items-center gap-2">
+                        <span>Unique</span>
+                        <LemonSelect
+                            value={uniqueActorsShown}
+                            onClick={(e) => e.stopPropagation()}
+                            size="small"
+                            dropdownMatchSelectWidth={false}
+                            optionTooltipPlacement="right"
+                            onSelect={(value) => {
+                                setUniqueActorsShown(value as string)
+                                const mathType = value === 'users' ? BaseMathType.UniqueUsers : value
+                                onMathSelect(index, mathType)
+                            }}
+                            options={uniqueActorsOptions}
+                        />
+                    </div>
+                ),
+                'data-attr': `math-node-unique-actors-${index}`,
+            }
+        }
+
+        const getActiveActorOptionByPeriod = (
+            activeActorShown: string,
+            setActiveActorShown: (value: string) => void,
+            mathType: BaseMathType,
+            period: 'month' | 'week',
+            days: '30' | '7',
+            optionIndex: number
+        ): LemonSelectOption<string> => {
+            const actor = activeActorShown === 'users' ? 'users' : aggregationLabel(mathGroupTypeIndex).plural
+            const capitalizedActor = capitalizeFirstLetter(actor)
+            const label = `${capitalizeFirstLetter(period)}ly active ${actor}`
+            const tooltip =
+                actor === 'user' ? (
+                    options[optionIndex].tooltip
+                ) : (
+                    <>
+                        <b>
+                            {capitalizedActor} active in the past {period} ({days} days).
+                        </b>
+                        <br />
+                        <br />
+                        This is a trailing count that aggregates distinct {actor} in the past {days} days for each day
+                        in the time series.
+                        <br />
+                        <br />
+                        If the group by interval is a {period} or longer, this is the same as "Unique {capitalizedActor}
+                        " math.
+                    </>
+                )
+
+            return {
+                value: mathType,
+                label,
+                tooltip,
+                'data-attr': `math-node-${period}ly-active-actors-${index}`,
+                labelInMenu: (
+                    <div className="flex items-center gap-2">
+                        <span>{capitalizeFirstLetter(period)}ly active</span>
+                        <LemonSelect
+                            value={activeActorShown}
+                            onClick={(e) => e.stopPropagation()}
+                            size="small"
+                            dropdownMatchSelectWidth={false}
+                            optionTooltipPlacement="right"
+                            onSelect={(value) => {
+                                setActiveActorShown(value as string)
+                                const groupIndex =
+                                    value === 'users'
+                                        ? undefined
+                                        : mathTypeToApiValues(value as string).math_group_type_index
+                                const mathType =
+                                    groupIndex !== undefined
+                                        ? `${period}ly_active::${groupIndex}`
+                                        : BaseMathType.MonthlyActiveUsers
+                                onMathSelect(index, mathType)
+                            }}
+                            options={uniqueActorsOptions}
+                        />
+                    </div>
+                ),
+            }
+        }
+
+        const monthlyActiveUsersIndex = options.findIndex(
+            (option) => 'value' in option && option.value === BaseMathType.MonthlyActiveUsers
+        )
+        if (monthlyActiveUsersIndex !== -1) {
+            options[monthlyActiveUsersIndex] = getActiveActorOptionByPeriod(
+                monthlyActiveActorsShown,
+                setMonthlyActiveActorsShown,
+                BaseMathType.MonthlyActiveUsers,
+                'month',
+                '30',
+                monthlyActiveUsersIndex
+            )
+        }
+
+        const weeklyActiveUsersIndex = options.findIndex(
+            (option) => 'value' in option && option.value === BaseMathType.WeeklyActiveUsers
+        )
+        if (weeklyActiveUsersIndex !== -1) {
+            options[weeklyActiveUsersIndex] = getActiveActorOptionByPeriod(
+                weeklyActiveActorsShown,
+                setWeeklyActiveActorsShown,
+                BaseMathType.WeeklyActiveUsers,
+                'week',
+                '7',
+                weeklyActiveUsersIndex
+            )
+        }
+    }
+
+    if (
+        mathAvailability !== MathAvailability.FunnelsOnly &&
+        mathAvailability !== MathAvailability.CalendarHeatmapOnly &&
+        (!allowedMathTypes || allowedMathTypes.includes(HogQLMathType.HogQL))
+    ) {
+        options.push({
+            value: HogQLMathType.HogQL,
+            label: 'SQL expression',
+            tooltip: 'Aggregate events by custom SQL expression.',
+            'data-attr': `math-node-hogql-expression-${index}`,
+        })
+    }
 
     return [
         {
             options,
-            footer:
-                needsUpgradeForGroups || canStartUsingGroups ? (
-                    <GroupIntroductionFooter needsUpgrade={needsUpgradeForGroups} />
-                ) : undefined,
+            footer: !isGroupsEnabled ? <GroupIntroductionFooter needsUpgrade={needsUpgradeForGroups} /> : undefined,
         },
     ]
 }

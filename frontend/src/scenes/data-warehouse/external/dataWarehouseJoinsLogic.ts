@@ -1,12 +1,21 @@
 import { afterMount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
-import { capitalizeFirstLetter } from 'lib/utils'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 
 import { DataWarehouseViewLink, PropertyDefinition, PropertyType } from '~/types'
 
 import type { dataWarehouseJoinsLogicType } from './dataWarehouseJoinsLogicType'
+
+const TYPE_MAPPING: Record<string, PropertyType> = {
+    datetime: PropertyType.DateTime,
+    string: PropertyType.String,
+    numeric: PropertyType.Numeric,
+    boolean: PropertyType.Boolean,
+    duration: PropertyType.Duration,
+    array: PropertyType.StringArray,
+}
 
 export const dataWarehouseJoinsLogic = kea<dataWarehouseJoinsLogicType>([
     path(['scenes', 'data-warehouse', 'external', 'dataWarehouseJoinsLogic']),
@@ -50,7 +59,7 @@ export const dataWarehouseJoinsLogic = kea<dataWarehouseJoinsLogicType>([
                                 id: `${join.field_name}.${column.name}`,
                                 name: `${join.field_name}: ${column.name}`,
                                 table: join.field_name,
-                                property_type: capitalizeFirstLetter(column.type) as PropertyType,
+                                property_type: TYPE_MAPPING[column.type.toLowerCase()] || PropertyType.String,
                             }))
                         )
                     }

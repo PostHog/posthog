@@ -1,0 +1,5 @@
+{
+    "type": "ai/failure",
+    "content": "Oops! It looks like I’m having trouble answering this. Could you please try again?",
+    "id": "test-failure-message"
+}

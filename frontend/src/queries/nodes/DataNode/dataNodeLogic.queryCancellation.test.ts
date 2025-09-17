@@ -1,10 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import * as libUtils from 'lib/utils'
 
 import { useMocks } from '~/mocks/jest'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { NodeKind } from '~/queries/schema'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 const testUniqueKey = 'testUniqueKey'
@@ -17,7 +18,7 @@ describe('dataNodeLogic - query cancellation', () => {
         featureFlagLogic.mount()
         useMocks({
             get: {
-                '/api/projects/:team/insights/trend/': async (req) => {
+                '/api/environments/:team_id/insights/trend/': async (req) => {
                     if (req.url.searchParams.get('date_from') === '-180d') {
                         // delay for a second before response without pausing
                         return new Promise((resolve) =>
@@ -30,8 +31,8 @@ describe('dataNodeLogic - query cancellation', () => {
                 },
             },
             post: {
-                '/api/projects/997/insights/cancel/': [201],
-                '/api/projects/997/query/': async () => {
+                '/api/environments/997/insights/cancel/': [201],
+                '/api/environments/997/query/': async () => {
                     return new Promise((resolve) =>
                         setTimeout(() => {
                             resolve([200, { result: ['slow result from api'] }])
@@ -40,7 +41,7 @@ describe('dataNodeLogic - query cancellation', () => {
                 },
             },
             delete: {
-                '/api/projects/:team_id/query/uuid-first': [200, {}],
+                '/api/environments/:team_id/query/uuid-first': [200, {}],
             },
         })
     })

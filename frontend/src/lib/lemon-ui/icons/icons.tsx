@@ -2,8 +2,9 @@
 import './icons.scss'
 
 import clsx from 'clsx'
-import { LemonBadge, LemonBadgeProps } from 'lib/lemon-ui/LemonBadge'
 import { CSSProperties, PropsWithChildren, SVGAttributes } from 'react'
+
+import { LemonBadge, LemonBadgeProps } from 'lib/lemon-ui/LemonBadge'
 
 interface IconWithBadgeProps {
     content: LemonBadgeProps['content']
@@ -30,6 +31,30 @@ export function IconWithCount({
             {children}
             <LemonBadge.Number count={count} size="small" position="top-right" showZero={showZero} status={status} />
         </span>
+    )
+}
+
+export interface IconWithPlusProps {
+    children: React.ReactNode
+}
+
+export function IconWithPlus({ children }: IconWithPlusProps): JSX.Element {
+    return (
+        <div className="relative">
+            {children}
+
+            <div className="absolute flex place-items-center justify-center [&_svg]:size-2.5 [&_path]:fill-[currentColor] [&_path]:stroke-[#E5E7E0] dark:[&_path]:stroke-[black] bottom-0 right-[-3px]">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+                    <path
+                        d="M8 1C8.9665 1 9.75 1.7835 9.75 2.75V6.25H13.25C14.2165 6.25 15 7.0335 15 8C15 8.9665 14.2165 9.75 13.25 9.75H9.75V13.25C9.75 14.2165 8.9665 15 8 15C7.0335 15 6.25 14.2165 6.25 13.25V9.75H2.75C1.7835 9.75 1 8.9665 1 8C1 7.0335 1.7835 6.25 2.75 6.25H6.25V2.75C6.25 1.7835 7.0335 1 8 1Z"
+                        fill="currentColor"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                    />
+                </svg>
+            </div>
+        </div>
     )
 }
 
@@ -170,6 +195,304 @@ export function IconPython(props: LemonIconProps): JSX.Element {
             <path
                 d="M16.1154 31.8333C24.2389 31.8333 23.7317 28.3104 23.7317 28.3104L23.7226 24.6607H15.9705V23.5649H26.8017C26.8017 23.5649 32 24.1544 32 15.9577C32 7.76089 27.4628 8.05157 27.4628 8.05157H24.755V11.8552C24.755 11.8552 24.901 16.3924 20.2903 16.3924C15.6796 16.3924 12.6015 16.3924 12.6015 16.3924C12.6015 16.3924 8.28171 16.3225 8.28171 20.5673C8.28171 24.812 8.28171 27.5859 8.28171 27.5859C8.28171 27.5859 7.62584 31.8333 16.1154 31.8333ZM20.3899 29.379C19.6186 29.379 18.9952 28.7556 18.9952 27.9844C18.9952 27.2131 19.6186 26.5897 20.3899 26.5897C21.1612 26.5897 21.7846 27.2131 21.7846 27.9844C21.7846 28.7556 21.1612 29.379 20.3899 29.379Z"
                 fill="currentColor"
+            />
+        </LemonIconBase>
+    )
+}
+
+export function IconCSharp(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 128 128" {...props}>
+            <path
+                fill="currentColor"
+                fillOpacity="0.7"
+                d="M115.4 30.7L67.1 2.9c-.8-.5-1.9-.7-3.1-.7-1.2 0-2.3.3-3.1.7l-48 27.9c-1.7 1-2.9 3.5-2.9 5.4v55.7c0 1.1.2 2.4 1 3.5l106.8-62c-.6-1.2-1.5-2.1-2.4-2.7z"
+            />
+            <path
+                fill="currentColor"
+                d="M10.7 95.3c.5.8 1.2 1.5 1.9 1.9l48.2 27.9c.8.5 1.9.7 3.1.7 1.2 0 2.3-.3 3.1-.7l48-27.9c1.7-1 2.9-3.5 2.9-5.4V36.1c0-.9-.1-1.9-.6-2.8l-106.6 62z"
+            />
+            <path
+                fill="#fff"
+                d="M85.3 76.1C81.1 83.5 73.1 88.5 64 88.5c-13.5 0-24.5-11-24.5-24.5s11-24.5 24.5-24.5c9.1 0 17.1 5 21.3 12.5l13-7.5c-6.8-11.9-19.6-20-34.3-20-21.8 0-39.5 17.7-39.5 39.5s17.7 39.5 39.5 39.5c14.6 0 27.4-8 34.2-19.8l-12.9-7.6zM97 66.2l.9-4.3h-4.2v-4.7h5.1L100 51h4.9l-1.2 6.1h3.8l1.2-6.1h4.8l-1.2 6.1h2.4v4.7h-3.3l-.9 4.3h4.2v4.7h-5.1l-1.2 6h-4.9l1.2-6h-3.8l-1.2 6h-4.8l1.2-6h-2.4v-4.7H97zm4.8 0h3.8l.9-4.3h-3.8l-.9 4.3z"
+            />
+        </LemonIconBase>
+    )
+}
+
+export function IconRust(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 24 24" {...props}>
+            <path
+                d="M10.1466 8.83486H12.9888C14.7379 8.83486 14.7379 10.5839 12.9888 10.5839H10.1466V8.83486ZM3.36909 16.9242H12.1143V14.5193H10.1466V12.7702H12.333C14.7379 12.7702 13.4261 16.9242 15.3938 16.9242H20.8595V12.7702H19.5478V13.2075C19.5478 14.9565 17.5801 14.7379 17.3615 13.6447C17.1428 12.5516 16.2683 11.6771 16.0497 11.6771C19.3291 9.92801 17.3615 6.42992 14.7379 6.42992H4.46225V8.83486H6.64855V14.5193H3.36909V16.9242Z"
+                fill="currentColor"
+                stroke="currentColor"
+                strokeWidth="0.218631"
+                strokeLinejoin="round"
+            />
+            <path
+                d="M12.005 21.4061C17.1971 21.4061 21.4061 17.1971 21.4061 12.005C21.4061 6.81291 17.1971 2.60388 12.005 2.60388C6.81291 2.60388 2.60388 6.81291 2.60388 12.005C2.60388 17.1971 6.81291 21.4061 12.005 21.4061Z"
+                stroke="currentColor"
+                strokeWidth="1.96768"
+            />
+            <path
+                d="M22.062 12.6609L23.1552 12.005L22.062 11.3491V12.6609Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M21.7408 14.6103L22.9409 14.1803L21.9967 13.3237L21.7408 14.6103Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M21.0455 16.4596L22.3064 16.272L21.5475 15.2477L21.0455 16.4596Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M20.0027 18.1377L21.276 18.1997L20.7315 17.047L20.0027 18.1377Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M18.6526 19.5802L19.8894 19.8894L19.5802 18.6526L18.6526 19.5802Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M17.047 20.7315L18.1997 21.276L18.1377 20.0027L17.047 20.7315Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M15.2477 21.5475L16.272 22.3064L16.4596 21.0455L15.2477 21.5475Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M13.3237 21.9967L14.1803 22.9409L14.6103 21.7408L13.3237 21.9967Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M11.3491 22.062L12.005 23.1552L12.6609 22.062H11.3491Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M9.39969 21.7408L9.82971 22.9409L10.6863 21.9967L9.39969 21.7408Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M7.55038 21.0455L7.73802 22.3064L8.76231 21.5475L7.55038 21.0455Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M5.87227 20.0027L5.8103 21.276L6.96298 20.7315L5.87227 20.0027Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M4.42984 18.6526L4.12065 19.8894L5.35741 19.5802L4.42984 18.6526Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M3.27851 17.047L2.73398 18.1997L4.0073 18.1377L3.27851 17.047Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M2.46253 15.2477L1.70359 16.272L2.96453 16.4596L2.46253 15.2477Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M2.01329 13.3237L1.0691 14.1803L2.2692 14.6103L2.01329 13.3237Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M1.948 11.3491L0.854845 12.005L1.948 12.6609L1.948 11.3491Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M2.2692 9.39969L1.06909 9.82971L2.01328 10.6863L2.2692 9.39969Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M2.96455 7.55038L1.7036 7.73802L2.46255 8.76231L2.96455 7.55038Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M4.0073 5.87227L2.73398 5.8103L3.27851 6.96298L4.0073 5.87227Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M5.3574 4.42984L4.12064 4.12065L4.42983 5.35741L5.3574 4.42984Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M6.96298 3.27851L5.81031 2.73398L5.87228 4.0073L6.96298 3.27851Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M8.76231 2.46253L7.73802 1.70359L7.55038 2.96453L8.76231 2.46253Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M10.6863 2.01329L9.82971 1.0691L9.39969 2.2692L10.6863 2.01329Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M12.6609 1.948L12.005 0.854845L11.3491 1.948L12.6609 1.948Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M14.6103 2.2692L14.1803 1.06909L13.3237 2.01328L14.6103 2.2692Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M16.4596 2.96455L16.272 1.7036L15.2477 2.46255L16.4596 2.96455Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M18.1377 4.0073L18.1997 2.73398L17.047 3.27851L18.1377 4.0073Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M19.5802 5.3574L19.8893 4.12064L18.6526 4.42983L19.5802 5.3574Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M20.7315 6.96298L21.276 5.81031L20.0027 5.87228L20.7315 6.96298Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M21.5475 8.76231L22.3064 7.73802L21.0455 7.55038L21.5475 8.76231Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M21.9967 10.6863L22.9409 9.82971L21.7408 9.39969L21.9967 10.6863Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="0.655892"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M10.4746 2.82253L12.005 4.35294L13.5354 2.82253H10.4746Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="1.31178"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M20.2651 7.71194L19.2826 9.64038L21.211 10.623L20.2651 7.71194Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="1.31178"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M18.6405 18.5342L16.5028 18.1957L16.1642 20.3333L18.6405 18.5342Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="1.31178"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M7.84579 20.3334L7.50722 18.1957L5.36953 18.5342L7.84579 20.3334Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="1.31178"
+                stroke-linejoin="round"
+            />
+            <path
+                d="M2.79902 10.623L4.72745 9.64038L3.74487 7.71195L2.79902 10.623Z"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="1.31178"
+                stroke-linejoin="round"
             />
         </LemonIconBase>
     )
@@ -338,6 +661,11 @@ export function IconChevronRight(props: LemonIconProps): JSX.Element {
     )
 }
 
+/** Blank space icon icon. */
+export function IconBlank(props: LemonIconProps): JSX.Element {
+    return <LemonIconBase fill="currentColor" {...props} />
+}
+
 /** Material Design Radio Button Unchecked icon. */
 export function IconRadioButtonUnchecked(props: LemonIconProps): JSX.Element {
     return (
@@ -426,7 +754,10 @@ export function IconCalculate(props: LemonIconProps): JSX.Element {
 export function IconSubdirectoryArrowRight(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase {...props}>
-            <path d="m19 15-6 6-1.42-1.42 3.59-3.58h-11.17v-12h2v10h9.17l-3.59-3.58 1.42-1.42z" fill="currentColor" />{' '}
+            <path
+                d="m19 15-6 6-1.42-1.42 3.59-3.58h-11.17v-12h2v10h9.17l-3.59-3.58 1.42-1.42z"
+                fill="currentColor"
+            />{' '}
         </LemonIconBase>
     )
 }
@@ -904,6 +1235,17 @@ export function IconSlackExternal(props: LemonIconProps): JSX.Element {
     )
 }
 
+export function IconTwilio(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 256 256" {...props}>
+            <path
+                d="M128,0 C198.656,0 256,57.344 256,128 C256,198.656 198.656,256 128,256 C57.344,256 0,198.656 0,128 C0,57.344 57.344,0 128,0 Z M128,33.792 C75.776,33.792 33.792,75.776 33.792,128 C33.792,180.224 75.776,222.208 128,222.208 C180.224,222.208 222.208,180.224 222.208,128 C222.208,75.776 180.224,33.792 128,33.792 Z M159.744,133.12 C174.448029,133.12 186.368,145.039971 186.368,159.744 C186.368,174.448029 174.448029,186.368 159.744,186.368 C145.039971,186.368 133.12,174.448029 133.12,159.744 C133.12,145.039971 145.039971,133.12 159.744,133.12 Z M96.256,133.12 C110.960029,133.12 122.88,145.039971 122.88,159.744 C122.88,174.448029 110.960029,186.368 96.256,186.368 C81.5519708,186.368 69.632,174.448029 69.632,159.744 C69.632,145.039971 81.5519708,133.12 96.256,133.12 Z M159.744,69.632 C174.448029,69.632 186.368,81.5519708 186.368,96.256 C186.368,110.960029 174.448029,122.88 159.744,122.88 C145.039971,122.88 133.12,110.960029 133.12,96.256 C133.12,81.5519708 145.039971,69.632 159.744,69.632 Z M96.256,69.632 C110.960029,69.632 122.88,81.5519708 122.88,96.256 C122.88,110.960029 110.960029,122.88 96.256,122.88 C81.5519708,122.88 69.632,110.960029 69.632,96.256 C69.632,81.5519708 81.5519708,69.632 96.256,69.632 Z"
+                fill="#F12E45"
+            />
+        </LemonIconBase>
+    )
+}
+
 export function IconChrome(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase {...props}>
@@ -965,6 +1307,94 @@ export function IconInternetExplorer(props: LemonIconProps): JSX.Element {
             <path
                 fill="currentColor"
                 d="M13,3L14,3.06C16.8,1.79 19.23,1.64 20.5,2.92C21.5,3.93 21.58,5.67 20.92,7.72C21.61,9 22,10.45 22,12L21.95,13H9.08C9.45,15.28 11.06,17 13,17C14.31,17 15.47,16.21 16.2,15H21.5C20.25,18.5 16.92,21 13,21C11.72,21 10.5,20.73 9.41,20.25C6.5,21.68 3.89,21.9 2.57,20.56C1,18.96 1.68,15.57 4,12C4.93,10.54 6.14,9.06 7.57,7.65L8.38,6.88C7.21,7.57 5.71,8.62 4.19,10.17C5.03,6.08 8.66,3 13,3M13,7C11.21,7 9.69,8.47 9.18,10.5H16.82C16.31,8.47 14.79,7 13,7M20.06,4.06C19.4,3.39 18.22,3.35 16.74,3.81C18.22,4.5 19.5,5.56 20.41,6.89C20.73,5.65 20.64,4.65 20.06,4.06M3.89,20C4.72,20.84 6.4,20.69 8.44,19.76C6.59,18.67 5.17,16.94 4.47,14.88C3.27,17.15 3,19.07 3.89,20Z"
+            />
+        </LemonIconBase>
+    )
+}
+
+export function IconBlackberry(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 24 24" {...props}>
+            <path
+                fill="currentColor"
+                d="M18.13 11.8c-1.11 0-2.31 0-2.31 0l.63-2.92s1.62 0 2.22 0c1.44 0 1.78.71 1.78 1.27 0 .8-.51 1.65-2.32 1.65zm1.46 2.51c0 .8-.51 1.65-2.32 1.65-1.11 0-2.31 0-2.31 0l.63-2.92s1.62 0 2.22 0c1.44 0 1.78.71 1.78 1.27zM12.76 9.18c-1.11 0-2.31 0-2.31 0l.63-2.92s1.62 0 2.21 0c1.44 0 1.78.71 1.78 1.27 0 .8-.51 1.65-2.31 1.65zm1.52 2.75c0 .8-.51 1.65-2.32 1.65-1.11 0-2.31 0-2.31 0l.63-2.92s1.62 0 2.22 0c1.44 0 1.78.71 1.78 1.27zm-.86 4.58c0 .8-.51 1.65-2.31 1.65-1.11 0-2.31 0-2.31 0l.63-2.92s1.62 0 2.22 0c1.44 0 1.78.71 1.78 1.27zM6.59 9.18c-1.11 0-2.31 0-2.31 0l.63-2.92s1.62 0 2.22 0c1.44 0 1.78.71 1.78 1.27 0 .8-.52 1.65-2.32 1.65zm1.52 2.75c0 .8-.52 1.65-2.32 1.65-1.11 0-2.31 0-2.31 0l.63-2.92s1.63 0 2.22 0c1.44 0 1.78.71 1.78 1.27z"
+            />
+        </LemonIconBase>
+    )
+}
+
+export function IconUCBrowser(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 24 24" {...props}>
+            <circle
+                cx="9.79"
+                cy="17.63"
+                r="3.62"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+            <path
+                d="M14.69 19.29s2.99-.55 2.99 1.96H8.27c-3.09 0-5.6-2.51-5.6-5.6 0-1.45.55-2.77 1.46-3.77 1.75-1.92 2.55-2.6 2.55-4.19s-1.98-2.56-4.01-1.32c1.74-3.03 3.12-3.62 5.95-3.62s4.15 2.36 4.15 4.42c0 4.09-6.6 4.45-6.6 10.46"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+            <path
+                d="M14.69 19.29c.39-.67.61-1.45.61-2.28 0-2.52-2.04-4.57-4.57-4.57-1.61 0-3.02.83-3.83 2.08M9.07 12.76c2.64-1.85 6.29-1.12 8.61 1.09 2.68-.47 3.65 1.18 3.65 1.18-1.14-.09-2.52.33-3.43.67-.59.22-1.25.07-1.67-.39-1.8-1.98-4.57-3.79-7.17-2.55z"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+            <path
+                d="M11.49 11.79s1.39-1.43 4.49-3.09c-.12-1.5-.04-2.07.71-2.53 1.33.34 1.59 1.91 1.59 1.91 2.44.82 3.42 4.15 2.5 4.62s-3.87.13-5.68-.49"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+            <circle
+                cx="9.79"
+                cy="17.63"
+                r="1.31"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+        </LemonIconBase>
+    )
+}
+
+export function IconSamsungInternet(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 24 24" {...props}>
+            <path
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth="1.5"
+                d="M8 18.93c3.83 2.21 8.72.9 10.93-2.93 2.21-3.83.9-8.72-2.93-10.93-3.83-2.21-8.72-.9-10.93 2.93-2.21 3.83-.9 8.72 2.93 10.93z"
+            />
+            <path
+                fill="currentColor"
+                fillRule="evenodd"
+                d="M7.83 5.48c-2.72-.62-4.85-.36-5.57.9-1.24 2.15 2.11 6.41 7.49 9.52 5.38 3.11 10.75 3.88 12 1.73.71-1.24-.1-3.17-1.93-5.18l-.54 1.68.02.03c.61.77.96 1.44 1.12 1.94.15.51.07.72.03.78-.04.07-.18.24-.69.37-.52.12-1.27.15-2.24 0-1.94-.27-4.45-1.16-7.01-2.65-2.57-1.48-4.6-3.2-5.8-4.74-.61-.78-.97-1.44-1.12-1.95-.15-.5-.07-.71-.03-.78.04-.06.18-.24.69-.36.49-.12 1.2-.15 2.11-.03l-2.53-1.26z"
+                clipRule="evenodd"
+            />
+        </LemonIconBase>
+    )
+}
+
+export function IconFacebook(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 24 24" {...props}>
+            <path
+                fill="currentColor"
+                d="M17 3.5a.5.5 0 00-.5-.5H14a4.77 4.77 0 00-5 4.5v2.7H6.5a.5.5 0 00-.5.5v2.6a.5.5 0 00.5.5H9v6.7a.5.5 0 00.5.5h3a.5.5 0 00.5-.5v-6.7h2.62a.5.5 0 00.49-.37l.72-2.6a.5.5 0 00-.48-.63H13V7.5a1 1 0 011-.9h2.5a.5.5 0 00.5-.5V3.5z"
             />
         </LemonIconBase>
     )
@@ -1345,6 +1775,138 @@ export function IconSquare(props: LemonIconProps): JSX.Element {
                 strokeWidth={6}
                 d="M208,220H48a12.01367,12.01367,0,0,1-12-12V48A12.01359,12.01359,0,0,1,48,36H208a12.01359,12.01359,0,0,1,12,12V208A12.01367,12.01367,0,0,1,208,220ZM48,44a4.00458,4.00458,0,0,0-4,4V208a4.00458,4.00458,0,0,0,4,4H208a4.00458,4.00458,0,0,0,4-4V48a4.00458,4.00458,0,0,0-4-4Z"
             />
+        </LemonIconBase>
+    )
+}
+
+export function IconReact(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 23 21" {...props}>
+            <g clipPath="url(#clip0)">
+                <path d="M11.5 12.282a2.05 2.05 0 100-4.1 2.05 2.05 0 000 4.1z" fill="currentColor" />
+                <path
+                    d="M11.5 14.432c6.075 0 11-1.88 11-4.2 0-2.32-4.925-4.2-11-4.2s-11 1.88-11 4.2c0 2.32 4.925 4.2 11 4.2z"
+                    stroke="currentColor"
+                />
+                <path
+                    d="M7.863 12.332c3.038 5.261 7.129 8.586 9.137 7.426 2.01-1.16 1.175-6.365-1.862-11.626C12.1 2.87 8.009-.454 6 .705c-2.008 1.16-1.174 6.366 1.863 11.627z"
+                    stroke="currentColor"
+                />
+                <path
+                    d="M7.863 8.132C4.826 13.392 3.992 18.598 6 19.758c2.01 1.16 6.1-2.165 9.138-7.426C18.175 7.07 19.009 1.865 17 .705c-2.008-1.16-6.1 2.165-9.137 7.427z"
+                    stroke="currentColor"
+                />
+            </g>
+            <defs>
+                <clipPath id="clip0">
+                    <path fill="currentColor" d="M0 0h23v20.463H0z" />
+                </clipPath>
+            </defs>
+        </LemonIconBase>
+    )
+}
+
+export function IconFlutter(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 24 24" {...props}>
+            <path fill="currentColor" d="M3.5 12.5L6.5 15.5 19 3 13 3zM19 12L13 12 8 17 13 22 19 22 14 17z" />
+        </LemonIconBase>
+    )
+}
+
+export function IconFingerprint(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="1 1 23 23" {...props}>
+            <path
+                d="M13.1427 20.9999C10.8077 19.5438 9.25254 16.9522 9.25254 13.9968C9.25254 12.4783 10.4833 11.2476 12.0008 11.2476C13.5184 11.2476 14.7491 12.4783 14.7491 13.9968C14.7491 15.5153 15.9798 16.746 17.4974 16.746C19.0149 16.746 20.2457 15.5153 20.2457 13.9968C20.2457 9.44139 16.5544 5.74922 12.0017 5.74922C7.44907 5.74922 3.75781 9.44139 3.75781 13.9968C3.75781 15.0122 3.87145 16.001 4.08038 16.954M8.49027 20.2989C7.23938 18.5138 6.50351 16.3419 6.50351 13.9968C6.50351 10.9599 8.96405 8.49844 11.9992 8.49844C15.0343 8.49844 17.4948 10.9599 17.4948 13.9968M17.7927 19.4806C17.6937 19.4861 17.5966 19.4953 17.4967 19.4953C14.4616 19.4953 12.0011 17.0338 12.0011 13.9969M19.6734 6.47682C17.7993 4.34802 15.0593 3 12.0004 3C8.94141 3 6.20138 4.34802 4.32734 6.47682"
+                stroke="currentColor"
+                strokeWidth="1"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+        </LemonIconBase>
+    )
+}
+
+export function IconSlash(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 21 21" {...props}>
+            <path d="m12.5 3.5-4 14" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
+        </LemonIconBase>
+    )
+}
+
+export function IconVerticalAlignCenter(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 24 24" {...props}>
+            <path
+                d="M11.8214 24V17.0667L8.97143 19.8667L8.01091 18.923L12.5 14.5127L16.9891 18.923L16.0286 19.8667L13.1786 17.0667V24H11.8214ZM3 12.6667V11.3333H22V12.6667H3ZM12.5 9.48733L8.01091 5.077L8.97143 4.13333L11.8214 6.93333V0H13.1786V6.93333L16.0286 4.13333L16.9891 5.077L12.5 9.48733Z"
+                fill="currentColor"
+            />
+        </LemonIconBase>
+    )
+}
+
+/** @deprecated and will be replaced soon*/
+export function IconRecordingClip(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase viewBox="0 0 24 24" {...props}>
+            {/* Film frame, scaled down and shifted right */}
+            <g transform="translate(9 6) scale(0.66)">
+                <path d="M0 0h24v24H0z" fill="none" />
+                <path
+                    d="M4 6a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2z"
+                    stroke="currentColor"
+                    strokeWidth="1"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    fill="none"
+                />
+                <path d="M8 4v16" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+                <path d="M16 4v16" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+                <path d="M4 8h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+                <path d="M4 12h16" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+                <path d="M4 16h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+                <path d="M16 8h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+                <path d="M16 16h4" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+            </g>
+
+            {/* Scissors, shifted left */}
+            <g transform="translate(-2 0)">
+                <path d="M0 0h24v24H0z" fill="none" />
+                <path
+                    d="M6 7a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"
+                    stroke="currentColor"
+                    strokeWidth="1.3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    fill="none"
+                />
+                <path
+                    d="M6 17a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"
+                    stroke="currentColor"
+                    strokeWidth="1.3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    fill="none"
+                />
+                <path
+                    d="M8.6 8.6l10.4 10.4"
+                    stroke="currentColor"
+                    strokeWidth="1.3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    fill="none"
+                />
+                <path
+                    d="M8.6 15.4l10.4 -10.4"
+                    stroke="currentColor"
+                    strokeWidth="1.3"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    fill="none"
+                />
+            </g>
         </LemonIconBase>
     )
 }

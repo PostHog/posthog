@@ -5,6 +5,7 @@ import { KeyboardShortcut, KeyboardShortcutProps } from '~/layout/navigation-300
 import { LemonButton, LemonButtonProps } from '../LemonButton'
 import { LemonDivider } from '../LemonDivider'
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
+import { LemonTag } from '../LemonTag'
 import { TooltipProps } from '../Tooltip'
 import { useKeyboardNavigation } from './useKeyboardNavigation'
 
@@ -13,9 +14,21 @@ type KeyboardShortcut = Array<keyof KeyboardShortcutProps>
 export interface LemonMenuItemBase
     extends Pick<
         LemonButtonProps,
-        'icon' | 'sideIcon' | 'disabledReason' | 'tooltip' | 'active' | 'status' | 'data-attr'
+        | 'icon'
+        | 'sideIcon'
+        | 'sideAction'
+        | 'disabledReason'
+        | 'tooltip'
+        | 'tooltipPlacement'
+        | 'active'
+        | 'status'
+        | 'data-attr'
+        | 'size'
     > {
     label: string | JSX.Element
+    key?: React.Key
+    /** @deprecated You're probably doing something wrong if you're setting per-item classes. */
+    className?: string
     /** True if the item is a custom element. */
     custom?: boolean
 }
@@ -24,44 +37,44 @@ export interface LemonMenuItemNode extends LemonMenuItemBase {
     placement?: LemonDropdownProps['placement']
     keyboardShortcut?: never
 }
-export type LemonMenuItemLeaf =
-    | (LemonMenuItemBase & {
-          onClick: () => void
-          items?: never
-          placement?: never
-          keyboardShortcut?: KeyboardShortcut
-      })
-    | (LemonMenuItemBase & {
-          to: string
-          disableClientSideRouting?: boolean
-          targetBlank?: boolean
-          items?: never
-          placement?: never
-          keyboardShortcut?: KeyboardShortcut
-      })
-    | (LemonMenuItemBase & {
-          onClick: () => void
-          to: string
-          disableClientSideRouting?: boolean
-          targetBlank?: boolean
-          items?: never
-          placement?: never
-          keyboardShortcut?: KeyboardShortcut
-      })
+
+export interface LemonMenuItemLeafCallback extends LemonMenuItemBase {
+    onClick?: () => void
+    items?: never
+    placement?: never
+    keyboardShortcut?: KeyboardShortcut
+}
+export interface LemonMenuItemLeafLink extends LemonMenuItemBase {
+    onClick?: () => void
+    to: string
+    disableClientSideRouting?: boolean
+    targetBlank?: boolean
+    items?: never
+    placement?: never
+    keyboardShortcut?: KeyboardShortcut
+}
+
+export type LemonMenuItemLeaf = LemonMenuItemLeafCallback | LemonMenuItemLeafLink
+
 export interface LemonMenuItemCustom {
     /** A label that's a component means it will be rendered directly, and not wrapped in a button. */
     label: () => JSX.Element
+    key?: React.Key
     active?: never
     items?: never
     keyboardShortcut?: never
+
     /** True if the item is a custom element. */
     custom?: boolean
     placement?: never
 }
-export type LemonMenuItem = LemonMenuItemLeaf | LemonMenuItemCustom | LemonMenuItemNode
+export type LemonMenuItem = (LemonMenuItemLeaf | LemonMenuItemCustom | LemonMenuItemNode) & {
+    tag?: 'alpha' | 'beta' | 'new'
+}
 
 export interface LemonMenuSection {
     title?: string | React.ReactNode
+    key?: React.Key
     items: (LemonMenuItem | false | null)[]
     footer?: string | React.ReactNode
 }
@@ -81,12 +94,21 @@ export interface LemonMenuProps
             | 'closeParentPopoverOnClickInside'
             | 'className'
             | 'onClickOutside'
+            | 'middleware'
+            | 'startVisible'
         >,
         LemonMenuOverlayProps {
     /** Must support `ref` and `onKeyDown` for keyboard navigation. */
     children: React.ReactElement
     /** Index of the active (e.g. selected) item, if there is a specific one. */
     activeItemIndex?: number
+    /**
+     * If focus-based keyboard navigation is disabled, you must implement your own.
+     * This is for cases of purpose-specific keyboard navigation, e.g. for a command palette.
+     * `activeItemIndex` will still be used, but only to visually highlight the active item.
+     * @default true
+     */
+    focusBasedKeyboardNavigation?: boolean
 }
 
 export function LemonMenu({
@@ -94,11 +116,13 @@ export function LemonMenu({
     activeItemIndex,
     tooltipPlacement,
     onVisibilityChange,
+    focusBasedKeyboardNavigation = true,
     ...dropdownProps
 }: LemonMenuProps): JSX.Element {
     const { referenceRef, itemsRef } = useKeyboardNavigation<HTMLElement, HTMLButtonElement>(
         items.flatMap((item) => (item && isLemonMenuSection(item) ? item.items : item)).length,
-        activeItemIndex
+        activeItemIndex,
+        { enabled: focusBasedKeyboardNavigation }
     )
 
     const _onVisibilityChange = useCallback(
@@ -109,12 +133,21 @@ export function LemonMenu({
                 setTimeout(() => itemsRef?.current?.[activeItemIndex]?.current?.scrollIntoView({ block: 'center' }), 0)
             }
         },
+        // no need to update this when itemsRef changes
+        // eslint-disable-next-line react-hooks/exhaustive-deps
         [onVisibilityChange, activeItemIndex]
     )
 
     return (
         <LemonDropdown
-            overlay={<LemonMenuOverlay items={items} tooltipPlacement={tooltipPlacement} itemsRef={itemsRef} />}
+            overlay={
+                <LemonMenuOverlay
+                    buttonSize={dropdownProps.buttonSize || 'small'}
+                    items={items}
+                    tooltipPlacement={tooltipPlacement}
+                    itemsRef={itemsRef}
+                />
+            }
             closeOnClickInside
             referenceRef={referenceRef}
             onVisibilityChange={_onVisibilityChange}
@@ -128,12 +161,12 @@ export interface LemonMenuOverlayProps {
     tooltipPlacement?: TooltipProps['placement']
     itemsRef?: React.RefObject<React.RefObject<HTMLButtonElement>[]>
     /** @default 'small' */
-    buttonSize?: 'small' | 'medium'
+    buttonSize?: 'xsmall' | 'small' | 'medium'
 }
 
 export function LemonMenuOverlay({
     items,
-    tooltipPlacement,
+    tooltipPlacement = 'right',
     itemsRef,
     buttonSize = 'small',
 }: LemonMenuOverlayProps): JSX.Element {
@@ -159,7 +192,7 @@ export function LemonMenuOverlay({
 
 interface LemonMenuSectionListProps {
     sections: LemonMenuSection[]
-    buttonSize: 'small' | 'medium'
+    buttonSize: 'xsmall' | 'small' | 'medium'
     tooltipPlacement: TooltipProps['placement'] | undefined
     itemsRef: React.RefObject<React.RefObject<HTMLButtonElement>[]> | undefined
 }
@@ -176,8 +209,8 @@ export function LemonMenuSectionList({
         <ul>
             {sections.map((section, i) => {
                 const sectionElement = (
-                    <li key={i}>
-                        <section className="space-y-px">
+                    <li key={section.key || i}>
+                        <section className="deprecated-space-y-px">
                             {section.title ? (
                                 typeof section.title === 'string' ? (
                                     <h5 className="mx-2 my-1">{section.title}</h5>
@@ -208,30 +241,30 @@ export function LemonMenuSectionList({
 
 interface LemonMenuItemListProps {
     items: LemonMenuItem[]
-    buttonSize: 'small' | 'medium'
-    tooltipPlacement: TooltipProps['placement'] | undefined
-    itemsRef: React.RefObject<React.RefObject<HTMLButtonElement>[]> | undefined
+    buttonSize?: 'xsmall' | 'small' | 'medium'
+    tooltipPlacement?: TooltipProps['placement'] | undefined
+    itemsRef?: React.RefObject<React.RefObject<HTMLButtonElement>[]> | undefined
     itemIndexOffset?: number
 }
 
 export function LemonMenuItemList({
     items,
-    buttonSize,
+    buttonSize = 'small',
     itemIndexOffset = 0,
-    tooltipPlacement,
+    tooltipPlacement = 'right',
     itemsRef,
 }: LemonMenuItemListProps): JSX.Element {
-    let rollingItemIndex = 0
-
     return (
-        <ul className="space-y-px">
-            {items.map((item, index) => (
-                <li key={index}>
+        <ul className="deprecated-space-y-px">
+            {items.map((item, itemIndex) => (
+                <li key={item.key || itemIndex}>
                     <LemonMenuItemButton
                         item={item}
                         size={buttonSize}
                         tooltipPlacement={tooltipPlacement}
-                        ref={itemsRef?.current?.[itemIndexOffset + rollingItemIndex++]}
+                        ref={itemsRef?.current?.[itemIndexOffset + itemIndex]}
+                        tag={item.tag}
+                        active={item.active}
                     />
                 </li>
             ))}
@@ -241,20 +274,29 @@ export function LemonMenuItemList({
 
 interface LemonMenuItemButtonProps {
     item: LemonMenuItem
-    size: 'small' | 'medium'
+    size: 'xsmall' | 'small' | 'medium'
     tooltipPlacement: TooltipProps['placement'] | undefined
+    tag?: 'alpha' | 'beta' | 'new'
+    active?: boolean
 }
 
 const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.RefAttributes<HTMLButtonElement>> =
     React.forwardRef(
         (
-            { item: { label, items, placement, keyboardShortcut, custom, ...buttonProps }, size, tooltipPlacement },
+            {
+                item: { label, items, placement, keyboardShortcut, tag, custom, ...buttonProps },
+                size,
+                tooltipPlacement,
+                active,
+            },
             ref
         ): JSX.Element => {
             const Label = typeof label === 'function' ? label : null
             const button = Label ? (
                 <Label key="x" />
             ) : (
+                // @ts-expect-error - We don't have a type-level guarantee that `sideAction` won't be present
+                // alongside `sideIcon` in one menu item, but that's fine. It'd be horribly complex to implement here.
                 <LemonButton
                     ref={ref}
                     tooltipPlacement={tooltipPlacement}
@@ -262,6 +304,7 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
                     role="menuitem"
                     size={size}
                     {...buttonProps}
+                    active={active}
                 >
                     {label as ReactNode}
                     {keyboardShortcut && (
@@ -269,6 +312,15 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
                             {/* Show the keyboard shortcut on the right */}
                             <KeyboardShortcut {...Object.fromEntries(keyboardShortcut.map((key) => [key, true]))} />
                         </div>
+                    )}
+                    {tag && (
+                        <LemonTag
+                            type={tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'}
+                            size="small"
+                            className="ml-2"
+                        >
+                            {tag.toUpperCase()}
+                        </LemonTag>
                     )}
                 </LemonButton>
             )
@@ -278,8 +330,9 @@ const LemonMenuItemButton: FunctionComponent<LemonMenuItemButtonProps & React.Re
                     items={items}
                     tooltipPlacement={tooltipPlacement}
                     placement={placement || 'right-start'}
-                    closeOnClickInside={custom ? false : true}
-                    closeParentPopoverOnClickInside={custom ? false : true}
+                    closeOnClickInside={!custom}
+                    closeParentPopoverOnClickInside={!custom}
+                    buttonSize={size}
                 >
                     {button}
                 </LemonMenu>

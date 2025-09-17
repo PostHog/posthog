@@ -1,16 +1,19 @@
 import clsx from 'clsx'
-import { BindLogic, useValues } from 'kea'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { CodeEditor } from 'lib/monaco/CodeEditor'
+import { BindLogic, BuiltLogic, LogicWrapper, useValues } from 'kea'
 import type { IDisposable } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
 
-import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { CodeEditor } from 'lib/monaco/CodeEditor'
+
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
-import { HogQuery, HogQueryResponse } from '~/queries/schema'
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { HogQLQueryModifiers, HogQuery, HogQueryResponse } from '~/queries/schema/schema-general'
 
 export interface HogQueryEditorProps {
     query: HogQuery
@@ -23,15 +26,17 @@ let uniqueNode = 0
 export function HogQueryEditor(props: HogQueryEditorProps): JSX.Element {
     // Using useRef, not useState, as we don't want to reload the component when this changes.
     const monacoDisposables = useRef([] as IDisposable[])
-    useEffect(() => {
+    useOnMountEffect(() => {
         return () => {
             monacoDisposables.current.forEach((d) => d?.dispose())
         }
-    }, [])
+    })
+
     const [queryInput, setQueryInput] = useState(props.query.code)
     useEffect(() => {
         setQueryInput(props.query?.code)
     }, [props.query?.code])
+
     const [realKey] = useState(() => uniqueNode++)
 
     function saveQuery(): void {
@@ -41,11 +46,13 @@ export function HogQueryEditor(props: HogQueryEditorProps): JSX.Element {
     }
 
     return (
-        <div className="space-y-2">
-            <div data-attr="hogql-query-editor" className={clsx('flex flex-col rounded space-y-2 w-full p-2 border')}>
+        <div className="deprecated-space-y-2">
+            <div
+                data-attr="hogql-query-editor"
+                className={clsx('flex flex-col rounded deprecated-space-y-2 w-full p-2 border')}
+            >
                 <div className="relative flex-1 overflow-hidden">
-                    {/* eslint-disable-next-line react/forbid-dom-props */}
-                    <div className="resize-y overflow-hidden" style={{ height: 222 }}>
+                    <div className="resize-y overflow-hidden h-[222px]">
                         <CodeEditor
                             queryKey={props.queryKey ?? `new/${realKey}`}
                             className="border rounded overflow-hidden h-full"
@@ -101,19 +108,27 @@ export function HogQueryEditor(props: HogQueryEditorProps): JSX.Element {
 interface HogDebugProps {
     queryKey: string
     query: HogQuery
-    setQuery?: (query: HogQuery) => void
+    setQuery: (query: HogQuery) => void
     debug?: boolean
+    modifiers?: HogQLQueryModifiers
+    attachTo?: LogicWrapper | BuiltLogic
 }
 
-export function HogDebug({ query, setQuery, queryKey, debug }: HogDebugProps): JSX.Element {
-    const dataNodeLogicProps: DataNodeLogicProps = { query, key: queryKey, dataNodeCollectionId: queryKey }
+export function HogDebug({ query, setQuery, queryKey, debug, modifiers, attachTo }: HogDebugProps): JSX.Element {
+    const dataNodeLogicProps: DataNodeLogicProps = {
+        query,
+        key: queryKey,
+        dataNodeCollectionId: queryKey,
+        modifiers,
+    }
     const { dataLoading, response: _response } = useValues(dataNodeLogic(dataNodeLogicProps))
+    useAttachedLogic(dataNodeLogic(dataNodeLogicProps), attachTo)
     const response = _response as HogQueryResponse | null
     const [tab, setTab] = useState('results' as 'results' | 'bytecode' | 'coloredBytecode' | 'stdout')
 
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 {setQuery ? (
                     <>
                         <HogQueryEditor query={query} setQuery={setQuery} queryKey={queryKey} />

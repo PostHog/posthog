@@ -1,15 +1,18 @@
 from datetime import timedelta
 
+from posthog.test.base import APIBaseTest
+
 from rest_framework import status
 
+from posthog.schema import EventsQuery
+
+from posthog.api.personal_api_key import PersonalAPIKeySerializer
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.insight import Insight
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
-from posthog.schema import EventsQuery
-from posthog.test.base import APIBaseTest
 
 
 class TestPersonalAPIKeysAPI(APIBaseTest):
@@ -29,6 +32,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "label": label,
             "created_at": data["created_at"],
             "last_used_at": None,
+            "last_rolled_at": None,
             "user_id": self.user.id,
             "scopes": ["insight:read"],
             "scoped_organizations": [],
@@ -149,6 +153,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             "id": my_key.id,
             "label": my_label,
             "last_used_at": None,
+            "last_rolled_at": None,
             "user_id": self.user.id,
             "scopes": ["*"],
             "scoped_organizations": None,
@@ -224,6 +229,39 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         )
         assert response.status_code == 400, response.json()
         assert response.json()["detail"] == "You must be a member of all teams that you are scoping the key to."
+
+    def test_roll_api_key(self):
+        original_value = generate_random_token_personal()
+        original_key = PersonalAPIKey.objects.create(
+            label="Test roll",
+            user=self.user,
+            secure_value=hash_key_value(original_value),
+            scopes=[
+                "insight:read",
+            ],
+        )
+
+        response = self.client.post(
+            f"/api/personal_api_keys/{original_key.id}/roll",
+            {},
+        )
+        assert response.status_code == 200
+        data = response.json()
+
+        # unchanged fields
+        assert data["id"] == original_key.id
+        assert data["label"] == original_key.label
+        assert data["created_at"] == original_key.created_at.strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
+        assert data["last_used_at"] is None
+        assert data["scopes"] == original_key.scopes
+        assert data["scoped_teams"] == original_key.scoped_teams
+        assert data["scoped_organizations"] == original_key.scoped_organizations
+
+        # changed fields
+        assert data["value"] != original_value
+        assert data["value"].startswith("phx_")  # Personal API key prefix
+        assert data["last_rolled_at"] is not None
+        assert data["mask_value"] != original_key.mask_value
 
 
 class PersonalAPIKeysBaseTest(APIBaseTest):
@@ -358,7 +396,7 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
             headers={"authorization": f"Bearer {self.value}"},
         )
 
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED, response.json()
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
     def test_cannot_edit_self(self):
         response = self.client.post(
@@ -367,7 +405,28 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
             headers={"authorization": f"Bearer {self.value}"},
         )
 
-        assert response.status_code == status.HTTP_401_UNAUTHORIZED, response.json()
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_update_last_used_at_field(self):
+        value = generate_random_token_personal()
+        key = PersonalAPIKey.objects.create(
+            label="Test last_updated_at",
+            user=self.user,
+            secure_value=hash_key_value(value),
+            scopes=[],
+        )
+        assert key.last_used_at is None
+
+        # use key
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/dashboards/",
+            HTTP_AUTHORIZATION=f"Bearer {value}",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        # re-fetch from db
+        updated_key = PersonalAPIKey.objects.get(id=key.id)
+        assert updated_key.last_used_at is not None
 
 
 # NOTE: These tests use feature flags as an example of a scope, but the actual feature flag functionality is not relevant
@@ -406,6 +465,29 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json()["detail"] == "API key missing required scope 'feature_flag:write'"
+
+    def test_allows_legacy_feature_flag_local_evaluation_with_personal_api_key(self):
+        response = self._do_request(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
+
+        assert response.status_code == status.HTTP_200_OK
+        response_data = response.json()
+        assert "flags" in response_data
+        assert "group_type_mapping" in response_data
+        assert "cohorts" in response_data
+
+    def test_legacy_feature_flag_evaluation_with_no_current_team(self):
+        original_team = self.user.current_team
+
+        try:
+            self.user.current_team = None
+            self.user.save()
+
+            # Use team token to provide team context when user.current_team is None
+            response = self._do_request(f"/api/feature_flag/local_evaluation?token={self.team.api_token}")
+            assert response.status_code == status.HTTP_200_OK
+        finally:
+            self.user.current_team = original_team
+            self.user.save()
 
     def test_allows_action_with_required_scopes(self):
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/local_evaluation")
@@ -456,6 +538,41 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK
 
+    def test_sharing_refresh_with_personal_api_key(self):
+        insight = Insight.objects.create(team=self.team, name="XYZ", created_by=self.user)
+
+        # First enable sharing
+        self.key.scopes = ["sharing_configuration:write"]
+        self.key.save()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/sharing",
+            {"enabled": True},
+            HTTP_AUTHORIZATION=f"Bearer {self.value}",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        initial_token = response.json()["access_token"]
+
+        # Test refresh with read scope should fail
+        self.key.scopes = ["sharing_configuration:read"]
+        self.key.save()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/sharing/refresh/",
+            HTTP_AUTHORIZATION=f"Bearer {self.value}",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["detail"] == "API key missing required scope 'sharing_configuration:write'"
+
+        # Test refresh with write scope should succeed
+        self.key.scopes = ["sharing_configuration:write"]
+        self.key.save()
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/{insight.id}/sharing/refresh/",
+            HTTP_AUTHORIZATION=f"Bearer {self.value}",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        new_token = response.json()["access_token"]
+        assert new_token != initial_token
+
 
 class TestPersonalAPIKeysWithOrganizationScopeAPIAuthentication(PersonalAPIKeysBaseTest):
     def setUp(self):
@@ -479,7 +596,8 @@ class TestPersonalAPIKeysWithOrganizationScopeAPIAuthentication(PersonalAPIKeysB
 
     def test_denies_access_to_non_scoped_org_and_team(self):
         response = self._do_request(f"/api/organizations/{self.other_organization.id}")
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        # In the organizations endpoint this is a 404s, as we filter out at the queryset level
+        assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
         response = self._do_request(f"/api/projects/{self.other_team.id}/feature_flags")
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
@@ -536,3 +654,67 @@ class TestPersonalAPIKeysWithTeamScopeAPIAuthentication(PersonalAPIKeysBaseTest)
         # (e.g. in our Zapier integration), hence it's exempt from org/team scoping
         response = self._do_request(f"/api/users/@me/")
         assert response.status_code == status.HTTP_200_OK, response.json()
+
+
+class TestPersonalAPIKeyAPIAccess(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+
+        # Create a mock request context
+        class MockRequest:
+            def __init__(self, user):
+                self.user = user
+
+        # Create the key using the serializer
+        serializer = PersonalAPIKeySerializer(
+            data={"label": "Test key", "scopes": ["*"], "scoped_organizations": [], "scoped_teams": []},
+            context={"request": MockRequest(self.user)},
+        )
+        serializer.is_valid(raise_exception=True)
+        self.personal_api_key = serializer.save()
+        self.api_key_value = self.personal_api_key._value  # This will contain the raw key value
+
+    def _get_auth_headers(self, key: str):
+        return {"HTTP_AUTHORIZATION": f"Bearer {key}"}
+
+    def test_list_personal_api_keys_with_bearer_auth(self):
+        # Should not be allowed to list with API key
+        response = self.client.get(f"/api/personal_api_keys/", **self._get_auth_headers(self.api_key_value))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "This action does not support Personal API Key access")
+
+    def test_retrieve_personal_api_key_with_bearer_auth(self):
+        # Should be allowed to get current key
+        response = self.client.get(f"/api/personal_api_keys/@current/", **self._get_auth_headers(self.api_key_value))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["label"], "Test key")
+
+        # Should not be allowed to get by ID
+        response = self.client.get(
+            f"/api/personal_api_keys/{self.personal_api_key.id}/", **self._get_auth_headers(self.api_key_value)
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["label"], "Test key")
+
+    def test_create_personal_api_key_with_bearer_auth(self):
+        response = self.client.post(
+            f"/api/personal_api_keys/", {"label": "New key"}, **self._get_auth_headers(self.api_key_value)
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "This action does not support Personal API Key access")
+
+    def test_update_personal_api_key_with_bearer_auth(self):
+        response = self.client.patch(
+            f"/api/personal_api_keys/@current/", {"label": "Updated key"}, **self._get_auth_headers(self.api_key_value)
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "This action does not support Personal API Key access")
+
+    def test_delete_personal_api_key_with_bearer_auth(self):
+        response = self.client.delete(f"/api/personal_api_keys/@current/", **self._get_auth_headers(self.api_key_value))
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "This action does not support Personal API Key access")
+
+    def test_invalid_bearer_token(self):
+        response = self.client.get(f"/api/personal_api_keys/@current/", **self._get_auth_headers("invalid_key"))
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

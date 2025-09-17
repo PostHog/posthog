@@ -1,15 +1,17 @@
 import './CohortCriteriaRowBuilder.scss'
 
-import { IconCopy, IconTrash } from '@posthog/icons'
-import { LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions } from 'kea'
 import { Field as KeaField } from 'kea-forms'
+
+import { IconCopy, IconTrash } from '@posthog/icons'
+import { LemonDivider } from '@posthog/lemon-ui'
+
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { cohortEditLogic, CohortLogicProps } from 'scenes/cohorts/cohortEditLogic'
-import { renderField, ROWS } from 'scenes/cohorts/CohortFilters/constants'
+import { ROWS, renderField } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterType, CohortFieldProps, Field, FilterType } from 'scenes/cohorts/CohortFilters/types'
+import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { cleanCriteria } from 'scenes/cohorts/cohortUtils'
 
 import { AnyCohortCriteriaType, BehavioralEventType, FilterLogicalOperator } from '~/types'
@@ -118,43 +120,39 @@ export function CohortCriteriaRowBuilder({
                         )}
                     </div>
                     <div className="flex">
-                        <div>
-                            <span className="CohortCriteriaRow__Criteria__arrow">&#8627;</span>
-                        </div>
-                        <div>
-                            <div className="flex flex-wrap items-center">
-                                {rowShape.fields.map((field, i) => {
-                                    return (
-                                        !field.hide &&
-                                        (field.fieldKey ? (
-                                            <KeaField
-                                                key={i}
-                                                name={field.fieldKey}
-                                                template={({ error, kids }) => {
-                                                    return (
-                                                        <>
-                                                            <div
-                                                                className={clsx(
-                                                                    'CohortCriteriaRow__Criteria__Field',
-                                                                    error && `CohortCriteriaRow__Criteria__Field--error`
-                                                                )}
-                                                            >
-                                                                {kids}
-                                                            </div>
-                                                        </>
-                                                    )
-                                                }}
-                                            >
-                                                <>{renderFieldComponent(field, i)}</>
-                                            </KeaField>
-                                        ) : (
-                                            <div key={i} className="CohortCriteriaRow__Criteria__Field">
-                                                {renderFieldComponent(field, i)}
-                                            </div>
-                                        ))
-                                    )
-                                })}
-                            </div>
+                        <span className="CohortCriteriaRow__Criteria__arrow">&#8627;</span>
+                        <div className="flex flex-wrap items-center min-w-0">
+                            {rowShape.fields.map((field, i) => {
+                                return (
+                                    !field.hide &&
+                                    (field.fieldKey ? (
+                                        <KeaField
+                                            key={i}
+                                            name={field.fieldKey}
+                                            template={({ error, kids }) => {
+                                                return (
+                                                    <>
+                                                        <div
+                                                            className={clsx(
+                                                                'CohortCriteriaRow__Criteria__Field',
+                                                                error && `CohortCriteriaRow__Criteria__Field--error`
+                                                            )}
+                                                        >
+                                                            {kids}
+                                                        </div>
+                                                    </>
+                                                )
+                                            }}
+                                        >
+                                            <>{renderFieldComponent(field, i)}</>
+                                        </KeaField>
+                                    ) : (
+                                        <div key={i} className="CohortCriteriaRow__Criteria__Field">
+                                            {renderFieldComponent(field, i)}
+                                        </div>
+                                    ))
+                                )
+                            })}
                         </div>
                     </div>
                 </>

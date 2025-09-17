@@ -1,17 +1,18 @@
+import { P, match } from 'ts-pattern'
+
 import {
     ActivityChange,
     ActivityLogItem,
     ChangeMapping,
-    defaultDescriber,
     Description,
-    detectBoolean,
     HumanizedChange,
+    defaultDescriber,
+    detectBoolean,
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/lemon-ui/Link'
 import { truncate } from 'lib/utils'
 import { urls } from 'scenes/urls'
-import { match, P } from 'ts-pattern'
 
 import {
     BasicSurveyQuestion,
@@ -153,6 +154,11 @@ const surveyActionsMapping: Record<
                 description: [<>stopped</>],
             }
         }
+        if (change?.before !== null && change?.after === null) {
+            return {
+                description: [<>resumed</>],
+            }
+        }
         return null
     },
     appearance: function onAppearance(change) {
@@ -183,6 +189,15 @@ const surveyActionsMapping: Record<
             widgetSelector: 'widget selector',
             widgetLabel: 'widget label',
             widgetColor: 'widget color',
+            zIndex: 'survey form zIndex',
+            fontFamily: 'font family',
+            disabledButtonOpacity: 'disabled button opacity',
+            boxPadding: 'box padding',
+            boxShadow: 'box shadow',
+            borderRadius: 'border radius',
+            maxWidth: 'max width',
+            textSubtleColor: 'text subtle color',
+            inputBackground: 'input background',
         }
 
         Object.entries(fieldNameMapping).forEach(([field, readableFieldName]) => {
@@ -534,7 +549,7 @@ export function describeRatingChanges([before, after]: [RatingSurveyQuestion, Ra
 
 export function describeMultipleChoiceChanges([before, after]: [
     MultipleSurveyQuestion,
-    MultipleSurveyQuestion
+    MultipleSurveyQuestion,
 ]): JSX.Element[] {
     const changes: JSX.Element[] = []
     if (JSON.stringify(before.choices) !== JSON.stringify(after.choices)) {

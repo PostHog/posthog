@@ -1,9 +1,12 @@
-// eslint-disable-next-line eslint-comments/disable-enable-pair
-/* eslint-disable no-useless-escape */
-
+/* oxlint-disable no-useless-escape */
 // Adapted from: https://raw.githubusercontent.com/microsoft/monaco-editor/main/src/basic-languages/typescript/typescript.ts
-
+import { Monaco } from '@monaco-editor/react'
 import { languages } from 'monaco-editor'
+
+import { hogQLAutocompleteProvider } from 'lib/monaco/hogQLAutocompleteProvider'
+import { hogQLMetadataProvider } from 'lib/monaco/hogQLMetadataProvider'
+
+import { HogLanguage } from '~/queries/schema/schema-general'
 
 export const conf: () => languages.LanguageConfiguration = () => ({
     wordPattern: /(-?\d*\.\d\w*)|([^\`\~\!\@\#\%\^\&\*\(\)\-\=\+\[\{\]\}\\\|\;\:\'\"\,\.\<\>\/\?\s]+)/g,
@@ -244,3 +247,15 @@ export const language: () => languages.IMonarchLanguage = () => ({
         ],
     },
 })
+
+export function initHogLanguage(monaco: Monaco): void {
+    if (!monaco.languages.getLanguages().some(({ id }) => id === 'hog')) {
+        monaco.languages.register({ id: 'hog', extensions: ['.hog'], mimetypes: ['application/hog'] })
+        monaco.languages.setLanguageConfiguration('hog', conf())
+        monaco.languages.setMonarchTokensProvider('hog', language())
+        monaco.languages.registerCompletionItemProvider('hog', hogQLAutocompleteProvider(HogLanguage.hog))
+        monaco.languages.registerCodeActionProvider('hog', hogQLMetadataProvider())
+    }
+}
+
+/* oxlint-enable no-useless-escape */

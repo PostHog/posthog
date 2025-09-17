@@ -1,11 +1,9 @@
-import { SDKInstructionsMap, SDKKey } from '~/types'
-
 import {
     HTMLSnippetInstructions,
     JSWebInstructions,
+    ProductAnalyticsAPIInstructions,
     ProductAnalyticsAndroidInstructions,
     ProductAnalyticsAngularInstructions,
-    ProductAnalyticsAPIInstructions,
     ProductAnalyticsAstroInstructions,
     ProductAnalyticsBubbleInstructions,
     ProductAnalyticsDjangoInstructions,
@@ -22,8 +20,9 @@ import {
     ProductAnalyticsNuxtJSInstructions,
     ProductAnalyticsPHPInstructions,
     ProductAnalyticsPythonInstructions,
-    ProductAnalyticsRemixJSInstructions,
     ProductAnalyticsRNInstructions,
+    ProductAnalyticsReactInstructions,
+    ProductAnalyticsRemixJSInstructions,
     ProductAnalyticsRubyInstructions,
     ProductAnalyticsSvelteJSInstructions,
     ProductAnalyticsTraceloopInstructions,
@@ -31,10 +30,13 @@ import {
     ProductAnalyticsWebflowInstructions,
 } from '.'
 
+import { SDKInstructionsMap, SDKKey } from '~/types'
+
 export const ProductAnalyticsSDKInstructions: SDKInstructionsMap = {
     [SDKKey.JS_WEB]: JSWebInstructions,
     [SDKKey.ANDROID]: ProductAnalyticsAndroidInstructions,
     [SDKKey.ANGULAR]: ProductAnalyticsAngularInstructions,
+    [SDKKey.REACT]: ProductAnalyticsReactInstructions,
     [SDKKey.API]: ProductAnalyticsAPIInstructions,
     [SDKKey.ASTRO]: ProductAnalyticsAstroInstructions,
     [SDKKey.BUBBLE]: ProductAnalyticsBubbleInstructions,

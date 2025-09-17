@@ -1,18 +1,23 @@
-import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { NotebookNodeType, PropertyFilterType } from '~/types'
-import { useActions, useValues } from 'kea'
-import { urls } from 'scenes/urls'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { notebookNodeLogic } from './notebookNodeLogic'
-import { NotebookNodeProps } from '../Notebook/utils'
-import { useEffect, useMemo } from 'react'
 import clsx from 'clsx'
-import { NotFound } from 'lib/components/NotFound'
-import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import { useActions, useValues } from 'kea'
+import { useEffect, useMemo } from 'react'
+
 import { IconPeople, IconPerson, IconTrends } from '@posthog/icons'
-import { Query } from '~/queries/Query/Query'
 import { LemonDivider, LemonTag } from '@posthog/lemon-ui'
-import { DataTableNode, NodeKind } from '~/queries/schema'
+
+import { NotFound } from 'lib/components/NotFound'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { urls } from 'scenes/urls'
+
+import { Query } from '~/queries/Query/Query'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+import { PropertyFilterType } from '~/types'
+
+import { NotebookNodeProps, NotebookNodeType } from '../types'
+import { notebookNodeLogic } from './notebookNodeLogic'
+import { INTEGER_REGEX_MATCH_GROUPS } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttributes>): JSX.Element => {
     const { id } = attributes
@@ -118,6 +123,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttribute
                   ]
                 : []
         )
+        // oxlint-disable-next-line exhaustive-deps
     }, [cohort, cohortMissing])
 
     if (cohortMissing) {
@@ -130,9 +136,9 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCohortAttribute
                     <LemonSkeleton className="h-6" />
                 ) : (
                     <div className="flex items-center gap-2">
-                        <IconPeople className="text-muted-alt text-lg" />
+                        <IconPeople className="text-secondary text-lg" />
                         <span className="flex-1 font-semibold truncate">{cohort.name}</span>
-                        <span className="italic text-muted-alt">({cohort.count} persons)</span>
+                        <span className="italic text-secondary">({cohort.count} persons)</span>
                         <LemonTag>{cohort.is_static ? 'Static' : 'Dynamic'}</LemonTag>
                     </div>
                 )}
@@ -163,7 +169,7 @@ export const NotebookNodeCohort = createPostHogWidgetNode<NotebookNodeCohortAttr
         id: {},
     },
     pasteOptions: {
-        find: urls.cohort('(.+)'),
+        find: urls.cohort(INTEGER_REGEX_MATCH_GROUPS),
         getAttributes: async (match) => {
             return { id: parseInt(match[1]) }
         },

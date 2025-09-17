@@ -1,12 +1,14 @@
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { DashboardTemplateEditor } from 'scenes/dashboard/DashboardTemplateEditor'
 import { dashboardTemplateEditorLogic } from 'scenes/dashboard/dashboardTemplateEditorLogic'
+import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { DashboardTemplateType } from '~/types'
@@ -40,9 +42,8 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
             render: (_, { scope }) => {
                 if (scope === 'global') {
                     return <LemonSnack>Official</LemonSnack>
-                } else {
-                    return <LemonSnack>Team</LemonSnack>
                 }
+                return <LemonSnack>Team</LemonSnack>
             },
         },
         {

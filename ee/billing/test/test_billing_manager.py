@@ -1,15 +1,17 @@
 import datetime
 from typing import Any, cast
+
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+
+from posthog.cloud_utils import TEST_clear_instance_license_cache
+from posthog.models.organization import OrganizationMembership
+from posthog.models.user import User
 
 from ee.billing.billing_manager import BillingManager
 from ee.billing.billing_types import Product
 from ee.models.license import License, LicenseManager
-from posthog.cloud_utils import TEST_clear_instance_license_cache
-from posthog.models.organization import OrganizationMembership
-from posthog.models.user import User
-from posthog.test.base import BaseTest
 
 
 def create_default_products_response(**kwargs) -> dict[str, list[Product]]:
@@ -18,7 +20,7 @@ def create_default_products_response(**kwargs) -> dict[str, list[Product]]:
             Product(
                 name="Product analytics",
                 headline="Product analytics with autocapture",
-                description="A comprehensive product analytics platform built to natively work with session replay, feature flags, A/B testing, and surveys.",
+                description="A comprehensive product analytics platform built to natively work with session replay, feature flags, experiments, and surveys.",
                 usage_key="events",
                 image_url="https://posthog.com/images/products/product-analytics/product-analytics.png",
                 docs_url="https://posthog.com/docs/product-analytics",
@@ -48,7 +50,7 @@ class TestBillingManager(BaseTest):
         organization = self.organization
         TEST_clear_instance_license_cache()
 
-        BillingManager(license=None).get_billing(organization, plan_keys=None)
+        BillingManager(license=None).get_billing(organization)
         assert billing_patch_request_mock.call_count == 1
         billing_patch_request_mock.assert_called_with(
             "https://billing.posthog.com/api/products-v2", params={"plan": "standard"}, headers={}
@@ -125,3 +127,105 @@ class TestBillingManager(BaseTest):
             {"email": "y2@x.com", "distinct_id": y2.distinct_id, "role": 8},
             {"email": "y3@x.com", "distinct_id": y3.distinct_id, "role": 15},
         ]
+
+    @patch("posthoganalytics.capture")
+    def test_update_org_details_preserves_quota_limits(self, patch_capture):
+        organization = self.organization
+        organization.usage = {
+            "events": {
+                "usage": 90,
+                "limit": 1000,
+                "todays_usage": 10,
+                "quota_limited_until": 1612137599,
+            },
+            "exceptions": {
+                "usage": 10,
+                "limit": 100,
+                "todays_usage": 5,
+                "quota_limiting_suspended_until": 1611705600,
+            },
+            "recordings": {
+                "usage": 15,
+                "limit": 100,
+                "todays_usage": 5,
+                "quota_limiting_suspended_until": 1611705600,
+            },
+            "rows_synced": {"usage": 45, "limit": 500, "todays_usage": 5},
+            "rows_exported": {"usage": 10, "limit": 1000, "todays_usage": 5},
+            "feature_flag_requests": {"usage": 25, "limit": 300, "todays_usage": 5},
+            "api_queries_read_bytes": {"usage": 1000, "limit": 1000000, "todays_usage": 500},
+            "llm_events": {"usage": 50, "limit": 1000, "todays_usage": 2},
+            "cdp_invocations": {"usage": 10, "limit": 100, "todays_usage": 5},
+            "period": ["2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z"],
+            "surveys": {
+                "usage": 10,
+                "limit": 100,
+                "todays_usage": 5,
+                "quota_limiting_suspended_until": 1611705600,
+            },
+        }
+        organization.save()
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        billing_status = {
+            "customer": {
+                "usage_summary": {
+                    "events": {"usage": 90, "limit": 1000},
+                    "exceptions": {"usage": 10, "limit": 100},
+                    "recordings": {"usage": 15, "limit": 100},
+                    "rows_synced": {"usage": 45, "limit": 500},
+                    "rows_exported": {"usage": 10, "limit": 1000},
+                    "feature_flag_requests": {"usage": 25, "limit": 300},
+                    "api_queries_read_bytes": {"usage": 1000, "limit": 1000000},
+                    "llm_events": {"usage": 50, "limit": 1000},
+                    "surveys": {"usage": 10, "limit": 100},
+                    "cdp_invocations": {"usage": 10, "limit": 100},
+                },
+                "billing_period": {
+                    "current_period_start": "2024-01-01T00:00:00Z",
+                    "current_period_end": "2024-01-31T23:59:59Z",
+                },
+            }
+        }
+
+        BillingManager(license).update_org_details(organization, billing_status)
+        organization.refresh_from_db()
+
+        assert organization.usage == {
+            "events": {
+                "usage": 90,
+                "limit": 1000,
+                "todays_usage": 10,
+                "quota_limited_until": 1612137599,
+            },
+            "exceptions": {
+                "usage": 10,
+                "limit": 100,
+                "todays_usage": 5,
+                "quota_limiting_suspended_until": 1611705600,
+            },
+            "recordings": {
+                "usage": 15,
+                "limit": 100,
+                "todays_usage": 5,
+                "quota_limiting_suspended_until": 1611705600,
+            },
+            "rows_synced": {"usage": 45, "limit": 500, "todays_usage": 5},
+            "rows_exported": {"usage": 10, "limit": 1000, "todays_usage": 5},
+            "feature_flag_requests": {"usage": 25, "limit": 300, "todays_usage": 5},
+            "llm_events": {"usage": 50, "limit": 1000, "todays_usage": 2},
+            "period": ["2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z"],
+            "api_queries_read_bytes": {"usage": 1000, "limit": 1000000, "todays_usage": 500},
+            "cdp_invocations": {"usage": 10, "limit": 100, "todays_usage": 5},
+            "surveys": {
+                "usage": 10,
+                "limit": 100,
+                "todays_usage": 5,
+                "quota_limiting_suspended_until": 1611705600,
+            },
+        }

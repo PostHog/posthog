@@ -1,11 +1,13 @@
-import { dayjs } from 'lib/dayjs'
 import tk from 'timekeeper'
+
+import { dayjs } from 'lib/dayjs'
 
 import { ElementType, EventType, PropertyType, TimeUnitType } from '~/types'
 
 import {
     areDatesValidForInterval,
     areObjectValuesEmpty,
+    autoCaptureEventToDescription,
     average,
     booleanOperatorMap,
     calculateDays,
@@ -26,6 +28,7 @@ import {
     genericOperatorMap,
     getDefaultInterval,
     getFormattedLastWeekDate,
+    getRelativeNextPath,
     hexToRGBA,
     humanFriendlyDuration,
     humanFriendlyLargeNumber,
@@ -48,6 +51,7 @@ import {
     shortTimeZone,
     stringOperatorMap,
     toParams,
+    wordPluralize,
 } from './utils'
 
 describe('lib/utils', () => {
@@ -57,12 +61,6 @@ describe('lib/utils', () => {
             expect(toParams([])).toEqual('')
             expect(toParams(undefined as any)).toEqual('')
             expect(toParams(null as any)).toEqual('')
-        })
-
-        it('is tolerant of empty objects', () => {
-            const left = toParams({ a: 'b', ...{}, b: 'c' })
-            const right = toParams({ a: 'b', ...{}, ...{}, b: 'c' })
-            expect(left).toEqual(right)
         })
 
         it('can handle numeric values', () => {
@@ -206,6 +204,17 @@ describe('lib/utils', () => {
             expect(pluralize(28321, 'member')).toEqual('28,321 members')
             expect(pluralize(99, 'bacterium', 'bacteria')).toEqual('99 bacteria')
             expect(pluralize(3, 'word', undefined, false)).toEqual('words')
+        })
+    })
+
+    describe('wordPluralize()', () => {
+        it('handles singular cases', () => {
+            expect(wordPluralize('company')).toEqual('companies')
+            expect(wordPluralize('person')).toEqual('people')
+            expect(wordPluralize('bacterium')).toEqual('bacteria')
+            expect(wordPluralize('word')).toEqual('words')
+            expect(wordPluralize('child')).toEqual('children')
+            expect(wordPluralize('knife')).toEqual('knives')
         })
     })
 
@@ -500,13 +509,28 @@ describe('lib/utils', () => {
         })
     })
     describe('humanFriendlyDuration()', () => {
-        it('returns correct value for <= 60', () => {
+        it('returns correct value for 0 <= t < 1', () => {
+            expect(humanFriendlyDuration(0)).toEqual('0s')
+            expect(humanFriendlyDuration(0.001)).toEqual('1ms')
+            expect(humanFriendlyDuration(0.02)).toEqual('20ms')
+            expect(humanFriendlyDuration(0.3)).toEqual('300ms')
+            expect(humanFriendlyDuration(0.999)).toEqual('999ms')
+        })
+
+        it('returns correct value for 1 < t <= 60', () => {
             expect(humanFriendlyDuration(60)).toEqual('1m')
             expect(humanFriendlyDuration(45)).toEqual('45s')
             expect(humanFriendlyDuration(44.8)).toEqual('45s')
             expect(humanFriendlyDuration(45.2)).toEqual('45s')
+            expect(humanFriendlyDuration(45.2, { secondsFixed: 1 })).toEqual('45.2s')
+            expect(humanFriendlyDuration(1.23)).toEqual('1s')
+            expect(humanFriendlyDuration(1.23, { secondsPrecision: 3 })).toEqual('1.23s')
+            expect(humanFriendlyDuration(1, { secondsPrecision: 3 })).toEqual('1s')
+            expect(humanFriendlyDuration(1, { secondsFixed: 1 })).toEqual('1s')
+            expect(humanFriendlyDuration(1)).toEqual('1s')
         })
         it('returns correct value for 60 < t < 120', () => {
+            expect(humanFriendlyDuration(119.6)).toEqual('1m 59s')
             expect(humanFriendlyDuration(90)).toEqual('1m 30s')
         })
         it('returns correct value for t > 120', () => {
@@ -517,20 +541,20 @@ describe('lib/utils', () => {
             expect(humanFriendlyDuration(3601)).toEqual('1h 1s')
             expect(humanFriendlyDuration(3961)).toEqual('1h 6m 1s')
             expect(humanFriendlyDuration(3961.333)).toEqual('1h 6m 1s')
-            expect(humanFriendlyDuration(3961.666)).toEqual('1h 6m 2s')
+            expect(humanFriendlyDuration(3961.666)).toEqual('1h 6m 1s')
         })
         it('returns correct value for t >= 86400', () => {
             expect(humanFriendlyDuration(86400)).toEqual('1d')
             expect(humanFriendlyDuration(86400.12)).toEqual('1d')
         })
         it('truncates to specified # of units', () => {
-            expect(humanFriendlyDuration(3961, 2)).toEqual('1h 6m')
-            expect(humanFriendlyDuration(30, 2)).toEqual('30s') // no change
-            expect(humanFriendlyDuration(30, 0)).toEqual('') // returns no units (useless)
+            expect(humanFriendlyDuration(3961, { maxUnits: 2 })).toEqual('1h 6m')
+            expect(humanFriendlyDuration(30, { maxUnits: 2 })).toEqual('30s') // no change
+            expect(humanFriendlyDuration(30, { maxUnits: 0 })).toEqual('') // returns no units (useless)
         })
         it('returns an empty string for nullish inputs', () => {
-            expect(humanFriendlyDuration('', 2)).toEqual('')
-            expect(humanFriendlyDuration(null, 2)).toEqual('')
+            expect(humanFriendlyDuration('', { maxUnits: 2 })).toEqual('')
+            expect(humanFriendlyDuration(null, { maxUnits: 2 })).toEqual('')
         })
     })
 
@@ -725,6 +749,122 @@ describe('lib/utils', () => {
         })
     })
 
+    describe('autoCaptureEventToDescription()', () => {
+        const baseEvent = {
+            elements: [],
+            event: '$autocapture',
+            properties: { $event_type: 'click' },
+            person: {},
+        } as any as EventType
+
+        it('handles regular text by adding quotes', () => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    properties: {
+                        ...baseEvent.properties,
+                        $el_text: 'Analyzing Characters with',
+                    },
+                })
+            ).toEqual('clicked element with text "Analyzing Characters with"')
+        })
+
+        it('prioritizes $el_text from properties over text in elements array', () => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    properties: {
+                        ...baseEvent.properties,
+                        $el_text: 'Text from properties',
+                    },
+                    elements: [{ tag_name: 'button', text: 'Text from elements' } as ElementType],
+                })
+            ).toEqual('clicked button with text "Text from properties"')
+        })
+
+        it('handles text with double quotes without adding additional quotes', () => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    properties: {
+                        ...baseEvent.properties,
+                        $el_text: 'Unit Skills Assessment 1: "',
+                    },
+                })
+            ).toEqual('clicked element with text "Unit Skills Assessment 1: ""')
+        })
+
+        it('handles text with single quotes without adding additional quotes', () => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    properties: {
+                        ...baseEvent.properties,
+                        $el_text: "Reading Lesson: '",
+                    },
+                })
+            ).toEqual('clicked element with text "Reading Lesson: \'"')
+        })
+
+        it('handles longer text with single quotes without adding additional quotes', () => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    properties: {
+                        ...baseEvent.properties,
+                        $el_text: "A Sense of Wonder: An Introduction to Science Fiction'",
+                    },
+                })
+            ).toEqual('clicked element with text "A Sense of Wonder: An Introduction to Science Fiction\'"')
+        })
+
+        it('handles text in elements array', () => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    elements: [{ tag_name: 'button', text: 'hello world' } as ElementType],
+                })
+            ).toEqual('clicked button with text "hello world"')
+        })
+
+        it('handles text with quotes in elements array', () => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    elements: [{ tag_name: 'button', text: 'hello "world"' } as ElementType],
+                })
+            ).toEqual('clicked button with text "hello "world""')
+        })
+
+        it('handles aria-label attributes', () => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    elements: [
+                        {
+                            tag_name: 'button',
+                            attributes: { 'attr__aria-label': 'Close dialog' },
+                        } as ElementType,
+                    ],
+                })
+            ).toEqual('clicked button with aria label "Close dialog"')
+        })
+
+        it('handles aria-label attributes with quotes', () => {
+            expect(
+                autoCaptureEventToDescription({
+                    ...baseEvent,
+                    elements: [
+                        {
+                            tag_name: 'button',
+                            attributes: { 'attr__aria-label': 'Close "main" dialog' },
+                        } as ElementType,
+                    ],
+                })
+            ).toEqual('clicked button with aria label "Close "main" dialog"')
+        })
+    })
+
     describe('{floor|ceil}MsToClosestSecond()', () => {
         describe('ceil', () => {
             it('handles ms as expected', () => {
@@ -847,5 +987,69 @@ describe('lib/utils', () => {
         expect(shortTimeZone('America/Phoenix')).toEqual('MST')
         expect(shortTimeZone('Europe/Moscow')).toEqual('UTC+3')
         expect(shortTimeZone('Asia/Tokyo')).toEqual('UTC+9')
+    })
+
+    describe('getRelativeNextPath', () => {
+        const location = {
+            origin: 'https://us.posthog.com',
+            protocol: 'https:',
+            host: 'us.posthog.com',
+            hostname: 'us.posthog.com',
+            href: 'https://us.posthog.com/',
+        } as Location
+
+        it('returns relative path for same-origin absolute URL', () => {
+            expect(getRelativeNextPath('https://us.posthog.com/test', location)).toBe('/test')
+        })
+
+        it('returns relative path for same-origin absolute URL with query and hash', () => {
+            expect(getRelativeNextPath('https://us.posthog.com/test?foo=bar#baz', location)).toBe('/test?foo=bar#baz')
+        })
+
+        it('returns relative path for encoded same-origin absolute URL', () => {
+            expect(getRelativeNextPath('https%3A%2F%2Fus.posthog.com%2Ftest', location)).toBe('/test')
+        })
+
+        it('returns relative path for root-relative path', () => {
+            expect(getRelativeNextPath('/test', location)).toBe('/test')
+        })
+
+        it('returns relative path for root-relative path with query and hash', () => {
+            expect(getRelativeNextPath('/test?foo=bar#baz', location)).toBe('/test?foo=bar#baz')
+        })
+
+        it('returns null for external absolute URL', () => {
+            expect(getRelativeNextPath('https://evil.com/test', location)).toBeNull()
+        })
+
+        it('returns null for encoded external absolute URL', () => {
+            expect(getRelativeNextPath('https%3A%2F%2Fevil.com%2Ftest', location)).toBeNull()
+        })
+
+        it('returns null for protocol-relative external URL', () => {
+            expect(getRelativeNextPath('//evil.com/test', location)).toBeNull()
+        })
+
+        it('returns null for empty string', () => {
+            expect(getRelativeNextPath('', location)).toBeNull()
+        })
+
+        it('returns null for malformed URL', () => {
+            expect(getRelativeNextPath('http://', location)).toBeNull()
+            expect(getRelativeNextPath('%%%%', location)).toBeNull()
+        })
+
+        it('returns null for non-string input', () => {
+            expect(getRelativeNextPath(null, location)).toBeNull()
+            expect(getRelativeNextPath(undefined, location)).toBeNull()
+        })
+
+        it('returns relative path for encoded root-relative path', () => {
+            expect(getRelativeNextPath('%2Ftest%2Ffoo%3Fbar%3Dbaz%23hash', location)).toBe('/test/foo?bar=baz#hash')
+        })
+
+        it('returns null for encoded protocol-relative URL', () => {
+            expect(getRelativeNextPath('%2F%2Fevil.com%2Ftest', location)).toBeNull()
+        })
     })
 })

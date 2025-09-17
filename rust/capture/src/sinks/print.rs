@@ -1,9 +1,11 @@
 use async_trait::async_trait;
+
 use metrics::{counter, histogram};
 use tracing::log::info;
 
-use crate::api::{CaptureError, ProcessedEvent};
+use crate::api::CaptureError;
 use crate::sinks::Event;
+use crate::v0_request::ProcessedEvent;
 
 pub struct PrintSink {}
 
@@ -22,7 +24,7 @@ impl Event for PrintSink {
         histogram!("capture_event_batch_size").record(events.len() as f64);
         counter!("capture_events_ingested_total").increment(events.len() as u64);
         for event in events {
-            info!("event: {:?}", event);
+            info!("event: {event:?}");
         }
 
         Ok(())

@@ -1,6 +1,11 @@
-import { IconHome } from '@posthog/icons'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { CSSProperties } from 'react'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
+
+import { IconHome } from '@posthog/icons'
+
 import { addToDashboardModalLogic } from 'lib/components/AddToDashboard/addToDashboardModalLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
@@ -8,9 +13,6 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
-import { CSSProperties } from 'react'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -43,7 +45,7 @@ const DashboardRelationRow = ({
             data-attr="dashboard-list-item"
             /* eslint-disable-next-line react/forbid-dom-props */
             style={style}
-            className={clsx('flex items-center space-x-2', isHighlighted && 'highlighted')}
+            className={clsx('flex items-center deprecated-space-x-2', isHighlighted && 'highlighted')}
         >
             <Link
                 to={urls.dashboard(dashboard.id)}
@@ -68,8 +70,8 @@ const DashboardRelationRow = ({
                     !canEditInsight
                         ? "You don't have permission to edit this dashboard"
                         : dashboardWithActiveAPICall
-                        ? 'Loading...'
-                        : ''
+                          ? 'Loading...'
+                          : ''
                 }
                 size="small"
                 onClick={(e) => {
@@ -146,7 +148,7 @@ export function AddToDashboardModal({
                 </>
             }
         >
-            <div className="space-y-2 w-192 max-w-full">
+            <div className="deprecated-space-y-2 w-192 max-w-full">
                 <LemonInput
                     data-attr="dashboard-searchfield"
                     type="search"
@@ -155,12 +157,11 @@ export function AddToDashboardModal({
                     value={searchQuery}
                     onChange={(newValue) => setSearchQuery(newValue)}
                 />
-                <div className="text-muted-alt">
+                <div className="text-secondary">
                     This insight is referenced on <strong className="text-text-3000">{currentDashboards.length}</strong>{' '}
                     {pluralize(currentDashboards.length, 'dashboard', 'dashboards', false)}
                 </div>
-                {/* eslint-disable-next-line react/forbid-dom-props */}
-                <div style={{ minHeight: 420 }}>
+                <div className="min-h-[420px]">
                     <AutoSizer>
                         {({ height, width }) => (
                             <List

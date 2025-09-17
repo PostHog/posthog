@@ -1,7 +1,7 @@
 import { Meta } from '@storybook/react'
 import { useActions } from 'kea'
-import { router } from 'kea-router'
 import { useEffect } from 'react'
+
 import { App } from 'scenes/App'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -23,7 +23,7 @@ const meta: Meta = {
                     can_create_org: true,
                     available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
                 },
-                '/api/projects/@current/': () => [
+                '/api/environments/@current/': () => [
                     403,
                     {
                         code: 'project_unavailable',
@@ -38,12 +38,14 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-02-01',
+        pageUrl: urls.projectHomepage(),
     },
 }
 export default meta
 
 export const AccessRevoked = (): JSX.Element => {
     const { loadCurrentTeamSuccess } = useActions(teamLogic)
+
     useStorybookMocks({
         get: {
             '/api/users/@me/': () => [
@@ -54,6 +56,7 @@ export const AccessRevoked = (): JSX.Element => {
                     organization: {
                         name: 'Test org',
                         teams: [],
+                        projects: [],
                     },
                     team: {
                         id: 1,
@@ -67,18 +70,22 @@ export const AccessRevoked = (): JSX.Element => {
                     membership_level: 15,
                     name: 'Test org',
                     teams: [],
+                    projects: [],
                 },
             ],
         },
     })
+
     useEffect(() => {
         loadCurrentTeamSuccess(null)
-        router.actions.push(urls.projectHomepage())
-    }, [])
+    }, [loadCurrentTeamSuccess])
+
     return <App />
 }
+
 export const NoSelectableProjects = (): JSX.Element => {
     const { loadCurrentTeamSuccess } = useActions(teamLogic)
+
     useStorybookMocks({
         get: {
             '/api/users/@me/': () => [
@@ -89,6 +96,7 @@ export const NoSelectableProjects = (): JSX.Element => {
                     organization: {
                         name: 'Test org',
                         teams: [],
+                        projects: [],
                     },
                     team: null,
                 },
@@ -99,13 +107,15 @@ export const NoSelectableProjects = (): JSX.Element => {
                     membership_level: 1,
                     name: 'Test org',
                     teams: [],
+                    projects: [],
                 },
             ],
         },
     })
+
     useEffect(() => {
         loadCurrentTeamSuccess(null)
-        router.actions.push(urls.projectHomepage())
-    }, [])
+    }, [loadCurrentTeamSuccess])
+
     return <App />
 }

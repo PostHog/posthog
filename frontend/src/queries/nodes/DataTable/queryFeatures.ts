@@ -1,13 +1,20 @@
-import { Node } from '~/queries/schema'
+import { Node } from '~/queries/schema/schema-general'
 import {
     isActorsQuery,
     isEventsQuery,
+    isGroupsQuery,
     isHogQLQuery,
+    isMarketingAnalyticsTableQuery,
     isPersonsNode,
+    isRevenueAnalyticsTopCustomersQuery,
+    isRevenueExampleDataWarehouseTablesQuery,
+    isRevenueExampleEventsQuery,
     isSessionAttributionExplorerQuery,
+    isTracesQuery,
+    isWebExternalClicksQuery,
+    isWebGoalsQuery,
     isWebOverviewQuery,
     isWebStatsTableQuery,
-    isWebTopClicksQuery,
 } from '~/queries/utils'
 
 export enum QueryFeature {
@@ -17,7 +24,10 @@ export enum QueryFeature {
     eventNameFilter,
     eventPropertyFilters,
     personPropertyFilters,
+    groupPropertyFilters,
+    linkDataButton,
     personsSearch,
+    groupsSearch,
     savedEventsQueries,
     columnConfigurator,
     resultIsArrayOfArrays,
@@ -25,18 +35,30 @@ export enum QueryFeature {
     displayResponseError,
     hideLoadNextButton,
     testAccountFilters,
+    highlightExceptionEventRows,
 }
 
 export function getQueryFeatures(query: Node): Set<QueryFeature> {
     const features = new Set<QueryFeature>()
 
-    if (isHogQLQuery(query) || isEventsQuery(query) || isSessionAttributionExplorerQuery(query)) {
+    if (
+        isHogQLQuery(query) ||
+        isEventsQuery(query) ||
+        isSessionAttributionExplorerQuery(query) ||
+        isRevenueExampleEventsQuery(query)
+    ) {
         features.add(QueryFeature.dateRangePicker)
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.eventPropertyFilters)
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.displayResponseError)
         features.add(QueryFeature.testAccountFilters)
+    }
+
+    if (isRevenueExampleDataWarehouseTablesQuery(query)) {
+        features.add(QueryFeature.columnsInResponse)
+        features.add(QueryFeature.resultIsArrayOfArrays)
+        features.add(QueryFeature.displayResponseError)
     }
 
     if (isEventsQuery(query)) {
@@ -58,10 +80,41 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         }
     }
 
-    if (isWebOverviewQuery(query) || isWebTopClicksQuery(query) || isWebStatsTableQuery(query)) {
+    if (isGroupsQuery(query)) {
+        features.add(QueryFeature.groupPropertyFilters)
+        features.add(QueryFeature.groupsSearch)
+        features.add(QueryFeature.selectAndOrderByColumns)
+        features.add(QueryFeature.columnsInResponse)
+        features.add(QueryFeature.resultIsArrayOfArrays)
+        features.add(QueryFeature.columnConfigurator)
+        features.add(QueryFeature.linkDataButton)
+    }
+
+    if (
+        isWebOverviewQuery(query) ||
+        isWebExternalClicksQuery(query) ||
+        isWebStatsTableQuery(query) ||
+        isWebGoalsQuery(query) ||
+        isRevenueAnalyticsTopCustomersQuery(query)
+    ) {
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.hideLoadNextButton)
+        features.add(QueryFeature.displayResponseError)
+    }
+
+    if (isMarketingAnalyticsTableQuery(query)) {
+        features.add(QueryFeature.columnsInResponse)
+        features.add(QueryFeature.resultIsArrayOfArrays)
+        features.add(QueryFeature.displayResponseError)
+        features.add(QueryFeature.selectAndOrderByColumns)
+    }
+
+    if (isTracesQuery(query)) {
+        features.add(QueryFeature.dateRangePicker)
+        features.add(QueryFeature.eventPropertyFilters)
+        features.add(QueryFeature.testAccountFilters)
+        features.add(QueryFeature.columnConfigurator)
     }
 
     return features

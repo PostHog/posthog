@@ -6,7 +6,7 @@ import { FlagImplementationSnippet } from './flagImplementationSnippet'
 export function FeatureFlagsReactInstructions(): JSX.Element {
     return (
         <>
-            <SDKInstallReactInstructions />
+            <SDKInstallReactInstructions hideWizard />
             <FlagImplementationSnippet sdkKey={SDKKey.REACT} />
         </>
     )

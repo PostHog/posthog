@@ -1,9 +1,10 @@
 import { actions, connect, kea, key, listeners, path, props, selectors } from 'kea'
+
 import { elementsToAction } from 'scenes/activity/explore/createActionFromEvent'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { funnelTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
+import { funnelTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 
 import {
     EventsNode,
@@ -11,7 +12,7 @@ import {
     FunnelCorrelationQuery,
     FunnelsActorsQuery,
     NodeKind,
-} from '~/queries/schema'
+} from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
     FunnelCorrelation,
@@ -78,19 +79,15 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
 
     selectors({
         canOpenPersonModal: [
-            (s) => [s.funnelsFilter, s.isInDashboardContext],
-            (funnelsFilter, isInDashboardContext): boolean => {
-                return !isInDashboardContext && !funnelsFilter?.funnelAggregateByHogQL
+            (s) => [s.funnelsFilter],
+            (funnelsFilter): boolean => {
+                return !funnelsFilter?.funnelAggregateByHogQL
             },
         ],
     }),
 
     listeners(({ values }) => ({
         openPersonsModalForStep: ({ step, stepIndex, converted }) => {
-            if (values.isInDashboardContext) {
-                return
-            }
-
             // Note - when in a legend the step.order is always 0 so we use stepIndex instead
             const stepNo = typeof stepIndex === 'number' ? stepIndex + 1 : step.order + 1
             const title = funnelTitle({
@@ -111,10 +108,6 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
             openPersonsModal({ title, query, additionalSelect: { matched_recordings: 'matched_recordings' } })
         },
         openPersonsModalForSeries: ({ step, series, converted }) => {
-            if (values.isInDashboardContext) {
-                return
-            }
-
             const stepNo = step.order + 1
             const breakdownValues = getBreakdownStepValues(series, series.order)
             const title = funnelTitle({
@@ -137,10 +130,6 @@ export const funnelPersonsModalLogic = kea<funnelPersonsModalLogicType>([
             openPersonsModal({ title, query, additionalSelect: { matched_recordings: 'matched_recordings' } })
         },
         openCorrelationPersonsModal: ({ correlation, success }) => {
-            if (values.isInDashboardContext) {
-                return
-            }
-
             if (correlation.result_type === FunnelCorrelationResultsType.Properties) {
                 const { breakdown, breakdown_value } = parseBreakdownValue(correlation.event.event)
                 const title = funnelTitle({

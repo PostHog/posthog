@@ -1,7 +1,8 @@
 import './LemonWidget.scss'
 
-import { IconX } from '@posthog/icons'
 import clsx from 'clsx'
+
+import { IconX } from '@posthog/icons'
 
 import { LemonButton } from '../LemonButton'
 
@@ -36,5 +37,5 @@ const Header = ({ children, className }: { children: React.ReactNode; className?
 }
 
 const Content = ({ children }: { children: React.ReactNode }): JSX.Element => {
-    return <div className="LemonWidget__content border-t border-border">{children}</div>
+    return <div className="LemonWidget__content border-t border-primary">{children}</div>
 }

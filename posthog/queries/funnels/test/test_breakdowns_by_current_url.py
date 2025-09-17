@@ -1,13 +1,10 @@
 from datetime import datetime
 from typing import Optional
 
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
+
 from posthog.models import Filter
 from posthog.queries.funnels import ClickhouseFunnel
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    snapshot_clickhouse_queries,
-)
 from posthog.test.test_journeys import journeys_for
 
 
@@ -171,7 +168,6 @@ class TestBreakdownsByCurrentURL(ClickhouseTestMixin, APIBaseTest):
                         funnel_step["breakdown"],
                     )
                 )
-
         assert actual == [
             ("watched movie", 2, ["/"]),
             ("terminate funnel", 2, ["/"]),

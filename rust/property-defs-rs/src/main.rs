@@ -1,35 +1,26 @@
 use std::{sync::Arc, time::Duration};
 
-use ahash::AHashSet;
 use axum::{routing::get, Router};
-use envconfig::Envconfig;
+use common_kafka::kafka_consumer::SingleTopicConsumer;
+
 use futures::future::ready;
 use property_defs_rs::{
+    api::v1::{query::Manager, routing::apply_routes},
     app_context::AppContext,
     config::Config,
-    message_to_event,
-    metrics_consts::{
-        BATCH_ACQUIRE_TIME, CACHE_CONSUMED, COMPACTED_UPDATES, EVENTS_RECEIVED, FORCED_SMALL_BATCH,
-        PERMIT_WAIT_TIME, RECV_DEQUEUED, TRANSACTION_LIMIT_SATURATION, UPDATES_FILTERED_BY_CACHE,
-        UPDATES_PER_EVENT, UPDATES_SEEN, UPDATE_ISSUE_TIME, WORKER_BLOCKED,
-    },
-    types::Update,
+    measuring_channel::measuring_channel,
+    metrics_consts::CHANNEL_CAPACITY,
+    update_cache::Cache,
+    update_consumer_loop, update_producer_loop,
 };
-use quick_cache::sync::Cache;
-use rdkafka::{
-    consumer::{Consumer, StreamConsumer},
-    ClientConfig,
-};
+
 use serve_metrics::{serve, setup_metrics_routes};
-use tokio::{
-    sync::{
-        mpsc::{self, error::TrySendError},
-        Semaphore,
-    },
-    task::JoinHandle,
-};
+use sqlx::postgres::PgPoolOptions;
+use tokio::task::JoinHandle;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
+
+common_alloc::used!();
 
 fn setup_tracing() {
     let log_layer: tracing_subscriber::filter::Filtered<
@@ -44,8 +35,9 @@ pub async fn index() -> &'static str {
     "property definitions service"
 }
 
-fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> JoinHandle<()> {
-    let config = config.clone();
+fn start_server(config: &Config, context: Arc<AppContext>) -> JoinHandle<()> {
+    let api_ctx = context.clone();
+
     let router = Router::new()
         .route("/", get(index))
         .route("/_readiness", get(index))
@@ -53,8 +45,11 @@ fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> Jo
             "/_liveness",
             get(move || ready(context.liveness.get_status())),
         );
+    let router = apply_routes(router, api_ctx);
     let router = setup_metrics_routes(router);
+
     let bind = format!("{}:{}", config.host, config.port);
+
     tokio::task::spawn(async move {
         serve(router, &bind)
             .await
@@ -62,150 +57,74 @@ fn start_health_liveness_server(config: &Config, context: Arc<AppContext>) -> Jo
     })
 }
 
-async fn spawn_producer_loop(
-    consumer: Arc<StreamConsumer>,
-    channel: mpsc::Sender<Update>,
-    shared_cache: Arc<Cache<Update, ()>>,
-    skip_threshold: usize,
-    compaction_batch_size: usize,
-) {
-    let mut batch = AHashSet::with_capacity(compaction_batch_size);
-    let mut last_send = tokio::time::Instant::now();
-    loop {
-        let message = consumer
-            .recv()
-            .await
-            .expect("TODO - workers panic on kafka recv fail");
-
-        let Some(event) = message_to_event(message) else {
-            continue;
-        };
-
-        let updates = event.into_updates(skip_threshold);
-
-        metrics::counter!(EVENTS_RECEIVED).increment(1);
-        metrics::counter!(UPDATES_SEEN).increment(updates.len() as u64);
-        metrics::histogram!(UPDATES_PER_EVENT).record(updates.len() as f64);
-
-        for update in updates {
-            if batch.contains(&update) {
-                metrics::counter!(COMPACTED_UPDATES).increment(1);
-                continue;
-            }
-            batch.insert(update);
-
-            if batch.len() >= compaction_batch_size || last_send.elapsed() > Duration::from_secs(10)
-            {
-                last_send = tokio::time::Instant::now();
-                for update in batch.drain() {
-                    if shared_cache.get(&update).is_some() {
-                        metrics::counter!(UPDATES_FILTERED_BY_CACHE).increment(1);
-                        continue;
-                    }
-                    shared_cache.insert(update.clone(), ());
-                    match channel.try_send(update) {
-                        Ok(_) => {}
-                        Err(TrySendError::Full(update)) => {
-                            warn!("Worker blocked");
-                            metrics::counter!(WORKER_BLOCKED).increment(1);
-                            channel.send(update).await.unwrap();
-                        }
-                        Err(e) => {
-                            warn!("Coordinator send failed: {:?}", e);
-                            return;
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     setup_tracing();
-    info!("Starting up...");
+    info!("Starting up property definitions service...");
 
-    let config = Config::init_from_env()?;
+    let config = Config::init_with_defaults()?;
 
-    let kafka_config: ClientConfig = (&config.kafka).into();
+    let consumer = SingleTopicConsumer::new(config.kafka.clone(), config.consumer.clone())?;
 
-    let consumer: Arc<StreamConsumer> = Arc::new(kafka_config.create()?);
+    // dedicated PG conn pool for serving propdefs API queries only (not currently live in prod)
+    // TODO: update this to conditionally point to new isolated propdefs & persons (grouptypemapping)
+    // DBs after those migrations are completed, prior to deployment
+    let options = PgPoolOptions::new().max_connections(config.max_pg_connections);
+    let api_pool = options.connect(&config.database_url).await?;
+    let query_manager = Manager::new(api_pool).await?;
 
-    let context = Arc::new(AppContext::new(&config).await?);
+    let context = Arc::new(AppContext::new(&config, query_manager).await?);
 
-    consumer.subscribe(&[config.kafka.event_topic.as_str()])?;
+    info!(
+        "Subscribed to topic: {}",
+        config.consumer.kafka_consumer_topic
+    );
 
-    info!("Subscribed to topic: {}", config.kafka.event_topic);
+    start_server(&config, context.clone());
 
-    start_health_liveness_server(&config, context.clone());
+    let (tx, rx) = measuring_channel(config.update_batch_size * config.channel_slots_per_worker);
 
-    let (tx, mut rx) = mpsc::channel(config.update_batch_size * config.channel_slots_per_worker);
-    let transaction_limit = Arc::new(Semaphore::new(config.max_concurrent_transactions));
-    let cache = Arc::new(Cache::new(config.cache_capacity));
+    let cache = Cache::new(config.cache_capacity);
+
+    let cache = Arc::new(cache);
+
+    let mut handles = Vec::new();
 
     for _ in 0..config.worker_loop_count {
-        tokio::spawn(spawn_producer_loop(
+        let handle = tokio::spawn(update_producer_loop(
+            config.clone(),
             consumer.clone(),
-            tx.clone(),
             cache.clone(),
-            config.update_count_skip_threshold,
-            config.compaction_batch_size,
+            tx.clone(),
         ));
+
+        handles.push(handle);
     }
 
-    loop {
-        let mut batch = Vec::with_capacity(config.update_batch_size);
-
-        let batch_start = tokio::time::Instant::now();
-        let batch_time = common_metrics::timing_guard(BATCH_ACQUIRE_TIME, &[]);
-        while batch.len() < config.update_batch_size {
-            context.worker_liveness.report_healthy().await;
-
-            let remaining_capacity = config.update_batch_size - batch.len();
-            // We race these two, so we can escape this loop and do a small batch if we've been waiting too long
-            let recv = rx.recv_many(&mut batch, remaining_capacity);
-            let sleep = tokio::time::sleep(Duration::from_secs(1));
-
-            tokio::select! {
-                got = recv => {
-                    if got == 0 {
-                        warn!("Coordinator recv failed, dying");
-                        return Ok(());
-                    }
-                    metrics::gauge!(RECV_DEQUEUED).set(got as f64);
-                    continue;
-                }
-                _ = sleep => {
-                    if batch_start.elapsed() > Duration::from_secs(config.max_issue_period) {
-                        warn!("Forcing small batch due to time limit");
-                        metrics::counter!(FORCED_SMALL_BATCH).increment(1);
-                        break;
-                    }
-                }
-            }
+    // Publish the tx capacity metric every 10 seconds
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            metrics::gauge!(CHANNEL_CAPACITY).set(tx.capacity() as f64);
         }
-        batch_time.fin();
+    });
 
-        metrics::gauge!(CACHE_CONSUMED).set(cache.len() as f64);
+    handles.push(tokio::spawn(update_consumer_loop(
+        config.clone(),
+        cache,
+        context,
+        rx,
+    )));
 
-        metrics::gauge!(TRANSACTION_LIMIT_SATURATION).set(
-            (config.max_concurrent_transactions - transaction_limit.available_permits()) as f64,
-        );
+    // if any handle returns, abort the other ones, and then return an error
+    let (result, _, others) = futures::future::select_all(handles).await;
+    warn!(
+        "update loop process is shutting down with result: {:?}",
+        result
+    );
 
-        // We unconditionally wait to acquire a transaction permit - this is our backpressure mechanism. If we
-        // fail to acquire a permit for long enough, we will fail liveness checks (but that implies our ongoing
-        // transactions are halted, at which point DB health is a concern).
-        let permit_acquire_time = common_metrics::timing_guard(PERMIT_WAIT_TIME, &[]);
-        let permit = transaction_limit.clone().acquire_owned().await.unwrap();
-        permit_acquire_time.fin();
-
-        let context = context.clone();
-        tokio::spawn(async move {
-            let _permit = permit;
-            let issue_time = common_metrics::timing_guard(UPDATE_ISSUE_TIME, &[]);
-            context.issue(batch).await.unwrap();
-            issue_time.fin();
-        });
+    for handle in others {
+        handle.abort();
     }
+    Ok(result?)
 }

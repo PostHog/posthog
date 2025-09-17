@@ -1,14 +1,6 @@
-from uuid import UUID, uuid4
 import datetime as dt
+from uuid import UUID, uuid4
 
-from posthog.client import sync_execute
-from posthog.models import AsyncDeletion, DeletionType, Team, User
-from posthog.models.async_deletion.delete_cohorts import AsyncCohortDeletion
-from posthog.models.async_deletion.delete_events import AsyncEventDeletion
-from posthog.models.cohort.util import insert_static_cohort
-from posthog.models.group.util import create_group
-from posthog.models.person.util import create_person, create_person_distinct_id
-from posthog.models.plugin import PluginLogEntrySource, PluginLogEntryType
 from posthog.test.base import (
     BaseTest,
     ClickhouseDestroyTablesMixin,
@@ -17,6 +9,15 @@ from posthog.test.base import (
     snapshot_clickhouse_alter_queries,
     snapshot_clickhouse_queries,
 )
+
+from posthog.clickhouse.client import sync_execute
+from posthog.models import AsyncDeletion, DeletionType, Team, User
+from posthog.models.async_deletion.delete_cohorts import AsyncCohortDeletion
+from posthog.models.async_deletion.delete_events import AsyncEventDeletion
+from posthog.models.cohort.util import insert_static_cohort
+from posthog.models.group.util import create_group
+from posthog.models.person.util import create_person, create_person_distinct_id
+from posthog.models.plugin import PluginLogEntrySource, PluginLogEntryType
 from posthog.test.test_plugin_log_entry import create_plugin_log_entry
 
 uuid = str(UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8"))
@@ -365,7 +366,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
             group_key="org:5",
             properties={},
         )
-        insert_static_cohort([uuid4()], 0, self.teams[0])
+        insert_static_cohort([uuid4()], 0, team_id=self.teams[0].pk)
         self._insert_cohortpeople_row(self.teams[0], uuid4(), 3)
         create_plugin_log_entry(
             team_id=self.teams[0].pk,
@@ -403,7 +404,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
             group_key="org:5",
             properties={},
         )
-        insert_static_cohort([uuid4()], 0, self.teams[1])
+        insert_static_cohort([uuid4()], 0, team_id=self.teams[1].pk)
         self._insert_cohortpeople_row(self.teams[1], uuid4(), 3)
         create_plugin_log_entry(
             team_id=self.teams[1].pk,

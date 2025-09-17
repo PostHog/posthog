@@ -1,19 +1,20 @@
-from dataclasses import dataclass, field
-from typing import Any, Optional, TYPE_CHECKING
 from collections.abc import Callable
-from pydantic import ConfigDict, BaseModel
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Any, Optional, cast
+
+from pydantic import BaseModel, ConfigDict
 
 from posthog.hogql.base import Expr
-from posthog.hogql.errors import ResolutionError, NotImplementedError
+from posthog.hogql.errors import NotImplementedError, ResolutionError
 
 if TYPE_CHECKING:
-    from posthog.hogql.context import HogQLContext
-    from posthog.hogql.ast import SelectQuery
+    from posthog.hogql.ast import LazyJoinType, SelectQuery
     from posthog.hogql.base import ConstantType
+    from posthog.hogql.context import HogQLContext
 
 
 class FieldOrTable(BaseModel):
-    pass
+    hidden: bool = False
 
 
 class DatabaseField(FieldOrTable):
@@ -26,7 +27,6 @@ class DatabaseField(FieldOrTable):
     name: str
     array: Optional[bool] = None
     nullable: Optional[bool] = None
-    hidden: bool = False
 
     def is_nullable(self) -> bool:
         return not not self.nullable
@@ -51,6 +51,13 @@ class FloatDatabaseField(DatabaseField):
         return FloatType(nullable=self.is_nullable())
 
 
+class DecimalDatabaseField(DatabaseField):
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import DecimalType
+
+        return DecimalType(nullable=self.is_nullable())
+
+
 class StringDatabaseField(DatabaseField):
     def get_constant_type(self) -> "ConstantType":
         from posthog.hogql.ast import StringType
@@ -58,18 +65,32 @@ class StringDatabaseField(DatabaseField):
         return StringType(nullable=self.is_nullable())
 
 
+class UnknownDatabaseField(DatabaseField):
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import UnknownType
+
+        return UnknownType(nullable=self.is_nullable())
+
+
 class StringJSONDatabaseField(DatabaseField):
     def get_constant_type(self) -> "ConstantType":
-        from posthog.hogql.ast import StringType
+        from posthog.hogql.ast import StringJSONType
 
-        return StringType(nullable=self.is_nullable())
+        return StringJSONType(nullable=self.is_nullable())
 
 
 class StringArrayDatabaseField(DatabaseField):
     def get_constant_type(self) -> "ConstantType":
-        from posthog.hogql.ast import StringType
+        from posthog.hogql.ast import StringArrayType
 
-        return StringType(nullable=self.is_nullable())
+        return StringArrayType(nullable=self.is_nullable())
+
+
+class FloatArrayDatabaseField(DatabaseField):
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import FloatType
+
+        return FloatType(nullable=self.is_nullable())
 
 
 class DateDatabaseField(DatabaseField):
@@ -147,6 +168,48 @@ class Table(FieldOrTable):
         return asterisk
 
 
+class TableGroup(FieldOrTable):
+    tables: dict[str, "Table | TableGroup"] = field(default_factory=dict)
+
+    def has_table(self, name: str) -> bool:
+        return name in self.tables
+
+    def get_table(self, name: str) -> "Table | TableGroup":
+        return self.tables[name]
+
+    def merge_with(self, table_group: "TableGroup"):
+        for name, table in table_group.tables.items():
+            if name in self.tables:
+                if isinstance(self.tables[name], TableGroup) and isinstance(table, TableGroup):
+                    # Yes, casts are required to make mypy happy
+                    this_table = cast("TableGroup", self.tables[name])
+                    other_table = cast("TableGroup", table)
+                    this_table.merge_with(other_table)
+                else:
+                    raise ValueError(f"Conflict between Table and TableGroup: {name} already exists")
+            else:
+                self.tables[name] = table
+
+        return self
+
+    def to_printed_clickhouse(self, context: "HogQLContext") -> str:
+        raise NotImplementedError("TableGroup.to_printed_clickhouse not overridden")
+
+    def to_printed_hogql(self) -> str:
+        raise NotImplementedError("TableGroup.to_printed_hogql not overridden")
+
+    def resolve_all_table_names(self) -> list[str]:
+        names: list[str] = []
+        for name, table in self.tables.items():
+            if isinstance(table, Table):
+                names.append(name)
+            elif isinstance(table, TableGroup):
+                child_names = table.resolve_all_table_names()
+                names.extend([f"{name}.{x}" for x in child_names])
+
+        return names
+
+
 class LazyJoin(FieldOrTable):
     model_config = ConfigDict(extra="forbid")
 
@@ -192,6 +255,7 @@ class LazyJoinToAdd:
     from_table: str
     to_table: str
     lazy_join: LazyJoin
+    lazy_join_type: "LazyJoinType"
     fields_accessed: dict[str, list[str | int]] = field(default_factory=dict)
 
 
@@ -209,8 +273,15 @@ class FunctionCallTable(Table):
     """
 
     name: str
+    requires_args: bool = True
     min_args: Optional[int] = None
     max_args: Optional[int] = None
+
+
+class DANGEROUS_NoTeamIdCheckTable(Table):
+    """Don't use this other than referencing tables that contain no user data"""
+
+    pass
 
 
 class SavedQuery(Table):
@@ -218,6 +289,7 @@ class SavedQuery(Table):
     A table that returns a subquery, e.g. my_saved_query -> (SELECT * FROM some_saved_table). The team_id guard is NOT added for the overall subquery
     """
 
+    id: str
     query: str
     name: str
 

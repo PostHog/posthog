@@ -5,14 +5,8 @@ from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.constants import PropertyOperatorType
 from posthog.models import Filter
 from posthog.models.cohort import Cohort
-from posthog.models.cohort.sql import (
-    GET_COHORTPEOPLE_BY_COHORT_ID,
-    GET_STATIC_COHORTPEOPLE_BY_COHORT_ID,
-)
-from posthog.models.cohort.util import (
-    format_precalculated_cohort_query,
-    format_static_cohort_query,
-)
+from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID, GET_STATIC_COHORTPEOPLE_BY_COHORT_ID
+from posthog.models.cohort.util import format_precalculated_cohort_query, format_static_cohort_query
 from posthog.models.entity import Entity
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -152,11 +146,12 @@ class PersonQuery:
             WHERE team_id = %(team_id)s
             {prefiltering_lookup}
             {multiple_cohorts_condition}
+            {email_condition}
             GROUP BY id
             HAVING max(is_deleted) = 0
             {filter_future_persons_condition} {updated_after_condition}
             {person_filters_finalization_condition} {search_finalization_condition}
-            {distinct_id_condition} {email_condition}
+            {distinct_id_condition}
             {order}
             {limit_offset}
             SETTINGS optimize_aggregation_in_order = 1
@@ -260,7 +255,7 @@ class PersonQuery:
             # TODO: doesn't support non-caclculated cohorts
             for index, property in enumerate(self._cohort_filters):
                 try:
-                    cohort = Cohort.objects.get(pk=property.value, team_id=self._team_id)
+                    cohort = Cohort.objects.get(pk=property.value)
                     if property.type == "static-cohort":
                         subquery, subquery_params = format_static_cohort_query(cohort, index, prepend)
                     else:

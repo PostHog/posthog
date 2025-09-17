@@ -1,7 +1,9 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
+
 import api from 'lib/api'
-import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { DeleteDashboardForm, deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { DuplicateDashboardForm, duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -39,7 +41,7 @@ const createInsight = (id: number, string = 'hi'): QueryBasedInsightModel =>
         deleted: false,
         saved: true,
         query: {},
-    } as any as QueryBasedInsightModel)
+    }) as any as QueryBasedInsightModel
 const createSavedInsights = (string = 'hello', offset: number): InsightsResult => ({
     count: 3,
     results: [createInsight(1, string), createInsight(2, string), createInsight(3, string)].slice(offset),
@@ -52,24 +54,25 @@ describe('savedInsightsLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team/insights/': (req) => [
+                '/api/environments/:team_id/insights/': (req) => [
                     200,
                     createSavedInsights(
                         req.url.searchParams.get('search') ?? '',
                         parseInt(req.url.searchParams.get('offset') ?? '0')
                     ),
                 ],
-                '/api/projects/:team/insights/42': createInsight(42),
-                '/api/projects/:team/insights/123': createInsight(123),
+                '/api/environments/:team_id/insights/42': createInsight(42),
+                '/api/environments/:team_id/insights/123': createInsight(123),
             },
             post: {
-                '/api/projects/:team/insights/': () => [200, createInsight(42)],
+                '/api/environments/:team_id/insights/': () => [200, createInsight(42)],
             },
         })
         initKeaTests()
         sceneLogic({ scenes }).mount()
+        sceneLogic.actions.setTabs([{ id: '1', title: '...', pathname: '/', search: '', hash: '', active: true }])
         router.actions.push(urls.project(MOCK_TEAM_ID, urls.savedInsights()))
-        logic = savedInsightsLogic()
+        logic = savedInsightsLogic({ tabId: '1' })
         logic.mount()
     })
 
@@ -192,7 +195,7 @@ describe('savedInsightsLogic', () => {
         sourceInsight.derived_name = 'should be copied'
         await logic.asyncActions.duplicateInsight(sourceInsight)
         expect(api.create).toHaveBeenCalledWith(
-            `api/projects/${MOCK_TEAM_ID}/insights`,
+            `api/environments/${MOCK_TEAM_ID}/insights`,
             expect.objectContaining({ name: '' }),
             expect.objectContaining({})
         )
@@ -204,7 +207,7 @@ describe('savedInsightsLogic', () => {
         sourceInsight.derived_name = ''
         await logic.asyncActions.duplicateInsight(sourceInsight)
         expect(api.create).toHaveBeenCalledWith(
-            `api/projects/${MOCK_TEAM_ID}/insights`,
+            `api/environments/${MOCK_TEAM_ID}/insights`,
             expect.objectContaining({ name: 'should be copied (copy)' }),
             expect.objectContaining({})
         )

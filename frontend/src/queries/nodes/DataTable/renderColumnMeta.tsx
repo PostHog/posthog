@@ -2,11 +2,22 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 
-import { getQueryFeatures, QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
-import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { DataTableNode, EventsQuery } from '~/queries/schema'
+import { QueryFeature, getQueryFeatures } from '~/queries/nodes/DataTable/queryFeatures'
+import { extractExpressionComment, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
+import {
+    DataTableNode,
+    DataVisualizationNode,
+    EventsQuery,
+    MarketingAnalyticsTableQuery,
+} from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { isHogQLQuery, trimQuotes } from '~/queries/utils'
+import {
+    isDataTableNode,
+    isGroupsQuery,
+    isHogQLQuery,
+    isMarketingAnalyticsTableQuery,
+    trimQuotes,
+} from '~/queries/utils'
 
 export interface ColumnMeta {
     title?: JSX.Element | string
@@ -14,7 +25,11 @@ export interface ColumnMeta {
     align?: 'left' | 'right' | 'center'
 }
 
-export function renderColumnMeta(key: string, query: DataTableNode, context?: QueryContext<DataTableNode>): ColumnMeta {
+export function renderColumnMeta<T extends DataVisualizationNode | DataTableNode>(
+    key: string,
+    query: T,
+    context?: QueryContext<T>
+): ColumnMeta {
     let width: string | number | undefined
     let title: JSX.Element | string | undefined
     const queryFeatures = getQueryFeatures(query.source)
@@ -23,6 +38,8 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
     const queryContextColumnName = key.startsWith('context.columns.') ? trimQuotes(key.substring(16)) : undefined
     const queryContextColumn =
         (queryContextColumnName ? context?.columns?.[queryContextColumnName] : undefined) ?? context?.columns?.[key]
+
+    const propertyName = key.startsWith('properties.') ? trimQuotes(key.substring(11)) : undefined
 
     if (queryContextColumnName && queryContextColumn && (queryContextColumn.title || queryContextColumn.renderTitle)) {
         const Component = queryContextColumn.renderTitle
@@ -34,8 +51,12 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
         }
         if (title.startsWith("tuple('__hx_tag', '")) {
             const tagName = title.substring(19, title.indexOf("'", 19))
-            title = tagName === '__hx_obj' ? 'Object' : '<' + tagName + ' />'
+            title =
+                tagName === '__hx_obj' ? 'Object' : tagName === 'RecordingButton' ? 'Recording' : '<' + tagName + ' />'
         }
+    } else if (propertyName && isGroupsQuery(query.source)) {
+        const splitPropertyName = propertyName.split('--')
+        title = splitPropertyName.length > 1 ? splitPropertyName[1].trim() : propertyName
     } else if (key === 'timestamp') {
         title = 'Time'
     } else if (key === 'created_at') {
@@ -47,7 +68,7 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
     } else if (key.startsWith('properties.')) {
         title = (
             <PropertyKeyInfo
-                value={trimQuotes(key.substring(11))}
+                value={trimQuotes(removeExpressionComment(key.substring(11)))}
                 type={TaxonomicFilterGroupType.EventProperties}
                 disableIcon
             />
@@ -87,7 +108,24 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
         title = Component ? <Component columnName={key} query={query} /> : context?.columns?.[key]?.title
     }
 
-    if (queryFeatures.has(QueryFeature.selectAndOrderByColumns) && !query.allowSorting) {
+    if (queryFeatures.has(QueryFeature.selectAndOrderByColumns) && isMarketingAnalyticsTableQuery(query.source)) {
+        const marketingQuery = query.source as MarketingAnalyticsTableQuery
+        const sortKey = marketingQuery.orderBy?.[0]?.[0]
+        const isSortedByKey = key === sortKey
+        const order = isSortedByKey ? (marketingQuery.orderBy?.[0]?.[1] === 'DESC' ? -1 : 1) : undefined
+        if (order) {
+            title = (
+                <>
+                    {title}
+                    <SortingIndicator order={order} />
+                </>
+            )
+        }
+    } else if (
+        queryFeatures.has(QueryFeature.selectAndOrderByColumns) &&
+        isDataTableNode(query) &&
+        !query.allowSorting
+    ) {
         const sortKey = queryFeatures.has(QueryFeature.selectAndOrderByColumns)
             ? (query.source as EventsQuery)?.orderBy?.[0]
             : null

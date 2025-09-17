@@ -23,11 +23,10 @@ export function AnimatedCollapsible({
 
     return (
         <div
-            className="collapsible overflow-hidden"
+            className="collapsible overflow-hidden transition-all duration-100 ease-in-out"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 height,
-                transition: 'height 0.1s ease-in-out',
             }}
         >
             <div ref={collapsibleSectionRef}>{children}</div>

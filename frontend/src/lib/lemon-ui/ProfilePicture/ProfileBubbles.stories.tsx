@@ -1,4 +1,5 @@
 import { Meta } from '@storybook/react'
+
 import { alphabet, range } from 'lib/utils'
 
 import { ProfileBubbles as ProfileBubblesComponent, ProfileBubblesProps } from './ProfileBubbles'
@@ -30,7 +31,11 @@ export function OneBubble(props: any): JSX.Element {
 }
 
 export function MultipleBubblesWithTooltip(props: any): JSX.Element {
-    return <ProfileBubblesComponent {...props} tooltip="Cool people." />
+    return (
+        <div className="flex flex-start">
+            <ProfileBubblesComponent {...props} tooltip="Cool people." />
+        </div>
+    )
 }
 
 export function MultipleBubblesWithNoImages(props: any): JSX.Element {

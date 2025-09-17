@@ -1,5 +1,6 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { Meta } from '@storybook/react'
+
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { Spinner, SpinnerOverlay } from './Spinner'
 
@@ -21,7 +22,7 @@ export function Default(): JSX.Element {
 
 export function Sizes(): JSX.Element {
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             <p>
                 Spinners will inherit their size based on fontSize making it easy to style with CSS or utility classes
             </p>

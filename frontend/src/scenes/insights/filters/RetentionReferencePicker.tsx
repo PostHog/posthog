@@ -1,5 +1,7 @@
-import { LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonSelect } from '@posthog/lemon-ui'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -21,13 +23,15 @@ export function RetentionReferencePicker(): JSX.Element {
             options={[
                 {
                     value: 'total',
-                    labelInMenu: 'Overall cohort',
-                    label: '% Overall cohort',
+                    label: 'starting cohort size',
+                    tooltip:
+                        'eg. Retention for day 3 will be percentage of users who returned on day 3 as a percentage of users on day 0 (users who preformed start event)',
                 },
                 {
                     value: 'previous',
-                    labelInMenu: 'Relative to previous period',
-                    label: '% Relative to previous period',
+                    label: 'previous period',
+                    tooltip:
+                        'eg. Retention for day 3 will be percentage of users who returned on day 3 as a percentage of users who returned on day 2 (the previous period)',
                 },
             ]}
         />

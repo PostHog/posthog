@@ -1,0 +1,22 @@
+# serializer version: 1
+# name: test_exception_summary
+  '''
+  1 future(s) did not return a result:
+  
+  * HostInfo(connection_info=ConnectionInfo(host='clickhouse', port=9000), shard_num=1, replica_num=1, host_cluster_type='online', host_cluster_role='data'): ServerException("DB::Exception: Syntax error: failed at position 1 (invalid): invalid query. Expected one of: Query, Query with output, EXPLAIN, EXPLAIN, SELECT query, possibly with UNION, list of union elements, SELECT query, subquery, possibly with UNION...
+  '''
+# ---
+# name: test_exception_summary.1
+  '''
+  1 future(s) did not return a result:
+  
+  * HostInfo(connection_info=ConnectionInfo(host='clickhouse', port=9000), shard_num=1, replica_num=1, host_cluster_type='online', host_cluster_role='data'): ServerException("DB::Exception: Unknown table expression identifier 'invalid_table_name' in scope SELECT * FROM invalid_table_name. Stack trace:\n\n0. DB::Exception::Exception(DB::Exception::MessageMasked&&, int, bool) @ 0x0000000000000000\n1. DB::Exceptio...
+  '''
+# ---
+# name: test_exception_summary.2
+  '''
+  1 future(s) did not return a result:
+  
+  * HostInfo(connection_info=ConnectionInfo(host='clickhouse', port=9000), shard_num=1, replica_num=1, host_cluster_type='online', host_cluster_role='data'): ValueError('custom error')
+  '''
+# ---

@@ -1,0 +1,20 @@
+[package]
+name = "common-kafka"
+version = "0.1.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[dependencies]
+chrono = { workspace = true }
+envconfig = { workspace = true }
+health = { path = "../health" }
+rdkafka = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+time = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }

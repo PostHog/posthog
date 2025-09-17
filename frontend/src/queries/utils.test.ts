@@ -1,5 +1,7 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { dayjs } from 'lib/dayjs'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { initKeaTests } from '~/test/init'
@@ -47,9 +49,17 @@ describe('hogql tag', () => {
     })
 
     it('properly returns query with date substitution in non-UTC', () => {
+        const context = getAppContext()
+        let oldTimezone = context?.current_team?.timezone || 'UTC'
+        if (context?.current_team) {
+            context.current_team.timezone = 'Europe/Moscow'
+        }
         teamLogic.actions.loadCurrentTeamSuccess({ id: MOCK_TEAM_ID, timezone: 'Europe/Moscow' } as TeamType)
         expect(hogql`SELECT * FROM events WHERE timestamp > ${dayjs('2023-04-04T04:04:00Z')}`).toEqual(
             "SELECT * FROM events WHERE timestamp > '2023-04-04 07:04:00'" // Offset by 3 hours
         )
+        if (context?.current_team) {
+            context.current_team.timezone = oldTimezone
+        }
     })
 })

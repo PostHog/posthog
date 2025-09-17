@@ -1,15 +1,18 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
 
-import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
+import { useMousePosition } from 'lib/components/heatmaps/useMousePosition'
+import { useShiftKeyPressed } from 'lib/components/heatmaps/useShiftKeyPressed'
+
+import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 
 import { toolbarConfigLogic } from '../toolbarConfigLogic'
-import { useMousePosition } from './useMousePosition'
 
 function ScrollDepthMouseInfo(): JSX.Element | null {
     const { posthog } = useValues(toolbarConfigLogic)
-    const { heatmapElements, rawHeatmapLoading, shiftPressed } = useValues(heatmapLogic)
+    const { heatmapElements, rawHeatmapLoading } = useValues(heatmapToolbarMenuLogic)
 
+    const shiftPressed = useShiftKeyPressed()
     const { y: mouseY } = useMousePosition()
 
     if (!mouseY) {
@@ -29,11 +32,10 @@ function ScrollDepthMouseInfo(): JSX.Element | null {
 
     return (
         <div
-            className="absolute left-0 right-0 flex items-center z-10"
+            className="absolute left-0 right-0 flex items-center z-10 -translate-y-1/2"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 top: mouseY,
-                transform: 'translateY(-50%)',
             }}
         >
             <div className="border-b border-default w-full opacity-75" />
@@ -61,7 +63,7 @@ export function ScrollDepth(): JSX.Element | null {
     const { posthog } = useValues(toolbarConfigLogic)
 
     const { heatmapEnabled, heatmapFilters, heatmapElements, scrollDepthPosthogJsError, heatmapColorPalette } =
-        useValues(heatmapLogic)
+        useValues(heatmapToolbarMenuLogic)
 
     if (!heatmapEnabled || !heatmapFilters.enabled || heatmapFilters.type !== 'scrolldepth') {
         return null
@@ -118,15 +120,12 @@ export function ScrollDepth(): JSX.Element | null {
                 {heatmapElements.map(({ y, count }, i) => (
                     <div
                         key={y}
+                        className="absolute left-0 w-full opacity-50"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{
-                            position: 'absolute',
                             top: heatmapElements[i - 1]?.y ?? 0,
-                            left: 0,
-                            width: '100%',
                             height: y - (heatmapElements[i - 1]?.y ?? 0),
                             backgroundColor: color(count),
-                            opacity: 0.5,
                         }}
                     />
                 ))}

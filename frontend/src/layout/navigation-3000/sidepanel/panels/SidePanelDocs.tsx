@@ -1,8 +1,11 @@
-import { IconExternal, IconHome } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
+
+import { IconExternal, IconHome } from '@posthog/icons'
+import { LemonButton, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { themeLogic } from '../../themeLogic'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
@@ -10,7 +13,7 @@ import { sidePanelDocsLogic } from './sidePanelDocsLogic'
 
 export function SidePanelDocsSkeleton(): JSX.Element {
     return (
-        <div className="absolute inset-0 p-4 space-y-2">
+        <div className="absolute inset-0 p-4 deprecated-space-y-2">
             <LemonSkeleton className="w-full h-10 mb-12" />
             <LemonSkeleton className="w-1/3 h-8" />
             <LemonSkeleton className="w-1/2 h-4 mb-10" />
@@ -41,14 +44,14 @@ export const SidePanelDocs = (): JSX.Element => {
         )
     }, [isDarkModeOn, ref.current])
 
-    useEffect(() => {
+    useOnMountEffect(() => {
         window.addEventListener('beforeunload', unmountIframe)
 
         return () => {
             window.removeEventListener('beforeunload', unmountIframe)
             unmountIframe()
         }
-    }, [])
+    })
 
     return (
         <>
@@ -76,6 +79,7 @@ export const SidePanelDocs = (): JSX.Element => {
                         size="small"
                         value={activeMenuName ?? ''}
                         options={menuOptions.map(({ name, url }) => ({ label: name, value: url }))}
+                        className="ml-1 shrink whitespace-nowrap overflow-hidden"
                     />
                 )}
 

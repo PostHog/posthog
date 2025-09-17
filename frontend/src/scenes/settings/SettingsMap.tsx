@@ -1,78 +1,123 @@
-import { BounceRatePageViewModeSetting } from 'scenes/settings/project/BounceRatePageViewMode'
-import { PersonsJoinMode } from 'scenes/settings/project/PersonsJoinMode'
-import { PersonsOnEvents } from 'scenes/settings/project/PersonsOnEvents'
-import { SessionsTableVersion } from 'scenes/settings/project/SessionsTableVersion'
+import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { ExceptionAutocaptureSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/ExceptionAutocaptureSettings'
+import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
+import { AutoAssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/AutoAssignmentRules'
+import { CustomGroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/CustomGroupingRules'
+import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
+import { EventConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/EventConfiguration'
+import { ExternalDataSourceConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/ExternalDataSourceConfiguration'
+import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/FilterTestAccountsConfiguration'
+import { GoalsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/GoalsConfiguration'
 
-import { Invites } from './organization/Invites'
-import { Members } from './organization/Members'
-import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
-import { OrganizationDisplayName } from './organization/OrgDisplayName'
-import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
-import { OrganizationLogo } from './organization/OrgLogo'
-import { PermissionsGrid } from './organization/Permissions/PermissionsGrid'
-import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
-import {
-    AutocaptureSettings,
-    ExceptionAutocaptureSettings,
-    WebVitalsAutocaptureSettings,
-} from './project/AutocaptureSettings'
-import { CorrelationConfig } from './project/CorrelationConfig'
-import { DataAttributes } from './project/DataAttributes'
-import { GroupAnalyticsConfig } from './project/GroupAnalyticsConfig'
-import { HeatmapsSettings } from './project/HeatmapsSettings'
-import { IPAllowListInfo } from './project/IPAllowListInfo'
-import { IPCapture } from './project/IPCapture'
-import { ManagedReverseProxy } from './project/ManagedReverseProxy'
-import { OtherIntegrations } from './project/OtherIntegrations'
-import { PathCleaningFiltersConfig } from './project/PathCleaningFiltersConfig'
-import { PersonDisplayNameProperties } from './project/PersonDisplayNameProperties'
-import { ProjectAccessControl } from './project/ProjectAccessControl'
-import { ProjectDangerZone } from './project/ProjectDangerZone'
-import {
-    Bookmarklet,
-    ProjectDisplayName,
-    ProjectTimezone,
-    ProjectToolbarURLs,
-    ProjectVariables,
-    WebSnippet,
-} from './project/ProjectSettings'
+import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
+import { OrganizationMembershipLevel } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { BounceRateDurationSetting } from 'scenes/settings/environment/BounceRateDuration'
+import { BounceRatePageViewModeSetting } from 'scenes/settings/environment/BounceRatePageViewMode'
+import { CookielessServerHashModeSetting } from 'scenes/settings/environment/CookielessServerHashMode'
+import { CustomChannelTypes } from 'scenes/settings/environment/CustomChannelTypes'
+import { DeadClicksAutocaptureSettings } from 'scenes/settings/environment/DeadClicksAutocaptureSettings'
+import { MaxMemorySettings } from 'scenes/settings/environment/MaxMemorySettings'
+import { PersonsJoinMode } from 'scenes/settings/environment/PersonsJoinMode'
+import { PersonsOnEvents } from 'scenes/settings/environment/PersonsOnEvents'
+import { PreAggregatedTablesSetting } from 'scenes/settings/environment/PreAggregatedTablesSetting'
+import { ReplayTriggers } from 'scenes/settings/environment/ReplayTriggers'
+import { SessionsTableVersion } from 'scenes/settings/environment/SessionsTableVersion'
+import { SessionsV2JoinModeSettings } from 'scenes/settings/environment/SessionsV2JoinModeSettings'
+import { urls } from 'scenes/urls'
+import { MarketingAnalyticsSettings } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/MarketingAnalyticsSettings'
+
+import { RolesAccessControls } from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
+import { Realm } from '~/types'
+
+import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
+import { AutocaptureSettings, WebVitalsAutocaptureSettings } from './environment/AutocaptureSettings'
+import { CRMUsageMetricsConfig } from './environment/CRMUsageMetricsConfig'
+import { CSPReportingSettings } from './environment/CSPReportingSettings'
+import { CorrelationConfig } from './environment/CorrelationConfig'
+import { DataAttributes } from './environment/DataAttributes'
+import { DataColorThemes } from './environment/DataColorThemes'
+import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegrations'
+import { FeatureFlagSettings } from './environment/FeatureFlagSettings'
+import { FeaturePreviewsSettings } from './environment/FeaturePreviewsSettings'
+import { GithubIntegration } from './environment/GithubIntegration'
+import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
+import { HeatmapsSettings } from './environment/HeatmapsSettings'
+import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriendlyComparisonPeriodsSetting'
+import { IPAllowListInfo } from './environment/IPAllowListInfo'
+import { IPCapture } from './environment/IPCapture'
+import MCPServerSettings from './environment/MCPServerSettings'
+import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
+import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
+import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
 import {
     NetworkCaptureSettings,
     ReplayAISettings,
     ReplayAuthorizedDomains,
-    ReplayCostControl,
     ReplayGeneral,
-} from './project/SessionRecordingSettings'
-import { SlackIntegration } from './project/SlackIntegration'
-import { SurveySettings } from './project/SurveySettings'
-import { ProjectAccountFiltersSetting } from './project/TestAccountFiltersConfig'
-import { WebhookIntegration } from './project/WebhookIntegration'
+    ReplayMaskingSettings,
+} from './environment/SessionRecordingSettings'
+import { SlackIntegration } from './environment/SlackIntegration'
+import { SurveySettings } from './environment/SurveySettings'
+import { TeamAccessControl } from './environment/TeamAccessControl'
+import { TeamDangerZone } from './environment/TeamDangerZone'
+import {
+    Bookmarklet,
+    TeamAuthorizedURLs,
+    TeamDisplayName,
+    TeamTimezone,
+    TeamVariables,
+    WebSnippet,
+} from './environment/TeamSettings'
+import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
+import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
+import { WebhookIntegration } from './environment/WebhookIntegration'
+import { Invites } from './organization/Invites'
+import { Members } from './organization/Members'
+import { OrganizationAI } from './organization/OrgAI'
+import { OrganizationDisplayName } from './organization/OrgDisplayName'
+import { OrganizationEmailPreferences } from './organization/OrgEmailPreferences'
+import { OrganizationExperimentStatsMethod } from './organization/OrgExperimentStatsMethod'
+import { OrganizationLogo } from './organization/OrgLogo'
+import { OrganizationDangerZone } from './organization/OrganizationDangerZone'
+import { OrganizationSecuritySettings } from './organization/OrganizationSecuritySettings'
+import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
+import { ProjectDangerZone } from './project/ProjectDangerZone'
+import { ProjectMove } from './project/ProjectMove'
+import { ProjectDisplayName } from './project/ProjectSettings'
 import { SettingSection } from './types'
 import { ChangePassword } from './user/ChangePassword'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
 import { ThemeSwitcher } from './user/ThemeSwitcher'
-import { TwoFactorAuthentication } from './user/TwoFactorAuthentication'
+import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
+import { UserDangerZone } from './user/UserDangerZone'
 import { UserDetails } from './user/UserDetails'
 
-export const SettingsMap: SettingSection[] = [
-    // PROJECT
+export const SETTINGS_MAP: SettingSection[] = [
+    // ENVIRONMENT
     {
-        level: 'project',
-        id: 'project-details',
+        level: 'environment',
+        id: 'environment-details',
         title: 'General',
         settings: [
             {
                 id: 'display-name',
                 title: 'Display name',
-                component: <ProjectDisplayName />,
+                component: <TeamDisplayName />,
             },
             {
                 id: 'snippet',
                 title: 'Web snippet',
                 component: <WebSnippet />,
+            },
+            {
+                id: 'authorized-urls',
+                title: 'Toolbar Authorized URLs',
+                component: <TeamAuthorizedURLs />,
             },
             {
                 id: 'bookmarklet',
@@ -82,13 +127,13 @@ export const SettingsMap: SettingSection[] = [
             {
                 id: 'variables',
                 title: 'Project ID',
-                component: <ProjectVariables />,
+                component: <TeamVariables />,
             },
         ],
     },
     {
-        level: 'project',
-        id: 'project-autocapture',
+        level: 'environment',
+        id: 'environment-autocapture',
         title: 'Autocapture & heatmaps',
 
         settings: [
@@ -98,15 +143,14 @@ export const SettingsMap: SettingSection[] = [
                 component: <AutocaptureSettings />,
             },
             {
+                id: 'autocapture-data-attributes',
+                title: 'Data attributes',
+                component: <DataAttributes />,
+            },
+            {
                 id: 'heatmaps',
                 title: 'Heatmaps',
                 component: <HeatmapsSettings />,
-            },
-            {
-                id: 'exception-autocapture',
-                title: 'Exception autocapture',
-                component: <ExceptionAutocaptureSettings />,
-                flag: 'EXCEPTION_AUTOCAPTURE',
             },
             {
                 id: 'web-vitals-autocapture',
@@ -114,27 +158,43 @@ export const SettingsMap: SettingSection[] = [
                 component: <WebVitalsAutocaptureSettings />,
             },
             {
-                id: 'autocapture-data-attributes',
-                title: 'Data attributes',
-                component: <DataAttributes />,
+                id: 'dead-clicks-autocapture',
+                title: 'Dead clicks autocapture',
+                component: <DeadClicksAutocaptureSettings />,
             },
         ],
     },
-
     {
-        level: 'project',
-        id: 'project-product-analytics',
+        level: 'environment',
+        id: 'environment-product-analytics',
         title: 'Product analytics',
         settings: [
             {
                 id: 'date-and-time',
                 title: 'Date & time',
-                component: <ProjectTimezone />,
+                component: <TeamTimezone />,
+            },
+            {
+                id: 'base-currency',
+                title: 'Base currency',
+                component: <BaseCurrency hideTitle />,
             },
             {
                 id: 'internal-user-filtering',
                 title: 'Filter out internal and test users',
                 component: <ProjectAccountFiltersSetting />,
+            },
+            {
+                id: 'data-theme',
+                title: (
+                    <>
+                        Chart color themes
+                        <LemonTag type="warning" className="ml-1 uppercase">
+                            Beta
+                        </LemonTag>
+                    </>
+                ),
+                component: <DataColorThemes />,
             },
             {
                 id: 'persons-on-events',
@@ -163,21 +223,21 @@ export const SettingsMap: SettingSection[] = [
                 component: <IPCapture />,
             },
             {
+                id: 'human-friendly-comparison-periods',
+                title: 'Human friendly comparison periods',
+                component: <HumanFriendlyComparisonPeriodsSetting />,
+            },
+            {
                 id: 'group-analytics',
                 title: 'Group analytics',
                 component: <GroupAnalyticsConfig />,
+                flag: '!CRM_ITERATION_ONE',
             },
             {
                 id: 'persons-join-mode',
                 title: 'Persons join mode',
                 component: <PersonsJoinMode />,
                 flag: 'SETTINGS_PERSONS_JOIN_MODE',
-            },
-            {
-                id: 'bounce-rate-page-view-mode',
-                title: 'Bounce rate page view mode',
-                component: <BounceRatePageViewModeSetting />,
-                flag: 'SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE',
             },
             {
                 id: 'session-table-version',
@@ -187,16 +247,140 @@ export const SettingsMap: SettingSection[] = [
             },
         ],
     },
-
     {
-        level: 'project',
-        id: 'project-replay',
+        level: 'environment',
+        id: 'environment-revenue-analytics',
+        title: 'Revenue analytics',
+        settings: [
+            {
+                id: 'revenue-base-currency',
+                title: 'Base currency',
+                component: <BaseCurrency hideTitle />,
+            },
+            {
+                id: 'revenue-analytics-filter-test-accounts',
+                title: 'Filter test accounts out of revenue analytics',
+                component: <RevenueAnalyticsFilterTestAccountsConfiguration />,
+            },
+            {
+                id: 'revenue-analytics-goals',
+                title: 'Revenue goals',
+                component: <GoalsConfiguration />,
+            },
+            {
+                id: 'revenue-analytics-events',
+                title: 'Revenue events',
+                component: <EventConfiguration />,
+            },
+            {
+                id: 'revenue-analytics-external-data-sources',
+                title: 'External data sources',
+                component: <ExternalDataSourceConfiguration />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-marketing-analytics',
+        title: 'Marketing analytics',
+        flag: 'WEB_ANALYTICS_MARKETING',
+        settings: [
+            {
+                id: 'marketing-settings',
+                title: 'Marketing settings',
+                component: <MarketingAnalyticsSettings hideTitle />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-web-analytics',
+        title: 'Web analytics',
+        settings: [
+            {
+                id: 'web-analytics-authorized-urls',
+                title: 'Web Analytics Domains',
+                component: <TeamAuthorizedURLs />,
+            },
+            {
+                id: 'channel-type',
+                title: 'Custom channel type',
+                component: <CustomChannelTypes />,
+            },
+            {
+                id: 'cookieless-server-hash-mode',
+                title: 'Cookieless server hash mode',
+                component: <CookielessServerHashModeSetting />,
+            },
+            {
+                id: 'bounce-rate-duration',
+                title: 'Bounce rate duration',
+                component: <BounceRateDurationSetting />,
+            },
+            {
+                id: 'bounce-rate-page-view-mode',
+                title: 'Bounce rate page view mode',
+                component: <BounceRatePageViewModeSetting />,
+                flag: 'SETTINGS_BOUNCE_RATE_PAGE_VIEW_MODE',
+            },
+            {
+                id: 'session-join-mode',
+                title: 'Session join mode',
+                component: <SessionsV2JoinModeSettings />,
+                flag: 'SETTINGS_SESSIONS_V2_JOIN',
+            },
+            {
+                id: 'web-analytics-pre-aggregated-tables',
+                title: 'Pre-aggregated tables',
+                component: <PreAggregatedTablesSetting />,
+                flag: 'SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES',
+            },
+            {
+                id: 'web-analytics-opt-in-pre-aggregated-tables-and-api',
+                title: 'New query engine',
+                component: <WebAnalyticsEnablePreAggregatedTables />,
+                flag: 'WEB_ANALYTICS_API',
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-crm',
+        title: 'CRM',
+        flag: 'CRM_ITERATION_ONE',
+        settings: [
+            {
+                id: 'group-analytics',
+                title: 'Group analytics',
+                component: <GroupAnalyticsConfig />,
+            },
+            {
+                id: 'crm-usage-metrics',
+                title: 'Usage metrics',
+                component: <CRMUsageMetricsConfig />,
+                flag: 'CRM_USAGE_METRICS',
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-replay',
         title: 'Session replay',
         settings: [
             {
                 id: 'replay',
                 title: 'Session replay',
                 component: <ReplayGeneral />,
+            },
+            {
+                id: 'replay-triggers',
+                title: 'Recording conditions',
+                component: <ReplayTriggers />,
+            },
+            {
+                id: 'replay-masking',
+                title: 'Privacy and masking',
+                component: <ReplayMaskingSettings />,
             },
             {
                 id: 'replay-network',
@@ -207,11 +391,7 @@ export const SettingsMap: SettingSection[] = [
                 id: 'replay-authorized-domains',
                 title: 'Authorized domains for replay',
                 component: <ReplayAuthorizedDomains />,
-            },
-            {
-                id: 'replay-ingestion',
-                title: 'Ingestion controls',
-                component: <ReplayCostControl />,
+                allowForTeam: (t) => !!t?.recording_domains?.length,
             },
             {
                 id: 'replay-ai-config',
@@ -222,8 +402,8 @@ export const SettingsMap: SettingSection[] = [
         ],
     },
     {
-        level: 'project',
-        id: 'project-surveys',
+        level: 'environment',
+        id: 'environment-surveys',
         title: 'Surveys',
         settings: [
             {
@@ -233,22 +413,94 @@ export const SettingsMap: SettingSection[] = [
             },
         ],
     },
-
     {
-        level: 'project',
-        id: 'project-toolbar',
-        title: 'Toolbar',
+        level: 'environment',
+        id: 'environment-feature-flags',
+        title: 'Feature flags',
         settings: [
             {
-                id: 'authorized-toolbar-urls',
-                title: 'Authorized toolbar URLs',
-                component: <ProjectToolbarURLs />,
+                id: 'feature-flags-interface',
+                title: 'Feature flags',
+                component: <FeatureFlagSettings />,
             },
         ],
     },
     {
-        level: 'project',
-        id: 'project-integrations',
+        level: 'environment',
+        id: 'environment-error-tracking',
+        title: 'Error tracking',
+        settings: [
+            {
+                id: 'error-tracking-exception-autocapture',
+                title: 'Exception autocapture',
+                component: <ExceptionAutocaptureSettings />,
+            },
+            {
+                id: 'error-tracking-alerting',
+                title: 'Alerting',
+                component: <ErrorTrackingAlerting />,
+            },
+            {
+                id: 'error-tracking-auto-assignment',
+                title: 'Auto assignment rules',
+                component: <AutoAssignmentRules />,
+            },
+            {
+                id: 'error-tracking-custom-grouping',
+                title: 'Custom grouping rules',
+                component: <CustomGroupingRules />,
+            },
+            {
+                id: 'error-tracking-integrations',
+                title: 'Integrations',
+                component: <ErrorTrackingIntegrations />,
+            },
+            {
+                id: 'error-tracking-symbol-sets',
+                title: 'Symbol sets',
+                component: <SymbolSets />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-csp-reporting',
+        title: 'CSP reporting',
+        flag: 'CSP_REPORTING',
+        settings: [
+            {
+                id: 'csp-reporting',
+                title: (
+                    <>
+                        CSP reporting{' '}
+                        <LemonTag type="warning" className="ml-1 uppercase">
+                            Beta
+                        </LemonTag>
+                    </>
+                ),
+                component: <CSPReportingSettings />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-max',
+        title: 'Max AI',
+        flag: 'ARTIFICIAL_HOG',
+        settings: [
+            {
+                id: 'core-memory',
+                title: 'Memory',
+                description:
+                    "Max automatically remembers details about your company and product. This context helps our AI assistant provide relevant answers and suggestions. If there are any details you don't want Max to remember, you can edit or remove them below.",
+                component: <MaxMemorySettings />,
+                hideOn: [Realm.SelfHostedClickHouse, Realm.SelfHostedPostgres],
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-integrations',
         title: 'Integrations',
         settings: [
             {
@@ -262,9 +514,19 @@ export const SettingsMap: SettingSection[] = [
                 component: <SlackIntegration />,
             },
             {
+                id: 'integration-error-tracking',
+                title: 'Error tracking integrations',
+                component: <ErrorTrackingIntegrations />,
+            },
+            {
+                id: 'integration-github',
+                title: 'GitHub integration',
+                component: <GithubIntegration />,
+            },
+            {
                 id: 'integration-other',
                 title: 'Other integrations',
-                component: <OtherIntegrations />,
+                component: <IntegrationsList omitKinds={['slack', 'linear', 'github']} />,
             },
             {
                 id: 'integration-ip-allowlist',
@@ -274,14 +536,61 @@ export const SettingsMap: SettingSection[] = [
         ],
     },
     {
-        level: 'project',
-        id: 'project-rbac',
+        level: 'environment',
+        id: 'environment-access-control',
         title: 'Access control',
         settings: [
             {
-                id: 'project-rbac',
+                id: 'environment-access-control',
                 title: 'Access control',
-                component: <ProjectAccessControl />,
+                component: <TeamAccessControl />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'mcp-server',
+        // hideSelfHost: true,
+        title: 'MCP Server',
+        settings: [
+            {
+                id: 'mcp-server-configure',
+                title: 'Model Context Protocol (MCP) server',
+                component: <MCPServerSettings />,
+            },
+        ],
+    },
+    {
+        level: 'environment',
+        id: 'environment-danger-zone',
+        title: 'Danger zone',
+        settings: [
+            {
+                id: 'project-move',
+                title: 'Move project',
+                flag: '!ENVIRONMENTS',
+                component: <ProjectMove />, // There isn't EnvironmentMove yet
+                allowForTeam: () =>
+                    (organizationLogic.findMounted()?.values.currentOrganization?.teams.length ?? 0) > 1,
+            },
+            {
+                id: 'environment-delete',
+                title: 'Delete environment',
+                component: <TeamDangerZone />,
+            },
+        ],
+    },
+
+    // PROJECT - just project-details and project-danger-zone
+    {
+        level: 'project',
+        id: 'project-details',
+        title: 'General',
+        settings: [
+            {
+                id: 'display-name',
+                title: 'Display name',
+                component: <ProjectDisplayName />,
             },
         ],
     },
@@ -290,6 +599,13 @@ export const SettingsMap: SettingSection[] = [
         id: 'project-danger-zone',
         title: 'Danger zone',
         settings: [
+            {
+                id: 'project-move',
+                title: 'Move project',
+                component: <ProjectMove />,
+                allowForTeam: () =>
+                    (organizationLogic.findMounted()?.values.currentOrganization?.teams.length ?? 0) > 1,
+            },
             {
                 id: 'project-delete',
                 title: 'Delete project',
@@ -313,6 +629,33 @@ export const SettingsMap: SettingSection[] = [
                 id: 'organization-logo',
                 title: 'Logo',
                 component: <OrganizationLogo />,
+            },
+            {
+                id: 'organization-ai-consent',
+                title: 'PostHog AI data analysis',
+                description: (
+                    // Note: Sync the copy below with AIConsentPopoverWrapper.tsx
+                    <>
+                        PostHog AI features, such as our assistant Max, use{' '}
+                        <Tooltip title={`As of ${dayjs().format('MMMM YYYY')}: OpenAI`}>
+                            <dfn>external AI services</dfn>
+                        </Tooltip>{' '}
+                        for data analysis.
+                        <br />
+                        This <i>can</i> involve transfer of identifying user data, so we ask for your org-wide consent
+                        below.
+                        <br />
+                        <strong>Your data will not be used for training models.</strong>
+                    </>
+                ),
+                component: <OrganizationAI />,
+            },
+            {
+                id: 'organization-experiment-stats-method',
+                title: 'Default experiment statistical method',
+                description:
+                    'Choose which statistical method to use by default for new experiments in this organization. Individual experiments can override this setting.',
+                component: <OrganizationExperimentStatsMethod />,
             },
         ],
     },
@@ -340,6 +683,18 @@ export const SettingsMap: SettingSection[] = [
     },
     {
         level: 'organization',
+        id: 'organization-roles',
+        title: 'Roles',
+        settings: [
+            {
+                id: 'organization-roles',
+                title: 'Roles',
+                component: <RolesAccessControls />,
+            },
+        ],
+    },
+    {
+        level: 'organization',
         id: 'organization-authentication',
         title: 'Authentication domains & SSO',
         settings: [
@@ -347,18 +702,6 @@ export const SettingsMap: SettingSection[] = [
                 id: 'authentication-domains',
                 title: 'Authentication Domains',
                 component: <VerifiedDomains />,
-            },
-        ],
-    },
-    {
-        level: 'organization',
-        id: 'organization-rbac',
-        title: 'Role-based access',
-        settings: [
-            {
-                id: 'organization-rbac',
-                title: 'Role-based access',
-                component: <PermissionsGrid />,
             },
         ],
     },
@@ -376,6 +719,18 @@ export const SettingsMap: SettingSection[] = [
     },
     {
         level: 'organization',
+        id: 'organization-security',
+        title: 'Security settings',
+        settings: [
+            {
+                id: 'organization-security',
+                title: 'Security settings',
+                component: <OrganizationSecuritySettings />,
+            },
+        ],
+    },
+    {
+        level: 'organization',
         id: 'organization-danger-zone',
         title: 'Danger zone',
         settings: [
@@ -385,6 +740,24 @@ export const SettingsMap: SettingSection[] = [
                 component: <OrganizationDangerZone />,
             },
         ],
+    },
+    {
+        level: 'organization',
+        id: 'organization-billing',
+        hideSelfHost: true,
+        title: 'Billing',
+        to: urls.organizationBilling(),
+        settings: [],
+    },
+    {
+        level: 'organization',
+        id: 'organization-startup-program',
+        hideSelfHost: true,
+        title: 'Startup program',
+        to: urls.startups(),
+        settings: [],
+        minimumAccessLevel: OrganizationMembershipLevel.Admin,
+        flag: 'STARTUP_PROGRAM_INTENT',
     },
 
     // USER
@@ -406,7 +779,7 @@ export const SettingsMap: SettingSection[] = [
             {
                 id: '2fa',
                 title: 'Two-factor authentication',
-                component: <TwoFactorAuthentication />,
+                component: <TwoFactorSettings />,
             },
         ],
     },
@@ -424,6 +797,30 @@ export const SettingsMap: SettingSection[] = [
     },
     {
         level: 'user',
+        id: 'user-feature-previews',
+        title: 'Feature previews',
+        settings: [
+            {
+                id: 'feature-previews',
+                title: 'Feature previews',
+                component: <FeaturePreviewsSettings />,
+            },
+        ],
+    },
+    {
+        level: 'user',
+        id: 'user-notifications',
+        title: 'Notifications',
+        settings: [
+            {
+                id: 'notifications',
+                title: 'Notifications',
+                component: <UpdateEmailPreferences />,
+            },
+        ],
+    },
+    {
+        level: 'user',
         id: 'user-customization',
         title: 'Customization',
         settings: [
@@ -433,19 +830,40 @@ export const SettingsMap: SettingSection[] = [
                 component: <ThemeSwitcher onlyLabel />,
             },
             {
-                id: 'notifications',
-                title: 'Notifications',
-                component: <UpdateEmailPreferences />,
-            },
-            {
                 id: 'optout',
                 title: 'Anonymize data collection',
                 component: <OptOutCapture />,
+                hideOn: [Realm.Cloud],
             },
             {
                 id: 'hedgehog-mode',
                 title: 'Hedgehog mode',
                 component: <HedgehogModeSettings />,
+            },
+            {
+                id: 'customization-irl',
+                title: 'Customization IRL',
+                component: (
+                    <div>
+                        Grab some{' '}
+                        <Link to="https://posthog.com/merch" target="_blank">
+                            PostHog merch
+                        </Link>{' '}
+                        to customize yourself outside of the app
+                    </div>
+                ),
+            },
+        ],
+    },
+    {
+        level: 'user',
+        id: 'user-danger-zone',
+        title: 'Danger zone',
+        settings: [
+            {
+                id: 'user-delete',
+                title: 'Delete account',
+                component: <UserDangerZone />,
             },
         ],
     },

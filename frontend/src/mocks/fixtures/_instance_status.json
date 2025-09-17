@@ -22,11 +22,6 @@
                 "value": "1.10.5"
             },
             {
-                "key": "plugin_sever_job_queues",
-                "metric": "Job queues enabled in plugin server",
-                "value": "Graphile"
-            },
-            {
                 "key": "db_alive",
                 "metric": "Postgres database alive",
                 "value": true

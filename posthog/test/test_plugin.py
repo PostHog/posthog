@@ -1,10 +1,10 @@
 import base64
 
+from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
+
 from django.core import exceptions
-from rest_framework.exceptions import ValidationError
 
 from posthog.models import Plugin, PluginSourceFile
-from posthog.models.plugin import validate_plugin_job_payload
 from posthog.plugins.test.plugin_archives import (
     HELLO_WORLD_PLUGIN_FRONTEND_TSX,
     HELLO_WORLD_PLUGIN_GITHUB_INDEX_JS,
@@ -21,7 +21,6 @@ from posthog.plugins.test.plugin_archives import (
     HELLO_WORLD_PLUGIN_RAW_WITHOUT_PLUGIN_JS,
     HELLO_WORLD_PLUGIN_SITE_TS,
 )
-from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
 
 
 class TestPlugin(BaseTest):
@@ -44,98 +43,6 @@ class TestPlugin(BaseTest):
         default_config = some_plugin.get_default_config()
 
         self.assertDictEqual(default_config, {"x": "z"})
-
-    def test_validate_plugin_job_payload(self):
-        with self.assertRaises(ValidationError):
-            validate_plugin_job_payload(Plugin(), "unknown_job", {}, is_staff=False)
-        with self.assertRaises(ValidationError):
-            validate_plugin_job_payload(Plugin(public_jobs={}), "unknown_job", {}, is_staff=False)
-
-        validate_plugin_job_payload(Plugin(public_jobs={"foo_job": {}}), "foo_job", {}, is_staff=False)
-        validate_plugin_job_payload(
-            Plugin(public_jobs={"foo_job": {"payload": {}}}),
-            "foo_job",
-            {},
-            is_staff=False,
-        )
-        validate_plugin_job_payload(
-            Plugin(public_jobs={"foo_job": {"payload": {"param": {"type": "number"}}}}),
-            "foo_job",
-            {},
-            is_staff=False,
-        )
-        validate_plugin_job_payload(
-            Plugin(public_jobs={"foo_job": {"payload": {"param": {"type": "number", "required": False}}}}),
-            "foo_job",
-            {"param": 77},
-            is_staff=False,
-        )
-        with self.assertRaises(ValidationError):
-            validate_plugin_job_payload(
-                Plugin(public_jobs={"foo_job": {"payload": {"param": {"type": "number", "required": True}}}}),
-                "foo_job",
-                {},
-                is_staff=False,
-            )
-
-        with self.assertRaises(ValidationError):
-            validate_plugin_job_payload(
-                Plugin(public_jobs={"foo_job": {"payload": {"param": {"type": "number", "staff_only": True}}}}),
-                "foo_job",
-                {"param": 5},
-                is_staff=False,
-            )
-        validate_plugin_job_payload(
-            Plugin(
-                public_jobs={
-                    "foo_job": {
-                        "payload": {
-                            "param": {
-                                "type": "number",
-                                "staff_only": True,
-                                "default": 5,
-                            }
-                        }
-                    }
-                }
-            ),
-            "foo_job",
-            {"param": 5},
-            is_staff=False,
-        )
-
-        with self.assertRaises(ValidationError):
-            validate_plugin_job_payload(
-                Plugin(
-                    public_jobs={
-                        "foo_job": {
-                            "payload": {
-                                "param": {
-                                    "type": "number",
-                                    "staff_only": True,
-                                    "default": 1,
-                                }
-                            }
-                        }
-                    }
-                ),
-                "foo_job",
-                {"param": 5},
-                is_staff=False,
-            )
-
-        validate_plugin_job_payload(
-            Plugin(public_jobs={"foo_job": {"payload": {"param": {"type": "number", "staff_only": True}}}}),
-            "foo_job",
-            {},
-            is_staff=False,
-        )
-        validate_plugin_job_payload(
-            Plugin(public_jobs={"foo_job": {"payload": {"param": {"type": "number", "staff_only": True}}}}),
-            "foo_job",
-            {"param": 5},
-            is_staff=True,
-        )
 
 
 class TestPluginSourceFile(BaseTest, QueryMatchingTest):
@@ -178,7 +85,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
             plugin_json_file,
             index_ts_file,
             frontend_tsx_file,
-            site_Ts_file,
+            site_ts_file,
         ) = PluginSourceFile.objects.sync_from_plugin_archive(test_plugin)
 
         self.assertEqual(PluginSourceFile.objects.count(), 2)
@@ -186,7 +93,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
         assert index_ts_file is not None
         self.assertEqual(index_ts_file.source, HELLO_WORLD_PLUGIN_GITHUB_INDEX_JS)
         self.assertIsNone(frontend_tsx_file)
-        self.assertIsNone(site_Ts_file)
+        self.assertIsNone(site_ts_file)
 
     @snapshot_postgres_queries
     def test_sync_from_plugin_archive_from_tgz_with_explicit_index_js_works(self):
@@ -201,7 +108,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
             plugin_json_file,
             index_ts_file,
             frontend_tsx_file,
-            site_Ts_file,
+            site_ts_file,
         ) = PluginSourceFile.objects.sync_from_plugin_archive(test_plugin)
 
         self.assertEqual(PluginSourceFile.objects.count(), 2)
@@ -209,14 +116,14 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
         assert index_ts_file is not None
         self.assertEqual(index_ts_file.source, HELLO_WORLD_PLUGIN_NPM_INDEX_JS)
         self.assertIsNone(frontend_tsx_file)
-        self.assertIsNone(site_Ts_file)
+        self.assertIsNone(site_ts_file)
 
         # Second time - update
         (
             plugin_json_file,
             index_ts_file,
             frontend_tsx_file,
-            site_Ts_file,
+            site_ts_file,
         ) = PluginSourceFile.objects.sync_from_plugin_archive(test_plugin)
 
         self.assertEqual(PluginSourceFile.objects.count(), 2)
@@ -224,7 +131,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
         assert index_ts_file is not None
         self.assertEqual(index_ts_file.source, HELLO_WORLD_PLUGIN_NPM_INDEX_JS)
         self.assertIsNone(frontend_tsx_file)
-        self.assertIsNone(site_Ts_file)
+        self.assertIsNone(site_ts_file)
 
     @snapshot_postgres_queries
     def test_sync_from_plugin_archive_from_zip_with_index_ts_works(self):
@@ -239,7 +146,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
             plugin_json_file,
             index_ts_file,
             frontend_tsx_file,
-            site_Ts_file,
+            site_ts_file,
         ) = PluginSourceFile.objects.sync_from_plugin_archive(test_plugin)
 
         self.assertEqual(PluginSourceFile.objects.count(), 2)
@@ -247,7 +154,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
         assert index_ts_file is not None
         self.assertEqual(index_ts_file.source, HELLO_WORLD_PLUGIN_GITHUB_INDEX_JS)
         self.assertIsNone(frontend_tsx_file)
-        self.assertIsNone(site_Ts_file)
+        self.assertIsNone(site_ts_file)
         self.assertFalse(self.team.inject_web_apps)
 
     @snapshot_postgres_queries
@@ -263,19 +170,19 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
             plugin_json_file,
             index_ts_file,
             frontend_tsx_file,
-            site_Ts_file,
+            site_ts_file,
         ) = PluginSourceFile.objects.sync_from_plugin_archive(test_plugin)
 
         self.assertEqual(PluginSourceFile.objects.count(), 2)
         self.assertEqual(plugin_json_file.source, HELLO_WORLD_PLUGIN_PLUGIN_JSON_WITHOUT_MAIN)
         self.assertIsNone(index_ts_file)
-        self.assertIsNone(site_Ts_file)
+        self.assertIsNone(site_ts_file)
         assert frontend_tsx_file is not None
         self.assertEqual(frontend_tsx_file.source, HELLO_WORLD_PLUGIN_FRONTEND_TSX)
         self.assertFalse(self.team.inject_web_apps)
 
     @snapshot_postgres_queries
-    def test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_Ts_works(self):
+    def test_sync_from_plugin_archive_from_zip_without_index_ts_but_site_ts_works(self):
         self.assertFalse(self.team.inject_web_apps)
         test_plugin: Plugin = Plugin.objects.create(
             organization=self.organization,
@@ -287,15 +194,17 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
             plugin_json_file,
             index_ts_file,
             frontend_tsx_file,
-            site_Ts_file,
+            site_ts_file,
         ) = PluginSourceFile.objects.sync_from_plugin_archive(test_plugin)
 
         self.assertEqual(PluginSourceFile.objects.count(), 2)
         self.assertEqual(plugin_json_file.source, HELLO_WORLD_PLUGIN_PLUGIN_JSON_WITHOUT_MAIN)
         self.assertIsNone(index_ts_file)
         self.assertIsNone(frontend_tsx_file)
-        assert site_Ts_file is not None
-        self.assertEqual(site_Ts_file.source, HELLO_WORLD_PLUGIN_SITE_TS)
+        assert site_ts_file is not None
+        self.assertEqual(site_ts_file.source, HELLO_WORLD_PLUGIN_SITE_TS)
+        self.assertEqual(site_ts_file.status, PluginSourceFile.Status.TRANSPILED)
+        assert site_ts_file.transpiled is not None and len(site_ts_file.transpiled) > 0
 
     @snapshot_postgres_queries
     def test_sync_from_plugin_archive_from_zip_without_any_code_fails(self):
@@ -325,7 +234,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
             plugin_json_file,
             index_ts_file,
             frontend_tsx_file,
-            site_Ts_file,
+            site_ts_file,
         ) = PluginSourceFile.objects.sync_from_plugin_archive(test_plugin)
 
         self.assertEqual(PluginSourceFile.objects.count(), 2)
@@ -341,7 +250,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
             plugin_json_file,
             index_ts_file,
             frontend_tsx_file,
-            site_Ts_file,
+            site_ts_file,
         ) = PluginSourceFile.objects.sync_from_plugin_archive(test_plugin)
 
         self.assertEqual(PluginSourceFile.objects.count(), 2)  # frontend.tsx replaced by index.ts
@@ -349,6 +258,8 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
         self.assertIsNone(index_ts_file)
         assert frontend_tsx_file is not None
         self.assertEqual(frontend_tsx_file.source, HELLO_WORLD_PLUGIN_FRONTEND_TSX)
+        self.assertEqual(frontend_tsx_file.status, PluginSourceFile.Status.TRANSPILED)
+        assert frontend_tsx_file.transpiled is not None and len(frontend_tsx_file.transpiled) > 0
 
     @snapshot_postgres_queries
     def test_sync_from_plugin_archive_with_subdir_works(self):
@@ -363,7 +274,7 @@ class TestPluginSourceFile(BaseTest, QueryMatchingTest):
             plugin_json_file,
             index_ts_file,
             frontend_tsx_file,
-            site_Ts_file,
+            site_ts_file,
         ) = PluginSourceFile.objects.sync_from_plugin_archive(test_plugin)
 
         self.assertEqual(PluginSourceFile.objects.count(), 2)

@@ -1,17 +1,36 @@
 .SelectableElement {
     border: 1px solid transparent;
     border-radius: var(--radius);
-    transition: background-color 200ms ease, color 200ms ease, border 200ms ease;
+    transition:
+        background-color 200ms ease,
+        color 200ms ease,
+        border 200ms ease;
 
     &.SelectableElement--selected {
-        background: var(--primary-3000);
+        color: var(--color-text-primary);
+        text-decoration: underline;
+        background: var(--color-accent);
+
+        [theme='dark'] & {
+            color: var(--color-text-primary-inverse);
+        }
     }
 
     &:hover {
-        background: var(--primary-3000-hover);
+        color: var(--color-text-primary);
+        background: var(--color-accent-hover);
+
+        [theme='dark'] & {
+            color: var(--color-text-primary-inverse);
+        }
     }
 
     &:active {
-        background: var(--primary-3000-active);
+        color: var(--color-text-primary);
+        background: var(--color-accent-active);
+
+        [theme='dark'] & {
+            color: var(--color-text-primary-inverse);
+        }
     }
 }

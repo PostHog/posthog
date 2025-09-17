@@ -1,0 +1,65 @@
+{
+    "name": "Avo Inspector Plugin",
+    "url": "https://github.com/posthog/posthog-avo-plugin",
+    "description": "Export PostHog events to Avo inspector.",
+    "main": "index.ts",
+    "posthogVersion": ">= 1.24.0",
+    "config": [
+        {
+            "key": "avoApiKey",
+            "hint": "",
+            "name": "Avo API Key",
+            "type": "string",
+            "default": "",
+            "required": true
+        },
+        {
+            "key": "environment",
+            "hint": "",
+            "name": "Environment",
+            "type": "string",
+            "default": "dev",
+            "required": false
+        },
+        {
+            "key": "appName",
+            "hint": "",
+            "name": "App name",
+            "type": "string",
+            "default": "PostHog",
+            "required": false
+        },
+        {
+            "key": "excludeEvents",
+            "hint": "Comma-separated list of events that will not be sent to Avo.",
+            "name": "Events to exclude",
+            "type": "string",
+            "default": "",
+            "required": false
+        },
+        {
+            "key": "includeEvents",
+            "hint": "Comma separated list of events to send to Avo (will send all if left empty).",
+            "name": "Events to include",
+            "type": "string",
+            "default": "",
+            "required": false
+        },
+        {
+            "key": "excludeProperties",
+            "hint": "Comma-separated list of event properties that will not be sent to Avo.",
+            "name": "Properties to exclude",
+            "type": "string",
+            "default": "",
+            "required": false
+        },
+        {
+            "key": "includeProperties",
+            "hint": "Comma separated list of event properties to send to Avo (will send all if left empty).",
+            "name": "Properties to include",
+            "type": "string",
+            "default": "",
+            "required": false
+        }
+    ]
+}

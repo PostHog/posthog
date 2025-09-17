@@ -1,21 +1,23 @@
-import { IconClock } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconClock } from '@posthog/icons'
+
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
-import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, humanFriendlyDuration, percentage, pluralize } from 'lib/utils'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/funnelStepTableUtils'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, ChartParams, FunnelStepWithConversionMetrics } from '~/types'
+import { AvailableFeature, ChartParams, FunnelStepReference, FunnelStepWithConversionMetrics } from '~/types'
 
-import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 import { FunnelStepMore } from '../FunnelStepMore'
 import { ValueInspectorButton } from '../ValueInspectorButton'
+import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 
 type StepLegendProps = {
     step: FunnelStepWithConversionMetrics
@@ -25,10 +27,12 @@ type StepLegendProps = {
 
 export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: StepLegendProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
+    const { aggregationTargetLabel, funnelsFilter, isStepOptional } = useValues(funnelDataLogic(insightProps))
     const { canOpenPersonModal, isInExperimentContext } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForStep } = useActions(funnelPersonsModalLogic(insightProps))
     const { hasAvailableFeature } = useValues(userLogic)
+
+    const isOptional = isStepOptional(stepIndex + 1)
 
     const convertedCountPresentation = pluralize(
         step.count ?? 0,
@@ -44,25 +48,26 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: Step
     const convertedCountPresentationWithPercentage = (
         <>
             {convertedCountPresentation}{' '}
-            <span className="text-muted">({percentage(step.conversionRates.fromBasisStep, 2)})</span>
+            <span className="text-secondary">({percentage(step.conversionRates.fromBasisStep, 2)})</span>
         </>
     )
     const droppedOffCountPresentationWithPercentage = (
         <>
             {droppedOffCountPresentation}{' '}
-            <span className="text-muted">({percentage(1 - step.conversionRates.fromPrevious, 2)})</span>
+            <span className="text-secondary">({percentage(1 - step.conversionRates.fromPrevious, 2)})</span>
         </>
     )
 
     return (
-        <div className="StepLegend">
+        <div className="StepLegend" style={{ opacity: isOptional ? 0.6 : 1 }}>
             <LemonRow
                 icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />}
                 sideIcon={
                     hasAvailableFeature(AvailableFeature.PATHS_ADVANCED) && <FunnelStepMore stepIndex={stepIndex} />
                 }
             >
-                <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
+                <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} allowWrap />
+                {isOptional ? <div className="ml-1 text-xs font-normal">(optional)</div> : null}
             </LemonRow>
             <LemonRow
                 icon={<IconTrendingFlat />}
@@ -74,7 +79,11 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: Step
                         <>
                             {capitalizeFirstLetter(aggregationTargetLabel.plural)} who completed this step,
                             <br />
-                            with conversion rate relative to the first step
+                            with conversion rate relative to the{' '}
+                            {funnelsFilter?.funnelStepReference === FunnelStepReference.previous
+                                ? 'previous'
+                                : 'first'}{' '}
+                            step
                         </>
                     }
                     placement="right"
@@ -121,7 +130,7 @@ export function StepLegend({ step, stepIndex, showTime, showPersonsModal }: Step
                     </LemonRow>
                     {showTime && (
                         <LemonRow icon={<IconClock />} title="Median time of conversion from previous step">
-                            {humanFriendlyDuration(step.median_conversion_time, 3) || '–'}
+                            {humanFriendlyDuration(step.median_conversion_time, { maxUnits: 3 }) || '–'}
                         </LemonRow>
                     )}
                 </>

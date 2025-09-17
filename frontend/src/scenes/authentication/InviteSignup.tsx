@@ -1,16 +1,19 @@
-import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { useEffect } from 'react'
+
+import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
+
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
-import { SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
-import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
+import { SSOEnforcedLoginButton, SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -18,8 +21,9 @@ import { userLogic } from 'scenes/userLogic'
 
 import { PrevalidatedInvite } from '~/types'
 
-import { ErrorCodes, inviteSignupLogic } from './inviteSignupLogic'
 import { SupportModalButton } from './SupportModalButton'
+import { ErrorCodes, inviteSignupLogic } from './inviteSignupLogic'
+import { loginLogic } from './loginLogic'
 
 export const scene: SceneExport = {
     component: InviteSignup,
@@ -133,7 +137,7 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
             message={user?.first_name ? `Hey ${user?.first_name}!` : 'Hello!'}
             footer={<SupportModalButton name={user?.first_name} email={user?.email} />}
         >
-            <div className="space-y-2">
+            <div className="deprecated-space-y-2">
                 <h2>You have been invited to join {invite.organization_name}</h2>
                 <div>
                     You will accept the invite under your <b>existing PostHog account</b> ({user?.email})
@@ -193,6 +197,15 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
     const { isSignupSubmitting, validatedPassword } = useValues(inviteSignupLogic)
     const { preflight } = useValues(preflightLogic)
 
+    const { precheck } = useActions(loginLogic)
+    const { precheckResponse, precheckResponseLoading } = useValues(loginLogic)
+
+    const areExtraFieldsHidden = precheckResponse.sso_enforcement
+
+    useEffect(() => {
+        precheck({ email: invite.target_email })
+    }, [invite.target_email]) // oxlint-disable-line react-hooks/exhaustive-deps
+
     return (
         <BridgePage
             view="invites-signup"
@@ -204,7 +217,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                 </>
             }
             leftContainerContent={
-                <div className="mb-8 text-muted">
+                <div className="mb-8 text-secondary">
                     <div className="font-semibold flex flex-col gap-2 text-center items-center text-lg">
                         <span>You've been invited to join</span>
                         <span className="text-4xl font-bold border-b border-dashed pb-2">
@@ -217,58 +230,88 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
             footer={<SupportModalButton name={invite.first_name} email={invite.target_email} />}
         >
             <h2 className="text-center">Create your PostHog account</h2>
-            <Form logic={inviteSignupLogic} formKey="signup" className="space-y-4" enableFormOnSubmit>
+            <Form logic={inviteSignupLogic} formKey="signup" className="deprecated-space-y-4" enableFormOnSubmit>
                 <LemonField.Pure label="Email">
                     <LemonInput type="email" disabled value={invite?.target_email} />
                 </LemonField.Pure>
-                <LemonField
-                    name="password"
-                    label={
-                        <div className="flex flex-1 items-center justify-between">
-                            <span>Password</span>
-                            <PasswordStrength validatedPassword={validatedPassword} />
-                        </div>
-                    }
-                >
-                    <LemonInput
-                        type="password"
-                        className="ph-ignore-input"
-                        data-attr="password"
-                        placeholder="••••••••••"
-                        autoComplete="new-password"
-                        autoFocus={window.screen.width >= 768} // do not autofocus on small-width screens
-                        disabled={isSignupSubmitting}
+                {!areExtraFieldsHidden && (
+                    <>
+                        <LemonField
+                            name="password"
+                            label={
+                                <div className="flex flex-1 items-center justify-between">
+                                    <span>Password</span>
+                                    <PasswordStrength validatedPassword={validatedPassword} />
+                                </div>
+                            }
+                        >
+                            <LemonInput
+                                type="password"
+                                className="ph-ignore-input"
+                                data-attr="password"
+                                placeholder="••••••••••"
+                                autoComplete="new-password"
+                                autoFocus={window.screen.width >= 768} // do not autofocus on small-width screens
+                                disabled={isSignupSubmitting}
+                            />
+                        </LemonField>
+
+                        <LemonField
+                            name="first_name"
+                            label="First Name"
+                            help={
+                                invite?.first_name
+                                    ? 'Your name was provided in the invite, feel free to change it.'
+                                    : undefined
+                            }
+                        >
+                            <LemonInput data-attr="first_name" placeholder="Jane" />
+                        </LemonField>
+
+                        <SignupRoleSelect />
+                    </>
+                )}
+
+                {/* Show regular login button if SSO is not enforced */}
+                {!precheckResponse.sso_enforcement && (
+                    <LemonButton
+                        type="primary"
+                        status="alt"
+                        htmlType="submit"
+                        data-attr="password-signup"
+                        fullWidth
+                        center
+                        loading={isSignupSubmitting || precheckResponseLoading}
+                        size="large"
+                    >
+                        Continue
+                    </LemonButton>
+                )}
+
+                {/* Show enforced SSO button if required */}
+                {precheckResponse.sso_enforcement && (
+                    <SSOEnforcedLoginButton
+                        provider={precheckResponse.sso_enforcement}
+                        email={invite?.target_email}
+                        actionText="Continue"
+                        extraQueryParams={invite ? { invite_id: invite.id } : undefined}
                     />
-                </LemonField>
+                )}
 
-                <LemonField
-                    name="first_name"
-                    label="First Name"
-                    help={
-                        invite?.first_name ? 'Your name was provided in the invite, feel free to change it.' : undefined
-                    }
-                >
-                    <LemonInput data-attr="first_name" placeholder="Jane" />
-                </LemonField>
-
-                <SignupRoleSelect />
-
-                <LemonButton
-                    type="primary"
-                    status="alt"
-                    htmlType="submit"
-                    data-attr="password-signup"
-                    loading={isSignupSubmitting}
-                    center
-                    fullWidth
-                >
-                    Continue
-                </LemonButton>
+                {/* Show optional SAML SSO button if available */}
+                {precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
+                    <SSOEnforcedLoginButton
+                        provider="saml"
+                        email={invite?.target_email}
+                        actionText="Continue"
+                        extraQueryParams={invite ? { invite_id: invite.id } : undefined}
+                    />
+                )}
             </Form>
-            <div className="mt-4 text-center text-muted">
+            <div className="mt-4 text-center text-secondary">
                 Already have an account? <Link to="/login">Log in</Link>
             </div>
-            <div className="mt-4 text-center text-muted">
+            <div className="mt-4 text-center text-secondary">
                 By clicking continue you agree to our{' '}
                 <Link to="https://posthog.com/terms" target="_blank">
                     Terms of Service
@@ -279,14 +322,16 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                 </Link>
                 .
             </div>
-            <SocialLoginButtons
-                className="mb-4"
-                title="Or sign in with"
-                caption={`Remember to log in with ${invite?.target_email}`}
-                captionLocation="bottom"
-                topDivider
-                extraQueryParams={invite ? { invite_id: invite.id } : undefined}
-            />
+            {!areExtraFieldsHidden && (
+                <SocialLoginButtons
+                    className="mb-4"
+                    title="Or sign in with"
+                    caption={`Remember to log in with ${invite?.target_email}`}
+                    captionLocation="bottom"
+                    topDivider
+                    extraQueryParams={invite ? { invite_id: invite.id } : undefined}
+                />
+            )}
         </BridgePage>
     )
 }

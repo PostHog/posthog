@@ -1,6 +1,8 @@
 import fs from 'fs'
 import path from 'path'
 
+import { parseJSON } from '../../../utils/json-parse'
+
 const consoleFile = path.join(process.cwd(), 'tmp', 'test-console.txt')
 
 export const writeToFile = {
@@ -19,7 +21,7 @@ export const writeToFile = {
                     .toString()
                     .split('\n')
                     .filter((str) => !!str)
-                    .map((part) => JSON.parse(part))
+                    .map((part) => parseJSON(part))
             } catch (error) {
                 if (error.code === 'ENOENT') {
                     return []

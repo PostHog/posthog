@@ -1,43 +1,51 @@
-import { IconChevronDown, IconCopy, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { IconChevronDown, IconCopy, IconInfo, IconUser } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
+
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { openInAdminPanel } from 'lib/utils/person-actions'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
+import { NotebookNodeType } from 'scenes/notebooks/types'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
-import { NodeKind } from '~/queries/schema'
-import { ActivityScope, NotebookNodeType, PersonsTabType, PersonType, PropertyDefinitionType } from '~/types'
+import { ActivityScope, PersonType, PersonsTabType, ProductKey, PropertyDefinitionType } from '~/types'
 
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
-import { PersonDashboard } from './PersonDashboard'
 import PersonFeedCanvas from './PersonFeedCanvas'
-import { personsLogic } from './personsLogic'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
+import { PersonsLogicProps, personsLogic } from './personsLogic'
 
-export const scene: SceneExport = {
+export const scene: SceneExport<PersonsLogicProps> = {
     component: PersonScene,
     logic: personsLogic,
-    paramsToProps: ({ params: { _: rawUrlId } }): (typeof personsLogic)['props'] => ({
+    paramsToProps: ({ params: { _: rawUrlId } }) => ({
         syncWithUrl: true,
         urlId: decodeURIComponent(rawUrlId),
     }),
@@ -46,9 +54,9 @@ export const scene: SceneExport = {
 function PersonCaption({ person }: { person: PersonType }): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-2">
-            <div className="flex space-x-1">
+            <div className="flex deprecated-space-x-1">
                 <div>
-                    <span className="text-muted">IDs:</span>{' '}
+                    <span className="text-secondary">IDs:</span>{' '}
                     <CopyToClipboardInline
                         tooltipMessage={null}
                         description="person distinct ID"
@@ -73,11 +81,11 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
                 )}
             </div>
             <div>
-                <span className="text-muted">First seen:</span>{' '}
+                <span className="text-secondary">First seen:</span>{' '}
                 {person.created_at ? <TZLabel time={person.created_at} /> : 'unknown'}
             </div>
             <div>
-                <span className="text-muted">Merge restrictions:</span> {person.is_identified ? 'applied' : 'none'}
+                <span className="text-secondary">Merge restrictions:</span> {person.is_identified ? 'applied' : 'none'}
                 <Link to="https://posthog.com/docs/data/identify#alias-assigning-multiple-distinct-ids-to-the-same-user">
                     <Tooltip
                         title={
@@ -97,7 +105,6 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
 
 export function PersonScene(): JSX.Element | null {
     const {
-        showCustomerSuccessDashboards,
         feedEnabled,
         person,
         personLoading,
@@ -106,6 +113,9 @@ export function PersonScene(): JSX.Element | null {
         splitMergeModalShown,
         urlId,
         distinctId,
+        primaryDistinctId,
+        eventsQuery,
+        exceptionsQuery,
     } = useValues(personsLogic)
     const { loadPersons, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, setDistinctId } =
         useActions(personsLogic)
@@ -113,20 +123,23 @@ export function PersonScene(): JSX.Element | null {
     const { deletedPersonLoading } = useValues(personDeleteModalLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { addProductIntentForCrossSell } = useActions(teamLogic)
+    const { user } = useValues(userLogic)
 
     if (personError) {
         throw new Error(personError)
     }
     if (!person) {
-        return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="Person" />
+        return personLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="person" meta={{ urlId }} />
     }
 
     const url = urls.personByDistinctId(urlId || person.distinct_ids[0] || String(person.id))
+    const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
-        <>
+        <SceneContent>
             <PageHeader
-                caption={<PersonCaption person={person} />}
                 notebookProps={
                     url
                         ? {
@@ -143,6 +156,7 @@ export function PersonScene(): JSX.Element | null {
                             }}
                             type="secondary"
                         />
+                        {user?.is_staff && <OpenInAdminPanelButton />}
                         <LemonButton
                             onClick={() => showPersonDeleteModal(person, () => loadPersons())}
                             disabled={deletedPersonLoading}
@@ -167,6 +181,23 @@ export function PersonScene(): JSX.Element | null {
                 }
             />
 
+            <SceneTitleSection
+                name="Person"
+                resourceType={{
+                    type: 'person',
+                    forceIcon: <IconUser />,
+                }}
+                forceBackTo={{
+                    name: 'People',
+                    path: urls.persons(),
+                    key: 'people',
+                }}
+            />
+            <SceneDivider />
+
+            <PersonCaption person={person} />
+
+            <SceneDivider />
             <PersonDeleteModal />
 
             <LemonTabs
@@ -202,21 +233,7 @@ export function PersonScene(): JSX.Element | null {
                     {
                         key: PersonsTabType.EVENTS,
                         label: <span data-attr="persons-events-tab">Events</span>,
-                        content: (
-                            <Query
-                                query={{
-                                    kind: NodeKind.DataTableNode,
-                                    full: true,
-                                    hiddenColumns: ['person'],
-                                    source: {
-                                        kind: NodeKind.EventsQuery,
-                                        select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                        personId: person.id,
-                                        after: '-24h',
-                                    },
-                                }}
-                            />
-                        ),
+                        content: <Query query={eventsQuery} />,
                     },
                     {
                         key: PersonsTabType.SESSION_RECORDINGS,
@@ -226,18 +243,39 @@ export function PersonScene(): JSX.Element | null {
                                 {!currentTeam?.session_recording_opt_in ? (
                                     <div className="mb-4">
                                         <LemonBanner type="info">
-                                            Session recordings are currently disabled for this project. To use this
-                                            feature, please go to your{' '}
-                                            <Link to={`${urls.settings('project')}#recordings`}>project settings</Link>{' '}
+                                            Session recordings are currently disabled for this {settingLevel}. To use
+                                            this feature, please go to your{' '}
+                                            <Link
+                                                to={`${urls.settings('project')}#recordings`}
+                                                onClick={() => {
+                                                    addProductIntentForCrossSell({
+                                                        from: ProductKey.PERSONS,
+                                                        to: ProductKey.SESSION_REPLAY,
+                                                        intent_context: ProductIntentContext.PERSON_VIEW_RECORDINGS,
+                                                    })
+                                                }}
+                                            >
+                                                project settings
+                                            </Link>{' '}
                                             and enable it.
                                         </LemonBanner>
                                     </div>
                                 ) : null}
                                 <div className="SessionRecordingPlaylistHeightWrapper">
-                                    <SessionRecordingsPlaylist personUUID={person.uuid} updateSearchParams />
+                                    <SessionRecordingsPlaylist
+                                        logicKey={`person-scene-${person.uuid}`}
+                                        personUUID={person.uuid}
+                                        distinctIds={person.distinct_ids}
+                                        updateSearchParams
+                                    />
                                 </div>
                             </>
                         ),
+                    },
+                    {
+                        key: PersonsTabType.EXCEPTIONS,
+                        label: <span data-attr="persons-exceptions-tab">Exceptions</span>,
+                        content: <Query query={exceptionsQuery} />,
                     },
                     {
                         key: PersonsTabType.COHORTS,
@@ -261,15 +299,16 @@ export function PersonScene(): JSX.Element | null {
                     person.uuid
                         ? {
                               key: PersonsTabType.FEATURE_FLAGS,
+                              tooltip: `Only shows feature flags with targeting conditions based on person properties.`,
                               label: <span data-attr="persons-related-flags-tab">Feature flags</span>,
                               content: (
                                   <>
-                                      <div className="flex space-x-2 items-center mb-2">
+                                      <div className="flex deprecated-space-x-2 items-center mb-2">
                                           <div className="flex items-center">
                                               Choose ID:
                                               <Tooltip
                                                   title={
-                                                      <div className="space-y-2">
+                                                      <div className="deprecated-space-y-2">
                                                           <div>
                                                               Feature flags values can depend on a person's distinct ID.
                                                           </div>
@@ -292,7 +331,7 @@ export function PersonScene(): JSX.Element | null {
                                               </Tooltip>
                                           </div>
                                           <LemonSelect
-                                              value={distinctId || person.distinct_ids[0]}
+                                              value={distinctId || primaryDistinctId}
                                               onChange={(value) => value && setDistinctId(value)}
                                               options={person.distinct_ids.map((distinct_id) => ({
                                                   label: distinct_id,
@@ -302,7 +341,7 @@ export function PersonScene(): JSX.Element | null {
                                           />
                                       </div>
                                       <LemonDivider className="mb-4" />
-                                      <RelatedFeatureFlags distinctId={distinctId || person.distinct_ids[0]} />
+                                      <RelatedFeatureFlags distinctId={distinctId || primaryDistinctId} />
                                   </>
                               ),
                           }
@@ -323,17 +362,25 @@ export function PersonScene(): JSX.Element | null {
                             />
                         ),
                     },
-                    showCustomerSuccessDashboards
-                        ? {
-                              key: PersonsTabType.DASHBOARD,
-                              label: 'Dashboard',
-                              content: <PersonDashboard person={person} />,
-                          }
-                        : false,
                 ]}
             />
 
             {splitMergeModalShown && person && <MergeSplitPerson person={person} />}
-        </>
+        </SceneContent>
+    )
+}
+
+function OpenInAdminPanelButton(): JSX.Element {
+    const { person } = useValues(personsLogic)
+    const disabledReason = !person?.properties.email ? 'Person has no email' : undefined
+
+    return (
+        <LemonButton
+            type="secondary"
+            onClick={() => openInAdminPanel(person?.properties.email)}
+            disabledReason={disabledReason}
+        >
+            Open in Admin Panel
+        </LemonButton>
     )
 }

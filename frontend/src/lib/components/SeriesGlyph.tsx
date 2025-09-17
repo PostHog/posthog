@@ -1,12 +1,13 @@
 import { useValues } from 'kea'
+
 import { getSeriesColor } from 'lib/colors'
-import { alphabet, hexToRGBA, lightenDarkenColor, RGBToRGBA } from 'lib/utils'
+import { RGBToRGBA, alphabet, hexToRGBA, lightenDarkenColor } from 'lib/utils'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 interface SeriesGlyphProps {
     className?: string
-    children: React.ReactNode
+    children?: React.ReactNode
     style?: React.CSSProperties
     variant?: 'funnel-step-glyph' // Built-in styling defaults
 }
@@ -19,7 +20,6 @@ export function SeriesGlyph({ className, style, children, variant }: SeriesGlyph
         </div>
     )
 }
-
 interface SeriesLetterProps {
     className?: string
     hasBreakdown: boolean
@@ -64,11 +64,11 @@ export function ExperimentVariantNumber({ className, index }: ExperimentVariantN
         <SeriesGlyph
             className={className}
             style={{
-                borderColor: 'var(--muted)',
-                color: 'var(--muted)',
+                borderColor: 'var(--color-text-secondary)',
+                color: 'var(--color-text-secondary)',
                 backgroundColor: isDarkModeOn
-                    ? RGBToRGBA(lightenDarkenColor('var(--muted)', -20), 0.3)
-                    : hexToRGBA('var(--muted)', 0.2),
+                    ? RGBToRGBA(lightenDarkenColor('var(--color-text-secondary)', -20), 0.3)
+                    : hexToRGBA('var(--color-text-secondary)', 0.2),
             }}
         >
             {index}

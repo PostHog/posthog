@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
@@ -16,7 +17,7 @@ export const featureFlagPermissionsLogic = kea<featureFlagPermissionsLogicType>(
     path(['scenes', 'feature-flags', 'featureFlagPermissionsLogic']),
     props({} as FeatureFlagPermissionsLogicProps),
     key((props: FeatureFlagPermissionsLogicProps) => `${props.flagId}`),
-    connect({ values: [rolesLogic, ['roles']] }),
+    connect(() => ({ values: [rolesLogic, ['roles']] })),
     actions({
         setModalOpen: (visible: boolean) => ({ visible }),
         setRolesToAdd: (roleIds: string[]) => ({ roleIds }),
@@ -55,9 +56,8 @@ export const featureFlagPermissionsLogic = kea<featureFlagPermissionsLogicType>(
                         const response = await api.resourceAccessPermissions.featureFlags.list(props.flagId)
 
                         return response.results || []
-                    } else {
-                        return []
                     }
+                    return []
                 },
                 addAssociatedRoles: async (flagId?: number) => {
                     const { rolesToAdd } = values

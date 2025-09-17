@@ -21,18 +21,21 @@ from posthog.settings.logs import *
 from posthog.settings.base_variables import *
 
 from posthog.settings.access import *
+from posthog.settings.activity_log import *
 from posthog.settings.async_migrations import *
+from posthog.settings.batch_exports import *
 from posthog.settings.celery import *
 from posthog.settings.data_stores import *
+from posthog.settings.dagster import *
 from posthog.settings.demo import *
 from posthog.settings.dynamic_settings import *
 from posthog.settings.ee import *
 from posthog.settings.ingestion import *
 from posthog.settings.feature_flags import *
 from posthog.settings.geoip import *
+from posthog.settings.messaging import *
 from posthog.settings.metrics import *
 from posthog.settings.schedules import *
-from posthog.settings.sentry import *
 from posthog.settings.shell_plus import *
 from posthog.settings.service_requirements import *
 from posthog.settings.statsd import *
@@ -41,8 +44,10 @@ from posthog.settings.temporal import *
 from posthog.settings.web import *
 from posthog.settings.data_warehouse import *
 from posthog.settings.session_replay import *
+from posthog.settings.session_replay_v2 import *
 from posthog.settings.integrations import *
 from posthog.settings.pagerduty import *
+from posthog.settings.payments import *
 
 from posthog.settings.utils import get_from_env, str_to_bool
 
@@ -58,7 +63,7 @@ INSTANCE_PREFERENCES = {
     "disable_paid_fs": disable_paid_fs,
 }
 
-SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
+SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8010").rstrip("/")
 INSTANCE_TAG: str = os.getenv("INSTANCE_TAG", "none")
 
 if DEBUG:
@@ -77,7 +82,6 @@ PLUGINS_PREINSTALLED_URLS: list[str] = (
     if not DISABLE_MMDB
     else []
 )
-PLUGINS_RELOAD_PUBSUB_CHANNEL: str = os.getenv("PLUGINS_RELOAD_PUBSUB_CHANNEL", "reload-plugins")
 
 # Tokens used when installing plugins, for example to get the latest commit SHA or to download private repositories.
 # Used mainly to get around API limits and only if no ?private_token=TOKEN found in the plugin URL.
@@ -105,9 +109,9 @@ AUTO_LOGIN: bool = get_from_env("AUTO_LOGIN", False, type_cast=str_to_bool)
 
 CONTAINER_HOSTNAME: str = os.getenv("HOSTNAME", "unknown")
 
-PROM_PUSHGATEWAY_ADDRESS: str | None = os.getenv("PROM_PUSHGATEWAY_ADDRESS", None)
+OTEL_SERVICE_NAME: str | None = os.getenv("OTEL_SERVICE_NAME", None)
 
-IN_UNIT_TESTING: bool = get_from_env("IN_UNIT_TESTING", False, type_cast=str_to_bool)
+PROM_PUSHGATEWAY_ADDRESS: str | None = os.getenv("PROM_PUSHGATEWAY_ADDRESS", None)
 
 HOGQL_INCREASED_MAX_EXECUTION_TIME: int = get_from_env("HOGQL_INCREASED_MAX_EXECUTION_TIME", 600, type_cast=int)
 

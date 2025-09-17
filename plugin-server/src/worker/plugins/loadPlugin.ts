@@ -3,6 +3,7 @@ import * as path from 'path'
 
 import { Hub, Plugin, PluginConfig, PluginJsonConfig } from '../../types'
 import { processError } from '../../utils/db/error'
+import { parseJSON } from '../../utils/json-parse'
 import { pluginDigest } from '../../utils/utils'
 
 function readFileIfExists(baseDir: string, plugin: Plugin, file: string): string | null {
@@ -36,7 +37,7 @@ export async function loadPlugin(hub: Hub, pluginConfig: PluginConfig): Promise<
         let config: PluginJsonConfig = {}
         if (configJson) {
             try {
-                config = JSON.parse(configJson)
+                config = parseJSON(configJson)
             } catch (e) {
                 pluginConfig.instance?.failInitialization!()
                 await processError(hub, pluginConfig, `Could not load "plugin.json" for ${pluginDigest(plugin)}`)

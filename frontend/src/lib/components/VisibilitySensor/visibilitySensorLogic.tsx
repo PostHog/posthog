@@ -2,6 +2,7 @@ import { actions, kea, key, listeners, path, props, reducers, selectors } from '
 import { windowValues } from 'kea-window-values'
 
 import type { visibilitySensorLogicType } from './visibilitySensorLogicType'
+
 export const visibilitySensorLogic = kea<visibilitySensorLogicType>([
     props(
         {} as {

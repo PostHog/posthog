@@ -9,7 +9,7 @@ const heatmapLabelStyle = {
     boxShadow: 'hsla(54, 100%, 32%, 1) 0px 1px 5px 1px',
     fontSize: 16,
     fontWeight: 'bold' as const,
-    fontFamily: 'monospace',
+    fontFamily: '"Emoji Flags Polyfill", monospace',
 }
 
 interface AutocaptureElementLabelProps extends React.PropsWithoutRef<JSX.IntrinsicElements['div']> {
@@ -32,9 +32,9 @@ export function AutocaptureElementLabel({
 
     return (
         <div
+            className="absolute"
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                position: 'absolute',
                 top: `${inBounds(
                     window.pageYOffset - 1,
                     rect.top - 7 + window.pageYOffset,

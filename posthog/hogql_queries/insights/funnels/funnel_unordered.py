@@ -1,12 +1,15 @@
-from typing import Any, Optional
 import uuid
+from typing import Any, Optional
 
 from rest_framework.exceptions import ValidationError
+
+from posthog.schema import ActionsNode, BreakdownType, DataWarehouseNode, EventsNode
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
+
 from posthog.hogql_queries.insights.funnels.base import FunnelBase
 from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql
-from posthog.schema import ActionsNode, EventsNode, DataWarehouseNode, BreakdownType
 from posthog.queries.util import correct_result_for_sampling
 
 
@@ -115,7 +118,7 @@ class FunnelUnordered(FunnelBase):
             entities_to_use.append(entities_to_use.pop(0))
             union_queries.append(formatted_query)
 
-        return ast.SelectUnionQuery(select_queries=union_queries)
+        return ast.SelectSetQuery.create_from_queries(union_queries, "UNION ALL")
 
     def _get_step_times(self, max_steps: int) -> list[ast.Expr]:
         windowInterval = self.context.funnelWindowInterval

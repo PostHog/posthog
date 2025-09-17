@@ -1,138 +1,99 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
-import { DateTime } from 'luxon'
-import fetch from 'node-fetch'
+// eslint-disable-next-line no-restricted-imports
+import { fetch } from 'undici'
+import { v4 } from 'uuid'
 
-import { Hook, Hub } from '../../../../src/types'
-import { createHub } from '../../../../src/utils/db/hub'
+import { PluginEvent } from '@posthog/plugin-scaffold'
+
+import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
+import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
+import { PostgresPersonRepository } from '~/worker/ingestion/persons/repositories/postgres-person-repository'
+
+import { Hook, Hub, ProjectId, Team } from '../../../../src/types'
+import { closeHub, createHub } from '../../../../src/utils/db/hub'
 import { PostgresUse } from '../../../../src/utils/db/postgres'
 import { convertToPostIngestionEvent } from '../../../../src/utils/event'
+import { parseJSON } from '../../../../src/utils/json-parse'
 import { UUIDT } from '../../../../src/utils/utils'
 import { ActionManager } from '../../../../src/worker/ingestion/action-manager'
 import { ActionMatcher } from '../../../../src/worker/ingestion/action-matcher'
-import {
-    processOnEventStep,
-    processWebhooksStep,
-} from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
+import { processWebhooksStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
+import { BatchWritingGroupStoreForBatch } from '../../../../src/worker/ingestion/groups/batch-writing-group-store'
 import { HookCommander } from '../../../../src/worker/ingestion/hooks'
-import { setupPlugins } from '../../../../src/worker/plugins/setup'
-import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../../helpers/clickhouse'
+import { Clickhouse } from '../../../helpers/clickhouse'
 import { commonUserId } from '../../../helpers/plugins'
 import { insertRow, resetTestDatabase } from '../../../helpers/sql'
 
-jest.mock('../../../../src/utils/status')
+jest.mock('../../../../src/utils/logger')
+
+const team: Team = {
+    id: 2,
+    project_id: 2 as ProjectId,
+    organization_id: '2',
+    uuid: v4(),
+    name: '2',
+    anonymize_ips: true,
+    api_token: 'api_token',
+    slack_incoming_webhook: 'slack_incoming_webhook',
+    session_recording_opt_in: true,
+    person_processing_opt_out: null,
+    heatmaps_opt_in: null,
+    ingested_event: true,
+    person_display_name_properties: null,
+    test_account_filters: null,
+    cookieless_server_hash_mode: null,
+    timezone: 'UTC',
+    available_features: [],
+    drop_events_older_than_seconds: null,
+}
 
 describe('Event Pipeline integration test', () => {
     let hub: Hub
+    let clickhouse: Clickhouse
+    let personRepository: PersonRepository
     let actionManager: ActionManager
     let actionMatcher: ActionMatcher
     let hookCannon: HookCommander
-    let closeServer: () => Promise<void>
 
     const ingestEvent = async (event: PluginEvent) => {
-        const runner = new EventPipelineRunner(hub, event)
-        const result = await runner.runEventPipeline(event)
+        const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(personRepository, hub.kafkaProducer)
+        const groupStoreForBatch = new BatchWritingGroupStoreForBatch(
+            hub.db,
+            hub.groupRepository,
+            hub.clickhouseGroupRepository
+        )
+        const runner = new EventPipelineRunner(hub, event, undefined, personsStoreForBatch, groupStoreForBatch)
+        const result = await runner.runEventPipeline(event, team)
         const postIngestionEvent = convertToPostIngestionEvent(result.args[0])
-        return Promise.all([
-            processOnEventStep(runner.hub, postIngestionEvent),
-            processWebhooksStep(postIngestionEvent, actionMatcher, hookCannon),
-        ])
+        return Promise.all([processWebhooksStep(postIngestionEvent, actionMatcher, hookCannon)])
     }
 
     beforeEach(async () => {
         await resetTestDatabase()
-        await resetTestDatabaseClickhouse()
+        clickhouse = Clickhouse.create()
+        await clickhouse.resetTestDatabase()
         process.env.SITE_URL = 'https://example.com'
-        ;[hub, closeServer] = await createHub()
+        hub = await createHub()
+        personRepository = new PostgresPersonRepository(hub.db.postgres)
 
-        actionManager = new ActionManager(hub.db.postgres, hub)
+        actionManager = new ActionManager(hub.db.postgres, hub.pubSub)
         await actionManager.start()
-        actionMatcher = new ActionMatcher(hub.db.postgres, actionManager, hub.teamManager)
+        actionMatcher = new ActionMatcher(hub.db.postgres, actionManager)
         hookCannon = new HookCommander(
             hub.db.postgres,
             hub.teamManager,
-            hub.organizationManager,
             hub.rustyHook,
             hub.appMetrics,
             hub.EXTERNAL_REQUEST_TIMEOUT_MS
         )
 
-        jest.spyOn(hub.db, 'fetchPerson')
-        jest.spyOn(hub.db, 'createPerson')
+        jest.spyOn(personRepository, 'fetchPerson')
+        jest.spyOn(personRepository, 'createPerson')
     })
 
     afterEach(async () => {
-        await closeServer()
-    })
-
-    it('handles plugins setting properties', async () => {
-        await resetTestDatabase(`
-            function processEvent (event) {
-                event.properties = {
-                    ...event.properties,
-                    $browser: 'Chrome',
-                    processed: 'hell yes'
-                }
-                event.$set = {
-                    ...event.$set,
-                    personProp: 'value'
-                }
-                return event
-            }
-        `)
-        await setupPlugins(hub)
-
-        const event: PluginEvent = {
-            event: 'xyz',
-            properties: { foo: 'bar' },
-            $set: { personProp: 1, anotherValue: 2 },
-            timestamp: new Date().toISOString(),
-            now: new Date().toISOString(),
-            team_id: 2,
-            distinct_id: 'abc',
-            ip: null,
-            site_url: 'https://example.com',
-            uuid: new UUIDT().toString(),
-        }
-
-        await ingestEvent(event)
-
-        const events = await delayUntilEventIngested(() => hub.db.fetchEvents())
-        const persons = await delayUntilEventIngested(() => hub.db.fetchPersons())
-
-        expect(events.length).toEqual(1)
-        expect(events[0]).toEqual(
-            expect.objectContaining({
-                uuid: event.uuid,
-                event: 'xyz',
-                team_id: 2,
-                timestamp: DateTime.fromISO(event.timestamp!, { zone: 'utc' }),
-                // :KLUDGE: Ignore properties like $plugins_succeeded, etc
-                properties: expect.objectContaining({
-                    foo: 'bar',
-                    $browser: 'Chrome',
-                    processed: 'hell yes',
-                    $set: {
-                        personProp: 'value',
-                        anotherValue: 2,
-                        $browser: 'Chrome',
-                    },
-                    $set_once: {
-                        $initial_browser: 'Chrome',
-                    },
-                }),
-            })
-        )
-
-        expect(persons.length).toEqual(1)
-        expect(persons[0].version).toEqual(0)
-        expect(persons[0].properties).toEqual({
-            $creator_event_uuid: event.uuid,
-            $initial_browser: 'Chrome',
-            $browser: 'Chrome',
-            personProp: 'value',
-            anotherValue: 2,
-        })
+        clickhouse.close()
+        await closeHub(hub)
     })
 
     it('fires a webhook', async () => {
@@ -162,11 +123,13 @@ describe('Event Pipeline integration test', () => {
             text: '[Test Action](https://example.com/project/2/action/69) was triggered by [abc](https://example.com/project/2/person/abc)',
         }
 
-        expect(fetch).toHaveBeenCalledWith('https://webhook.example.com/', {
+        // eslint-disable-next-line no-restricted-syntax
+        const details = JSON.parse(JSON.stringify((fetch as any).mock.calls))
+        expect(details[0][0]).toEqual('https://webhook.example.com/')
+        expect(details[0][1]).toMatchObject({
             body: JSON.stringify(expectedPayload, undefined, 4),
             headers: { 'Content-Type': 'application/json' },
             method: 'POST',
-            timeout: 10000,
         })
     })
 
@@ -236,32 +199,8 @@ describe('Event Pipeline integration test', () => {
         // and use expect.any for a few payload properties, which wouldn't be possible in a simpler way
         expect(jest.mocked(fetch).mock.calls[0][0]).toBe('https://example.com/')
         const secondArg = jest.mocked(fetch).mock.calls[0][1]
-        expect(JSON.parse(secondArg!.body as unknown as string)).toStrictEqual(expectedPayload)
-        expect(JSON.parse(secondArg!.body as unknown as string)).toStrictEqual(expectedPayload)
+        expect(parseJSON(secondArg!.body as unknown as string)).toEqual(expectedPayload)
         expect(secondArg!.headers).toStrictEqual({ 'Content-Type': 'application/json' })
         expect(secondArg!.method).toBe('POST')
-    })
-
-    it('single postgres action per run to create or load person', async () => {
-        const event: PluginEvent = {
-            event: 'xyz',
-            properties: { foo: 'bar' },
-            timestamp: new Date().toISOString(),
-            now: new Date().toISOString(),
-            team_id: 2,
-            distinct_id: 'abc',
-            ip: null,
-            site_url: 'https://example.com',
-            uuid: new UUIDT().toString(),
-        }
-
-        await new EventPipelineRunner(hub, event).runEventPipeline(event)
-
-        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1) // we query before creating
-        expect(hub.db.createPerson).toHaveBeenCalledTimes(1)
-
-        // second time single fetch
-        await new EventPipelineRunner(hub, event).runEventPipeline(event)
-        expect(hub.db.fetchPerson).toHaveBeenCalledTimes(2)
     })
 })

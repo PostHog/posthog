@@ -1,5 +1,6 @@
 from django import forms
 from django.contrib import admin
+from django.urls import reverse
 from django.utils.html import format_html
 
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionState
@@ -57,11 +58,12 @@ class HogFunctionAdmin(admin.ModelAdmin):
         "template_id",
     )
 
-    def team_link(self, instance: HogFunction):
+    @admin.display(description="Team")
+    def team_link(self, hog_function):
         return format_html(
-            '<a href="/admin/posthog/team/{}/change/">{}</a>',
-            instance.team.pk,
-            instance.team.name,
+            '<a href="{}">{}</a>',
+            reverse("admin:posthog_team_change", args=[hog_function.team.pk]),
+            hog_function.team.name,
         )
 
     def save_model(self, request, obj: HogFunction, form, change):

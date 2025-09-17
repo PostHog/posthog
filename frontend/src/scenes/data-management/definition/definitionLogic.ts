@@ -1,15 +1,16 @@
 import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { getFilterLabel } from 'lib/taxonomy'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
-import { AvailableFeature, Breadcrumb, Definition, PropertyDefinition } from '~/types'
+import { getFilterLabel } from '~/taxonomy/helpers'
+import { AvailableFeature, Breadcrumb, Definition, EventDefinitionMetrics, PropertyDefinition } from '~/types'
 
 import { DataManagementTab } from '../DataManagementScene'
 import { eventDefinitionsTableLogic } from '../events/eventDefinitionsTableLogic'
@@ -19,6 +20,8 @@ import type { definitionLogicType } from './definitionLogicType'
 export const createNewDefinition = (isEvent: boolean): Definition => ({
     id: 'new',
     name: `New ${isEvent ? 'Event' : 'Event property'}`,
+    verified: false,
+    hidden: false,
 })
 
 export interface SetDefinitionProps {
@@ -36,6 +39,7 @@ export const definitionLogic = kea<definitionLogicType>([
     actions({
         setDefinition: (definition: Partial<Definition>, options: SetDefinitionProps = {}) => ({ definition, options }),
         loadDefinition: (id: Definition['id']) => ({ id }),
+        loadMetrics: (id: Definition['id']) => ({ id }),
         setDefinitionMissing: true,
     }),
     connect(() => ({
@@ -96,13 +100,24 @@ export const definitionLogic = kea<definitionLogicType>([
                 },
             },
         ],
+        metrics: [
+            null as EventDefinitionMetrics | null,
+            {
+                loadMetrics: async ({ id }) => {
+                    if (values.isEvent) {
+                        return await api.eventDefinitions.getMetrics({ eventDefinitionId: id })
+                    }
+
+                    // For properties, we currently don't have metrics in the same way as events.
+                    return null
+                },
+            },
+        ],
     })),
     selectors({
         hasTaxonomyFeatures: [
             (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature) =>
-                hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY) ||
-                hasAvailableFeature(AvailableFeature.TAGGING),
+            (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.INGESTION_TAXONOMY),
         ],
         isEvent: [() => [router.selectors.location], ({ pathname }) => pathname.includes(urls.eventDefinitions())],
         isProperty: [(s) => [s.isEvent], (isEvent) => !isEvent],
@@ -113,7 +128,7 @@ export const definitionLogic = kea<definitionLogicType>([
                 return [
                     {
                         key: Scene.DataManagement,
-                        name: `Data Management`,
+                        name: `Data management`,
                         path: isEvent ? urls.eventDefinitions() : urls.propertyDefinitions(),
                     },
                     {
@@ -142,6 +157,7 @@ export const definitionLogic = kea<definitionLogicType>([
             actions.setDefinition(createNewDefinition(values.isEvent))
         } else {
             actions.loadDefinition(props.id)
+            actions.loadMetrics(props.id)
         }
     }),
 ])

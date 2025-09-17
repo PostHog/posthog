@@ -1,5 +1,7 @@
-import { LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonDivider, LemonInput } from '@posthog/lemon-ui'
+
 import { SceneIcon } from 'lib/components/SceneDashboardChoice/SceneIcon'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -9,8 +11,8 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { dashboardsModel } from '~/models/dashboardsModel'
 
 import {
-    sceneDashboardChoiceModalLogic,
     SceneDashboardChoiceModalProps,
+    sceneDashboardChoiceModalLogic,
     sceneDescription,
 } from './sceneDashboardChoiceModalLogic'
 
@@ -38,7 +40,7 @@ export function SceneDashboardChoiceModal({ scene }: SceneDashboardChoiceModalPr
             }
         >
             {dashboardsLoading ? (
-                <div className="space-y-2">
+                <div className="deprecated-space-y-2">
                     <LemonSkeleton.Row repeat={4} />
                 </div>
             ) : (
@@ -53,7 +55,7 @@ export function SceneDashboardChoiceModal({ scene }: SceneDashboardChoiceModalPr
                         className="mb-4"
                     />
                     <LemonDivider />
-                    <div className="space-y-2 min-h-100">
+                    <div className="deprecated-space-y-2 min-h-100">
                         {dashboards.map((dashboard) => {
                             const isCurrentChoice = dashboard.id === currentDashboardId
                             const rowContents = (

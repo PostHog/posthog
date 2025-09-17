@@ -1,10 +1,17 @@
 import json
 from datetime import datetime
-from unittest.mock import ANY
 
 import pytest
-from django.core.cache import cache
 from freezegun import freeze_time
+from posthog.test.base import BaseTest, _create_event, _create_person
+from unittest.mock import ANY
+
+from django.core.cache import cache
+
+from posthog.constants import FunnelCorrelationType
+from posthog.models.element import Element
+from posthog.models.team import Team
+from posthog.test.test_journeys import journeys_for
 
 from ee.clickhouse.views.test.funnel.util import (
     EventPattern,
@@ -13,11 +20,6 @@ from ee.clickhouse.views.test.funnel.util import (
     get_funnel_correlation_ok,
     get_people_for_correlation_ok,
 )
-from posthog.constants import FunnelCorrelationType
-from posthog.models.element import Element
-from posthog.models.team import Team
-from posthog.test.base import BaseTest, _create_event, _create_person
-from posthog.test.test_journeys import journeys_for
 
 
 @pytest.mark.clickhouse_only
@@ -117,6 +119,7 @@ class FunnelCorrelationTest(BaseTest):
                 ],
                 "skewed": False,
             },
+            "query_method": "hogql",
         }
 
     def test_event_correlation_is_partitioned_by_team(self):
@@ -217,6 +220,7 @@ class FunnelCorrelationTest(BaseTest):
             "is_cached": False,
             "last_refresh": "2020-01-01T00:00:00Z",
             "result": {"events": [], "skewed": False},
+            "query_method": "hogql",
         }
 
     def test_event_correlation_endpoint_does_not_include_funnel_steps(self):
@@ -278,6 +282,7 @@ class FunnelCorrelationTest(BaseTest):
                 ],
                 "skewed": False,
             },
+            "query_method": "hogql",
         }
 
     def test_events_correlation_endpoint_provides_people_drill_down_urls(self):
@@ -597,6 +602,7 @@ class FunnelCorrelationTest(BaseTest):
             "is_cached": False,
             "last_refresh": "2020-01-01T00:00:00Z",
             "result": {"events": [], "skewed": False},
+            "query_method": "hogql",
         }
 
     def test_funnel_correlation_with_event_properties_autocapture(self):
@@ -682,6 +688,7 @@ class FunnelCorrelationTest(BaseTest):
             },
             "last_refresh": "2020-01-01T00:00:00Z",
             "is_cached": False,
+            "query_method": "hogql",
         }
 
         assert get_people_for_correlation_ok(client=self.client, correlation=response["result"]["events"][0]) == {

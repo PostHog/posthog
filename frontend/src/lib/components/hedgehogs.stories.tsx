@@ -1,5 +1,6 @@
-import { LemonTable } from '@posthog/lemon-ui'
 import { Meta } from '@storybook/react'
+
+import { LemonTable } from '@posthog/lemon-ui'
 
 import * as hedgehogs from './hedgehogs'
 
@@ -42,7 +43,7 @@ she will get to it dependant on work load.
 export default meta
 export function Library(): JSX.Element {
     return (
-        <div className="space-y-2">
+        <div className="deprecated-space-y-2">
             <LemonTable
                 dataSource={allHedgehogs}
                 columns={[

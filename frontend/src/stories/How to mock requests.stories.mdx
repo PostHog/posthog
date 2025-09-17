@@ -6,9 +6,9 @@ import { Meta } from '@storybook/addon-docs'
 
 ## MockServiceWorker
 
--   We use an abstraction over [MockServiceWorker](https://mswjs.io/) to provide API mocks.
--   This abstraction along with the
-    [default mocks](https://github.com/PostHog/posthog/blob/master/frontend/src/mocks/handlers.ts#L7) are shared between storybook and jest tests.
+- We use an abstraction over [MockServiceWorker](https://mswjs.io/) to provide API mocks.
+- This abstraction along with the
+  [default mocks](https://github.com/PostHog/posthog/blob/master/frontend/src/mocks/handlers.ts#L7) are shared between storybook and jest tests.
 
 ## Specifying mocks
 
@@ -65,7 +65,7 @@ useStorybookMocks({
         '/api/status_shorthand': () => [500, { error: 'Error text' }]
 
         // complicated param handling
-        '/api/projects/:team/insights': (req, _, ctx) => {
+        '/api/environments/:team_id/insights': (req, _, ctx) => {
             const team = req.params['team']
             const shortId = req.url.searchParams.get('short_id')
             if (shortId === 'my_insight') {

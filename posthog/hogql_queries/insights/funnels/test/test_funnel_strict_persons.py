@@ -1,13 +1,7 @@
 from datetime import datetime, timedelta
 from uuid import UUID
 
-from django.utils import timezone
 from freezegun import freeze_time
-
-
-from posthog.constants import INSIGHT_FUNNELS
-from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
-from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -15,12 +9,20 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
+
+from django.utils import timezone
+
+from posthog.constants import INSIGHT_FUNNELS
+from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 
 
-class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
+class BaseTestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
+    __test__ = False
+
     def _create_sample_data_multiple_dropoffs(self):
         events_by_person = {}
         for i in range(5):
@@ -166,6 +168,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             distinct_id="user_1",
             first_timestamp=timestamp,
             last_timestamp=timestamp,
+            ensure_analytics_event_in_session=False,  # Would mess up the strict funnel
         )
 
         # First event, but no recording
@@ -264,3 +267,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
                 }
             ],
         )
+
+
+class TestFunnelStrictStepsPersons(BaseTestFunnelStrictStepsPersons):
+    __test__ = True

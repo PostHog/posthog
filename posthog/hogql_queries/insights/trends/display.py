@@ -1,6 +1,7 @@
+from posthog.schema import ChartDisplayType
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
-from posthog.schema import ChartDisplayType
 
 
 class TrendsDisplay:
@@ -19,6 +20,7 @@ class TrendsDisplay:
             or self.display_type == ChartDisplayType.ACTIONS_PIE
             or self.display_type == ChartDisplayType.ACTIONS_BAR_VALUE
             or self.display_type == ChartDisplayType.WORLD_MAP
+            or self.display_type == ChartDisplayType.CALENDAR_HEATMAP
             or self.display_type == ChartDisplayType.ACTIONS_TABLE
         )
 
@@ -31,7 +33,7 @@ class TrendsDisplay:
     def should_wrap_inner_query(self) -> bool:
         return self.display_type == ChartDisplayType.ACTIONS_LINE_GRAPH_CUMULATIVE
 
-    def _build_aggregate_dates(self, dates_queries: ast.SelectUnionQuery) -> ast.Expr:
+    def _build_aggregate_dates(self, dates_queries: ast.SelectSetQuery) -> ast.Expr:
         return parse_select(
             """
             SELECT day_start
@@ -49,7 +51,7 @@ class TrendsDisplay:
         )
 
     def modify_outer_query(
-        self, outer_query: ast.SelectQuery, inner_query: ast.SelectQuery, dates_queries: ast.SelectUnionQuery
+        self, outer_query: ast.SelectQuery, inner_query: ast.SelectQuery, dates_queries: ast.SelectSetQuery
     ) -> ast.SelectQuery:
         if not self.is_total_value():
             return outer_query

@@ -1,17 +1,15 @@
-import { IconX } from '@posthog/icons'
-import { LemonButton, LemonDivider, TooltipProps } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import React, { Fragment, useState } from 'react'
+
+import { IconX } from '@posthog/icons'
+import { LemonButton, LemonDivider, TooltipProps } from '@posthog/lemon-ui'
+
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Scene } from 'scenes/sceneTypes'
 
-export type SidebarChangeNoticeProps = {
+type SidebarChangeNoticeProps = {
     identifier: string | number
-}
-
-export type SidebarChangeNoticeTooltipProps = SidebarChangeNoticeProps & {
-    children: TooltipProps['children']
 }
 
 /**
@@ -44,7 +42,7 @@ const NOTICES: {
         flagSuffix: 'annotations-2023-10-30',
     },
     {
-        identifier: Scene.PersonsManagement,
+        identifier: Scene.Cohorts,
         description: (
             <>
                 <b>Cohorts</b> have moved here!

@@ -1,14 +1,15 @@
 import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
-import { urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
 import api from 'lib/api'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getAppContext } from 'lib/utils/getAppContext'
-import posthog from 'posthog-js'
 
-import { AvailableFeature, OrganizationBasicType, ProductKey, UserTheme, UserType } from '~/types'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { AvailableFeature, OrganizationBasicType, ProductKey, UserRole, UserTheme, UserType } from '~/types'
 
 import { urls } from './urls'
 import type { userLogicType } from './userLogicType'
@@ -24,10 +25,15 @@ export const userLogic = kea<userLogicType>([
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
         logout: true,
-        updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({ user, successCallback }),
+        updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({
+            user,
+            successCallback,
+        }),
+        cancelEmailChangeRequest: true,
         setUserScenePersonalisation: (scene: DashboardCompatibleScenes, dashboard: number) => ({ scene, dashboard }),
-        updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean) => ({ productKey, value }),
-        switchTeam: (teamId: string | number) => ({ teamId }),
+        updateHasSeenProductIntroFor: (productKey: ProductKey, value: boolean = true) => ({ productKey, value }),
+        switchTeam: (teamId: string | number, destination?: string) => ({ teamId, destination }),
+        deleteUser: true,
     })),
     forms(({ actions }) => ({
         userDetails: {
@@ -35,13 +41,13 @@ export const userLogic = kea<userLogicType>([
                 first_name: !first_name
                     ? 'You need to have a name.'
                     : first_name.length > 150
-                    ? 'This name is too long. Please keep it under 151 characters.'
-                    : null,
+                      ? 'This name is too long. Please keep it under 151 characters.'
+                      : null,
                 email: !email
                     ? 'You need to have an email.'
                     : email.length > 254
-                    ? 'This email is too long. Please keep it under 255 characters.'
-                    : null,
+                      ? 'This email is too long. Please keep it under 255 characters.'
+                      : null,
             }),
             submit: (user) => {
                 actions.updateUser(user)
@@ -55,7 +61,7 @@ export const userLogic = kea<userLogicType>([
             {
                 loadUser: async () => {
                     try {
-                        return await api.get('api/users/@me/')
+                        return await api.get<UserType>('api/users/@me/')
                     } catch (error: any) {
                         console.error(error)
                         actions.loadUserFailure(error.message)
@@ -67,26 +73,49 @@ export const userLogic = kea<userLogicType>([
                         throw new Error('Current user has not been loaded yet, so it cannot be updated!')
                     }
                     try {
-                        const response = await api.update('api/users/@me/', user)
+                        const response = await api.update<UserType>('api/users/@me/', user)
                         successCallback && successCallback()
                         return response
                     } catch (error: any) {
                         console.error(error)
                         actions.updateUserFailure(error.message)
+                        return values.user
                     }
+                },
+                cancelEmailChangeRequest: async () => {
+                    if (!values.user) {
+                        throw new Error('Current user has not been loaded yet, so it cannot be updated!')
+                    }
+                    try {
+                        const response = await api.update<UserType>('api/users/cancel_email_change_request/', {})
+                        lemonToast.success('The email change request was cancelled successfully.')
+                        return response
+                    } catch (error: any) {
+                        console.error(error)
+                        lemonToast.error(
+                            'Failed to cancel email change request. Please try again later or contact support.'
+                        )
+                        return values.user
+                    }
+                },
+                deleteUser: async () => {
+                    return await api.delete('api/users/@me/').then(() => {
+                        return null
+                    })
                 },
                 setUserScenePersonalisation: async ({ scene, dashboard }) => {
                     if (!values.user) {
                         throw new Error('Current user has not been loaded yet, so it cannot be updated!')
                     }
                     try {
-                        return await api.create('api/users/@me/scene_personalisation', {
+                        return await api.create<UserType>('api/users/@me/scene_personalisation', {
                             scene,
                             dashboard,
                         })
                     } catch (error: any) {
                         console.error(error)
                         actions.updateUserFailure(error.message)
+                        return values.user
                     }
                 },
             },
@@ -117,12 +146,6 @@ export const userLogic = kea<userLogicType>([
         },
         loadUserSuccess: ({ user }) => {
             if (user && user.uuid) {
-                const Sentry = (window as any).Sentry
-                Sentry?.setUser({
-                    email: user.email,
-                    id: user.uuid,
-                })
-
                 if (posthog) {
                     posthog.identify(user.distinct_id)
                     posthog.people.set({
@@ -174,12 +197,26 @@ export const userLogic = kea<userLogicType>([
                 toastId: 'updateUser',
             })
         },
+        deleteUserSuccess: () => {
+            actions.logout()
+            lemonToast.success('Account deleted', {
+                toastId: 'deleteUser',
+            })
+        },
+        deleteUserFailure: () => {
+            lemonToast.error('Error deleting account', {
+                toastId: 'deleteUser',
+            })
+        },
         updateCurrentOrganization: async ({ organizationId, destination }, breakpoint) => {
             if (values.user?.organization?.id === organizationId) {
                 return
             }
             await breakpoint(10)
             await api.update('api/users/@me/', { set_current_organization: organizationId })
+
+            sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
+
             window.location.href = destination || '/'
         },
         updateHasSeenProductIntroFor: async ({ productKey, value }, breakpoint) => {
@@ -195,8 +232,10 @@ export const userLogic = kea<userLogicType>([
                     actions.loadUser()
                 })
         },
-        switchTeam: ({ teamId }) => {
-            window.location.href = urls.project(teamId)
+        switchTeam: ({ teamId, destination }) => {
+            sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
+
+            window.location.href = destination || urls.project(teamId)
         },
     })),
     selectors({
@@ -249,6 +288,22 @@ export const userLogic = kea<userLogicType>([
                 return user?.theme_mode || 'light'
             },
         ],
+
+        isUserNonTechnical: [
+            (s) => [s.user],
+            (user): boolean => {
+                const nonTechnicalRoles = [
+                    UserRole.Founder,
+                    UserRole.Leadership,
+                    UserRole.Marketing,
+                    UserRole.Sales,
+                    UserRole.Other,
+                ]
+                return user?.role_at_organization
+                    ? nonTechnicalRoles.includes(user.role_at_organization as UserRole)
+                    : false
+            },
+        ],
     }),
     afterMount(({ actions }) => {
         const preloadedUser = getAppContext()?.current_user
@@ -260,14 +315,4 @@ export const userLogic = kea<userLogicType>([
             actions.loadUser()
         }
     }),
-    urlToAction(({ values }) => ({
-        '/year_in_posthog/2023': () => {
-            if (window.POSTHOG_APP_CONTEXT?.year_in_hog_url) {
-                window.location.href = `${window.location.origin}${window.POSTHOG_APP_CONTEXT.year_in_hog_url}`
-            }
-            if (values.user?.uuid) {
-                window.location.href = `${window.location.origin}/year_in_posthog/2023/${values.user?.uuid}`
-            }
-        },
-    })),
 ])

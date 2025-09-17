@@ -1,0 +1,691 @@
+{
+  "event": "$snapshot_items",
+  "api_key": "phc_VXRzc3poSG9GZm1JenRianJ6TTJFZGh4OWY2QXzx9f3",
+  "properties": {
+    "$lib": "web",
+    "$session_id": "01983d9b-8639-78fa-ac26-b9e7bf716521",
+    "$snapshot_source": "web",
+    "$window_id": "01983d90-31f6-78cf-86c8-b26d0bdaaff0",
+    "distinct_id": "01983d90-510c-7970-a356-ecd2aa03cb22",
+    "$snapshot_data": [
+      {
+        "data": {
+          "adds": [],
+          "attributes": [
+            {
+              "attributes": {
+                "height": "494"
+              },
+              "id": 6475
+            }
+          ],
+          "removes": [],
+          "source": 0,
+          "texts": []
+        },
+        "timestamp": 1753379299184,
+        "type": 3
+      },
+      {
+        "data": {
+          "adds": [],
+          "attributes": [
+            {
+              "attributes": {
+                "class": "social-media social-media-rendered",
+                "height": "372",
+                "style": {
+                  "margin-bottom": "12px",
+                  "position": false
+                }
+              },
+              "id": 6475
+            }
+          ],
+          "removes": [
+            {
+              "id": 6368,
+              "parentId": 6367
+            }
+          ],
+          "source": 0,
+          "texts": []
+        },
+        "timestamp": 1753379299185,
+        "type": 3
+      },
+      {
+        "data": {
+          "adds": [],
+          "attributes": [
+            {
+              "attributes": {
+                "style": {
+                  "height": "2884px"
+                }
+              },
+              "id": 6110
+            },
+            {
+              "attributes": {
+                "style": {
+                  "height": "184px"
+                }
+              },
+              "id": 6119
+            }
+          ],
+          "removes": [],
+          "source": 0,
+          "texts": []
+        },
+        "timestamp": 1753379299191,
+        "type": 3
+      },
+      {
+        "data": {
+          "adds": [],
+          "attributes": [
+            {
+              "attributes": {
+                "height": "494"
+              },
+              "id": 6474
+            }
+          ],
+          "removes": [],
+          "source": 0,
+          "texts": []
+        },
+        "timestamp": 1753379299197,
+        "type": 3
+      },
+      {
+        "data": {
+          "adds": [],
+          "attributes": [
+            {
+              "attributes": {
+                "class": "social-media social-media-rendered",
+                "height": "372",
+                "style": {
+                  "margin-bottom": "12px",
+                  "position": false
+                }
+              },
+              "id": 6474
+            }
+          ],
+          "removes": [
+            {
+              "id": 6331,
+              "parentId": 6330
+            }
+          ],
+          "source": 0,
+          "texts": []
+        },
+        "timestamp": 1753379299197,
+        "type": 3
+      },
+      {
+        "data": {
+          "adds": [],
+          "attributes": [
+            {
+              "attributes": {
+                "style": {
+                  "height": "2896px"
+                }
+              },
+              "id": 6110
+            },
+            {
+              "attributes": {
+                "style": {
+                  "height": "183px"
+                }
+              },
+              "id": 6119
+            }
+          ],
+          "removes": [],
+          "source": 0,
+          "texts": []
+        },
+        "timestamp": 1753379299199,
+        "type": 3
+      },
+      {
+        "data": {
+          "adds": [],
+          "attributes": [
+            {
+              "attributes": {
+                "height": "494"
+              },
+              "id": 6476
+            }
+          ],
+          "removes": [],
+          "source": 0,
+          "texts": []
+        },
+        "timestamp": 1753379299205,
+        "type": 3
+      },
+      {
+        "data": {
+          "adds": [],
+          "attributes": [
+            {
+              "attributes": {
+                "class": "social-media social-media-rendered",
+                "height": "372",
+                "style": {
+                  "margin-bottom": "12px",
+                  "position": false
+                }
+              },
+              "id": 6476
+            }
+          ],
+          "removes": [
+            {
+              "id": 6405,
+              "parentId": 6404
+            }
+          ],
+          "source": 0,
+          "texts": []
+        },
+        "timestamp": 1753379299206,
+        "type": 3
+      },
+      {
+        "data": {
+          "adds": [],
+          "attributes": [
+            {
+              "attributes": {
+                "height": "494"
+              },
+              "id": 6475
+            }
+          ],
+          "removes": [],
+          "source": 0,
+          "texts": []
+        },
+        "timestamp": 1753379299206,
+        "type": 3
+      },
+      {
+        "data": {
+          "adds": [],
+          "attributes": [
+            {
+              "attributes": {
+                "style": {
+                  "height": "3030px"
+                }
+              },
+              "id": 6110
+            },
+            {
+              "attributes": {
+                "style": {
+                  "height": "175px"
+                }
+              },
+              "id": 6119
+            }
+          ],
+          "removes": [],
+          "source": 0,
+          "texts": []
+        },
+        "timestamp": 1753379299207,
+        "type": 3
+      },
+      {
+        "data": {
+          "adds": [],
+          "attributes": [
+            {
+              "attributes": {
+                "height": "494"
+              },
+              "id": 6474
+            }
+          ],
+          "removes": [],
+          "source": 0,
+          "texts": []
+        },
+        "timestamp": 1753379299208,
+        "type": 3
+      },
+      {
+        "data": {
+          "adds": [],
+          "attributes": [
+            {
+              "attributes": {
+                "height": "494"
+              },
+              "id": 6476
+            }
+          ],
+          "removes": [],
+          "source": 0,
+          "texts": []
+        },
+        "timestamp": 1753379299209,
+        "type": 3
+      },
+      {
+        "data": {
+          "positions": [
+            {
+              "id": 6155,
+              "timeOffset": -99,
+              "x": 1168,
+              "y": 696
+            },
+            {
+              "id": 6155,
+              "timeOffset": -48,
+              "x": 1169,
+              "y": 693
+            }
+          ],
+          "source": 1
+        },
+        "timestamp": 1753379299239,
+        "type": 3
+      },
+      {
+        "data": {
+          "adds": [],
+          "attributes": [
+            {
+              "attributes": {
+                "class": "some-class simplebar-mouse-entered"
+              },
+              "id": 5998
+            }
+          ],
+          "removes": [],
+          "source": 0,
+          "texts": []
+        },
+        "timestamp": 1753379299732,
+        "type": 3
+      },
+      {
+        "data": {
+          "positions": [
+            {
+              "id": 6155,
+              "timeOffset": -499,
+              "x": 1172,
+              "y": 673
+            },
+            {
+              "id": 6155,
+              "timeOffset": -442,
+              "x": 1172,
+              "y": 652
+            },
+            {
+              "id": 6155,
+              "timeOffset": -392,
+              "x": 1158,
+              "y": 619
+            },
+            {
+              "id": 6467,
+              "timeOffset": -342,
+              "x": 1078,
+              "y": 530
+            },
+            {
+              "id": 6171,
+              "timeOffset": -292,
+              "x": 871,
+              "y": 393
+            },
+            {
+              "id": 6163,
+              "timeOffset": -242,
+              "x": 587,
+              "y": 243
+            },
+            {
+              "id": 6138,
+              "timeOffset": -192,
+              "x": 433,
+              "y": 165
+            },
+            {
+              "id": 6146,
+              "timeOffset": -142,
+              "x": 384,
+              "y": 142
+            },
+            {
+              "id": 6133,
+              "timeOffset": -92,
+              "x": 356,
+              "y": 132
+            },
+            {
+              "id": 6117,
+              "timeOffset": -41,
+              "x": 309,
+              "y": 117
+            }
+          ],
+          "source": 1
+        },
+        "timestamp": 1753379299740,
+        "type": 3
+      },
+      {
+        "data": {
+          "adds": [],
+          "attributes": [
+            {
+              "attributes": {
+                "class": "abc123"
+              },
+              "id": 5998
+            }
+          ],
+          "removes": [],
+          "source": 0,
+          "texts": []
+        },
+        "timestamp": 1753379299908,
+        "type": 3
+      },
+      {
+        "data": {
+          "positions": [
+            {
+              "id": 6029,
+              "timeOffset": -490,
+              "x": 258,
+              "y": 103
+            },
+            {
+              "id": 6029,
+              "timeOffset": -433,
+              "x": 224,
+              "y": 94
+            },
+            {
+              "id": 6029,
+              "timeOffset": -383,
+              "x": 214,
+              "y": 93
+            },
+            {
+              "id": 6029,
+              "timeOffset": -332,
+              "x": 202,
+              "y": 92
+            },
+            {
+              "id": 6029,
+              "timeOffset": -275,
+              "x": 193,
+              "y": 92
+            },
+            {
+              "id": 6029,
+              "timeOffset": -224,
+              "x": 190,
+              "y": 94
+            },
+            {
+              "id": 6029,
+              "timeOffset": -166,
+              "x": 187,
+              "y": 96
+            },
+            {
+              "id": 6029,
+              "timeOffset": -108,
+              "x": 184,
+              "y": 98
+            },
+            {
+              "id": 6029,
+              "timeOffset": -58,
+              "x": 181,
+              "y": 102
+            },
+            {
+              "id": 6029,
+              "timeOffset": -8,
+              "x": 178,
+              "y": 106
+            }
+          ],
+          "source": 1
+        },
+        "timestamp": 1753379300240,
+        "type": 3
+      },
+      {
+        "data": {
+          "adds": [
+            {
+              "nextId": null,
+              "node": {
+                "attributes": {
+                  "d": "m13.41 12l4.3-4.29a1 1 0 1 0-1.42-1.42L12 10.59l-4.29-4.3a1 1 0 0 0-1.42 1.42l4.3 4.29l-4.3 4.29a1 1 0 0 0 0 1.42a1 1 0 0 0 1.42 0l4.29-4.3l4.29 4.3a1 1 0 0 0 1.42 0a1 1 0 0 0 0-1.42Z",
+                  "fill": "currentColor"
+                },
+                "childNodes": [],
+                "id": 6482,
+                "isSVG": true,
+                "rootId": 5018,
+                "tagName": "path",
+                "type": 2
+              },
+              "parentId": 5978
+            }
+          ],
+          "attributes": [
+            {
+              "attributes": {
+                "style": "transform: translateX(308px); transition: transform 195ms cubic-bezier(0.4, 0, 0.6, 1);"
+              },
+              "id": 5975
+            }
+          ],
+          "removes": [
+            {
+              "id": 6132,
+              "parentId": 5978
+            }
+          ],
+          "source": 0,
+          "texts": []
+        },
+        "timestamp": 1753379300680,
+        "type": 3
+      },
+      {
+        "data": {
+          "positions": [
+            {
+              "id": 6029,
+              "timeOffset": -459,
+              "x": 177,
+              "y": 109
+            },
+            {
+              "id": 6029,
+              "timeOffset": -409,
+              "x": 176,
+              "y": 111
+            },
+            {
+              "id": 6029,
+              "timeOffset": -359,
+              "x": 175,
+              "y": 113
+            },
+            {
+              "id": 6029,
+              "timeOffset": -301,
+              "x": 175,
+              "y": 116
+            },
+            {
+              "id": 6029,
+              "timeOffset": -250,
+              "x": 175,
+              "y": 119
+            },
+            {
+              "id": 6031,
+              "timeOffset": -193,
+              "x": 176,
+              "y": 127
+            },
+            {
+              "id": 6036,
+              "timeOffset": -135,
+              "x": 182,
+              "y": 147
+            },
+            {
+              "id": 6027,
+              "timeOffset": -75,
+              "x": 201,
+              "y": 173
+            },
+            {
+              "id": 6040,
+              "timeOffset": -18,
+              "x": 227,
+              "y": 199
+            }
+          ],
+          "source": 1
+        },
+        "timestamp": 1753379300741,
+        "type": 3
+      },
+      {
+        "data": {
+          "adds": [
+            {
+              "nextId": null,
+              "node": {
+                "attributes": {
+                  "d": "m13.41 12l4.3-4.29a1 1 0 1 0-1.42-1.42L12 10.59l-4.29-4.3a1 1 0 0 0-1.42 1.42l4.3 4.29l-4.3 4.29a1 1 0 0 0 0 1.42a1 1 0 0 0 1.42 0l4.29-4.3l4.29 4.3a1 1 0 0 0 1.42 0a1 1 0 0 0 0-1.42Z",
+                  "fill": "currentColor"
+                },
+                "childNodes": [],
+                "id": 6483,
+                "isSVG": true,
+                "rootId": 5018,
+                "tagName": "path",
+                "type": 2
+              },
+              "parentId": 5978
+            }
+          ],
+          "attributes": [
+            {
+              "attributes": {
+                "style": "transform: translateX(308px); visibility: hidden;"
+              },
+              "id": 5975
+            }
+          ],
+          "removes": [
+            {
+              "id": 6482,
+              "parentId": 5978
+            }
+          ],
+          "source": 0,
+          "texts": []
+        },
+        "timestamp": 1753379300878,
+        "type": 3
+      },
+      {
+        "data": {
+          "adds": [
+            {
+              "nextId": null,
+              "node": {
+                "attributes": {
+                  "d": "m13.41 12l4.3-4.29a1 1 0 1 0-1.42-1.42L12 10.59l-4.29-4.3a1 1 0 0 0-1.42 1.42l4.3 4.29l-4.3 4.29a1 1 0 0 0 0 1.42a1 1 0 0 0 1.42 0l4.29-4.3l4.29 4.3a1 1 0 0 0 1.42 0a1 1 0 0 0 0-1.42Z",
+                  "fill": "currentColor"
+                },
+                "childNodes": [],
+                "id": 6484,
+                "isSVG": true,
+                "rootId": 5018,
+                "tagName": "path",
+                "type": 2
+              },
+              "parentId": 5978
+            }
+          ],
+          "attributes": [
+            {
+              "attributes": {
+                "class": "xyz123",
+                "style": {
+                  "height": "0px",
+                  "overflow-x": "hidden",
+                  "overflow-y": "hidden",
+                  "transition-delay": "0ms",
+                  "transition-duration": "175ms",
+                  "transition-timing-function": false
+                }
+              },
+              "id": 5972
+            }
+          ],
+          "removes": [
+            {
+              "id": 6483,
+              "parentId": 5978
+            }
+          ],
+          "source": 0,
+          "texts": []
+        },
+        "timestamp": 1753379301008,
+        "type": 3
+      },
+      {
+        "data": {
+          "adds": [],
+          "attributes": [],
+          "removes": [
+            {
+              "id": 5971,
+              "parentId": 5123
+            }
+          ],
+          "source": 0,
+          "texts": []
+        },
+        "timestamp": 1753379301184,
+        "type": 3
+      }
+    ]
+  }
+}

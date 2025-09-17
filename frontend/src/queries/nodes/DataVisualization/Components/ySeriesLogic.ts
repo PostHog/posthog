@@ -1,11 +1,13 @@
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 
+import { getSeriesColor } from 'lib/colors'
+
 import {
     AxisSeries,
-    dataVisualizationLogic,
     DataVisualizationLogicProps,
     EmptyYAxisSeries,
+    dataVisualizationLogic,
 } from '../dataVisualizationLogic'
 import type { ySeriesLogicType } from './ySeriesLogicType'
 
@@ -75,6 +77,7 @@ export const ySeriesLogic = kea<ySeriesLogicType>([
         },
         display: {
             defaults: {
+                color: props.series?.settings?.display?.color ?? getSeriesColor(props.seriesIndex),
                 label: props.series?.settings?.display?.label ?? '',
                 trendLine: props.series?.settings?.display?.trendLine ?? false,
                 yAxisPosition: props.series?.settings?.display?.yAxisPosition ?? 'left',
@@ -83,6 +86,7 @@ export const ySeriesLogic = kea<ySeriesLogicType>([
             submit: async (display) => {
                 actions.updateSeriesIndex(props.seriesIndex, props.series.column.name, {
                     display: {
+                        color: display.color,
                         label: display.label,
                         trendLine: display.trendLine,
                         yAxisPosition: display.yAxisPosition,

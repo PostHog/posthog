@@ -1,0 +1,120 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls static admin_list %}
+
+{% block extrastyle %}
+{{ block.super }}
+<link rel="stylesheet" href="{% static 'admin/css/changelists.css' %}" />
+<link rel="stylesheet" href="{% static 'admin/css/forms.css' %}" />
+{{ media.css }}
+{% endblock %}
+
+{% if not is_popup %}
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+    <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+    &rsaquo; API Key search
+</div>
+{% endblock %}
+{% endif %}
+
+{% block content %}
+<div id="content-main">
+    <div class="module filtered">
+        <div>
+            {% block search %} {% load i18n static %}
+            <div id="toolbar">
+                <form method="post" role="search">
+                    {% csrf_token %}
+                    <div>
+                        <!-- DIV needed for valid HTML -->
+                        <label for="searchbar"><img src="{% static 'admin/img/search.svg' %}" alt="Search" /></label>
+                        <input type="text" size="40" name="q" value="{{ query }}" id="searchbar" required autocomplete="off" />
+                        <input type="submit" value="{% translate 'Search' %}" />
+                    </div>
+                </form>
+            </div>
+            {% endblock %}
+            <div class="results">
+                {% if personal_api_key_object %}
+                <table id="results_list">
+                    <thead>
+                        <tr>
+                            <th scope="col">
+                                <div class="text"><span>{% trans "Type" %}</span></div>
+                            </th>
+                            <th scope="col">
+                                <div class="text"><span>{% trans "Label" %}</span></div>
+                            </th>
+                            <th scope="col">
+                                <div class="text"><span>{% trans "User" %}</span></div>
+                            </th>
+                            <th scope="col">
+                                <div class="text"><span>{% trans "Scopes" %}</span></div>
+                            </th>
+                            <th scope="col">
+                                <div class="text"><span>{% trans "Organization/Project scope" %}</span></div>
+                            </th>
+                            <th scope="col">
+                                <div class="text"><span>{% trans "Created" %}</span></div>
+                            </th>
+                            <th scope="col">
+                                <div class="text"><span>{% trans "Last Used" %}</span></div>
+                            </th>
+                            <th scope="col">
+                                <div class="text"><span>{% trans "Last Rolled" %}</span></div>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><a href="/admin/posthog/personalapikey/{{ personal_api_key_object.id }}/change/">Personal API Key ({{ personal_api_key_hash_mode }})</a></td>
+                            <td><a href="/admin/posthog/personalapikey/{{ personal_api_key_object.id }}/change/">{{ personal_api_key_object.label }}</a></td>
+                            <td><a href="/admin/posthog/user/{{ personal_api_key_object.user.id }}/change/">{{ personal_api_key_object.user.email }}</a></td>
+                            <td>{{ personal_api_key_object.scopes }}</td>
+                            <td>
+                                {% if personal_api_key_object.scoped_organizations %}
+                                Organization access
+                                {% elif personal_api_key_object.scoped_teams %}
+                                Project access
+                                {% else %}
+                                All access
+                                {% endif %}
+                            </td>
+                            <td>{{ personal_api_key_object.created_at }}</td>
+                            <td>{{ personal_api_key_object.last_used_at }}</td>
+                            <td>{{ personal_api_key_object.last_rolled_at }}</td>
+                        </tr>
+                    </tbody>
+                </table>
+                {% elif team_object %}
+                <table id="results_list">
+                    <thead>
+                        <tr>
+                            <th scope="col">
+                                <div class="text"><span>{% trans "Type" %}</span></div>
+                            </th>
+                            <th scope="col">
+                                <div class="text"><span>{% trans "Team" %}</span></div>
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>
+                                Feature Flags Secure API Key
+                                {% if team_object_key_type == "backup" %}
+                                (Backup)
+                                {% endif %}
+                            </td>
+                            <td><a href="/admin/posthog/team/{{ team_object.id }}/change/">{{ team_object.name }}</a></td>
+                        </tr>
+                    </tbody>
+                </table>
+                {% elif query != "" %}
+                <span>No results found</span>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

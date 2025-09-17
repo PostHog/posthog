@@ -142,6 +142,14 @@ const cleanProperty = (property: Record<string, any>): AnyPropertyFilter => {
         delete property['operator']
     }
 
+    // convert `negation` for cohorts
+    if (property['type'] === 'cohort' && property['negation'] !== undefined) {
+        if (property['operator'] === PropertyOperator.Exact && property['negation']) {
+            property['operator'] = PropertyOperator.NotIn
+        }
+        delete property['negation']
+    }
+
     // remove none from values
     if (Array.isArray(property['value'])) {
         property['value'] = property['value'].filter((x) => x !== null)
@@ -158,7 +166,7 @@ const cleanProperty = (property: Record<string, any>): AnyPropertyFilter => {
 }
 
 const isPropertyWithOperator = (property: Record<string, any>): boolean => {
-    return !['cohort', 'hogql'].includes(property['type'])
+    return !['hogql'].includes(property['type'])
 }
 
 // old style dict properties e.g. {"utm_medium__icontains": "email"}

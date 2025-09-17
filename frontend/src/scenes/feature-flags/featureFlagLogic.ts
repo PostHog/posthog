@@ -1,44 +1,59 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { DeepPartialMap, forms, ValidationErrorType } from 'kea-forms'
+import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+
 import api, { PaginatedResponse } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { sum, toParams } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
+import { ProductIntentContext } from 'lib/utils/product-intents'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
-import { NEW_EARLY_ACCESS_FEATURE } from 'scenes/early-access-features/earlyAccessFeatureLogic'
-import { featureFlagsLogic, FeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
+import { experimentLogic } from 'scenes/experiments/experimentLogic'
+import { FeatureFlagsTab, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { NEW_SURVEY, NewSurvey } from 'scenes/surveys/constants'
+import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import {
+    AccessControlLevel,
+    ActivityScope,
     AvailableFeature,
     Breadcrumb,
     CohortType,
     DashboardBasicType,
     EarlyAccessFeatureType,
+    FeatureFlagEvaluationRuntime,
     FeatureFlagGroupType,
     FeatureFlagRollbackConditions,
+    FeatureFlagStatusResponse,
     FeatureFlagType,
     FilterLogicalOperator,
     FilterType,
     InsightModel,
     InsightType,
+    JsonType,
     MultivariateFlagOptions,
     MultivariateFlagVariant,
     NewEarlyAccessFeatureType,
     OrganizationFeatureFlag,
+    ProductKey,
+    ProjectTreeRef,
     PropertyFilterType,
     PropertyOperator,
     QueryBasedInsightModel,
@@ -50,8 +65,11 @@ import {
     SurveyQuestionType,
 } from '~/types'
 
+import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
+
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
+import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 
@@ -70,7 +88,7 @@ const getDefaultRollbackCondition = (): FeatureFlagRollbackConditions => ({
     },
 })
 
-const NEW_FLAG: FeatureFlagType = {
+export const NEW_FLAG: FeatureFlagType = {
     id: null,
     created_at: null,
     key: '',
@@ -92,7 +110,14 @@ const NEW_FLAG: FeatureFlagType = {
     surveys: null,
     performed_rollback: false,
     can_edit: true,
+    user_access_level: AccessControlLevel.Editor,
     tags: [],
+    is_remote_configuration: false,
+    has_encrypted_payloads: false,
+    status: 'ACTIVE',
+    version: 0,
+    last_modified_by: null,
+    evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
 }
 const NEW_VARIANT = {
     key: '',
@@ -113,9 +138,21 @@ const EMPTY_MULTIVARIATE_OPTIONS: MultivariateFlagOptions = {
 export function validateFeatureFlagKey(key: string): string | undefined {
     return !key
         ? 'Please set a key'
-        : !key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
-        ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
-        : undefined
+        : key.length > 400
+          ? 'Key must be 400 characters or less.'
+          : !key.match?.(/^[a-zA-Z0-9_-]+$/)
+            ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
+            : undefined
+}
+
+function validatePayloadRequired(is_remote_configuration: boolean, payload?: JsonType): string | undefined {
+    if (!is_remote_configuration) {
+        return undefined
+    }
+    if (payload === undefined || payload === '') {
+        return 'Payload is required for remote configuration flags.'
+    }
+    return undefined
 }
 
 export interface FeatureFlagLogicProps {
@@ -130,9 +167,11 @@ export const variantKeyToIndexFeatureFlagPayloads = (flag: FeatureFlagType): Fea
         return flag
     }
 
-    const newPayloads = {}
+    const newPayloads: Record<number, JsonType> = {}
     flag.filters.multivariate?.variants.forEach((variant, index) => {
-        newPayloads[index] = flag.filters.payloads?.[variant.key]
+        if (flag.filters.payloads?.[variant.key] !== undefined) {
+            newPayloads[index] = flag.filters.payloads[variant.key]
+        }
     })
     return {
         ...flag,
@@ -143,13 +182,12 @@ export const variantKeyToIndexFeatureFlagPayloads = (flag: FeatureFlagType): Fea
     }
 }
 
-const indexToVariantKeyFeatureFlagPayloads = (flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> => {
+export const indexToVariantKeyFeatureFlagPayloads = (flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> => {
     if (flag.filters?.multivariate) {
-        const newPayloads = {}
-        flag.filters?.multivariate?.variants.forEach(({ key }, index) => {
-            const payload = flag.filters?.payloads?.[index]
-            if (payload) {
-                newPayloads[key] = payload
+        const newPayloads: Record<string, JsonType> = {}
+        flag.filters.multivariate.variants.forEach(({ key }, index) => {
+            if (flag.filters?.payloads?.[index] !== undefined) {
+                newPayloads[key] = flag.filters.payloads[index]
             }
         })
         return {
@@ -176,6 +214,69 @@ const indexToVariantKeyFeatureFlagPayloads = (flag: Partial<FeatureFlagType>): P
     return flag
 }
 
+export const getRecordingFilterForFlagVariant = (
+    flagKey: string,
+    variantKey: string | null,
+    hasEnrichedAnalytics?: boolean
+): Partial<RecordingUniversalFilters> => {
+    return {
+        filter_group: {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        hasEnrichedAnalytics
+                            ? {
+                                  id: '$feature_interaction',
+                                  type: 'events',
+                                  order: 0,
+                                  name: '$feature_interaction',
+                                  properties: [
+                                      {
+                                          key: 'feature_flag',
+                                          value: [flagKey],
+                                          operator: PropertyOperator.Exact,
+                                          type: PropertyFilterType.Event,
+                                      },
+                                  ],
+                              }
+                            : {
+                                  type: PropertyFilterType.Event,
+                                  key: `$feature/${flagKey}`,
+                                  operator: PropertyOperator.Exact,
+                                  value: [variantKey ? variantKey : 'true'],
+                              },
+                    ],
+                },
+            ],
+        },
+    }
+}
+
+// This helper function removes the created_at, id, and created_by fields from a flag
+// and cleans the groups and super_groups by removing the sort_key field.
+function cleanFlag(flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> {
+    const { created_at, id, created_by, last_modified_by, ...cleanedFlag } = flag
+    return {
+        ...cleanedFlag,
+        filters: {
+            ...cleanedFlag.filters,
+            groups: cleanFilterGroups(cleanedFlag.filters?.groups) || [],
+            super_groups: cleanFilterGroups(cleanedFlag.filters?.super_groups),
+        },
+    }
+}
+
+// Strip out sort_key from groups before saving. The sort_key is here for React to be able to
+// render the release conditions in the correct order.
+function cleanFilterGroups(groups?: FeatureFlagGroupType[]): FeatureFlagGroupType[] | undefined {
+    if (groups === undefined || groups === null) {
+        return undefined
+    }
+    return groups.map(({ sort_key, ...rest }: FeatureFlagGroupType) => rest)
+}
+
 export const featureFlagLogic = kea<featureFlagLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagLogic']),
     props({} as FeatureFlagLogicProps),
@@ -183,13 +284,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     connect((props: FeatureFlagLogicProps) => ({
         values: [
             teamLogic,
-            ['currentTeamId'],
+            ['currentTeam', 'currentTeamId'],
+            projectLogic,
+            ['currentProjectId'],
             groupsModel,
             ['aggregationLabel'],
             userLogic,
             ['hasAvailableFeature'],
-            dashboardsLogic,
-            ['dashboards'],
+            dashboardsModel,
+            ['nameSortedDashboards as dashboards'],
             organizationLogic,
             ['currentOrganization'],
             enabledFeaturesLogic,
@@ -200,6 +303,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['submitNewDashboardSuccessWithResult'],
             featureFlagsLogic,
             ['updateFlag', 'deleteFlag'],
+            sidePanelStateLogic,
+            ['closeSidePanel'],
+            teamLogic,
+            ['addProductIntent'],
         ],
     })),
     actions({
@@ -210,6 +317,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         addRollbackCondition: true,
         removeRollbackCondition: (index: number) => ({ index }),
         deleteFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
+        restoreFeatureFlag: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
+        setRemoteConfigEnabled: (enabled: boolean) => ({ enabled }),
+        resetEncryptedPayload: () => ({}),
         setMultivariateEnabled: (enabled: boolean) => ({ enabled }),
         setMultivariateOptions: (multivariateOptions: MultivariateFlagOptions | null) => ({ multivariateOptions }),
         addVariant: true,
@@ -230,11 +340,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             errors?: any
         ) => ({ filters, active, errors }),
         setScheduledChangeOperation: (changeType: ScheduledChangeOperationType) => ({ changeType }),
+        setAccessDeniedToFeatureFlag: true,
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
-            defaults: { ...NEW_FLAG } as FeatureFlagType,
-            errors: ({ key, filters }) => {
+            defaults: {
+                ...NEW_FLAG,
+                ensure_experience_continuity: values.currentTeam?.flags_persistence_default || false,
+            },
+            errors: ({ key, filters, is_remote_configuration }) => {
                 return {
                     key: validateFeatureFlagKey(key),
                     filters: {
@@ -249,15 +363,55 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             FeatureFlagGroupType,
                             ValidationErrorType
                         >[],
+                        payloads: {
+                            true: validatePayloadRequired(is_remote_configuration, filters?.payloads?.['true']),
+                        } as any,
+                        // Forced any cast necessary to prevent Kea's typechecking from raising "Type instantiation
+                        // is excessively deep and possibly infinite" error
                     },
                 }
             },
             submit: (featureFlag) => {
-                actions.saveFeatureFlag(featureFlag)
+                // Use confirmation logic from dedicated file
+                const confirmationShown = checkFeatureFlagConfirmation(
+                    values.originalFeatureFlag,
+                    featureFlag,
+                    !!values.currentTeam?.feature_flag_confirmation_enabled,
+                    values.currentTeam?.feature_flag_confirmation_message || undefined,
+                    () => {
+                        // This callback is called when confirmation is completed or not needed
+                        if (featureFlag.id) {
+                            actions.saveFeatureFlag(featureFlag)
+                        } else {
+                            actions.saveFeatureFlag({ ...featureFlag, _create_in_folder: 'Unfiled/Feature Flags' })
+                        }
+                    }
+                )
+
+                // If no confirmation was shown, proceed immediately
+                if (!confirmationShown) {
+                    if (featureFlag.id) {
+                        actions.saveFeatureFlag(featureFlag)
+                    } else {
+                        actions.saveFeatureFlag({ ...featureFlag, _create_in_folder: 'Unfiled/Feature Flags' })
+                    }
+                }
             },
         },
     })),
     reducers({
+        originalFeatureFlag: [
+            null as FeatureFlagType | null,
+            {
+                loadFeatureFlagSuccess: (_, { featureFlag }) => {
+                    // Transform the original flag when it's first loaded
+                    // Apply the same transformations we'd use when sending it back
+                    return featureFlag
+                        ? (indexToVariantKeyFeatureFlagPayloads(cleanFlag(featureFlag)) as FeatureFlagType)
+                        : null
+                },
+            },
+        ],
         featureFlag: [
             { ...NEW_FLAG } as FeatureFlagType,
             {
@@ -288,7 +442,45 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     if (!state) {
                         return state
                     }
-                    return { ...state, filters: { ...state.filters, multivariate: multivariateOptions } }
+                    const variantsSet = new Set(multivariateOptions?.variants.map((variant) => variant.key))
+                    const groups = state.filters.groups.map((group) =>
+                        !group.variant || variantsSet.has(group.variant) ? group : { ...group, variant: null }
+                    )
+                    const oldPayloads = state.filters.payloads ?? {}
+                    const payloads: Record<string, JsonType> = {}
+                    for (const variantKey of Object.keys(oldPayloads)) {
+                        if (variantsSet.has(variantKey)) {
+                            payloads[variantKey] = oldPayloads[variantKey]
+                        }
+                    }
+                    return {
+                        ...state,
+                        filters: { ...state.filters, groups, payloads, multivariate: multivariateOptions },
+                    }
+                },
+                setRemoteConfigEnabled: (state, { enabled }) => {
+                    if (!state) {
+                        return state
+                    }
+
+                    return {
+                        ...state,
+                        is_remote_configuration: enabled,
+                    }
+                },
+                resetEncryptedPayload: (state) => {
+                    if (!state) {
+                        return state
+                    }
+
+                    return {
+                        ...state,
+                        filters: {
+                            ...state.filters,
+                            payloads: { true: '' },
+                        },
+                        has_encrypted_payloads: false,
+                    }
                 },
                 addVariant: (state) => {
                     if (!state) {
@@ -300,7 +492,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         filters: {
                             ...state.filters,
                             multivariate: {
-                                ...(state.filters.multivariate || {}),
+                                ...state.filters.multivariate,
                                 variants: [...variants, NEW_VARIANT],
                             },
                         },
@@ -312,6 +504,22 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
                     const variants = [...(state.filters.multivariate?.variants || [])]
                     variants.splice(index, 1)
+
+                    const currentPayloads = { ...state.filters.payloads }
+                    const newPayloads: Record<number, any> = {}
+
+                    // TRICKY: In addition to modifying the variant array, we also need to shift the payload indices
+                    // because the variant array is being modified and we need to make sure that the payloads object
+                    // stays in sync with the variant array.
+                    Object.keys(currentPayloads).forEach((key) => {
+                        const payloadIndex = parseInt(key)
+                        if (payloadIndex > index) {
+                            newPayloads[payloadIndex - 1] = currentPayloads[payloadIndex]
+                        } else if (payloadIndex < index) {
+                            newPayloads[payloadIndex] = currentPayloads[payloadIndex]
+                        }
+                    })
+
                     return {
                         ...state,
                         filters: {
@@ -320,6 +528,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                                 ...state.filters.multivariate,
                                 variants,
                             },
+                            payloads: newPayloads,
                         },
                     }
                 },
@@ -375,6 +584,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
+        accessDeniedToFeatureFlag: [false, { setAccessDeniedToFeatureFlag: () => true }],
         propertySelectErrors: [
             null as any,
             {
@@ -449,35 +659,137 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     loaders(({ values, props, actions }) => ({
         featureFlag: {
             loadFeatureFlag: async () => {
+                const sourceId = router.values.searchParams.sourceId
+                if (props.id === 'new' && sourceId) {
+                    // Used when "duplicating a feature flag". This populates the form with the source flag's data.
+                    const sourceFlag = await api.featureFlags.get(sourceId)
+                    // But first, remove fields that we don't want to duplicate
+                    const {
+                        id,
+                        created_at,
+                        key,
+                        deleted,
+                        active,
+                        created_by,
+                        is_simple_flag,
+                        experiment_set,
+                        features,
+                        surveys,
+                        performed_rollback,
+                        can_edit,
+                        user_access_level,
+                        status,
+                        last_modified_by,
+                        ...flagToKeep
+                    } = sourceFlag
+
+                    // Remove sourceId from URL
+                    router.actions.replace(router.values.location.pathname)
+
+                    return {
+                        ...NEW_FLAG,
+                        ...flagToKeep,
+                        key: '',
+                    } as FeatureFlagType
+                }
+
                 if (props.id && props.id !== 'new' && props.id !== 'link') {
                     try {
                         const retrievedFlag: FeatureFlagType = await api.featureFlags.get(props.id)
                         return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
-                    } catch (e) {
-                        actions.setFeatureFlagMissing()
+                    } catch (e: any) {
+                        if (e.status === 403 && e.code === 'permission_denied') {
+                            actions.setAccessDeniedToFeatureFlag()
+                        } else {
+                            actions.setFeatureFlagMissing()
+                        }
                         throw e
                     }
                 }
-                return NEW_FLAG
+                return {
+                    ...NEW_FLAG,
+                    ensure_experience_continuity: values.currentTeam?.flags_persistence_default ?? false,
+                }
             },
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
-                const { created_at, id, ...flag } = updatedFlag
+                // Destructure all fields we want to exclude or handle specially
+                const flag = cleanFlag(updatedFlag)
+                const preparedFlag = indexToVariantKeyFeatureFlagPayloads(flag)
+
+                try {
+                    let savedFlag: FeatureFlagType
+                    if (!updatedFlag.id) {
+                        // Creating a new flag
+                        savedFlag = await api.create(
+                            `api/projects/${values.currentProjectId}/feature_flags`,
+                            preparedFlag
+                        )
+                        if (values.roleBasedAccessEnabled && savedFlag.id) {
+                            featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(savedFlag.id)
+                        }
+                        actions.addProductIntent({
+                            product_type: ProductKey.FEATURE_FLAGS,
+                            intent_context: ProductIntentContext.FEATURE_FLAG_CREATED,
+                        })
+                    } else {
+                        // Updating an existing flag - include version in preparedFlag
+                        const cachedFlag = featureFlagsLogic
+                            .findMounted()
+                            ?.values.featureFlags.results.find((flag) => flag.id === props.id)
+
+                        // If we've got a cached flag and the filters have changed, we've updated the release conditions
+                        if (
+                            cachedFlag &&
+                            JSON.stringify(cachedFlag?.filters) !== JSON.stringify(values.featureFlag.filters)
+                        ) {
+                            activationLogic
+                                .findMounted()
+                                ?.actions.markTaskAsCompleted(ActivationTask.UpdateFeatureFlagReleaseConditions)
+                        }
+
+                        savedFlag = await api.update(
+                            `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`,
+                            {
+                                ...preparedFlag,
+                                original_flag: values.originalFeatureFlag,
+                            }
+                        )
+                    }
+                    savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
+                    return variantKeyToIndexFeatureFlagPayloads(savedFlag)
+                } catch (error: any) {
+                    if (error.code === 'behavioral_cohort_found' || error.code === 'cohort_does_not_exist') {
+                        eventUsageLogic.actions.reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
+                    }
+                    throw error
+                }
+            },
+            saveSidebarExperimentFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
+                const flag = cleanFlag(updatedFlag)
 
                 const preparedFlag = indexToVariantKeyFeatureFlagPayloads(flag)
 
                 try {
                     let savedFlag: FeatureFlagType
                     if (!updatedFlag.id) {
-                        savedFlag = await api.create(`api/projects/${values.currentTeamId}/feature_flags`, preparedFlag)
+                        // Creating a new flag
+                        savedFlag = await api.create(
+                            `api/projects/${values.currentProjectId}/feature_flags`,
+                            preparedFlag
+                        )
                         if (values.roleBasedAccessEnabled && savedFlag.id) {
                             featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(savedFlag.id)
                         }
                     } else {
                         savedFlag = await api.update(
-                            `api/projects/${values.currentTeamId}/feature_flags/${updatedFlag.id}`,
-                            preparedFlag
+                            `api/projects/${values.currentProjectId}/feature_flags/${updatedFlag.id}`,
+                            {
+                                ...preparedFlag,
+                                original_flag: values.originalFeatureFlag,
+                            }
                         )
                     }
+                    savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
 
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
                 } catch (error: any) {
@@ -494,7 +806,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 loadRelatedInsights: async () => {
                     if (props.id && props.id !== 'new' && values.featureFlag.key) {
                         const response = await api.get<PaginatedResponse<InsightModel>>(
-                            `api/projects/${values.currentTeamId}/insights/?feature_flag=${values.featureFlag.key}&order=-created_at`
+                            `api/environments/${values.currentProjectId}/insights/?feature_flag=${values.featureFlag.key}&order=-created_at`
                         )
                         return response.results.map((legacyInsight) => getQueryBasedInsightModel(legacyInsight))
                     }
@@ -542,7 +854,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             },
                         ],
                     }
-                    return await api.surveys.create(newSurvey as NewSurvey)
+                    const response = await api.surveys.create(newSurvey as NewSurvey)
+                    actions.addProductIntent({
+                        product_type: ProductKey.SURVEYS,
+                        intent_context: ProductIntentContext.SURVEY_CREATED,
+                        metadata: {
+                            survey_id: response.id,
+                            source: SURVEY_CREATED_SOURCE.FEATURE_FLAGS,
+                        },
+                    })
+                    return response
                 },
             },
         ],
@@ -563,28 +884,35 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 const orgId = values.currentOrganization?.id
                 const flagKey = values.featureFlag.key
 
-                const projects = await api.organizationFeatureFlags.get(orgId, flagKey)
+                const organizationFeatureFlags = await api.organizationFeatureFlags.get(orgId, flagKey)
+                const teamIdsInCurrentProject =
+                    values.currentOrganization?.teams
+                        .filter((t) => t.project_id === values.currentProjectId)
+                        .map((t) => t.id) || []
 
-                // Put current project first
-                const currentProjectIdx = projects.findIndex((p) => p.team_id === values.currentTeamId)
-                if (currentProjectIdx) {
-                    const [currentProject] = projects.splice(currentProjectIdx, 1)
-                    const sortedProjects = [currentProject, ...projects]
-                    return sortedProjects
-                }
-                return projects
+                // Put current project first. We need teamIdsInCurrentProject here, because as of Feb 2025,
+                // FeatureFlag only has `team_id`, but not `project_id`
+                return organizationFeatureFlags.sort((a, b) => {
+                    if (teamIdsInCurrentProject.includes(a.team_id)) {
+                        return -1
+                    }
+                    if (teamIdsInCurrentProject.includes(b.team_id)) {
+                        return 1
+                    }
+                    return 0
+                })
             },
         },
         featureFlagCopy: {
             copyFlag: async () => {
                 const orgId = values.currentOrganization?.id
                 const featureFlagKey = values.featureFlag.key
-                const { copyDestinationProject, currentTeamId } = values
+                const { copyDestinationProject, currentProjectId } = values
 
-                if (currentTeamId && copyDestinationProject) {
+                if (currentProjectId && copyDestinationProject) {
                     return await api.organizationFeatureFlags.copy(orgId, {
                         feature_flag_key: featureFlagKey,
-                        from_project: currentTeamId,
+                        from_project: currentProjectId,
                         target_project_ids: [copyDestinationProject],
                     })
                 }
@@ -593,9 +921,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         scheduledChanges: {
             __default: [] as ScheduledChangeType[],
             loadScheduledChanges: async () => {
-                const { currentTeamId } = values
-                if (currentTeamId) {
-                    const response = await api.featureFlags.getScheduledChanges(currentTeamId, values.featureFlag.id)
+                const { currentProjectId } = values
+                if (currentProjectId) {
+                    const response = await api.featureFlags.getScheduledChanges(currentProjectId, values.featureFlag.id)
                     return response.results || []
                 }
             },
@@ -603,14 +931,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         scheduledChange: {
             __default: {} as ScheduledChangeType,
             createScheduledChange: async () => {
-                const { scheduledChangeOperation, scheduleDateMarker, currentTeamId, schedulePayload } = values
+                const { scheduledChangeOperation, scheduleDateMarker, currentProjectId, schedulePayload } = values
 
-                const fields = {
+                const fields: Record<ScheduledChangeOperationType, keyof ScheduleFlagPayload> = {
                     [ScheduledChangeOperationType.UpdateStatus]: 'active',
                     [ScheduledChangeOperationType.AddReleaseCondition]: 'filters',
                 }
 
-                if (currentTeamId && scheduledChangeOperation) {
+                if (currentProjectId && scheduledChangeOperation) {
                     const data = {
                         record_id: values.featureFlag.id,
                         model_name: 'FeatureFlag',
@@ -621,26 +949,46 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         scheduled_at: scheduleDateMarker.toISOString(),
                     }
 
-                    return await api.featureFlags.createScheduledChange(currentTeamId, data)
+                    return await api.featureFlags.createScheduledChange(currentProjectId, data)
                 }
             },
             deleteScheduledChange: async (scheduledChangeId) => {
-                const { currentTeamId } = values
-                if (currentTeamId) {
-                    return await api.featureFlags.deleteScheduledChange(currentTeamId, scheduledChangeId)
+                const { currentProjectId } = values
+                if (currentProjectId) {
+                    return await api.featureFlags.deleteScheduledChange(currentProjectId, scheduledChangeId)
                 }
+            },
+        },
+        flagStatus: [
+            null as FeatureFlagStatusResponse | null,
+            {
+                loadFeatureFlagStatus: () => {
+                    const { currentProjectId } = values
+                    if (currentProjectId && props.id && props.id !== 'new' && props.id !== 'link') {
+                        return api.featureFlags.getStatus(currentProjectId, props.id)
+                    }
+                    return null
+                },
+            },
+        ],
+        experiment: {
+            loadExperiment: async () => {
+                if (values.featureFlag.experiment_set) {
+                    return await api.experiments.get(values.featureFlag.experiment_set[0])
+                }
+                return null
             },
         },
     })),
     listeners(({ actions, values, props }) => ({
         submitNewDashboardSuccessWithResult: async ({ result }) => {
-            await api.update(`api/projects/${values.currentTeamId}/feature_flags/${values.featureFlag.id}`, {
+            await api.update(`api/projects/${values.currentProjectId}/feature_flags/${values.featureFlag.id}`, {
                 analytics_dashboards: [result.id],
             })
         },
         generateUsageDashboard: async () => {
             if (props.id) {
-                await api.create(`api/projects/${values.currentTeamId}/feature_flags/${props.id}/dashboard`)
+                await api.create(`api/projects/${values.currentProjectId}/feature_flags/${props.id}/dashboard`)
                 actions.loadFeatureFlag()
             }
         },
@@ -648,30 +996,63 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             if (props.id) {
                 await breakpoint(1000) // in ms
                 await api.create(
-                    `api/projects/${values.currentTeamId}/feature_flags/${props.id}/enrich_usage_dashboard`
+                    `api/projects/${values.currentProjectId}/feature_flags/${props.id}/enrich_usage_dashboard`
                 )
             }
         },
         submitFeatureFlagFailure: async () => {
-            // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
-            setTimeout(
-                () => document.querySelector(`.Field--error`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }),
-                1
-            )
+            scrollToFormError()
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
             actions.updateFlag(featureFlag)
             featureFlag.id && router.actions.replace(urls.featureFlag(featureFlag.id))
             actions.editFeatureFlag(false)
+            activationLogic.findMounted()?.actions.markTaskAsCompleted(ActivationTask.CreateFeatureFlag)
+        },
+        saveSidebarExperimentFeatureFlagSuccess: ({ featureFlag }) => {
+            lemonToast.success('Release conditions updated')
+            actions.updateFlag(featureFlag)
+            actions.editFeatureFlag(false)
+            actions.closeSidePanel()
+
+            const currentPath = router.values.currentLocation.pathname
+            const experimentId = currentPath.split('/').pop()
+
+            if (experimentId) {
+                eventUsageLogic.actions.reportExperimentReleaseConditionsUpdated(parseInt(experimentId))
+                experimentLogic({ experimentId: parseInt(experimentId) }).actions.loadExperiment()
+            }
         },
         deleteFeatureFlag: async ({ featureFlag }) => {
             await deleteWithUndo({
-                endpoint: `projects/${values.currentTeamId}/feature_flags`,
+                endpoint: `projects/${values.currentProjectId}/feature_flags`,
                 object: { name: featureFlag.key, id: featureFlag.id },
-                callback: () => {
+                callback: (undo) => {
                     featureFlag.id && actions.deleteFlag(featureFlag.id)
+                    if (undo) {
+                        refreshTreeItem('feature_flag', String(featureFlag.id))
+                    } else {
+                        deleteFromTree('feature_flag', String(featureFlag.id))
+                    }
+                    // Load latest change so a backwards navigation shows the flag as deleted
+                    actions.loadFeatureFlag()
                     router.actions.push(urls.featureFlags())
+                },
+            })
+        },
+        restoreFeatureFlag: async ({ featureFlag }) => {
+            await deleteWithUndo({
+                endpoint: `projects/${values.currentProjectId}/feature_flags`,
+                object: { name: featureFlag.key, id: featureFlag.id },
+                undo: true,
+                callback: (undo) => {
+                    if (undo) {
+                        deleteFromTree('feature_flag', String(featureFlag.id))
+                    } else {
+                        refreshTreeItem('feature_flag', String(featureFlag.id))
+                    }
+                    actions.loadFeatureFlag()
                 },
             })
         },
@@ -685,11 +1066,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         loadFeatureFlagSuccess: async () => {
             actions.loadRelatedInsights()
             actions.loadAllInsightsForFlag()
+            actions.loadExperiment()
         },
         loadInsightAtIndex: async ({ index, filters }) => {
             if (filters) {
                 const response = await api.get(
-                    `api/projects/${values.currentTeamId}/insights/trend/?${toParams(
+                    `api/environments/${values.currentProjectId}/insights/trend/?${toParams(
                         filterTrendsClientSideParams(filters)
                     )}`
                 )
@@ -740,6 +1122,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 })
             }
         },
+        createSurveySuccess: ({ newSurvey }) => {
+            if (newSurvey) {
+                lemonToast.success('Survey created successfully', {
+                    button: {
+                        label: 'View survey',
+                        action: () => router.actions.push(urls.survey(newSurvey.id)),
+                    },
+                })
+            }
+        },
         createScheduledChangeSuccess: ({ scheduledChange }) => {
             if (scheduledChange) {
                 lemonToast.success('Change scheduled successfully')
@@ -768,12 +1160,52 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.loadScheduledChanges()
             }
         },
+        setRemoteConfigEnabled: ({ enabled }) => {
+            if (enabled) {
+                actions.setFeatureFlagFilters(
+                    {
+                        ...values.featureFlag.filters,
+                        groups: [
+                            {
+                                variant: null,
+                                properties: [],
+                                rollout_percentage: 100,
+                            },
+                        ],
+                    },
+                    {}
+                )
+            }
+        },
+        editFeatureFlag: async ({ editing }) => {
+            if (editing) {
+                actions.loadFeatureFlag()
+            }
+        },
     })),
     selectors({
         sentryErrorCount: [(s) => [s.sentryStats], (stats) => stats.total_count],
         sentryIntegrationEnabled: [(s) => [s.sentryStats], (stats) => !!stats.sentry_integration_enabled],
         props: [() => [(_, props) => props], (props) => props],
         multivariateEnabled: [(s) => [s.featureFlag], (featureFlag) => !!featureFlag?.filters.multivariate],
+        flagType: [
+            (s) => [s.featureFlag],
+            (featureFlag) =>
+                featureFlag?.is_remote_configuration
+                    ? 'remote_config'
+                    : featureFlag?.filters.multivariate
+                      ? 'multivariate'
+                      : 'boolean',
+        ],
+        flagTypeString: [
+            (s) => [s.featureFlag],
+            (featureFlag) =>
+                featureFlag?.is_remote_configuration
+                    ? 'Remote configuration (single payload)'
+                    : featureFlag?.filters.multivariate
+                      ? 'Multiple variants with rollout percentages (A/B/n test)'
+                      : 'Release toggle (boolean)',
+        ],
         roleBasedAccessEnabled: [
             (s) => [s.hasAvailableFeature],
             (hasAvailableFeature) => hasAvailableFeature(AvailableFeature.ROLE_BASED_ACCESS),
@@ -810,6 +1242,24 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 { key: [Scene.FeatureFlag, featureFlag.id || 'unknown'], name: featureFlag.key || 'Unnamed' },
             ],
         ],
+        projectTreeRef: [
+            () => [(_, props: FeatureFlagLogicProps) => props.id],
+            (id): ProjectTreeRef => ({ type: 'feature_flag', ref: id === 'link' || id === 'new' ? null : String(id) }),
+        ],
+
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.featureFlag],
+            (featureFlag): SidePanelSceneContext | null => {
+                return featureFlag?.id
+                    ? {
+                          activity_scope: ActivityScope.FEATURE_FLAG,
+                          activity_item_id: `${featureFlag.id}`,
+                          access_control_resource: 'feature_flag',
+                          access_control_resource_id: `${featureFlag.id}`,
+                      }
+                    : null
+            },
+        ],
         filteredDashboards: [
             (s) => [s.dashboards, s.featureFlag],
             (dashboards, featureFlag) => {
@@ -830,58 +1280,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     return {}
                 }
 
-                return {
-                    filter_group: {
-                        type: FilterLogicalOperator.And,
-                        values: [
-                            {
-                                type: FilterLogicalOperator.And,
-                                values: [
-                                    featureFlag.has_enriched_analytics
-                                        ? {
-                                              id: '$feature_interaction',
-                                              type: 'events',
-                                              order: 0,
-                                              name: '$feature_interaction',
-                                              properties: [
-                                                  {
-                                                      key: 'feature_flag',
-                                                      value: [flagKey],
-                                                      operator: PropertyOperator.Exact,
-                                                      type: PropertyFilterType.Event,
-                                                  },
-                                              ],
-                                          }
-                                        : {
-                                              id: '$feature_flag_called',
-                                              name: '$feature_flag_called',
-                                              type: 'events',
-                                              properties: [
-                                                  {
-                                                      key: '$feature/' + flagKey,
-                                                      type: PropertyFilterType.Event,
-                                                      value: ['false'],
-                                                      operator: PropertyOperator.IsNot,
-                                                  },
-                                                  {
-                                                      key: '$feature/' + flagKey,
-                                                      type: PropertyFilterType.Event,
-                                                      value: 'is_set',
-                                                      operator: PropertyOperator.IsSet,
-                                                  },
-                                                  {
-                                                      key: '$feature_flag',
-                                                      type: PropertyFilterType.Event,
-                                                      value: flagKey,
-                                                      operator: PropertyOperator.Exact,
-                                                  },
-                                              ],
-                                          },
-                                ],
-                            },
-                        ],
-                    },
-                }
+                return getRecordingFilterForFlagVariant(flagKey, null, featureFlag.has_enriched_analytics)
             },
         ],
         hasEarlyAccessFeatures: [
@@ -918,13 +1317,50 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 return featureFlag?.surveys && featureFlag.surveys.length > 0
             },
         ],
+        hasEncryptedPayloadBeenSaved: [
+            (s) => [s.featureFlag, s.props],
+            (featureFlag, props) => {
+                if (!featureFlag.has_encrypted_payloads) {
+                    return false
+                }
+                const savedFlag = featureFlagsLogic
+                    .findMounted()
+                    ?.values.featureFlags.results.find((flag) => flag.id === props.id)
+                return savedFlag?.has_encrypted_payloads
+            },
+        ],
+        hasExperiment: [
+            (s) => [s.featureFlag],
+            (featureFlag) => {
+                return featureFlag?.experiment_set && featureFlag.experiment_set.length > 0
+            },
+        ],
+        isDraftExperiment: [
+            (s) => [s.experiment],
+            (experiment) => {
+                // Treat as launched experiment if not yet loaded.
+                if (!experiment) {
+                    return false
+                }
+                return !experiment?.start_date
+            },
+        ],
     }),
-    urlToAction(({ actions, props }) => ({
-        [urls.featureFlag(props.id ?? 'new')]: (_, __, ___, { method }) => {
+    urlToAction(({ actions, props, values }) => ({
+        [urls.featureFlag(props.id ?? 'new')]: (_, searchParams, ___, { method }) => {
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
             if (method === 'PUSH') {
                 if (props.id) {
+                    // When there is sourceId, we load the feature flag
+                    if (props.id === 'new' && searchParams.sourceId != null) {
+                        actions.loadFeatureFlag()
+                        return
+                    }
+                    // When pushing to `/new` and the feature flag has no id, do not load the flag again
+                    if (props.id === 'new' && values.featureFlag.id == null) {
+                        return
+                    }
                     actions.loadFeatureFlag()
                 } else {
                     actions.resetFeatureFlag()
@@ -933,14 +1369,23 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
     })),
     afterMount(({ props, actions }) => {
-        const foundFlag = featureFlagsLogic.findMounted()?.values.featureFlags.find((flag) => flag.id === props.id)
+        if (props.id === 'new' && router.values.searchParams.sourceId) {
+            actions.loadFeatureFlag()
+            return
+        }
+
+        const foundFlag = featureFlagsLogic
+            .findMounted()
+            ?.values.featureFlags.results.find((flag) => flag.id === props.id)
         if (foundFlag) {
             const formatPayloadsWithFlag = variantKeyToIndexFeatureFlagPayloads(foundFlag)
             actions.setFeatureFlag(formatPayloadsWithFlag)
             actions.loadRelatedInsights()
             actions.loadAllInsightsForFlag()
+            actions.loadFeatureFlagStatus()
         } else if (props.id !== 'new') {
             actions.loadFeatureFlag()
+            actions.loadFeatureFlagStatus()
         }
     }),
 ])

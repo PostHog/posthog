@@ -1,21 +1,19 @@
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, Union
 
-from dateutil.relativedelta import relativedelta
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, create_person_id_override_by_distinct_id, snapshot_clickhouse_queries
+
 from django.test import override_settings
 from django.test.client import Client
-from freezegun import freeze_time
 
-from posthog.client import sync_execute
+from dateutil.relativedelta import relativedelta
+
+from posthog.clickhouse.client import sync_execute
 from posthog.constants import ENTITY_ID, ENTITY_TYPE
 from posthog.models.team import Team
-from posthog.test.base import (
-    APIBaseTest,
-    create_person_id_override_by_distinct_id,
-    snapshot_clickhouse_queries,
-)
 from posthog.utils import encode_get_request_params
 
 
@@ -52,7 +50,6 @@ def get_time_series_ok(data):
             collect_dates[date] = NormalizedTrendResult(
                 value=item["data"][idx],
                 label=item["labels"][idx],
-                person_url=item["persons_urls"][idx]["url"],
                 breakdown_value=item.get("breakdown_value", None),
             )
         res[item["label"]] = collect_dates
@@ -63,7 +60,6 @@ def get_time_series_ok(data):
 class NormalizedTrendResult:
     value: float
     label: str
-    person_url: str
     breakdown_value: Optional[Union[str, int]]
 
 

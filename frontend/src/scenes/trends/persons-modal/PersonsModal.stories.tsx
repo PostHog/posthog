@@ -1,10 +1,11 @@
 import { Meta, StoryFn } from '@storybook/react'
+
 import { RawPropertiesTimelineResult } from 'lib/components/PropertiesTimeline/propertiesTimelineLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
 
-import EXAMPLE_PERSONS_RESPONSE from './__mocks__/examplePersonsResponse.json'
 import { PersonsModal as PersonsModalComponent } from './PersonsModal'
+import EXAMPLE_PERSONS_RESPONSE from './__mocks__/examplePersonsResponse.json'
 import { ListActorsResponse } from './personsModalLogic'
 
 const meta: Meta = {
@@ -26,6 +27,7 @@ export const WithResults: StoryFn = () => {
                                 email: 'mortgage2056@yandex.com',
                                 $geoip_country_code: 'US',
                             },
+                            matched_recordings: ['1234567890'],
                             relevant_event_count: 2,
                         },
                         {
@@ -86,7 +88,7 @@ export const Empty: StoryFn = () => {
 
     return (
         <div className="flex max-h-200">
-            <PersonsModalComponent title="Hello!" url="/api/projects/:team_id/persons/trends/*" inline />
+            <PersonsModalComponent title="Hello!" url="/api/projects/1/persons/trends/" inline />
         </div>
     )
 }

@@ -1,9 +1,14 @@
 import './LemonButton.scss'
 
-import { IconChevronDown } from '@posthog/icons'
 import clsx from 'clsx'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
 import React, { useContext } from 'react'
+
+import { IconChevronDown } from '@posthog/icons'
+
+import { getAccessControlDisabledReason } from 'lib/components/AccessControlAction'
+import { IconChevronRight } from 'lib/lemon-ui/icons'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
 import { Link } from '../Link'
@@ -26,6 +31,8 @@ export interface LemonButtonPropsBase
         | 'onMouseEnter'
         | 'onMouseLeave'
         | 'onKeyDown'
+        | 'className'
+        | 'style'
         | 'role'
         | 'aria-haspopup'
     > {
@@ -41,8 +48,6 @@ export interface LemonButtonPropsBase
     disableClientSideRouting?: boolean
     /** If set clicking this button will open the page in a new tab. */
     targetBlank?: boolean
-    /** External URL to link to. */
-    className?: string
 
     /** Icon displayed on the left. */
     icon?: React.ReactElement | null
@@ -55,6 +60,8 @@ export interface LemonButtonPropsBase
     loading?: boolean
     /** Tooltip to display on hover. */
     tooltip?: TooltipProps['title']
+    /** Documentation link to show in the tooltip. */
+    tooltipDocLink?: string
     tooltipPlacement?: TooltipProps['placement']
     /** Whether the row should take up the parent's full width. */
     fullWidth?: boolean
@@ -62,23 +69,40 @@ export interface LemonButtonPropsBase
     /** @deprecated Buttons should never be quietly disabled. Use `disabledReason` to provide an explanation instead. */
     disabled?: boolean
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
-    disabledReason?: string | null | false
-    /** Class for the wrapping div when the button is disabled */
-    disabledReasonWrapperClass?: string
+    disabledReason?: React.ReactElement | string | null | false
     noPadding?: boolean
-    size?: 'xsmall' | 'small' | 'medium' | 'large'
+    size?: 'xxsmall' | 'xsmall' | 'small' | 'medium' | 'large'
     'data-attr'?: string
     'aria-label'?: string
     /** Whether to truncate the button's text if necessary */
     truncate?: boolean
+    /** Prevent dialog from closing when clicked */
+    preventClosing?: boolean
+    /** Wrap the main button element with a container element */
+    buttonWrapper?: (button: JSX.Element) => JSX.Element
+    /** Static offset (px) to adjust tooltip arrow position. Should only be used with fixed tooltipPlacement */
+    tooltipArrowOffset?: number
+    /** Whether to force the tooltip to be visible. */
+    tooltipForceMount?: boolean
+    /** Whether to stop event propagation on click */
+    stopPropagation?: boolean
+    /** Access control props for automatic permission checking */
+    accessControl?: {
+        resourceType: AccessControlResourceType
+        minAccessLevel: AccessControlLevel
+        userAccessLevel?: AccessControlLevel
+    }
 }
 
 export type SideAction = Pick<
     LemonButtonProps,
+    | 'id'
     | 'onClick'
     | 'to'
+    | 'loading'
     | 'disableClientSideRouting'
     | 'disabled'
+    | 'disabledReason'
     | 'icon'
     | 'type'
     | 'tooltip'
@@ -103,7 +127,7 @@ export interface LemonButtonWithoutSideActionProps extends LemonButtonPropsBase 
 }
 /** A LemonButtonWithSideAction can't have a sideIcon - instead it has a clickable sideAction. */
 export interface LemonButtonWithSideActionProps extends LemonButtonPropsBase {
-    sideAction: SideAction
+    sideAction?: SideAction
     sideIcon?: null
 }
 export type LemonButtonProps = LemonButtonWithoutSideActionProps | LemonButtonWithSideActionProps
@@ -118,7 +142,6 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 className,
                 disabled,
                 disabledReason,
-                disabledReasonWrapperClass,
                 loading,
                 type = 'tertiary',
                 status = 'default',
@@ -130,6 +153,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 size,
                 tooltip,
                 tooltipPlacement,
+                tooltipArrowOffset,
                 htmlType = 'button',
                 noPadding,
                 to,
@@ -137,6 +161,11 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 disableClientSideRouting,
                 onClick,
                 truncate = false,
+                buttonWrapper,
+                tooltipDocLink,
+                tooltipForceMount,
+                stopPropagation,
+                accessControl,
                 ...buttonProps
             },
             ref
@@ -177,6 +206,22 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 size = 'small' // Ensure that buttons in the page header are small (but NOT inside dropdowns!)
             }
 
+            // Handle access control
+            if (accessControl) {
+                const { userAccessLevel, minAccessLevel, resourceType } = accessControl
+                const accessControlDisabledReason = getAccessControlDisabledReason(
+                    resourceType,
+                    userAccessLevel,
+                    minAccessLevel
+                )
+                if (accessControlDisabledReason) {
+                    disabled = true
+                    if (!disabledReason) {
+                        disabledReason = accessControlDisabledReason
+                    }
+                }
+            }
+
             let tooltipContent: TooltipProps['title']
             if (disabledReason) {
                 disabled = true // Support `disabledReason` while maintaining compatibility with `disabled`
@@ -207,13 +252,11 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 buttonProps['aria-label'] = tooltip
             }
 
-            let workingButton = (
+            let workingButton: JSX.Element = (
                 <ButtonComponent
                     ref={ref as any}
                     className={clsx(
-                        'LemonButton',
-                        `LemonButton--${type}`,
-                        `LemonButton--status-${status}`,
+                        `LemonButton LemonButton--${type} LemonButton--status-${status}`,
                         loading && `LemonButton--loading`,
                         noPadding && `LemonButton--no-padding`,
                         size && `LemonButton--${size}`,
@@ -226,7 +269,16 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         truncate && 'LemonButton--truncate',
                         className
                     )}
-                    onClick={!disabled ? onClick : undefined}
+                    onClick={
+                        !disabled
+                            ? (event) => {
+                                  if (stopPropagation) {
+                                      event.stopPropagation()
+                                  }
+                                  onClick?.(event)
+                              }
+                            : undefined
+                    }
                     // We are using the ARIA disabled instead of native HTML because of this:
                     // https://css-tricks.com/making-disabled-buttons-more-inclusive/
                     aria-disabled={disabled}
@@ -241,15 +293,20 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 </ButtonComponent>
             )
 
-            if (tooltipContent) {
+            if (buttonWrapper) {
+                workingButton = buttonWrapper(workingButton)
+            }
+
+            if (tooltipContent || tooltipDocLink) {
                 workingButton = (
-                    <Tooltip title={tooltipContent} placement={tooltipPlacement}>
-                        {/* If the button is a `button` element and disabled, wrap it in a div so that the tooltip works */}
-                        {disabled && ButtonComponent === 'button' ? (
-                            <div className={clsx(disabledReasonWrapperClass)}>{workingButton}</div>
-                        ) : (
-                            workingButton
-                        )}
+                    <Tooltip
+                        title={tooltipContent}
+                        placement={tooltipPlacement}
+                        arrowOffset={tooltipArrowOffset}
+                        docLink={tooltipDocLink}
+                        visible={tooltipForceMount}
+                    >
+                        {workingButton}
                     </Tooltip>
                 )
             }
@@ -261,7 +318,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 workingButton = (
                     <div
                         className={clsx(
-                            'LemonButtonWithSideAction',
+                            `LemonButtonWithSideAction LemonButtonWithSideAction--${type}`,
                             fullWidth && 'LemonButtonWithSideAction--full-width'
                         )}
                     >

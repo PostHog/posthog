@@ -1,24 +1,28 @@
 import equal from 'fast-deep-equal'
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { actionToUrl, urlToAction } from 'kea-router'
 import { UrlToActionPayload } from 'kea-router/lib/types'
-import { FEATURE_FLAGS } from 'lib/constants'
+
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectsEqual } from 'lib/utils'
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
+import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { getDefaultEventsQueryForTeam } from '~/queries/nodes/DataTable/defaultEventsQuery'
-import { Node } from '~/queries/schema'
-import { ActivityTab } from '~/types'
+import { Node } from '~/queries/schema/schema-general'
+import { ActivityTab, Breadcrumb } from '~/types'
 
 import type { eventsSceneLogicType } from './eventsSceneLogicType'
 
 export const eventsSceneLogic = kea<eventsSceneLogicType>([
     path(['scenes', 'events', 'eventsSceneLogic']),
-    connect({ values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']] }),
+    tabAwareScene(),
+    connect(() => ({ values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']] })),
 
     actions({ setQuery: (query: Node) => ({ query }) }),
     reducers({ savedQuery: [null as Node | null, { setQuery: (_, { query }) => query }] }),
@@ -32,17 +36,26 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
             },
         ],
         query: [(s) => [s.savedQuery, s.defaultQuery], (savedQuery, defaultQuery) => savedQuery || defaultQuery],
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => [
+                {
+                    key: Scene.ExploreEvents,
+                    name: 'Explore',
+                },
+            ],
+        ],
     }),
-    actionToUrl(({ values }) => ({
+    tabAwareActionToUrl(({ values }) => ({
         setQuery: () => [
-            values.featureFlags[FEATURE_FLAGS.LIVE_EVENTS] ? urls.activity(ActivityTab.ExploreEvents) : urls.events(),
+            urls.activity(ActivityTab.ExploreEvents),
             {},
             objectsEqual(values.query, values.defaultQuery) ? {} : { q: values.query },
             { replace: true },
         ],
     })),
 
-    urlToAction(({ actions, values }) => {
+    tabAwareUrlToAction(({ actions, values }) => {
         const eventsQueryHandler: UrlToActionPayload[keyof UrlToActionPayload] = (_, __, { q: queryParam }): void => {
             if (!equal(queryParam, values.query)) {
                 // nothing in the URL
@@ -62,7 +75,6 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
             }
         }
         return {
-            [urls.events()]: eventsQueryHandler,
             [urls.activity(ActivityTab.ExploreEvents)]: eventsQueryHandler,
         }
     }),

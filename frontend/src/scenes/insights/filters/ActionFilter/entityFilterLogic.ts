@@ -1,7 +1,10 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
+import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
+import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
 import { uuid } from 'lib/utils'
-import { eventUsageLogic, GraphSeriesAddedSource } from 'lib/utils/eventUsageLogic'
+import { GraphSeriesAddedSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
@@ -21,10 +24,8 @@ import type { entityFilterLogicType } from './entityFilterLogicType'
 export type LocalFilter = ActionFilter & {
     order: number
     uuid: string
-    id_field?: string
-    timestamp_field?: string
-    distinct_id_field?: string
     table_name?: string
+    [key: string]: any
 }
 
 export type BareEntity = Pick<Entity, 'id' | 'name'>
@@ -52,6 +53,8 @@ export function toFilters(localFilters: LocalFilter[]): FilterType {
     const filters = localFilters.map((filter, index) => ({
         ...filter,
         order: index,
+        // The first step of a funnel cannot be optional
+        optionalInFunnel: index == 0 ? undefined : filter.optionalInFunnel,
     }))
 
     return {
@@ -67,15 +70,16 @@ export interface EntityFilterProps {
     typeKey: string
     singleMode?: boolean
     addFilterDefaultOptions?: Record<string, any>
+    dataWarehousePopoverFields?: DataWarehousePopoverField[]
 }
 
 export const entityFilterLogic = kea<entityFilterLogicType>([
     props({} as EntityFilterProps),
     key((props) => props.typeKey),
     path((key) => ['scenes', 'insights', 'ActionFilter', 'entityFilterLogic', key]),
-    connect({
+    connect(() => ({
         logic: [eventUsageLogic],
-    }),
+    })),
     actions({
         selectFilter: (filter: EntityFilter | ActionFilter | null) => ({ filter }),
         updateFilterMath: (
@@ -86,17 +90,25 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             type: filter.type as EntityType,
             math: filter.math,
             math_property: filter.math_property,
+            math_property_type: filter.math_property_type,
             math_hogql: filter.math_hogql,
             index: filter.index,
             math_group_type_index: filter.math_group_type_index,
         }),
+        updateFilterOptional: (
+            filter: Partial<ActionFilter> & {
+                index: number
+            }
+        ) => ({
+            type: filter.type as EntityType,
+            index: filter.index,
+            optionalInFunnel: filter.optionalInFunnel,
+        }),
         updateFilter: (
             filter: (EntityFilter | ActionFilter | DataWarehouseFilter) & {
                 index: number
-                id_field?: string
-                timestamp_field?: string
-                distinct_id_field?: string
                 table_name?: string
+                [key: string]: any
             }
         ) => ({
             ...filter,
@@ -186,48 +198,44 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             const dataLogic = insightDataLogic.findMounted({
                 dashboardItemId: props.typeKey,
             })
-            dataLogic?.actions?.loadData(true)
+            dataLogic?.actions?.loadData('force_async')
         },
         hideModal: () => {
             actions.selectFilter(null)
         },
-        updateFilter: async ({
-            type,
-            index,
-            name,
-            id,
-            custom_name,
-            id_field,
-            timestamp_field,
-            distinct_id_field,
-            table_name,
-        }) => {
+        updateFilter: async ({ type, index, name, id, custom_name, table_name, ...fieldValues }) => {
             actions.setFilters(
                 values.localFilters.map((filter, i) => {
                     if (i === index) {
+                        const dataWarehousePopoverFields =
+                            props.dataWarehousePopoverFields ?? defaultDataWarehousePopoverFields
                         if (type === EntityTypes.DATA_WAREHOUSE) {
-                            return {
+                            const updatedFilter = {
                                 ...filter,
                                 id: typeof id === 'undefined' ? filter.id : id,
                                 name: typeof name === 'undefined' ? filter.name : name,
                                 type: typeof type === 'undefined' ? filter.type : type,
                                 custom_name: typeof custom_name === 'undefined' ? filter.custom_name : custom_name,
-                                id_field: typeof id_field === 'undefined' ? filter.id_field : id_field,
-                                timestamp_field:
-                                    typeof timestamp_field === 'undefined' ? filter.timestamp_field : timestamp_field,
-                                distinct_id_field:
-                                    typeof distinct_id_field === 'undefined'
-                                        ? filter.distinct_id_field
-                                        : distinct_id_field,
                                 table_name: typeof table_name === 'undefined' ? filter.table_name : table_name,
                             }
+
+                            // Dynamically handle fields from dataWarehousePopoverFields
+                            dataWarehousePopoverFields.forEach(({ key }) => {
+                                const fieldValue = fieldValues[key]
+                                updatedFilter[key] = typeof fieldValue === 'undefined' ? filter[key] : fieldValue
+                            })
+
+                            return updatedFilter
                         }
-                        delete filter.id_field
-                        delete filter.timestamp_field
-                        delete filter.distinct_id_field
-                        delete filter.table_name
+
+                        // For non-DATA_WAREHOUSE types, remove any data warehouse specific fields
+                        const cleanedFilter = { ...filter }
+                        dataWarehousePopoverFields.forEach(({ key }) => {
+                            delete cleanedFilter[key]
+                        })
+
                         return {
-                            ...filter,
+                            ...cleanedFilter,
                             id: typeof id === 'undefined' ? filter.id : id,
                             name: typeof name === 'undefined' ? filter.name : name,
                             type: typeof type === 'undefined' ? filter.type : type,
@@ -248,6 +256,11 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
         updateFilterMath: async ({ index, ...mathProperties }) => {
             actions.setFilters(
                 values.localFilters.map((filter, i) => (i === index ? { ...filter, ...mathProperties } : filter))
+            )
+        },
+        updateFilterOptional: async ({ index, optionalInFunnel }) => {
+            actions.setFilters(
+                values.localFilters.map((filter, i) => (i === index ? { ...filter, optionalInFunnel } : filter))
             )
         },
         removeLocalFilter: async ({ index }) => {
@@ -284,7 +297,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                     _filter.order = _filter.order + 1
                 }
             }
-            newFilters.splice(order, 0, {
+            newFilters.splice(order + 1, 0, {
                 ...filter,
                 uuid: uuid(),
                 custom_name: undefined,

@@ -1,7 +1,8 @@
-import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 import { Meta } from '@storybook/react'
 import { kea, path, useAllValues } from 'kea'
 import { Form, forms } from 'kea-forms'
+
+import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonField } from './LemonField'
 import type { formLogicType } from './LemonField.storiesType'
@@ -29,7 +30,7 @@ export default meta
 
 export const _PureFields = (): JSX.Element => {
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <LemonField.Pure
                 label="Text input label"
                 showOptional
@@ -111,7 +112,7 @@ export const _FieldsWithKeaForm = (): JSX.Element => {
 
     return (
         <Form logic={formLogic} formKey={formKey} enableFormOnSubmit>
-            <div className="space-y-4">
+            <div className="deprecated-space-y-4">
                 <LemonField
                     name="name"
                     label={

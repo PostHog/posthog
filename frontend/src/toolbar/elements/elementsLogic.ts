@@ -1,9 +1,12 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
-import { debounce } from 'lib/utils'
 import { collectAllElementsDeep } from 'query-selector-shadow-dom'
+
+import { EXPERIMENT_TARGET_SELECTOR } from 'lib/actionUtils'
+import { debounce } from 'lib/utils'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
+import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
@@ -11,10 +14,25 @@ import { ActionElementWithMetadata, ElementWithMetadata } from '~/toolbar/types'
 
 import { elementToActionStep, getAllClickTargets, getElementForStep, getRectForElement } from '../utils'
 import type { elementsLogicType } from './elementsLogicType'
-import { heatmapLogic } from './heatmapLogic'
+import { heatmapToolbarMenuLogic } from './heatmapToolbarMenuLogic'
 
 export type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 export type ElementMap = Map<HTMLElement, ElementWithMetadata>
+
+const getMaxZIndex = (element: Element): number => {
+    let maxZIndex = 0
+    let currentElement: Element | null = element
+
+    while (currentElement) {
+        const zIndex = parseInt(getComputedStyle(currentElement).zIndex)
+        if (!isNaN(zIndex) && zIndex > maxZIndex) {
+            maxZIndex = zIndex
+        }
+        currentElement = currentElement.parentElement
+    }
+
+    return maxZIndex
+}
 
 export const elementsLogic = kea<elementsLogicType>([
     path(['toolbar', 'elements', 'elementsLogic']),
@@ -79,7 +97,7 @@ export const elementsLogic = kea<elementsLogicType>([
                 setSelectedElement: (_, { element }) => element,
                 disableInspect: () => null,
                 createAction: () => null,
-                [heatmapLogic.actionTypes.disableHeatmap]: () => null,
+                [heatmapToolbarMenuLogic.actionTypes.disableHeatmap]: () => null,
                 selectAction: () => null,
             },
         ],
@@ -88,7 +106,7 @@ export const elementsLogic = kea<elementsLogicType>([
             {
                 // keep track of what to disable first with ESC
                 enableInspect: () => 'inspect',
-                [heatmapLogic.actionTypes.enableHeatmap]: () => 'heatmap',
+                [heatmapToolbarMenuLogic.actionTypes.enableHeatmap]: () => 'heatmap',
             },
         ],
         relativePositionCompensation: [
@@ -101,47 +119,84 @@ export const elementsLogic = kea<elementsLogicType>([
     selectors({
         activeMetaIsSelected: [
             (s) => [s.selectedElementMeta, s.activeMeta],
-            (selectedElementMeta, activeMeta) =>
-                !!selectedElementMeta && !!activeMeta && selectedElementMeta.element === activeMeta.element,
+            (selectedElementMeta, activeMeta) => {
+                return !!selectedElementMeta && !!activeMeta && selectedElementMeta.element === activeMeta.element
+            },
         ],
         inspectEnabled: [
             (s) => [
                 s.inspectEnabledRaw,
                 actionsTabLogic.selectors.inspectingElement,
                 actionsTabLogic.selectors.buttonActionsVisible,
+                experimentsTabLogic.selectors.inspectingElement,
             ],
-            (inspectEnabledRaw, inspectingElement, buttonActionsVisible) =>
-                inspectEnabledRaw || (buttonActionsVisible && inspectingElement !== null),
+            (
+                inspectEnabledRaw,
+                actionsInspectingElement,
+                actionsButtonActionsVisible,
+                experimentsInspectingElement
+            ) => {
+                return (
+                    inspectEnabledRaw ||
+                    (actionsButtonActionsVisible && actionsInspectingElement !== null) ||
+                    experimentsInspectingElement !== null
+                )
+            },
         ],
 
-        heatmapEnabled: [() => [heatmapLogic.selectors.heatmapEnabled], (heatmapEnabled) => heatmapEnabled],
+        heatmapEnabled: [() => [heatmapToolbarMenuLogic.selectors.heatmapEnabled], (heatmapEnabled) => heatmapEnabled],
 
         heatmapElements: [
             (s) => [
-                heatmapLogic.selectors.countedElements,
+                heatmapToolbarMenuLogic.selectors.countedElements,
                 s.rectUpdateCounter,
                 toolbarConfigLogic.selectors.buttonVisible,
             ],
             (countedElements) =>
-                countedElements.map((e) => ({ ...e, rect: getRectForElement(e.element) } as ElementWithMetadata)),
+                countedElements.map(
+                    (e) =>
+                        ({
+                            ...e,
+                            rect: getRectForElement(e.element),
+                        }) as ElementWithMetadata
+                ),
         ],
 
         allInspectElements: [
             (s) => [s.inspectEnabled, s.href],
-            (inspectEnabled) => (inspectEnabled ? getAllClickTargets() : []),
+            (inspectEnabled) => {
+                if (!inspectEnabled) {
+                    return []
+                }
+                const inspectForExperiment =
+                    experimentsTabLogic.values.buttonExperimentsVisible &&
+                    experimentsTabLogic.values.inspectingElement !== null
+                const selector = inspectForExperiment
+                    ? experimentsTabLogic.values.elementSelector || EXPERIMENT_TARGET_SELECTOR
+                    : undefined
+                return getAllClickTargets(undefined, selector)
+            },
         ],
 
         inspectElements: [
             (s) => [s.allInspectElements, s.rectUpdateCounter, toolbarConfigLogic.selectors.buttonVisible],
             (allInspectElements) =>
                 allInspectElements
-                    .map((element) => ({ element, rect: getRectForElement(element) } as ElementWithMetadata))
+                    .map(
+                        (element) =>
+                            ({
+                                element,
+                                rect: getRectForElement(element),
+                            }) as ElementWithMetadata
+                    )
                     .filter((e) => e.rect && e.rect.width * e.rect.height > 0),
         ],
 
         displayActionElements: [
             () => [actionsTabLogic.selectors.buttonActionsVisible],
-            (buttonActionsVisible) => buttonActionsVisible,
+            (buttonActionsVisible) => {
+                return buttonActionsVisible
+            },
         ],
 
         _actionElements: [
@@ -179,14 +234,20 @@ export const elementsLogic = kea<elementsLogicType>([
             (heatmapElements, inspectElements, actionElements, actionsListElements): ElementMap => {
                 const elementMap = new Map<HTMLElement, ElementWithMetadata>()
 
-                ;[...inspectElements, ...heatmapElements, ...actionElements, ...actionsListElements].forEach((e) => {
+                const addElements = (e: ElementWithMetadata): void => {
                     const elementWithMetadata: ElementWithMetadata = { ...e }
                     if (elementMap.get(e.element)) {
                         elementMap.set(e.element, { ...elementMap.get(e.element), ...elementWithMetadata })
                     } else {
                         elementMap.set(e.element, elementWithMetadata)
                     }
-                })
+                }
+
+                inspectElements.forEach(addElements)
+                heatmapElements.forEach(addElements)
+                actionElements.forEach(addElements)
+                actionsListElements.forEach(addElements)
+
                 return elementMap
             },
         ],
@@ -267,7 +328,21 @@ export const elementsLogic = kea<elementsLogicType>([
         elementsToDisplay: [
             (s) => [s.elementsToDisplayRaw],
             (elementsToDisplayRaw) => {
-                return elementsToDisplayRaw.filter(({ rect }) => rect && (rect.width !== 0 || rect.height !== 0))
+                const result: ElementWithMetadata[] = []
+                elementsToDisplayRaw.forEach((element) => {
+                    const { rect, visible } = element
+                    // visible when undefined is ignored
+                    if (rect && rect.width > 0 && rect.height > 0 && visible !== false) {
+                        result.push({
+                            ...element,
+                            // being able to hover over elements might rely on their original z-index
+                            // so we copy it over to the toolbar element
+                            apparentZIndex: getMaxZIndex(element.element),
+                        })
+                    }
+                })
+
+                return result
             },
         ],
 
@@ -371,6 +446,10 @@ export const elementsLogic = kea<elementsLogicType>([
             const inspectForAction =
                 actionsTabLogic.values.buttonActionsVisible && actionsTabLogic.values.inspectingElement !== null
 
+            const inspectForExperiment =
+                experimentsTabLogic.values.buttonExperimentsVisible &&
+                experimentsTabLogic.values.inspectingElement !== null
+
             if (inspectForAction) {
                 actions.setHoverElement(null)
                 if (element) {
@@ -378,6 +457,17 @@ export const elementsLogic = kea<elementsLogicType>([
                 }
             } else {
                 actions.setSelectedElement(element)
+            }
+
+            if (inspectForExperiment) {
+                actions.setHoverElement(null)
+                if (element) {
+                    experimentsTabLogic.actions.inspectElementSelected(
+                        element,
+                        experimentsTabLogic.values.selectedVariant,
+                        experimentsTabLogic.values.inspectingElement
+                    )
+                }
             }
 
             // Get list of data-* attributes in the element
@@ -392,19 +482,20 @@ export const elementsLogic = kea<elementsLogicType>([
             }
 
             toolbarPosthogJS.capture('toolbar selected HTML element', {
-                element_tag: element?.tagName.toLowerCase(),
-                element_type: (element as HTMLInputElement)?.type,
+                element_tag: element?.tagName.toLowerCase() ?? null,
+                element_type: (element as HTMLInputElement)?.type ?? null,
                 has_href: !!(element as HTMLAnchorElement)?.href,
                 has_class: !!element?.className,
                 has_id: !!element?.id,
                 has_name: !!(element as HTMLInputElement)?.name,
                 has_data_attr: data_attributes.includes('data-attr'),
                 data_attributes: data_attributes,
-                attribute_length: element?.attributes.length,
+                attribute_length: element?.attributes.length ?? null,
             })
         },
         createAction: ({ element }) => {
             actions.selectElement(null)
+            // this just sets the action form
             actions.newAction(element)
         },
     })),
@@ -438,7 +529,7 @@ export const elementsLogic = kea<elementsLogicType>([
                     return
                 }
                 if (values.enabledLast === 'heatmap' && values.heatmapEnabled) {
-                    heatmapLogic.actions.disableHeatmap()
+                    heatmapToolbarMenuLogic.actions.disableHeatmap()
                     return
                 }
                 if (values.inspectEnabled) {
@@ -446,7 +537,7 @@ export const elementsLogic = kea<elementsLogicType>([
                     return
                 }
                 if (values.heatmapEnabled) {
-                    heatmapLogic.actions.disableHeatmap()
+                    heatmapToolbarMenuLogic.actions.disableHeatmap()
                     return
                 }
             }

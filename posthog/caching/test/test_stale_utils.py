@@ -1,5 +1,6 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
-from datetime import datetime, timedelta, UTC
 from freezegun import freeze_time
 
 from posthog.caching.utils import is_stale
@@ -26,18 +27,18 @@ date_to = datetime(2021, 1, 1, 0, 0, 1, tzinfo=UTC)
     "team, date_to, interval, last_refresh, expected",
     [
         # Test cases for no interval
-        (team_a, None, None, timedelta(minutes=20), True),
+        (team_a, None, None, timedelta(hours=7), True),
         (team_a, None, None, timedelta(seconds=20), False),
         (team_a, None, None, timedelta(seconds=10), False),
         # Test cases for "minute" interval
-        (team_a, None, "minute", timedelta(seconds=20), True),
+        (team_a, None, "minute", timedelta(minutes=6), True),
         (team_a, None, "minute", timedelta(seconds=10), False),
         # Test cases for "hour" interval
-        (team_a, date_to, "hour", timedelta(minutes=20), True),
+        (team_a, date_to, "hour", timedelta(hours=1, minutes=1), True),
         (team_a, date_to, "hour", timedelta(minutes=10), False),
         # Test cases for "day" interval
-        (team_a, None, "day", timedelta(hours=3), True),
-        (team_a, date_to, "day", timedelta(hours=3), True),
+        (team_a, None, "day", timedelta(hours=7), True),
+        (team_a, date_to, "day", timedelta(hours=7), True),
         (team_a, date_to, "day", timedelta(hours=1), False),
         # Test cases for "month" interval
         (team_a, date_to, "month", timedelta(days=2), True),

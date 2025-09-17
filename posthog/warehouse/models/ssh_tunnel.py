@@ -1,10 +1,14 @@
+import typing
 import dataclasses
 from io import StringIO
 from typing import IO, Literal
-from sshtunnel import SSHTunnelForwarder
-from paramiko import RSAKey, Ed25519Key, ECDSAKey, DSSKey, PKey
+
 from cryptography.hazmat.primitives import serialization as crypto_serialization
-from cryptography.hazmat.primitives.asymmetric import ed25519, dsa, rsa, ec
+from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed25519, rsa
+from paramiko import DSSKey, ECDSAKey, Ed25519Key, PKey, RSAKey
+from sshtunnel import SSHTunnelForwarder
+
+from posthog.temporal.data_imports.sources.common import config
 
 
 # Taken from https://stackoverflow.com/questions/60660919/paramiko-ssh-client-is-unable-to-unpack-ed25519-key
@@ -48,6 +52,25 @@ def from_private_key(file_obj: IO[str], passphrase: str | None = None) -> PKey:
     return private_key
 
 
+@config.config
+class SSHTunnelAuthConfig(config.Config):
+    """Configuration for SSH tunnel authentication."""
+
+    type: Literal["password", "keypair"] | None = config.value(alias="selection")
+    password: str | None = None
+    passphrase: str | None = None
+    private_key: str | None = None
+    username: str | None = None
+
+
+@config.config
+class SSHTunnelConfig(config.Config):
+    host: str | None
+    auth: SSHTunnelAuthConfig = config.value(alias="auth_type")
+    port: int | None = config.value(converter=config.str_to_optional_int)
+    enabled: bool = config.value(converter=config.str_to_bool, default=False)
+
+
 @dataclasses.dataclass
 class SSHTunnel:
     enabled: bool
@@ -59,6 +82,29 @@ class SSHTunnel:
     password: str | None
     private_key: str | None
     passphrase: str | None
+
+    @classmethod
+    def from_config(cls: type[typing.Self], config: SSHTunnelConfig) -> typing.Self:
+        # We should not be calling this if SSH tunneling is not enabled.
+        # Currently, we don't: The function is always guarded by an if check.
+        # However, this is not reliable: Anybody can forget the if and introduce
+        # a bug.
+        # TODO: Refactor this so that we don't need these assertions nor can we
+        # fail if somebody forgets an if check.
+        assert config.host
+        assert config.port
+        assert config.auth.type
+
+        return cls(
+            enabled=config.enabled,
+            host=config.host,
+            port=config.port,
+            auth_type=config.auth.type,
+            username=config.auth.username,
+            password=config.auth.password,
+            private_key=config.auth.private_key,
+            passphrase=config.auth.passphrase,
+        )
 
     def parse_private_key(self) -> PKey:
         if self.passphrase is None:

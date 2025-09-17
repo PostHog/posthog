@@ -69,7 +69,7 @@ function colorForSection(section: (typeof perfSections)[number]): string {
 }
 
 // most sections are single events, but server timings can be multiple
-type PerformanceMeasures = {
+export type PerformanceMeasures = {
     networkTimings: Record<string, EventPerformanceMeasure>
     serverTimings: EventPerformanceMeasure[]
 }

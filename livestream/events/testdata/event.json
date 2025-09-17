@@ -1,0 +1,7 @@
+{
+  "uuid": "",
+  "distinct_id": "",
+  "ip": "127.0.0.1",
+  "data": "{\"timestamp\": 1738073128810, \"event\": \"consumer_ack\", \"distinct_id\": \"00000000-0000-0000-0000-000000000000\", \"properties\": {\"message_count\": 0, \"consumer_name\": \"backend_task_sink\", \"consumer_id\": \"67dc0ac7-c9ec-4f8a-8cad-0fbb3695c86c\", \"message_kind\": \"event\", \"$groups\": {\"account\": \"757eb2c3-7343-4e92-b040-a1d0201b54e6\"}, \"event_count\": 6}}",
+  "token": "this is token"
+}

@@ -1,16 +1,18 @@
-import posthoganalytics
-import requests
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
+
+import requests
+import posthoganalytics
 from rest_framework import mixins, request, serializers, viewsets
 from rest_framework.response import Response
 
-from ee.models.license import License, LicenseError
 from posthog.cloud_utils import is_cloud
 from posthog.event_usage import groups
 from posthog.models.organization import Organization
 from posthog.models.team import Team
+
+from ee.models.license import License, LicenseError
 
 
 class LicenseSerializer(serializers.ModelSerializer):
@@ -32,16 +34,16 @@ class LicenseSerializer(serializers.ModelSerializer):
         user = self.context["request"].user
         if not validation.ok:
             posthoganalytics.capture(
-                user.distinct_id,
                 "license key activation failure",
+                distinct_id=user.distinct_id,
                 properties={"error": validation.content},
                 groups=groups(user.current_organization, user.current_team),
             )
             raise LicenseError(resp["code"], resp["detail"])
 
         posthoganalytics.capture(
-            user.distinct_id,
             "license key activation success",
+            distinct_id=user.distinct_id,
             properties={},
             groups=groups(user.current_organization, user.current_team),
         )

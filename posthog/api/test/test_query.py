@@ -1,24 +1,6 @@
 import json
-from unittest import mock
-from unittest.mock import patch
 
 from freezegun import freeze_time
-from rest_framework import status
-
-from posthog.api.services.query import process_query_dict
-from posthog.hogql.query import LimitContext
-from posthog.models.property_definition import PropertyDefinition, PropertyType
-from posthog.models.utils import UUIDT
-from posthog.schema import (
-    CachedEventsQueryResponse,
-    EventPropertyFilter,
-    EventsQuery,
-    HogQLPropertyFilter,
-    HogQLQuery,
-    PersonPropertyFilter,
-    PropertyOperator,
-    CachedHogQLQueryResponse,
-)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -28,6 +10,33 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+from unittest import mock
+from unittest.mock import patch
+
+from rest_framework import status
+
+from posthog.schema import (
+    CachedEventsQueryResponse,
+    CachedHogQLQueryResponse,
+    CachedRetentionQueryResponse,
+    DataWarehouseNode,
+    EventPropertyFilter,
+    EventsQuery,
+    FunnelsQuery,
+    HogQLPropertyFilter,
+    HogQLQuery,
+    MeanRetentionCalculation,
+    PersonPropertyFilter,
+    PropertyOperator,
+    RetentionQuery,
+)
+
+from posthog.hogql.constants import LimitContext
+
+from posthog.api.services.query import process_query_dict
+from posthog.models.insight_variable import InsightVariable
+from posthog.models.property_definition import PropertyDefinition, PropertyType
+from posthog.models.utils import UUIDT
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -80,7 +89,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "concat(event, ' ', properties.key)",
                 ]
             )
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
+            response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(
                 response,
                 response
@@ -103,7 +112,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
             query.select = ["*", "event"]
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
+            response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(response["columns"], ["*", "event"])
             self.assertIn("Tuple(", response["types"][0])
             self.assertEqual(response["types"][1], "String")
@@ -112,7 +121,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertIsInstance(response["results"][0][1], str)
 
             query.select = ["count()", "event"]
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
+            response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(
                 response,
                 response
@@ -127,7 +136,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             query.select = ["count()", "event"]
             query.where = ["event == 'sign up' or like(properties.key, '%val2')"]
             query.orderBy = ["count() DESC", "event"]
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
+            response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(
                 response,
                 response
@@ -174,7 +183,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 team=self.team,
                 event="sign out",
                 distinct_id="4",
-                properties={"key": "test_val3"},
+                properties={"key": "test_val3", "path": "a/b/c"},
             )
         flush_persons_and_events()
 
@@ -189,19 +198,19 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 ]
             )
 
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
+            response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 4)
 
             query.properties = [HogQLPropertyFilter(type="hogql", key="'a%sd' == 'foo'")]
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
+            response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 0)
 
             query.properties = [HogQLPropertyFilter(type="hogql", key="'a%sd' == 'a%sd'")]
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
+            response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 4)
 
             query.properties = [HogQLPropertyFilter(type="hogql", key="properties.key == 'test_val2'")]
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
+            response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 2)
 
     @also_test_with_materialized_columns(event_properties=["key", "path"])
@@ -253,7 +262,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     "concat(event, ' ', properties.key)",
                 ]
             )
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
+            response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 4)
 
             query.properties = [
@@ -264,7 +273,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     operator=PropertyOperator.EXACT,
                 )
             ]
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
+            response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 1)
 
             query.properties = [
@@ -275,7 +284,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     operator=PropertyOperator.ICONTAINS,
                 )
             ]
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
+            response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 1)
 
     @also_test_with_materialized_columns(event_properties=["key"], person_properties=["email"])
@@ -335,22 +344,25 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     )
                 ],
             )
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
+            response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 2)
 
     def test_safe_clickhouse_error_passed_through(self):
         query = {"kind": "EventsQuery", "select": ["timestamp + 'string'"]}
 
-        response_post = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query})
-        self.assertEqual(response_post.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            response_post.json(),
-            self.validation_error_response(
-                "Illegal types DateTime64(6, 'UTC') and String of arguments of function plus: "
-                "While processing toTimeZone(timestamp, 'UTC') + 'string'.",
-                "illegal_type_of_argument",
-            ),
-        )
+        with freeze_time("2024-10-16 22:10:29.691212"):
+            response_post = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
+            self.assertEqual(response_post.status_code, status.HTTP_400_BAD_REQUEST)
+
+            self.assertEqual(
+                response_post.json(),
+                {
+                    "type": "validation_error",
+                    "code": "illegal_type_of_argument",
+                    "detail": f"Illegal types DateTime64(6, 'UTC') and String of arguments of function plus: In scope SELECT toTimeZone(events.timestamp, 'UTC') + 'string' FROM events WHERE (events.team_id = {self.team.id}) AND (toTimeZone(events.timestamp, 'UTC') < toDateTime64('2024-10-16 22:10:34.691212', 6, 'UTC')) AND (toTimeZone(events.timestamp, 'UTC') > toDateTime64('2024-10-15 22:10:29.691212', 6, 'UTC')) ORDER BY toTimeZone(events.timestamp, 'UTC') + 'string' ASC LIMIT 0, 101 SETTINGS readonly = 2, max_execution_time = 60, allow_experimental_object_type = 1, format_csv_allow_double_quotes = 0, max_ast_elements = 4000000, max_expanded_ast_elements = 4000000, max_bytes_before_external_group_by = 0, transform_null_in = 1, optimize_min_equality_disjunction_chain_length = 4294967295, allow_experimental_join_condition = 1.",
+                    "attr": None,
+                },
+            )
 
     @patch(
         "posthog.clickhouse.client.execute._annotate_tagged_query", return_value=("SELECT 1&&&", {})
@@ -358,7 +370,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
     def test_unsafe_clickhouse_error_is_swallowed(self, sqlparse_format_mock):
         query = {"kind": "EventsQuery", "select": ["timestamp"]}
 
-        response_post = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query})
+        response_post = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
         self.assertEqual(response_post.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @also_test_with_materialized_columns(event_properties=["key", "path"])
@@ -402,11 +414,11 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         with freeze_time("2020-01-10 12:14:00"):
             query = EventsQuery(select=["properties.key", "count()"])
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
+            response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 3)
 
             query.where = ["count() > 1"]
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
+            response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 1)
 
     @snapshot_clickhouse_queries
@@ -449,7 +461,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         with freeze_time("2020-01-10 12:14:00"):
             query = EventsQuery(select=["event", "person", "person -- P"])
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
+            response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 4)
             self.assertEqual(response["results"][0][1], {"distinct_id": "4"})
             self.assertEqual(response["results"][1][1], {"distinct_id": "3"})
@@ -504,15 +516,15 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         with freeze_time("2023-01-12 12:14:00"):
             query = EventsQuery(select=["event"], after="all")
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
+            response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 4)
 
             query = EventsQuery(select=["event"], before="-1y", after="all")
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
+            response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 3)
 
             query = EventsQuery(select=["event"], before="2022-01-01", after="-4y")
-            response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
+            response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             self.assertEqual(len(response["results"]), 2)
 
     @also_test_with_materialized_columns(event_properties=["key"])
@@ -556,7 +568,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         with freeze_time("2020-01-10 12:14:00"):
             query = HogQLQuery(query="select event, distinct_id, properties.key from events order by timestamp")
-            api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()}).json()
+            api_response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()}).json()
             response = CachedHogQLQueryResponse.model_validate(api_response)
 
             self.assertEqual(response.results and len(response.results), 4)
@@ -578,7 +590,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "query": "SELECT event from events",
             },
         }
-        response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query})
+        response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_query_not_supported(self):
@@ -586,7 +598,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             "kind": "SavedInsightNode",
             "shortId": "123",
         }
-        response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query})
+        response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json()["detail"], "Unsupported query kind: SavedInsightNode", response.content)
 
@@ -616,8 +628,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), 10)
 
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
-    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
-    def test_full_hogql_query_limit_exported(self, MAX_SELECT_RETURNED_ROWS=15, DEFAULT_RETURNED_ROWS=10):
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 15)
+    def test_full_hogql_query_limit_exported(self, CSV_EXPORT_LIMIT=15, DEFAULT_RETURNED_ROWS=10):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         with freeze_time("2020-01-10 12:00:00"):
             for _ in range(20):
@@ -669,8 +681,8 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), 10)
 
     @patch("posthog.hogql.constants.DEFAULT_RETURNED_ROWS", 10)
-    @patch("posthog.hogql.constants.MAX_SELECT_RETURNED_ROWS", 15)
-    def test_full_events_query_limit_exported(self, MAX_SELECT_RETURNED_ROWS=15, DEFAULT_RETURNED_ROWS=10):
+    @patch("posthog.hogql.constants.CSV_EXPORT_LIMIT", 15)
+    def test_full_events_query_limit_exported(self, CSV_EXPORT_LIMIT=15, DEFAULT_RETURNED_ROWS=10):
         random_uuid = f"RANDOM_TEST_ID::{UUIDT()}"
         with freeze_time("2020-01-10 12:00:00"):
             for _ in range(20):
@@ -721,7 +733,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.columns, ["event"])
 
     def test_invalid_query_kind(self):
-        api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": {"kind": "Tomato Soup"}})
+        api_response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": {"kind": "Tomato Soup"}})
         self.assertEqual(api_response.status_code, 400)
         self.assertEqual(api_response.json()["code"], "parse_error")
         self.assertIn("1 validation error for QueryRequest", api_response.json()["detail"], api_response.content)
@@ -731,12 +743,45 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             api_response.content,
         )
 
+    def test_funnel_query_with_data_warehouse_node_temporarily_raises(self):
+        # As of September 2024, funnels don't support data warehouse tables YET, so we want a helpful error message
+        api_response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {
+                "query": FunnelsQuery(
+                    series=[
+                        DataWarehouseNode(
+                            id="xyz",
+                            table_name="xyz",
+                            id_field="id",
+                            distinct_id_field="customer_email",
+                            timestamp_field="created",
+                        ),
+                        DataWarehouseNode(
+                            id="abc",
+                            table_name="abc",
+                            id_field="id",
+                            distinct_id_field="customer_email",
+                            timestamp_field="timestamp",
+                        ),
+                    ],
+                ).model_dump()
+            },
+        )
+        self.assertEqual(api_response.status_code, 400)
+        self.assertDictEqual(
+            api_response.json(),
+            self.validation_error_response(
+                "Data warehouse tables are not supported in funnels just yet. For now, please try this funnel without the data warehouse-based step."
+            ),
+        )
+
     def test_missing_query(self):
-        api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": {}})
+        api_response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": {}})
         self.assertEqual(api_response.status_code, 400)
 
     def test_missing_body(self):
-        api_response = self.client.post(f"/api/projects/{self.team.id}/query/")
+        api_response = self.client.post(f"/api/environments/{self.team.id}/query/")
         self.assertEqual(api_response.status_code, 400)
 
     @snapshot_clickhouse_queries
@@ -779,7 +824,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
         with freeze_time("2020-01-10 12:14:00"):
             self.client.post(
-                f"/api/projects/{self.team.id}/warehouse_saved_queries/",
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
                 {
                     "name": "event_view",
                     "query": {
@@ -788,12 +833,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     },
                 },
             )
-            query = HogQLQuery(query="select * from event_view")
-            api_response = self.client.post(f"/api/projects/{self.team.id}/query/", {"query": query.dict()})
+            query = HogQLQuery(query="select event, distinct_id, key from event_view")
+            api_response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()})
             response = CachedHogQLQueryResponse.model_validate(api_response.json())
 
             self.assertEqual(api_response.status_code, 200)
-            self.assertEqual(response.results and len(response.results), 4)
+            self.assertEqual(len(response.results), 4)
             self.assertEqual(
                 response.results,
                 [
@@ -831,7 +876,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-10 12:14:00"):
             query = HogQLQuery(query="select * from events")
             api_response = self.client.post(
-                f"/api/projects/{self.team.id}/query/", {"query": query.dict(), "refresh": "force_async"}
+                f"/api/environments/{self.team.id}/query/", {"query": query.dict(), "refresh": "force_async"}
             )
 
             self.assertEqual(api_response.status_code, 202)  # This means "Accepted" (for processing)
@@ -970,6 +1015,79 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         assert isinstance(response_with_dashboard_filters, CachedHogQLQueryResponse)
         self.assertEqual(response_with_dashboard_filters.results, [(1,)])
 
+    def test_dashboard_variables_overrides(self):
+        variable = InsightVariable.objects.create(
+            team=self.team, name="Test", code_name="test", default_value="some_default_value", type="String"
+        )
+        variable_id = str(variable.pk)
+        variable_override_value = "helloooooo"
+
+        api_response = self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select {variables.test}",
+                    "explain": True,
+                    "filters": {"dateRange": {"date_from": "-7d"}},
+                    "variables": {
+                        variable_id: {
+                            "variableId": variable_id,
+                            "code_name": variable.code_name,
+                            "value": variable_override_value,
+                        }
+                    },
+                },
+                "client_query_id": "5d92fb51-5088-45e8-91b2-843aef3d69bd",
+                "filters_override": None,
+                "variables_override": {
+                    variable_id: {
+                        "code_name": variable.code_name,
+                        "variableId": variable_id,
+                        "value": variable_override_value,
+                    }
+                },
+            },
+        ).json()
+
+        response = CachedHogQLQueryResponse.model_validate(api_response)
+        assert response.results[0][0] == variable_override_value
+
+    @patch("posthog.api.query.process_query_model")
+    def test_upgrades_query(self, mock_process_query):
+        mock_process_query.return_value = CachedRetentionQueryResponse(
+            cache_key="cache_123",
+            is_cached=False,
+            last_refresh="2023-10-16T12:00:00Z",
+            next_allowed_client_refresh="2023-10-16T14:00:00Z",
+            results=[],
+            timezone="UTC",
+        )
+
+        self.client.post(
+            f"/api/environments/{self.team.id}/query/",
+            {
+                "query": {
+                    "kind": "RetentionQuery",
+                    "retentionFilter": {
+                        "period": "Day",
+                        "totalIntervals": 8,
+                        "targetEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                        "returningEntity": {"id": "$pageview", "name": "$pageview", "type": "events"},
+                        "retentionType": "retention_first_time",
+                        "showMean": True,
+                    },
+                },
+                "client_query_id": "5d92fb51-5088-45e8-91b2-843aef3d69bd",
+            },
+        ).json()
+
+        mock_process_query.assert_called_once()
+        updated_query = mock_process_query.call_args.args[1]
+        assert isinstance(updated_query, RetentionQuery)
+        assert updated_query.version == 2
+        assert updated_query.retentionFilter.meanRetentionCalculation == MeanRetentionCalculation.SIMPLE
+
 
 class TestQueryRetrieve(APIBaseTest):
     def setUp(self):
@@ -994,13 +1112,13 @@ class TestQueryRetrieve(APIBaseTest):
                 "results": ["result1", "result2"],
             }
         ).encode()
-        response = self.client.get(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
+        response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["query_status"]["complete"], True, response.content)
 
     def test_with_invalid_query_id(self):
         self.redis_client_mock.get.return_value = None
-        response = self.client.get(f"/api/projects/{self.team.id}/query/{self.invalid_query_id}/")
+        response = self.client.get(f"/api/environments/{self.team.id}/query/{self.invalid_query_id}/")
         self.assertEqual(response.status_code, 404)
 
     def test_completed_query(self):
@@ -1012,7 +1130,7 @@ class TestQueryRetrieve(APIBaseTest):
                 "results": ["result1", "result2"],
             }
         ).encode()
-        response = self.client.get(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
+        response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["query_status"]["complete"])
 
@@ -1024,7 +1142,7 @@ class TestQueryRetrieve(APIBaseTest):
                 "complete": False,
             }
         ).encode()
-        response = self.client.get(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
+        response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 202)
         self.assertFalse(response.json()["query_status"]["complete"])
 
@@ -1037,7 +1155,7 @@ class TestQueryRetrieve(APIBaseTest):
                 "error_message": None,
             }
         ).encode()
-        response = self.client.get(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
+        response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 500)
         self.assertTrue(response.json()["query_status"]["error"])
 
@@ -1050,7 +1168,7 @@ class TestQueryRetrieve(APIBaseTest):
                 "error_message": "Try changing the time range",
             }
         ).encode()
-        response = self.client.get(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
+        response = self.client.get(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
         self.assertEqual(response.status_code, 400)
         self.assertTrue(response.json()["query_status"]["error"])
 
@@ -1063,6 +1181,36 @@ class TestQueryRetrieve(APIBaseTest):
                 "error_message": "Query failed",
             }
         ).encode()
-        response = self.client.delete(f"/api/projects/{self.team.id}/query/{self.valid_query_id}/")
-        self.assertEqual(response.status_code, 204)
+        response = self.client.delete(f"/api/environments/{self.team.id}/query/{self.valid_query_id}/")
+        self.assertEqual(response.status_code, 200)
         self.assertEqual(self.redis_client_mock.delete.call_count, 2)
+
+
+class TestQueryDraftSql(APIBaseTest):
+    @patch("posthog.hogql.ai.hit_openai", return_value=("SELECT 1", 21, 37))
+    def test_draft_sql(self, hit_openai_mock):
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/query/draft_sql/", {"prompt": "I need the number 1"}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"sql": "SELECT 1"})
+        hit_openai_mock.assert_called_once()
+
+
+class TestQueryUpgrade(APIBaseTest):
+    def test_upgrades_valid_query(self):
+        query = {"kind": "RetentionQuery", "retentionFilter": {"period": "Day", "totalIntervals": 7, "showMean": True}}
+
+        response = self.client.post(f"/api/environments/{self.team.id}/query/upgrade/", {"query": query})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {
+                "query": {
+                    "kind": "RetentionQuery",
+                    "retentionFilter": {"meanRetentionCalculation": "simple", "period": "Day", "totalIntervals": 7},
+                    "version": 2,
+                }
+            },
+        )

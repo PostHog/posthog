@@ -1,0 +1,56 @@
+{
+    "name": "Laudspeaker",
+    "url": "https://github.com/laudspeaker/laudspeaker-posthog-plugin/",
+    "description": "Send event data to Laudspeaker",
+    "main": "index.js",
+    "config": [
+        {
+            "key": "dataPlaneUrl",
+            "hint": "Provide Laudspeaker API URL.",
+            "name": "Laudspeaker API URL",
+            "type": "string",
+            "default": "https://api.laudspeaker.com/events/posthog",
+            "required": true
+        },
+        {
+            "key": "writeKey",
+            "hint": "Provide API key for your Laudspeaker account found on the settings page.",
+            "name": "Laudspeaker API Key",
+            "type": "string",
+            "default": "",
+            "required": true,
+            "secret": true
+        },
+        {
+            "key": "phEmail",
+            "hint": "Provide attribute name for email.",
+            "name": "Email attribute name",
+            "type": "string",
+            "default": "",
+            "required": false
+        },
+        {
+            "key": "phPhoneNumber",
+            "hint": "Provide attribute name for phone number.",
+            "name": "Phone number attribute name",
+            "type": "string",
+            "default": "",
+            "required": false
+        },
+        {
+            "key": "phDeviceToken",
+            "hint": "Provide attribute name for firebase device token",
+            "name": "Device Token attribute name",
+            "type": "string",
+            "default": "",
+            "required": false
+        },
+        {
+            "key": "phCustom",
+            "hint": "Provide attribute name for your custom field.",
+            "type": "string",
+            "default": "",
+            "required": false
+        }
+    ]
+}

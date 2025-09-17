@@ -1,16 +1,19 @@
 import './NotebookScene.scss'
 
+import { useActions } from 'kea'
+import { useMemo } from 'react'
+
 import { IconEllipsis } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonMenu, lemonToast } from '@posthog/lemon-ui'
-import { useActions } from 'kea'
+
 import { PageHeader } from 'lib/components/PageHeader'
 import { uuid } from 'lib/utils'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { getTextFromFile, selectFiles } from 'lib/utils/file-utils'
-import { useMemo } from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { Notebook } from './Notebook/Notebook'
-import { notebookLogic, NotebookLogicProps } from './Notebook/notebookLogic'
+import { NotebookLogicProps, notebookLogic } from './Notebook/notebookLogic'
 
 export const scene: SceneExport = {
     component: NotebookCanvas,
@@ -66,6 +69,14 @@ export function NotebookCanvas(): JSX.Element {
                         >
                             <LemonButton icon={<IconEllipsis />} size="small" />
                         </LemonMenu>
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => {
+                                void copyToClipboard(window.location.href, 'Canvas URL')
+                            }}
+                        >
+                            Share
+                        </LemonButton>
                         <LemonButton type="primary" onClick={duplicateNotebook}>
                             Save as Notebook
                         </LemonButton>
@@ -74,7 +85,7 @@ export function NotebookCanvas(): JSX.Element {
             />
             <div className="flex flex-col flex-1">
                 <div className="relative flex-1">
-                    <div className="absolute inset-0 p-3 flex flex-col overflow-y-auto">
+                    <div className="absolute inset-0 flex flex-col p-3 overflow-y-auto">
                         <LemonBanner type="info" className="mb-4">
                             <b>This is a canvas.</b> You can change anything you like and it is persisted to the URL for
                             easy sharing.

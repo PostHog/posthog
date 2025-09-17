@@ -1,7 +1,8 @@
-// eslint-disable-next-line no-restricted-imports
-import { FundOutlined } from '@ant-design/icons'
-import { LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { IconPulse } from '@posthog/icons'
+import { LemonSelect } from '@posthog/lemon-ui'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
@@ -9,7 +10,7 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { smoothingOptions } from './smoothings'
 
 export function SmoothingFilter(): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { isTrends, interval, trendsFilter } = useValues(trendsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
@@ -25,7 +26,8 @@ export function SmoothingFilter(): JSX.Element | null {
         label:
             value === smoothingIntervals ? (
                 <>
-                    <FundOutlined className="mr-1 text-muted" /> {label}
+                    <IconPulse className="mr-1.5 text-secondary" />
+                    {label}
                 </>
             ) : (
                 label
@@ -46,6 +48,7 @@ export function SmoothingFilter(): JSX.Element | null {
             data-attr="smoothing-filter"
             options={options}
             size="small"
+            disabledReason={editingDisabledReason}
         />
     ) : (
         <></>

@@ -1,22 +1,24 @@
 import './FunnelCorrelationTable.scss'
 
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { IconArchive, IconTrending } from '@posthog/icons'
 import { LemonCheckbox, LemonTable } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
-import { IconSelectEvents, IconTrendingDown } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { IconSelectEvents, IconTrendingDown } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { useEffect } from 'react'
+import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import { funnelCorrelationLogic } from 'scenes/funnels/funnelCorrelationLogic'
 import { funnelCorrelationUsageLogic } from 'scenes/funnels/funnelCorrelationUsageLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 import { parseDisplayNameForCorrelation } from 'scenes/funnels/funnelUtils'
-import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
@@ -51,7 +53,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         if (loadedEventCorrelationsTableOnce) {
             loadEventCorrelations({})
         }
-    }, [querySource])
+    }, [querySource, loadedEventCorrelationsTableOnce, loadEventCorrelations])
 
     const { openCorrelationPersonsModal } = useActions(funnelPersonsModalLogic(insightProps))
     const { correlationPropKey } = useValues(funnelCorrelationUsageLogic(insightProps))
@@ -144,7 +146,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                 <div className="flex flex-col items-center py-2">
                     <Spinner className="text-2xl mb-2" />
                     <h3 className="mb-1 font-semibold">Loading correlation results…</h3>
-                    <p className="m-0 text-xs text-muted">This process can take up to 20 seconds.</p>
+                    <p className="m-0 text-xs text-secondary">This process can take up to 20 seconds.</p>
                 </div>
             )
         }
@@ -207,13 +209,15 @@ export function FunnelCorrelationTable(): JSX.Element | null {
     return steps.length > 1 ? (
         <VisibilitySensor id={correlationPropKey} offset={152}>
             <div className="FunnelCorrelationTable mt-4 border rounded overflow-hidden">
-                <span className="flex px-2 py-1 bg-[var(--bg-table)]">
+                <span className="flex px-2 py-1 bg-[var(--color-bg-table)]">
                     <span className="flex items-center text-xs font-bold">
                         <IconSelectEvents className="mr-1 text-2xl opacity-50" />
                         CORRELATED EVENTS
                     </span>
                     <span className="table-options flex grow items-center justify-end">
-                        <p className="flex items-center m-1 font-sans text-xs text-muted font-semibold">CORRELATION</p>
+                        <p className="flex items-center m-1 font-sans text-xs text-secondary font-semibold">
+                            CORRELATION
+                        </p>
                         <div className="flex">
                             <LemonCheckbox
                                 checked={correlationTypes.includes(FunnelCorrelationType.Success)}
@@ -274,8 +278,8 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                         <div className="p-4 m-auto max-w-140">
                             <div className="flex flex-col items-center justify-self-center text-center">
                                 {loadedEventCorrelationsTableOnce ? (
-                                    <div className="flex flex-col items-center justify-center space-y-1 min-h-24">
-                                        <IconArchive className="text-secondary-3000-hover text-2xl" />
+                                    <div className="flex flex-col items-center justify-center deprecated-space-y-1 min-h-24">
+                                        <IconArchive className="text-tertiary-hover text-2xl" />
                                         <div>No correlated events found.</div>
                                     </div>
                                 ) : (
@@ -283,14 +287,14 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                                         <p className="m-auto">
                                             Highlight events which are likely to have affected the conversion rate
                                             within the funnel.{' '}
-                                            <Link to="https://posthog.com/manual/correlation">
+                                            <Link to="https://posthog.com/docs/product-analytics/correlation">
                                                 Learn more about correlation analysis.
                                             </Link>
                                         </p>
                                         <LemonButton
                                             onClick={() => loadEventCorrelations({})}
                                             type="secondary"
-                                            className="mx-auto mt-2"
+                                            className="mx-auto !mt-2"
                                         >
                                             Load results
                                         </LemonButton>

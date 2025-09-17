@@ -1,5 +1,7 @@
-import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
+
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { renameModalLogic } from 'scenes/insights/filters/ActionFilter/renameModalLogic'
 import { getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
@@ -48,7 +50,7 @@ export function RenameModal({ typeKey, view }: RenameModalProps): JSX.Element {
                 onPressEnter={() => renameFilter(name)}
                 onChange={(value) => setName(value)}
                 suffix={
-                    <span className="text-muted-alt whitespace-nowrap">
+                    <span className="text-secondary whitespace-nowrap">
                         {getDisplayNameFromEntityFilter(selectedFilter, false) ?? ''}
                     </span>
                 }

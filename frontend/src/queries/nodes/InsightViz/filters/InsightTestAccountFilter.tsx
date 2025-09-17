@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
+
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
-import { filterTestAccountsDefaultsLogic } from 'scenes/settings/project/filterTestAccountDefaultsLogic'
+import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { InsightQueryNode } from '~/queries/schema'
+import { InsightQueryNode } from '~/queries/schema/schema-general'
 
 type TestAccountFilterProps = {
     query: InsightQueryNode

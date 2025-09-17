@@ -1,22 +1,22 @@
 from posthog.hogql import ast
 from posthog.hogql.database.models import (
-    Table,
-    IntegerDatabaseField,
-    StringDatabaseField,
     DateTimeDatabaseField,
-    LazyTable,
     FieldOrTable,
+    IntegerDatabaseField,
+    LazyTable,
     LazyTableToAdd,
+    StringDatabaseField,
+    Table,
 )
 
 LOG_ENTRIES_FIELDS: dict[str, FieldOrTable] = {
-    "team_id": IntegerDatabaseField(name="team_id"),
-    "log_source": StringDatabaseField(name="log_source"),
-    "log_source_id": StringDatabaseField(name="log_source_id"),
-    "instance_id": StringDatabaseField(name="instance_id"),
-    "timestamp": DateTimeDatabaseField(name="timestamp"),
-    "message": StringDatabaseField(name="message"),
-    "level": StringDatabaseField(name="level"),
+    "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+    "log_source": StringDatabaseField(name="log_source", nullable=False),
+    "log_source_id": StringDatabaseField(name="log_source_id", nullable=False),
+    "instance_id": StringDatabaseField(name="instance_id", nullable=False),
+    "timestamp": DateTimeDatabaseField(name="timestamp", nullable=False),
+    "message": StringDatabaseField(name="message", nullable=False),
+    "level": StringDatabaseField(name="level", nullable=False),
 }
 
 

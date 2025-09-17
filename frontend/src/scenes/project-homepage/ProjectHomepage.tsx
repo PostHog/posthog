@@ -1,30 +1,29 @@
 import './ProjectHomepage.scss'
 
+import { useActions, useValues } from 'kea'
+
 import { IconHome } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneDashboardChoiceModal } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceModal'
-import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { SceneDashboardChoiceRequired } from 'lib/components/SceneDashboardChoice/SceneDashboardChoiceRequired'
+import { sceneDashboardChoiceModalLogic } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
-import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 
-import { YearInHogButton } from '~/layout/navigation/TopBar/YearInHogButton'
+import { PosthogStoriesContainer } from '~/layout/navigation/PosthogStories/PosthogStoriesContainer'
+import { SceneActions } from '~/layout/scenes/SceneActions'
 import { DashboardPlacement } from '~/types'
-
-import { RecentInsights } from './RecentInsights'
-import { RecentPersons } from './RecentPersons'
-import { RecentRecordings } from './RecentRecordings'
 
 export const scene: SceneExport = {
     component: ProjectHomepage,
@@ -37,13 +36,14 @@ export function ProjectHomepage(): JSX.Element {
     const { showSceneDashboardChoiceModal } = useActions(
         sceneDashboardChoiceModalLogic({ scene: Scene.ProjectHomepage })
     )
+
+    // TODO: Remove this after AA test is over
     const { featureFlags } = useValues(featureFlagLogic)
+    const aaTestBayesianLegacy = featureFlags[FEATURE_FLAGS.AA_TEST_BAYESIAN_LEGACY]
+    const aaTestBayesianNew = featureFlags[FEATURE_FLAGS.AA_TEST_BAYESIAN_NEW]
 
     const headerButtons = (
         <>
-            {!!featureFlags[FEATURE_FLAGS.YEAR_IN_HOG] && window.POSTHOG_APP_CONTEXT?.year_in_hog_url && (
-                <YearInHogButton url={`${window.location.origin}${window.POSTHOG_APP_CONTEXT.year_in_hog_url}`} />
-            )}
             <LemonButton
                 type="secondary"
                 size="small"
@@ -66,12 +66,11 @@ export function ProjectHomepage(): JSX.Element {
 
     return (
         <div className="ProjectHomepage">
-            <PageHeader delimited buttons={headerButtons} />
-            <div className="ProjectHomepage__lists">
-                <RecentInsights />
-                <RecentPersons />
-                <RecentRecordings />
-            </div>
+            {/* TODO: Remove this after AA test is over. Just a hidden element. */}
+            <span className="hidden" data-attr="aa-test-flag-result">
+                AA test flag result: {String(aaTestBayesianLegacy)} {String(aaTestBayesianNew)}
+            </span>
+            <PageHeader buttons={headerButtons} />
             {dashboardLogicProps ? (
                 <HomeDashboard dashboardLogicProps={dashboardLogicProps} />
             ) : (
@@ -89,10 +88,12 @@ export function ProjectHomepage(): JSX.Element {
 
 function HomeDashboard({ dashboardLogicProps }: { dashboardLogicProps: DashboardLogicProps }): JSX.Element {
     const { dashboard } = useValues(dashboardLogic(dashboardLogicProps))
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <>
-            <div className="ProjectHomepage__dashboardheader">
+            {featureFlags[FEATURE_FLAGS.POSTHOG_STORIES] && <PosthogStoriesContainer />}
+            <div className="ProjectHomepage__dashboardheader mt-0">
                 <div className="ProjectHomepage__dashboardheader__title">
                     {!dashboard && <LemonSkeleton className="w-20 h-4" />}
                     {dashboard?.name && (
@@ -104,6 +105,7 @@ function HomeDashboard({ dashboardLogicProps }: { dashboardLogicProps: Dashboard
                         </>
                     )}
                 </div>
+                <SceneActions />
             </div>
             <LemonDivider className="mt-3 mb-4" />
             <Dashboard id={dashboardLogicProps.id.toString()} placement={DashboardPlacement.ProjectHomepage} />

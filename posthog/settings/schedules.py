@@ -2,7 +2,19 @@ from posthog.settings.base_variables import TEST
 from posthog.settings.utils import get_from_env
 
 USE_PRECALCULATED_CH_COHORT_PEOPLE = not TEST
-CALCULATE_X_COHORTS_PARALLEL = get_from_env("CALCULATE_X_COHORTS_PARALLEL", 5, type_cast=int)
+
+# Schedules to recalculate cohorts. Follows crontab syntax.
+CALCULATE_COHORTS_DAY_SCHEDULE = get_from_env(
+    "CALCULATE_COHORTS_DAY_SCHEDULE",
+    "*/2 6-17 * * *",
+)
+CALCULATE_X_PARALLEL_COHORTS_DURING_DAY = get_from_env("CALCULATE_X_PARALLEL_COHORTS_DURING_DAY", 5, type_cast=int)
+
+CALCULATE_COHORTS_NIGHT_SCHEDULE = get_from_env(
+    "CALCULATE_COHORTS_NIGHT_SCHEDULE",
+    "* 0-5,18-23 * * *",
+)
+CALCULATE_X_PARALLEL_COHORTS_DURING_NIGHT = get_from_env("CALCULATE_X_PARALLEL_COHORTS_DURING_NIGHT", 5, type_cast=int)
 
 ACTION_EVENT_MAPPING_INTERVAL_SECONDS = get_from_env("ACTION_EVENT_MAPPING_INTERVAL_SECONDS", 300, type_cast=int)
 
@@ -22,8 +34,9 @@ COUNT_TILES_WITH_NO_FILTERS_HASH_INTERVAL_SECONDS = get_from_env(
     "COUNT_TILES_WITH_NO_FILTERS_HASH_INTERVAL_SECONDS", 1800, type_cast=int
 )
 
-
-CACHED_RESULTS_TTL = 7 * 24 * 60 * 60  # how long to keep cached results for
+# If updating this, need to look into adding more values to S3 TTLs (see query_cache_s3.py)
+CACHED_RESULTS_TTL_DAYS = 7
+CACHED_RESULTS_TTL = CACHED_RESULTS_TTL_DAYS * 24 * 60 * 60
 
 # Schedule to run asynchronous data deletion on. Follows crontab syntax.
 # Use empty string to prevent this

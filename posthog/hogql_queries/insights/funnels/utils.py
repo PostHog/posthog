@@ -1,41 +1,69 @@
-from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
-from posthog.schema import FunnelConversionWindowTimeUnit, FunnelVizType, FunnelsFilter, StepOrderValue
 from rest_framework.exceptions import ValidationError
 
+from posthog.schema import FunnelConversionWindowTimeUnit, FunnelsFilter, FunnelVizType, StepOrderValue
 
-def get_funnel_order_class(funnelsFilter: FunnelsFilter):
-    from posthog.hogql_queries.insights.funnels import (
-        Funnel,
-        FunnelStrict,
-        FunnelUnordered,
-    )
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
 
-    if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
-        return FunnelUnordered
+from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
+from posthog.hogql_queries.legacy_compatibility.feature_flag import (
+    insight_funnels_use_udf,
+    insight_funnels_use_udf_time_to_convert,
+    insight_funnels_use_udf_trends,
+)
+from posthog.models import Team
+
+
+def use_udf(funnelsFilter: FunnelsFilter, team: Team):
+    if funnelsFilter.useUdf:
+        return True
+    funnelVizType = funnelsFilter.funnelVizType
+    if funnelVizType == FunnelVizType.TRENDS and insight_funnels_use_udf_trends(team):
+        return True
+    if funnelVizType == FunnelVizType.STEPS and insight_funnels_use_udf(team):
+        return True
+    if funnelVizType == FunnelVizType.TIME_TO_CONVERT and insight_funnels_use_udf_time_to_convert(team):
+        return True
+    return False
+
+
+def get_funnel_order_class(funnelsFilter: FunnelsFilter, use_udf=False):
+    from posthog.hogql_queries.insights.funnels import Funnel, FunnelStrict, FunnelUDF, FunnelUnordered
+
+    if use_udf:
+        return FunnelUDF
     elif funnelsFilter.funnelOrderType == StepOrderValue.STRICT:
         return FunnelStrict
+    elif funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
+        return FunnelUnordered
     return Funnel
 
 
-def get_funnel_actor_class(funnelsFilter: FunnelsFilter):
+def get_funnel_actor_class(funnelsFilter: FunnelsFilter, use_udf=False):
     from posthog.hogql_queries.insights.funnels import (
         FunnelActors,
         FunnelStrictActors,
-        FunnelUnorderedActors,
         FunnelTrendsActors,
+        FunnelTrendsUDF,
+        FunnelUDF,
+        FunnelUnorderedActors,
     )
 
     if funnelsFilter.funnelVizType == FunnelVizType.TRENDS:
+        if use_udf:
+            return FunnelTrendsUDF
         return FunnelTrendsActors
-    else:
-        if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
-            return FunnelUnorderedActors
-        elif funnelsFilter.funnelOrderType == StepOrderValue.STRICT:
-            return FunnelStrictActors
-        else:
-            return FunnelActors
+
+    if use_udf:
+        return FunnelUDF
+
+    if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
+        return FunnelUnorderedActors
+
+    if funnelsFilter.funnelOrderType == StepOrderValue.STRICT:
+        return FunnelStrictActors
+
+    return FunnelActors
 
 
 def funnel_window_interval_unit_to_sql(

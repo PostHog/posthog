@@ -1,4 +1,5 @@
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { InsightLogicProps, TrendResult } from '~/types'
@@ -13,7 +14,7 @@ export const worldMapLogic = kea<worldMapLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightVizDataLogic(props),
-            ['insightData', 'trendsFilter', 'breakdownFilter', 'series', 'querySource'],
+            ['insightData', 'trendsFilter', 'breakdownFilter', 'series', 'querySource', 'theme'],
         ],
     })),
     actions({

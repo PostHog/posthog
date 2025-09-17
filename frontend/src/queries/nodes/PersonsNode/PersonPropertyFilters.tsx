@@ -1,8 +1,9 @@
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useState } from 'react'
 
-import { ActorsQuery, NodeKind, PersonsNode } from '~/queries/schema'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+
+import { ActorsQuery, NodeKind, PersonsNode } from '~/queries/schema/schema-general'
 import { isActorsQuery } from '~/queries/utils'
 import { PersonPropertyFilter } from '~/types'
 

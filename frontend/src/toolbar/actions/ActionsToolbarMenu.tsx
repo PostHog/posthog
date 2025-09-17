@@ -1,11 +1,13 @@
-import { IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
+
+import { IconPlus } from '@posthog/icons'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { useEffect } from 'react'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { ActionsEditingToolbarMenu } from '~/toolbar/actions/ActionsEditingToolbarMenu'
@@ -24,25 +26,22 @@ const ActionsListToolbarMenu = (): JSX.Element => {
 
     const { apiURL } = useValues(toolbarConfigLogic)
 
-    useEffect(() => {
-        getActions()
-    }, [])
+    useOnMountEffect(getActions)
 
     return (
         <ToolbarMenu>
             <ToolbarMenu.Header>
                 <LemonInput
-                    autoFocus
-                    fullWidth
+                    autoFocus={true}
+                    fullWidth={true}
                     placeholder="Search"
                     type="search"
                     value={searchTerm}
                     onChange={(s) => setSearchTerm(s)}
-                    className="Toolbar__top_input"
                 />
             </ToolbarMenu.Header>
             <ToolbarMenu.Body>
-                <div className="px-1 space-y-px py-2">
+                <div className="px-1 deprecated-space-y-px py-2">
                     {allActions.length === 0 && allActionsLoading ? (
                         <div className="text-center my-4">
                             <Spinner />
@@ -54,7 +53,7 @@ const ActionsListToolbarMenu = (): JSX.Element => {
             </ToolbarMenu.Body>
             <ToolbarMenu.Footer>
                 <div className="flex items-center justify-between flex-1">
-                    <Link to={`${apiURL}${urls.actions()}`} target="_blank">
+                    <Link to={`${apiURL}${urls.actions()}`} target="_blank" className="text-primary">
                         View &amp; edit all actions <IconOpenInNew />
                     </Link>
                     <LemonButton type="primary" size="small" onClick={() => newAction()} icon={<IconPlus />}>

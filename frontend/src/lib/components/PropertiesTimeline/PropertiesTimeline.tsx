@@ -1,7 +1,9 @@
+import { useActions, useValues } from 'kea'
+
 import { IconInfo } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { Properties } from '@posthog/plugin-scaffold'
-import { useActions, useValues } from 'kea'
+
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanList } from 'lib/utils'
@@ -10,7 +12,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { PropertyDefinitionType } from '~/types'
 
 import { TimelineSeekbar } from '../TimelineSeekbar'
-import { propertiesTimelineLogic, PropertiesTimelineProps } from './propertiesTimelineLogic'
+import { PropertiesTimelineProps, propertiesTimelineLogic } from './propertiesTimelineLogic'
 
 export function PropertiesTimeline({ actor, filter }: PropertiesTimelineProps): JSX.Element {
     const logic = propertiesTimelineLogic({ actor, filter })
@@ -63,7 +65,7 @@ export function PropertiesTimeline({ actor, filter }: PropertiesTimelineProps): 
                                         : "This insight doesn't rely on any person properties in its query definition. If it did, a timeline showing the values of those key properties would be shown here."
                                 }
                             >
-                                <IconInfo className="ml-1 text-muted text-xl shrink-0" />
+                                <IconInfo className="ml-1 text-secondary text-xl shrink-0" />
                             </Tooltip>
                         )}
                     </>

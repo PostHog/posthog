@@ -1,19 +1,20 @@
 import { DateTime } from 'luxon'
 
 import { createHub } from '../../../../src/utils/db/hub'
+import { parseJSON } from '../../../../src/utils/json-parse'
 import { UUIDT } from '../../../../src/utils/utils'
 import { normalizeEventStep } from '../../../../src/worker/ingestion/event-pipeline/normalizeEventStep'
 import { createOrganization, createTeam, resetTestDatabase } from '../../../helpers/sql'
 
 // A simple deep copy to ensure we aren't comparing an event object with itself below.
 function copy(a: any) {
-    return JSON.parse(JSON.stringify(a))
+    return parseJSON(JSON.stringify(a))
 }
 
 describe('normalizeEventStep()', () => {
     it('normalizes the event with properties set by plugins', async () => {
         await resetTestDatabase()
-        const [hub, _] = await createHub()
+        const hub = await createHub()
         const organizationId = await createOrganization(hub.db.postgres)
         const teamId = await createTeam(hub.db.postgres, organizationId)
         const uuid = new UUIDT().toString()
@@ -61,7 +62,7 @@ describe('normalizeEventStep()', () => {
 
     it('replaces null byte with unicode replacement character in distinct_id', async () => {
         await resetTestDatabase()
-        const [hub, _] = await createHub()
+        const hub = await createHub()
         const organizationId = await createOrganization(hub.db.postgres)
         const teamId = await createTeam(hub.db.postgres, organizationId)
         const uuid = new UUIDT().toString()
@@ -90,7 +91,7 @@ describe('normalizeEventStep()', () => {
 
     it('normalizes $process_person_profile=false events by dropping $set and related', async () => {
         await resetTestDatabase()
-        const [hub, _] = await createHub()
+        const hub = await createHub()
         const organizationId = await createOrganization(hub.db.postgres)
         const teamId = await createTeam(hub.db.postgres, organizationId)
         const uuid = new UUIDT().toString()

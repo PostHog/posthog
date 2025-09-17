@@ -1,19 +1,21 @@
-import { TZLabel } from '@posthog/apps-common'
+import { JSONContent } from '@tiptap/core'
+import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
+
 import {
     LemonBanner,
     LemonButton,
     LemonSkeleton,
-    lemonToast,
     LemonWidget,
     PaginationControl,
     ProfilePicture,
+    lemonToast,
     usePagination,
 } from '@posthog/lemon-ui'
-import { JSONContent } from '@tiptap/core'
-import { useActions, useValues } from 'kea'
+
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogItem, userNameForLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import { useMemo } from 'react'
+import { TZLabel } from 'lib/components/TZLabel'
 
 import { ActivityScope } from '~/types'
 
@@ -38,9 +40,9 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
 
     return (
         <div className="flex flex-col flex-1 overflow-hidden">
-            <ul className="flex-1 overflow-y-auto p-2 space-y-px">
+            <ul className="flex-1 overflow-y-auto p-2 deprecated-space-y-px">
                 {activityLoading ? (
-                    <div className="space-y-px">
+                    <div className="deprecated-space-y-px">
                         <LemonSkeleton className="w-full h-10" repeat={10} />
                     </div>
                 ) : (
@@ -63,10 +65,10 @@ function NotebookHistoryList({ onItemClick }: { onItemClick: (logItem: ActivityL
                                 <span className="flex-1">
                                     <b>{name}</b> {changedContent ? 'made changes' : 'created this'}
                                 </span>
-                                <span className="text-muted-alt">
+                                <span className="text-secondary">
                                     <TZLabel time={logItem.created_at} />
                                 </span>
-                                {isCurrent ? <span className="text-muted-alt">(Current)</span> : null}
+                                {isCurrent ? <span className="text-secondary">(Current)</span> : null}
                             </span>
                         )
 

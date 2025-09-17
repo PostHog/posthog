@@ -1,9 +1,10 @@
-import contextlib
 import datetime as dt
+import contextlib
 from threading import Event, Thread
 from uuid import uuid4
 
 import pytest
+
 from django.db.utils import DEFAULT_DB_ALIAS, ConnectionHandler, IntegrityError
 
 from posthog.api.test.test_organization import create_organization

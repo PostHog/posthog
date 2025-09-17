@@ -1,6 +1,8 @@
+import { useActions, useValues } from 'kea'
+
 import { IconCalendar, IconInfo } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { dateMapping } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -11,7 +13,8 @@ type InsightDateFilterProps = {
 }
 
 export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, editingDisabledReason } = useValues(insightLogic)
+
     const { isTrends, dateRange } = useValues(insightVizDataLogic(insightProps))
     const { updateDateRange } = useActions(insightVizDataLogic(insightProps))
 
@@ -19,9 +22,11 @@ export function InsightDateFilter({ disabled }: InsightDateFilterProps): JSX.Ele
         <DateFilter
             dateTo={dateRange?.date_to ?? undefined}
             dateFrom={dateRange?.date_from ?? '-7d'}
+            allowTimePrecision
             disabled={disabled}
-            onChange={(date_from, date_to) => {
-                updateDateRange({ date_from, date_to })
+            disabledReason={editingDisabledReason}
+            onChange={(date_from, date_to, explicit_date) => {
+                updateDateRange({ date_from, date_to, explicitDate: explicit_date })
             }}
             dateOptions={dateMapping}
             allowedRollingDateOptions={isTrends ? ['hours', 'days', 'weeks', 'months', 'years'] : undefined}

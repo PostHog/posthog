@@ -1,6 +1,9 @@
-import { IconOpenSidebar, IconPlus, IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconOpenSidebar, IconPlus, IconX } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { cn } from 'lib/utils/css-classes'
 import { userLogic } from 'scenes/userLogic'
 
 import { ProductKey } from '~/types'
@@ -17,7 +20,7 @@ import { BuilderHog3, DetectiveHog } from '../hedgehogs'
 export type ProductIntroductionProps = {
     /** The name of the product, e.g. "Cohorts" */
     productName: string
-    productKey: ProductKey
+    productKey?: ProductKey
     /** The name of the thing that they will create, e.g. "cohort" */
     thingName: string
     description: string
@@ -31,6 +34,7 @@ export type ProductIntroductionProps = {
     actionElementOverride?: JSX.Element
     docsURL?: string
     customHog?: React.ComponentType<{ className?: string }>
+    className?: string
 }
 
 export const ProductIntroduction = ({
@@ -44,6 +48,7 @@ export const ProductIntroduction = ({
     actionElementOverride,
     docsURL,
     customHog: CustomHog,
+    className,
 }: ProductIntroductionProps): JSX.Element | null => {
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
     const { user } = useValues(userLogic)
@@ -52,29 +57,36 @@ export const ProductIntroduction = ({
         return null
     }
 
-    if (!isEmpty && user.has_seen_product_intro_for?.[productKey]) {
+    if (!isEmpty && (!productKey || user.has_seen_product_intro_for?.[productKey])) {
         // Hide if its not an empty list but the user has seen it before
         return null
     }
 
     const actionable = action || actionElementOverride
     return (
-        <div className="border-2 border-dashed border-border w-full p-8 justify-center rounded mt-2 mb-4">
+        <div
+            className={cn(
+                'border-2 border-dashed border-primary w-full p-8 justify-center rounded mt-2 mb-4',
+                className
+            )}
+            data-attr={`product-introduction-${thingName}`}
+        >
             {!isEmpty && (
                 <div className="flex justify-end -mb-6 -mt-2 -mr-2">
                     <div>
                         <LemonButton
                             icon={<IconX />}
+                            size="small"
                             onClick={() => {
-                                updateHasSeenProductIntroFor(productKey, true)
+                                productKey && updateHasSeenProductIntroFor(productKey)
                             }}
                         />
                     </div>
                 </div>
             )}
-            <div className="flex items-center gap-8 w-full justify-center flex-wrap">
+            <div className="flex items-center gap-8 w-full justify-center">
                 <div>
-                    <div className="w-50 mx-auto mb-4">
+                    <div className="w-40 lg:w-50 mx-auto mb-4 hidden md:block">
                         {CustomHog ? (
                             <CustomHog className="w-full h-full" />
                         ) : actionable ? (
@@ -89,10 +101,10 @@ export const ProductIntroduction = ({
                         {!isEmpty
                             ? `Welcome to ${productName}!`
                             : actionable
-                            ? titleOverride
-                                ? titleOverride
-                                : `Create your first ${thingName}`
-                            : `No ${thingName}s yet`}
+                              ? titleOverride
+                                  ? titleOverride
+                                  : `Create your first ${thingName}`
+                              : `No ${thingName}s yet`}
                     </h2>
                     <p className="ml-0">{description}</p>
                     {!isEmpty && (
@@ -107,8 +119,8 @@ export const ProductIntroduction = ({
                                 type="primary"
                                 icon={<IconPlus />}
                                 onClick={() => {
-                                    updateHasSeenProductIntroFor(productKey, true)
-                                    action && action()
+                                    productKey && updateHasSeenProductIntroFor(productKey)
+                                    action?.()
                                 }}
                                 data-attr={'create-' + thingName.replace(' ', '-').toLowerCase()}
                             >

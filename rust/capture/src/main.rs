@@ -7,7 +7,6 @@ use opentelemetry_sdk::trace::{BatchConfig, RandomIdGenerator, Sampler, Tracer};
 use opentelemetry_sdk::{runtime, Resource};
 use tokio::signal;
 use tracing::level_filters::LevelFilter;
-use tracing::Level;
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
@@ -15,6 +14,8 @@ use tracing_subscriber::{EnvFilter, Layer};
 
 use capture::config::Config;
 use capture::server::serve;
+
+common_alloc::used!();
 
 async fn shutdown() {
     let mut term = signal::unix::signal(signal::unix::SignalKind::terminate())
@@ -74,7 +75,7 @@ async fn main() {
                 &config.otel_service_name,
             ))
         })
-        .with_filter(LevelFilter::from_level(Level::INFO));
+        .with_filter(LevelFilter::from_level(config.log_level));
     tracing_subscriber::registry()
         .with(log_layer)
         .with(otel_layer)

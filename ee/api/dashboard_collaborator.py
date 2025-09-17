@@ -1,15 +1,17 @@
 from typing import Any, cast
 
 from django.db import IntegrityError
+
 from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
 
-from ee.models.dashboard_privilege import DashboardPrivilege
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import Dashboard, User
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
+
+from ee.models.dashboard_privilege import DashboardPrivilege
 
 
 class CanEditDashboardCollaborator(BasePermission):
@@ -91,7 +93,7 @@ class DashboardCollaboratorViewSet(
     scope_object = "dashboard"
     permission_classes = [CanEditDashboardCollaborator]
     pagination_class = None
-    queryset = DashboardPrivilege.objects.select_related("dashboard").filter(user__is_active=True)
+    queryset = DashboardPrivilege.objects.select_related("dashboard", "dashboard__team").filter(user__is_active=True)
     lookup_field = "user__uuid"
     serializer_class = DashboardCollaboratorSerializer
     filter_rewrite_rules = {"project_id": "dashboard__team__project_id"}

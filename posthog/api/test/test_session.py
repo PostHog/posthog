@@ -1,10 +1,11 @@
 import uuid
 
+from posthog.test.base import APIBaseTest
+
 from rest_framework import status
 
 from posthog.models.event.util import create_event
 from posthog.models.utils import uuid7
-from posthog.test.base import APIBaseTest
 
 
 class TestSessionsAPI(APIBaseTest):
@@ -34,23 +35,41 @@ class TestSessionsAPI(APIBaseTest):
         expected_properties = {
             "$autocapture_count",
             "$channel_type",
+            "$end_current_url",
+            "$end_hostname",
+            "$end_pathname",
             "$end_timestamp",
+            "$entry__kx",
             "$entry_current_url",
-            "$entry_pathname",
-            "$exit_current_url",
-            "$exit_pathname",
+            "$entry_dclid",
+            "$entry_fbclid",
             "$entry_gad_source",
+            "$entry_gbraid",
             "$entry_gclid",
+            "$entry_gclsrc",
+            "$entry_hostname",
+            "$entry_igshid",
+            "$entry_irclid",
+            "$entry_li_fat_id",
+            "$entry_mc_cid",
+            "$entry_msclkid",
+            "$entry_pathname",
             "$entry_referring_domain",
+            "$entry_ttclid",
+            "$entry_twclid",
             "$entry_utm_campaign",
             "$entry_utm_content",
             "$entry_utm_medium",
             "$entry_utm_source",
             "$entry_utm_term",
+            "$entry_wbraid",
+            "$is_bounce",
+            "$last_external_click_url",
             "$pageview_count",
+            "$screen_count",
             "$session_duration",
             "$start_timestamp",
-            "$is_bounce",
+            "$vitals_lcp",
         }
         assert actual_properties == expected_properties
 

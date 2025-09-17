@@ -1,14 +1,23 @@
 import { Monaco } from '@monaco-editor/react'
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
-import api from 'lib/api'
 import { editor } from 'monaco-editor'
 import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
+import api from 'lib/api'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { urls } from 'scenes/urls'
 
-import { DatabaseSchemaTable, DatabaseSerializedFieldType, HogQLQuery, NodeKind } from '~/queries/schema'
+import {
+    DatabaseSchemaMaterializedViewTable,
+    DatabaseSchemaTable,
+    DatabaseSchemaViewTable,
+    DatabaseSerializedFieldType,
+    HogQLQuery,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
@@ -25,6 +34,8 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         values: [
             databaseTableListLogic,
             ['database', 'posthogTables', 'dataWarehouseTables', 'databaseLoading', 'views', 'viewsMapById'],
+            dataWarehouseViewsLogic,
+            ['dataWarehouseSavedQueryMapById', 'dataWarehouseSavedQueriesLoading'],
         ],
         actions: [
             dataWarehouseViewsLogic,
@@ -47,7 +58,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         deleteDataWarehouseTable: (tableId: string) => ({ tableId }),
         toggleSchemaModal: true,
         setEditingView: (id: string | null) => ({ id }),
-        updateView: (query: string) => ({ query }),
+        updateView: (query: string, types: string[][]) => ({ query, types }),
     })),
     reducers({
         selectedRow: [
@@ -152,17 +163,10 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             (s) => [s.dataWarehouseTables],
             (dataWarehouseTables): Record<string, DatabaseSchemaTable[]> => {
                 return dataWarehouseTables.reduce((acc: Record<string, DatabaseSchemaTable[]>, table) => {
-                    if (table.source) {
-                        if (!acc[table.source.source_type]) {
-                            acc[table.source.source_type] = []
-                        }
-                        acc[table.source.source_type].push(table)
-                    } else {
-                        if (!acc['S3']) {
-                            acc['S3'] = []
-                        }
-                        acc['S3'].push(table)
-                    }
+                    const group = table.source?.source_type ?? 'S3'
+                    acc[group] ??= []
+                    acc[group].push(table)
+
                     return acc
                 }, {})
             },
@@ -171,6 +175,30 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             (s) => [s.dataWarehouseTables, s.views],
             (dataWarehouseTables, views): DatabaseSchemaTable[] => {
                 return [...dataWarehouseTables, ...views]
+            },
+        ],
+        nonMaterializedViews: [
+            (s) => [s.views, s.dataWarehouseSavedQueryMapById],
+            (views, dataWarehouseSavedQueryMapById): DatabaseSchemaTable[] => {
+                return views
+                    .filter((view) => !dataWarehouseSavedQueryMapById[view.id]?.is_materialized)
+                    .map((view) => ({
+                        ...view,
+                        type: 'view',
+                    }))
+            },
+        ],
+        materializedViews: [
+            (s) => [s.views, s.dataWarehouseSavedQueryMapById],
+            (views, dataWarehouseSavedQueryMapById): DatabaseSchemaMaterializedViewTable[] => {
+                return views
+                    .filter((view) => dataWarehouseSavedQueryMapById[view.id]?.is_materialized)
+                    .map((view) => ({
+                        ...view,
+                        type: 'materialized_view',
+                        last_run_at: dataWarehouseSavedQueryMapById[view.id]?.last_run_at,
+                        status: dataWarehouseSavedQueryMapById[view.id]?.status,
+                    }))
             },
         ],
     }),
@@ -187,7 +215,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
         updateDataWarehouseSavedQuerySuccess: async ({ payload }) => {
             lemonToast.success(`${payload?.name ?? 'View'} successfully updated`)
             if (payload) {
-                router.actions.push(urls.dataWarehouseView(payload.id))
+                router.actions.push(urls.sqlEditor(undefined, payload.id))
             }
         },
         saveSchema: async () => {
@@ -246,18 +274,23 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 })
             }
         },
-        updateView: ({ query }) => {
+        updateView: ({ query, types }) => {
             if (values.editingView) {
                 const newViewQuery: HogQLQuery = {
                     kind: NodeKind.HogQLQuery,
                     query: query,
                 }
+
                 const oldView = values.viewsMapById[values.editingView]
-                const newView = {
-                    ...oldView,
-                    query: newViewQuery,
+                if (oldView.type === 'view') {
+                    // Should always be `view`, but assert at the TS level
+                    const newView: DatabaseSchemaViewTable & { types: string[][] } = {
+                        ...oldView,
+                        query: newViewQuery,
+                        types,
+                    }
+                    actions.updateDataWarehouseSavedQuery(newView)
                 }
-                actions.updateDataWarehouseSavedQuery(newView)
             }
         },
     })),

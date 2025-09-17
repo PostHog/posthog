@@ -1,57 +1,64 @@
 from random import randrange
 from typing import Any
 
+from django.conf import settings
+
 from celery import Celery
 from celery.canvas import Signature
 from celery.schedules import crontab
-from django.conf import settings
 
 from posthog.caching.warming import schedule_warming_for_teams_task
-from posthog.celery import app
-from posthog.tasks.alerts.checks import check_all_alerts_task, checks_cleanup_task
+from posthog.tasks.alerts.checks import (
+    alerts_backlog_task,
+    check_alerts_task,
+    checks_cleanup_task,
+    reset_stuck_alerts_task,
+)
+from posthog.tasks.email import send_hog_functions_daily_digest
 from posthog.tasks.integrations import refresh_integrations
+from posthog.tasks.periodic_digest.periodic_digest import send_all_periodic_digest_reports
+from posthog.tasks.remote_config import sync_all_remote_configs
 from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
-    calculate_replay_embeddings,
     check_async_migration_health,
-    check_data_import_row_limits,
     check_flags_to_rollback,
     clean_stale_partials,
     clear_clickhouse_deleted_person,
     clickhouse_clear_removed_data,
     clickhouse_errors_count,
-    clickhouse_mark_all_materialized,
     clickhouse_materialize_columns,
     clickhouse_mutation_count,
     clickhouse_part_count,
     clickhouse_row_count,
     clickhouse_send_license_usage,
+    count_items_in_playlists,
     delete_expired_exported_assets,
-    ee_persist_finished_recordings,
+    ee_persist_finished_recordings_v2,
     find_flags_with_enriched_analytics,
-    graphile_worker_queue_size,
     ingestion_lag,
-    monitoring_check_clickhouse_schema_drift,
     pg_plugin_server_query_timing,
     pg_row_count,
     pg_table_cache_hit_rate,
     process_scheduled_changes,
     redis_celery_queue_depth,
     redis_heartbeat,
+    refresh_activity_log_fields_cache,
+    replay_count_metrics,
     schedule_all_subscriptions,
     send_org_usage_reports,
     start_poll_query_performance,
     stop_surveys_reached_target,
     sync_all_organization_available_product_features,
     update_event_partitions,
-    update_quota_limiting,
-    verify_persons_data_in_sync,
+    update_survey_adaptive_sampling,
     update_survey_iteration,
-    replay_count_metrics,
-    calculate_external_data_rows_synced,
+    verify_persons_data_in_sync,
 )
+from posthog.tasks.team_access_cache_tasks import warm_all_team_access_caches_task
 from posthog.utils import get_crontab
+
+TWENTY_FOUR_HOURS = 24 * 60 * 60
 
 
 def add_periodic_task_with_expiry(
@@ -75,16 +82,7 @@ def add_periodic_task_with_expiry(
     )
 
 
-@app.on_after_configure.connect
 def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
-    # Monitoring tasks
-    add_periodic_task_with_expiry(
-        sender,
-        60,
-        monitoring_check_clickhouse_schema_drift.s(),
-        "check clickhouse schema drift",
-    )
-
     if not settings.DEBUG:
         add_periodic_task_with_expiry(sender, 10, redis_celery_queue_depth.s(), "10 sec queue probe")
 
@@ -99,6 +97,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="schedule warming for largest teams",
     )
 
+    # Team access cache warming - every 10 minutes
+    add_periodic_task_with_expiry(
+        sender,
+        600,  # Every 10 minutes (no TTL, just fill missing entries)
+        warm_all_team_access_caches_task.s(),
+        name="warm team access caches",
+    )
+
     # Update events table partitions twice a week
     sender.add_periodic_task(
         crontab(day_of_week="mon,fri", hour="0", minute="0"),
@@ -106,23 +112,24 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     # Send all instance usage to the Billing service
-    # Sends later on Sunday due to clickhouse things that happen on Sunday at ~00:00 UTC
     sender.add_periodic_task(
-        crontab(hour="3", minute="15", day_of_week="mon"),
-        send_org_usage_reports.s(),
-        name="send instance usage report, monday",
-    )
-    sender.add_periodic_task(
-        crontab(hour="2", minute="15", day_of_week="tue,wed,thu,fri,sat,sun"),
+        crontab(hour="3", minute="45"),
         send_org_usage_reports.s(),
         name="send instance usage report",
     )
 
-    # Update local usage info for rate limiting purposes - offset by 30 minutes to not clash with the above
+    # Send all periodic digest reports
     sender.add_periodic_task(
-        crontab(hour="*", minute="30"),
-        update_quota_limiting.s(),
-        name="update quota limiting",
+        crontab(hour="9", minute="0", day_of_week="mon"),
+        send_all_periodic_digest_reports.s(),
+        name="send all weekly digest reports",
+    )
+
+    # Send HogFunctions daily digest at 9:30 AM UTC (good for US and EU)
+    sender.add_periodic_task(
+        crontab(hour="9", minute="30"),
+        send_hog_functions_daily_digest.s(),
+        name="send HogFunctions daily digest",
     )
 
     # PostHog Cloud cron jobs
@@ -194,18 +201,20 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="PG plugin server query timing",
     )
 
-    add_periodic_task_with_expiry(
-        sender,
-        60,
-        graphile_worker_queue_size.s(),
-        name="Graphile Worker queue size",
+    sender.add_periodic_task(
+        get_crontab(settings.CALCULATE_COHORTS_DAY_SCHEDULE),
+        calculate_cohort.s(),
+        name="recalculate cohorts day",
+        expires=120 * 1.5,
+        args=(settings.CALCULATE_X_PARALLEL_COHORTS_DURING_DAY,),
     )
 
-    add_periodic_task_with_expiry(
-        sender,
-        120,
+    sender.add_periodic_task(
+        get_crontab(settings.CALCULATE_COHORTS_NIGHT_SCHEDULE),
         calculate_cohort.s(),
-        name="recalculate cohorts",
+        name="recalculate cohorts night",
+        expires=60 * 1.5,
+        args=(settings.CALCULATE_X_PARALLEL_COHORTS_DURING_NIGHT,),
     )
 
     add_periodic_task_with_expiry(
@@ -238,15 +247,39 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     sender.add_periodic_task(
+        crontab(hour="*/12", minute="0"),
+        refresh_activity_log_fields_cache.s(),
+        name="refresh activity log fields cache for large orgs",
+    )
+
+    sender.add_periodic_task(
         crontab(hour="*/12"),
         update_survey_iteration.s(),
         name="update survey iteration based on date",
     )
 
     sender.add_periodic_task(
-        crontab(hour="*", minute="45"),
-        check_all_alerts_task.s(),
-        name="check alerts for matches and send notifications",
+        crontab(hour="*/12"),
+        update_survey_adaptive_sampling.s(),
+        name="update survey's sampling feature flag rollout  based on date",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="*", minute="*/2"),
+        check_alerts_task.s(),
+        name="check_alerts_task",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="*", minute="*/12"),
+        alerts_backlog_task.s(),
+        name="alerts_backlog_task",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="*", minute="*/15"),
+        reset_stuck_alerts_task.s(),
+        name="reset_stuck_alerts_task",
     )
 
     sender.add_periodic_task(
@@ -256,16 +289,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
 
     if settings.EE_AVAILABLE:
-        # every interval seconds, we calculate N replay embeddings
-        # the goal is to process _enough_ every 24 hours that
-        # there is a meaningful playlist to test with
-        add_periodic_task_with_expiry(
-            sender,
-            settings.REPLAY_EMBEDDINGS_CALCULATION_CELERY_INTERVAL_SECONDS,
-            calculate_replay_embeddings.s(),
-            name="calculate replay embeddings",
-        )
-
         sender.add_periodic_task(
             crontab(hour="0", minute=str(randrange(0, 40))),
             clickhouse_send_license_usage.s(),
@@ -284,16 +307,19 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
                 name="clickhouse materialize columns",
             )
 
-            sender.add_periodic_task(
-                crontab(hour="*/4", minute="0"),
-                clickhouse_mark_all_materialized.s(),
-                name="clickhouse mark all columns as materialized",
-            )
-
         sender.add_periodic_task(crontab(hour="*", minute="55"), schedule_all_subscriptions.s())
+
         sender.add_periodic_task(
-            crontab(hour="2", minute=str(randrange(0, 40))),
-            ee_persist_finished_recordings.s(),
+            crontab(minute="*/2") if settings.DEBUG else crontab(hour="2", minute=str(randrange(0, 40))),
+            ee_persist_finished_recordings_v2.s(),
+            name="persist finished recordings v2",
+        )
+
+        add_periodic_task_with_expiry(
+            sender,
+            settings.PLAYLIST_COUNTER_PROCESSING_SCHEDULE_SECONDS or TWENTY_FOUR_HOURS,
+            count_items_in_playlists.s(),
+            "ee_count_items_in_playlists",
         )
 
         sender.add_periodic_task(
@@ -315,23 +341,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             name="delete expired exported assets",
         )
 
-    sender.add_periodic_task(
-        crontab(minute="*/20"),
-        check_data_import_row_limits.s(),
-        name="check external data rows synced",
-    )
-    # Every 20 minutes try to retrieve and calculate total rows synced in period
-
-    sender.add_periodic_task(
-        crontab(minute="*/20"),
-        calculate_external_data_rows_synced.s(),
-        name="calculate external data rows synced",
-    )
-
     # Check integrations to refresh every minute
     add_periodic_task_with_expiry(
         sender,
         60,
         refresh_integrations.s(),
         name="refresh integrations",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="0", minute=str(randrange(0, 40))),
+        sync_all_remote_configs.s(),
+        name="sync all remote configs",
     )

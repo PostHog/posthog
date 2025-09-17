@@ -1,21 +1,28 @@
 from copy import deepcopy
-from typing import Optional, TypeVar, Generic, Any
+from typing import Any, Generic, Optional, TypeVar
 
 from posthog.hogql import ast
+from posthog.hogql.ast import SelectSetNode
 from posthog.hogql.base import AST, Expr
 from posthog.hogql.errors import BaseHogQLError
-
-
-def clone_expr(expr: Expr, clear_types=False, clear_locations=False) -> Expr:
-    """Clone an expression node."""
-    return CloningVisitor(clear_types=clear_types, clear_locations=clear_locations).visit(expr)
-
-
-def clear_locations(expr: Expr) -> Expr:
-    return CloningVisitor(clear_locations=True).visit(expr)
-
+from posthog.hogql.utils import is_simple_value
 
 T = TypeVar("T")
+T_AST = TypeVar("T_AST", bound=AST)
+T_Expr = TypeVar("T_Expr", bound=Expr)
+
+
+def clone_expr(expr: T_AST, clear_types=False, clear_locations=False, inline_subquery_field_names=False) -> T_AST:
+    """Clone an expression node."""
+    return CloningVisitor(
+        clear_types=clear_types,
+        clear_locations=clear_locations,
+        inline_subquery_field_names=inline_subquery_field_names,
+    ).visit(expr)
+
+
+def clear_locations(expr: T_AST) -> T_AST:
+    return CloningVisitor(clear_locations=True).visit(expr)
 
 
 class Visitor(Generic[T]):
@@ -93,7 +100,7 @@ class TraversingVisitor(Visitor[None]):
         self.visit(node.type)
 
     def visit_placeholder(self, node: ast.Placeholder):
-        self.visit(node.type)
+        self.visit(node.expr)
 
     def visit_call(self, node: ast.Call):
         for expr in node.args:
@@ -127,29 +134,29 @@ class TraversingVisitor(Visitor[None]):
         # :TRICKY: when adding new fields, also add them to visit_select_query of resolver.py
         self.visit(node.select_from)
         if node.ctes is not None:
-            for expr in list(node.ctes.values()):
-                self.visit(expr)
-        for expr in node.array_join_list or []:
-            self.visit(expr)
-        for expr in node.select or []:
-            self.visit(expr)
+            for expr0 in list(node.ctes.values()):
+                self.visit(expr0)
+        for expr1 in node.array_join_list or []:
+            self.visit(expr1)
+        for expr2 in node.select or []:
+            self.visit(expr2)
         self.visit(node.where)
         self.visit(node.prewhere)
         self.visit(node.having)
-        for expr in node.group_by or []:
-            self.visit(expr)
-        for expr in node.order_by or []:
-            self.visit(expr)
-        for expr in node.limit_by or []:
-            self.visit(expr)
+        for expr3 in node.group_by or []:
+            self.visit(expr3)
+        for expr4 in node.order_by or []:
+            self.visit(expr4)
+        self.visit(node.limit_by)
         self.visit(node.limit)
         self.visit(node.offset)
-        for expr in (node.window_exprs or {}).values():
-            self.visit(expr)
+        for expr5 in (node.window_exprs or {}).values():
+            self.visit(expr5)
 
-    def visit_select_union_query(self, node: ast.SelectUnionQuery):
-        for expr in node.select_queries:
-            self.visit(expr)
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
+        self.visit(node.initial_select_query)
+        for expr in node.subsequent_select_queries:
+            self.visit(expr.select_query)
 
     def visit_lambda_argument_type(self, node: ast.LambdaArgumentType):
         pass
@@ -161,16 +168,16 @@ class TraversingVisitor(Visitor[None]):
         pass
 
     def visit_select_query_type(self, node: ast.SelectQueryType):
-        for expr in node.tables.values():
-            self.visit(expr)
-        for expr in node.anonymous_tables:
-            self.visit(expr)
-        for expr in node.aliases.values():
-            self.visit(expr)
-        for expr in node.columns.values():
-            self.visit(expr)
+        for expr0 in node.tables.values():
+            self.visit(expr0)
+        for expr1 in node.anonymous_tables:
+            self.visit(expr1)
+        for expr2 in node.aliases.values():
+            self.visit(expr2)
+        for expr3 in node.columns.values():
+            self.visit(expr3)
 
-    def visit_select_union_query_type(self, node: ast.SelectUnionQueryType):
+    def visit_select_set_query_type(self, node: ast.SelectSetQueryType):
         for type in node.types:
             self.visit(type)
 
@@ -214,7 +221,16 @@ class TraversingVisitor(Visitor[None]):
     def visit_float_type(self, node: ast.FloatType):
         pass
 
+    def visit_decimal_type(self, node: ast.DecimalType):
+        pass
+
     def visit_string_type(self, node: ast.StringType):
+        pass
+
+    def visit_string_json_type(self, node: ast.StringJSONType):
+        pass
+
+    def visit_string_array_type(self, node: ast.StringArrayType):
         pass
 
     def visit_boolean_type(self, node: ast.BooleanType):
@@ -236,10 +252,16 @@ class TraversingVisitor(Visitor[None]):
     def visit_date_time_type(self, node: ast.DateTimeType):
         pass
 
+    def visit_interval_type(self, node: ast.IntervalType):
+        pass
+
     def visit_uuid_type(self, node: ast.UUIDType):
         pass
 
     def visit_property_type(self, node: ast.PropertyType):
+        self.visit(node.field_type)
+
+    def visit_map_property_type(self, node: ast.PropertyType):
         self.visit(node.field_type)
 
     def visit_expression_field_type(self, node: ast.ExpressionFieldType):
@@ -274,10 +296,24 @@ class TraversingVisitor(Visitor[None]):
             self.visit(attribute)
 
     def visit_hogqlx_attribute(self, node: ast.HogQLXAttribute):
-        self.visit(node.value)
+        if isinstance(node.value, list):
+            for value in node.value:
+                if is_simple_value(value):
+                    self.visit(ast.Constant(value=value))
+                else:
+                    self.visit(value)
+        else:
+            self.visit(node.value)
 
     def visit_program(self, node: ast.Program):
         for expr in node.declarations:
+            self.visit(expr)
+
+    def visit_limit_by_expr(self, node: ast.LimitByExpr):
+        self.visit(node.n)
+        if node.offset_value:
+            self.visit(node.offset_value)
+        for expr in node.exprs:
             self.visit(expr)
 
     def visit_statement(self, node: ast.Statement):
@@ -347,9 +383,11 @@ class CloningVisitor(Visitor[Any]):
         self,
         clear_types: Optional[bool] = True,
         clear_locations: Optional[bool] = False,
+        inline_subquery_field_names: Optional[bool] = False,
     ):
         self.clear_types = clear_types
         self.clear_locations = clear_locations
+        self.inline_subquery_field_names = inline_subquery_field_names
 
     def visit_cte(self, node: ast.CTE):
         return ast.CTE(
@@ -486,19 +524,27 @@ class CloningVisitor(Visitor[Any]):
         )
 
     def visit_field(self, node: ast.Field):
-        return ast.Field(
+        field = ast.Field(
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             chain=node.chain.copy(),
         )
+        if (
+            self.inline_subquery_field_names
+            and isinstance(node.type, ast.PropertyType)
+            and node.type.joined_subquery is not None
+            and node.type.joined_subquery_field_name is not None
+        ):
+            field.chain = [node.type.joined_subquery_field_name]
+        return field
 
     def visit_placeholder(self, node: ast.Placeholder):
         return ast.Placeholder(
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
-            chain=node.chain,
+            expr=self.visit(node.expr),
         )
 
     def visit_call(self, node: ast.Call):
@@ -571,7 +617,7 @@ class CloningVisitor(Visitor[Any]):
             having=self.visit(node.having),
             group_by=[self.visit(expr) for expr in node.group_by] if node.group_by else None,
             order_by=[self.visit(expr) for expr in node.order_by] if node.order_by else None,
-            limit_by=[self.visit(expr) for expr in node.limit_by] if node.limit_by else None,
+            limit_by=self.visit(node.limit_by),
             limit=self.visit(node.limit),
             limit_with_ties=node.limit_with_ties,
             offset=self.visit(node.offset),
@@ -583,12 +629,16 @@ class CloningVisitor(Visitor[Any]):
             view_name=node.view_name,
         )
 
-    def visit_select_union_query(self, node: ast.SelectUnionQuery):
-        return ast.SelectUnionQuery(
+    def visit_select_set_query(self, node: ast.SelectSetQuery):
+        return ast.SelectSetQuery(
             start=None if self.clear_locations else node.start,
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
-            select_queries=[self.visit(expr) for expr in node.select_queries],
+            initial_select_query=self.visit(node.initial_select_query),
+            subsequent_select_queries=[
+                SelectSetNode(set_operator=expr.set_operator, select_query=self.visit(expr.select_query))
+                for expr in node.subsequent_select_queries
+            ],
         )
 
     def visit_window_expr(self, node: ast.WindowExpr):
@@ -631,7 +681,16 @@ class CloningVisitor(Visitor[Any]):
         return ast.HogQLXTag(kind=node.kind, attributes=[self.visit(a) for a in node.attributes])
 
     def visit_hogqlx_attribute(self, node: ast.HogQLXAttribute):
-        return ast.HogQLXAttribute(name=node.name, value=self.visit(node.value))
+        if isinstance(node.value, list):
+            return ast.HogQLXAttribute(
+                name=node.name,
+                value=[self.visit(ast.Constant(value=v)) if is_simple_value(v) else self.visit(v) for v in node.value],
+            )
+
+        value = node.value
+        if is_simple_value(value):
+            value = ast.Constant(value=value)
+        return ast.HogQLXAttribute(name=node.name, value=self.visit(value))
 
     def visit_program(self, node: ast.Program):
         return ast.Program(
@@ -743,4 +802,21 @@ class CloningVisitor(Visitor[Any]):
             end=None if self.clear_locations else node.end,
             left=self.visit(node.left),
             right=self.visit(node.right),
+        )
+
+    def visit_limit_by_expr(self, node: ast.LimitByExpr) -> ast.LimitByExpr:
+        return ast.LimitByExpr(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            n=self.visit(node.n),
+            offset_value=self.visit(node.offset_value) if node.offset_value is not None else None,
+            exprs=[self.visit(expr) for expr in node.exprs],
+        )
+
+    def visit_select_set_node(self, node: ast.SelectSetNode) -> ast.SelectSetNode:
+        return ast.SelectSetNode(
+            start=None if self.clear_locations else node.start,
+            end=None if self.clear_locations else node.end,
+            set_operator=node.set_operator,
+            select_query=self.visit(node.select_query),
         )

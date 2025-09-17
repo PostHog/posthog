@@ -1,6 +1,7 @@
-import { CanvasArg } from '@rrweb/types'
+import { Replayer } from '@posthog/rrweb'
+import { CanvasArg } from '@posthog/rrweb-types'
+
 import { base64ArrayBuffer } from 'lib/utils'
-import { Replayer } from 'rrweb'
 
 type GLVarMap = Map<string, any[]>
 type CanvasContexts = CanvasRenderingContext2D | WebGLRenderingContext | WebGL2RenderingContext
@@ -33,7 +34,7 @@ export const deserializeCanvasArg = (
             }
             if (arg.rr_type === 'ImageBitmap' && 'args' in arg) {
                 const args = await deserializeCanvasArg(imageMap, ctx, preload)(arg.args)
-                // eslint-disable-next-line prefer-spread
+                // oxlint-disable-next-line prefer-spread
                 return await createImageBitmap.apply(null, args)
             }
             if ('index' in arg) {

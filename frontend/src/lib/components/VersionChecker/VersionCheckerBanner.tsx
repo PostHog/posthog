@@ -1,10 +1,13 @@
 import { useValues } from 'kea'
+
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { versionCheckerLogic } from './versionCheckerLogic'
 
 export function VersionCheckerBanner(): JSX.Element | null {
-    const { versionWarning } = useValues(versionCheckerLogic)
+    const { currentTeamId } = useValues(teamLogic)
+    const { versionWarning } = useValues(versionCheckerLogic({ teamId: currentTeamId }))
     if (!versionWarning) {
         return null
     }
@@ -16,8 +19,8 @@ export function VersionCheckerBanner(): JSX.Element | null {
             type={versionWarning.level}
             dismissKey={dismissKey}
             action={{
-                children: 'Update now',
-                to: 'https://posthog.com/docs/libraries/js#option-2-install-via-npm',
+                children: 'View the changelog',
+                to: 'https://github.com/PostHog/posthog-js/blob/main/packages/browser/CHANGELOG.md',
                 targetBlank: true,
             }}
             className="mb-4"

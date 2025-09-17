@@ -1,20 +1,23 @@
 from datetime import datetime
-from typing import cast, Optional, Any
+from typing import Any, Optional, cast
+
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest
+
+from django.utils import timezone
 
 import dateutil.parser
-from django.utils import timezone
-from freezegun import freeze_time
 from rest_framework import status
 
-from ee.models.event_definition import EnterpriseEventDefinition
-from ee.models.license import License, LicenseManager
-from posthog.api.test.test_event_definition import capture_event, EventData
+from posthog.api.test.test_event_definition import EventData, capture_event
+from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
-from posthog.models import Tag, ActivityLog, Team, User
+from posthog.models import ActivityLog, Tag, Team, User
 from posthog.models.event_definition import EventDefinition
-from posthog.test.base import APIBaseTest
-from posthog.api.test.test_organization import create_organization
+
+from ee.models.event_definition import EnterpriseEventDefinition
+from ee.models.license import AvailableFeature, License, LicenseManager
 
 
 @freeze_time("2020-01-02")
@@ -189,7 +192,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
             {"official", "internal"},
         )
 
-        activity_log: Optional[ActivityLog] = ActivityLog.objects.first()
+        activity_log: Optional[ActivityLog] = ActivityLog.objects.filter(scope="EventDefinition").first()
         assert activity_log is not None
         self.assertEqual(activity_log.scope, "EventDefinition")
         self.assertEqual(activity_log.activity, "changed")
@@ -367,6 +370,47 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         )
 
         self.assertListEqual(sorted(response.json()["tags"]), ["a", "b"])
+
+    def test_exclude_hidden_events(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2500, 1, 19, 3, 14, 7)
+        )
+        # Create some events with hidden flag
+        EnterpriseEventDefinition.objects.create(team=self.demo_team, name="visible_event")
+        EnterpriseEventDefinition.objects.create(team=self.demo_team, name="hidden_event1", hidden=True)
+        EnterpriseEventDefinition.objects.create(team=self.demo_team, name="hidden_event2", hidden=True)
+
+        # Test without enterprise taxonomy - hidden events should still be shown even with exclude_hidden=true
+        self.organization.available_features = []
+        self.organization.save()
+
+        response = self.client.get(f"/api/projects/{self.demo_team.pk}/event_definitions/?exclude_hidden=true")
+        assert response.status_code == status.HTTP_200_OK
+        event_names = {p["name"] for p in response.json()["results"]}
+        assert "visible_event" in event_names
+        assert "hidden_event1" in event_names
+        assert "hidden_event2" in event_names
+
+        # Test with enterprise taxonomy enabled - hidden events should be excluded when exclude_hidden=true
+        self.demo_team.organization.available_product_features = [
+            {"key": AvailableFeature.INGESTION_TAXONOMY, "name": "ingestion-taxonomy"}
+        ]
+        self.demo_team.organization.save()
+
+        response = self.client.get(f"/api/projects/{self.demo_team.pk}/event_definitions/?exclude_hidden=true")
+        assert response.status_code == status.HTTP_200_OK
+        event_names = {p["name"] for p in response.json()["results"]}
+        assert "visible_event" in event_names
+        assert "hidden_event1" not in event_names
+        assert "hidden_event2" not in event_names
+
+        # Test with exclude_hidden=false (should be same as not setting it)
+        response = self.client.get(f"/api/projects/{self.demo_team.pk}/event_definitions/?exclude_hidden=false")
+        assert response.status_code == status.HTTP_200_OK
+        event_names = {p["name"] for p in response.json()["results"]}
+        assert "visible_event" in event_names
+        assert "hidden_event1" in event_names
+        assert "hidden_event2" in event_names
 
     def test_event_type_event(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(

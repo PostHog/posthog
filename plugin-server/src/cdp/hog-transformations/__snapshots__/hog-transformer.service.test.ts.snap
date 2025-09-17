@@ -1,0 +1,104 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`HogTransformer transformEvent should execute multiple transformations and produce messages 1`] = `
+[
+  {
+    "headers": undefined,
+    "key": "<REPLACED-UUID-0>",
+    "topic": "log_entries_test",
+    "value": {
+      "instance_id": "<REPLACED-UUID-0>",
+      "level": "info",
+      "log_source": "hog_function",
+      "log_source_id": "<REPLACED-UUID-1>",
+      "message": "geoip location data for ip: [REPLACED]",
+      "team_id": 2,
+      "timestamp": "2025-01-01 00:00:00.000",
+    },
+  },
+  {
+    "headers": undefined,
+    "key": "<REPLACED-UUID-0>",
+    "topic": "log_entries_test",
+    "value": {
+      "instance_id": "<REPLACED-UUID-0>",
+      "level": "debug",
+      "log_source": "hog_function",
+      "log_source_id": "<REPLACED-UUID-1>",
+      "message": "Function completed in [REPLACED]",
+      "team_id": 2,
+      "timestamp": "2025-01-01 00:00:00.001",
+    },
+  },
+  {
+    "headers": undefined,
+    "key": "<REPLACED-UUID-1>",
+    "topic": "clickhouse_app_metrics2_test",
+    "value": {
+      "app_source": "hog_function",
+      "app_source_id": "<REPLACED-UUID-1>",
+      "count": 1,
+      "metric_kind": "success",
+      "metric_name": "succeeded",
+      "team_id": 2,
+      "timestamp": "2025-01-01 00:00:00.000",
+    },
+  },
+  {
+    "headers": undefined,
+    "key": "<REPLACED-UUID-2>",
+    "topic": "log_entries_test",
+    "value": {
+      "instance_id": "<REPLACED-UUID-2>",
+      "level": "debug",
+      "log_source": "hog_function",
+      "log_source_id": "<REPLACED-UUID-3>",
+      "message": "Function completed in [REPLACED]",
+      "team_id": 2,
+      "timestamp": "2025-01-01 00:00:00.000",
+    },
+  },
+  {
+    "headers": undefined,
+    "key": "<REPLACED-UUID-3>",
+    "topic": "clickhouse_app_metrics2_test",
+    "value": {
+      "app_source": "hog_function",
+      "app_source_id": "<REPLACED-UUID-3>",
+      "count": 1,
+      "metric_kind": "success",
+      "metric_name": "succeeded",
+      "team_id": 2,
+      "timestamp": "2025-01-01 00:00:00.000",
+    },
+  },
+  {
+    "headers": undefined,
+    "key": "<REPLACED-UUID-4>",
+    "topic": "log_entries_test",
+    "value": {
+      "instance_id": "<REPLACED-UUID-4>",
+      "level": "debug",
+      "log_source": "hog_function",
+      "log_source_id": "<REPLACED-UUID-5>",
+      "message": "Function completed in [REPLACED]",
+      "team_id": 2,
+      "timestamp": "2025-01-01 00:00:00.000",
+    },
+  },
+  {
+    "headers": undefined,
+    "key": "<REPLACED-UUID-5>",
+    "topic": "clickhouse_app_metrics2_test",
+    "value": {
+      "app_source": "hog_function",
+      "app_source_id": "<REPLACED-UUID-5>",
+      "count": 1,
+      "metric_kind": "success",
+      "metric_name": "succeeded",
+      "team_id": 2,
+      "timestamp": "2025-01-01 00:00:00.000",
+    },
+  },
+]
+`;

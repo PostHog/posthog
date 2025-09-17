@@ -1,0 +1,20 @@
+[package]
+name = "posthog-symbol-data"
+version = "0.2.0"
+authors = [
+    "David <david@posthog.com>",
+    "Olly <oliver@posthog.com>",
+    "Hugues <hugues@posthog.com>",
+]
+description = "A shared library for serialising/deserialising PostHog symbol data"
+edition = "2021"
+license = "MIT"
+homepage = "https://posthog.com"
+
+
+[lints]
+workspace = true
+
+[dependencies]
+thiserror = { workspace = true }
+serde = { workspace = true }

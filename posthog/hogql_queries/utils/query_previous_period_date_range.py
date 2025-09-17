@@ -1,13 +1,11 @@
 from datetime import datetime
 from typing import Optional
 
+from posthog.schema import DateRange, IntervalType
+
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team import Team
-from posthog.schema import InsightDateRange, IntervalType
-from posthog.utils import (
-    get_compare_period_dates,
-    relative_date_parse_with_delta_mapping,
-)
+from posthog.utils import get_compare_period_dates, relative_date_parse_with_delta_mapping
 
 
 # Originally similar to posthog/queries/query_date_range.py but rewritten to be used in HogQL queries
@@ -15,18 +13,19 @@ class QueryPreviousPeriodDateRange(QueryDateRange):
     """Translation of the raw `date_from` and `date_to` filter values to datetimes."""
 
     _team: Team
-    _date_range: Optional[InsightDateRange]
+    _date_range: Optional[DateRange]
     _interval: Optional[IntervalType]
     _now_without_timezone: datetime
 
     def __init__(
         self,
-        date_range: Optional[InsightDateRange],
+        date_range: Optional[DateRange],
         team: Team,
         interval: Optional[IntervalType],
         now: datetime,
+        **kwargs,
     ) -> None:
-        super().__init__(date_range, team, interval, now)
+        super().__init__(date_range, team, interval, now, **kwargs)
 
     def date_from_delta_mappings(self) -> dict[str, int] | None:
         if self._date_range and isinstance(self._date_range.date_from, str) and self._date_range.date_from != "all":

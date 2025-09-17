@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { summarizeInsightQuery } from 'scenes/insights/summarizeInsight'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
@@ -30,7 +31,7 @@ export function BackToSource(): JSX.Element | null {
         <LemonButton
             tooltip={summary}
             type="secondary"
-            onClick={() => router.actions.push(urls.insightNew(undefined, undefined, backToSourceQuery))}
+            onClick={() => router.actions.push(urls.insightNew({ query: backToSourceQuery }))}
         >
             &laquo; Back to {backToSourceQuery.source.kind?.replace('Query', '') ?? 'Insight'}
         </LemonButton>

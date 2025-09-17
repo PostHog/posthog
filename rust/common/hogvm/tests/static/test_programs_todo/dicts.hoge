@@ -1,0 +1,6 @@
+["_H", 1, 42, 0, 2, "print", 1, 35, 32, "key", 32, "value", 42, 1, 2, "print", 1, 35, 32, "key", 32, "value", 32,
+"other", 32, "thing", 42, 2, 2, "print", 1, 35, 32, "key", 32, "otherKey", 32, "value", 42, 1, 42, 1, 2, "print", 1, 35,
+32, "kk", 36, 0, 32, "value", 42, 1, 2, "print", 1, 35, 32, "key", 32, "value", 42, 1, 32, "key", 45, 2, "print", 1, 35,
+32, "key", 32, "value", 42, 1, 32, "key", 45, 2, "print", 1, 35, 32, "key", 32, "otherKey", 32, "value", 42, 1, 42, 1,
+32, "key", 45, 32, "otherKey", 45, 2, "print", 1, 35, 32, "key", 32, "otherKey", 32, "value", 42, 1, 42, 1, 32, "key",
+45, 32, "otherKey", 45, 2, "print", 1, 35, 35]

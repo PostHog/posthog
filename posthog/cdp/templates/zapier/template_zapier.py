@@ -1,14 +1,29 @@
-from posthog.cdp.templates.hog_function_template import HogFunctionTemplate
+from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
-
-template: HogFunctionTemplate = HogFunctionTemplate(
-    status="free",
+template: HogFunctionTemplateDC = HogFunctionTemplateDC(
+    status="stable",
+    free=True,
+    type="destination",
     id="template-zapier",
     name="Zapier",
-    description="Sends a webhook templated by the incoming event data",
+    description="Trigger Zaps in Zapier based on PostHog events. NOTE: Typically this is created from within Zapier using the PostHog app there.",
     icon_url="/static/services/zapier.png",
-    hog="""
-let res := fetch(f'https://hooks.zapier.com/{inputs.hook}', {
+    category=["Custom"],
+    code_language="hog",
+    code="""
+let hook_path := inputs.hook;
+let prefix := 'https://hooks.zapier.com/';
+// Remove the prefix if it exists
+if (position(hook_path, prefix) == 1) {
+  hook_path := replaceOne(hook_path, prefix, '');
+}
+
+// Remove leading slash if present to avoid double slashes
+if (position(hook_path, '/') == 1) {
+  hook_path := replaceOne(hook_path, '/', '');
+}
+
+let res := fetch(f'https://hooks.zapier.com/{hook_path}', {
   'method': 'POST',
   'body': inputs.body
 });
@@ -23,9 +38,10 @@ if (inputs.debug) {
             "key": "hook",
             "type": "string",
             "label": "Zapier hook path",
-            "description": "The path of the Zapier webhook. You can create your own or use our native Zapier integration https://zapier.com/apps/posthog/integrations",
+            "description": "Your Zapier webhook URL or just the path. You can create your own or use our native Zapier integration https://zapier.com/apps/posthog/integrations",
             "secret": False,
             "required": True,
+            "hidden": False,
         },
         {
             "key": "body",
@@ -35,20 +51,22 @@ if (inputs.debug) {
                 "hook": {
                     "id": "{source.url}",
                     "event": "{event}",
-                    "target": "https://hooks.zapier.com/{inputs.hook}",
+                    "target": "https://hooks.zapier.com",
                 },
                 "data": {
                     "eventUuid": "{event.uuid}",
-                    "event": "{event.name}",
+                    "event": "{event.event}",
                     "teamId": "{project.id}",
                     "distinctId": "{event.distinct_id}",
                     "properties": "{event.properties}",
+                    "elementsChain": "{event.elementsChain}",
                     "timestamp": "{event.timestamp}",
-                    "person": {"uuid": "{person.uuid}", "properties": "{person.properties}"},
+                    "person": {"uuid": "{person.id}", "properties": "{person.properties}"},
                 },
             },
             "secret": False,
             "required": False,
+            "hidden": False,
         },
         {
             "key": "debug",
@@ -58,6 +76,7 @@ if (inputs.debug) {
             "secret": False,
             "required": False,
             "default": False,
+            "hidden": False,
         },
     ],
 )

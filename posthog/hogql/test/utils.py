@@ -1,12 +1,27 @@
-import dataclasses
-import json
 import re
+import json
+import dataclasses
 from typing import Any
+
+from posthog.test.base import clean_varying_query_parts
 
 from pydantic import BaseModel
 
+from posthog.schema import HogQLQueryModifiers
 
-def pretty_print_in_tests(query: str, team_id: int) -> str:
+from posthog.hogql.query import execute_hogql_query
+
+
+def execute_hogql_query_with_timings(*args, **kwargs):
+    modifiers = kwargs.get("modifiers") or HogQLQueryModifiers()
+    modifiers.timings = True
+    kwargs["modifiers"] = modifiers
+    return execute_hogql_query(*args, **kwargs)
+
+
+def pretty_print_in_tests(query: str | None, team_id: int) -> str:
+    if query is None:
+        return ""
     query = (
         query.replace("SELECT", "\nSELECT")
         .replace("FROM", "\nFROM")
@@ -27,7 +42,7 @@ def pretty_print_response_in_tests(response: Any, team_id: int) -> str:
     clickhouse = response.clickhouse
     hogql = response.hogql
     query = "-- ClickHouse\n" + clickhouse + "\n\n-- HogQL\n" + hogql
-    return pretty_print_in_tests(query, team_id)
+    return clean_varying_query_parts(pretty_print_in_tests(query, team_id), False)
 
 
 def pretty_dataclasses(obj, seen=None, indent=0):

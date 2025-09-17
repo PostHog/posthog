@@ -1,10 +1,11 @@
-import '@testing-library/jest-dom'
-
-import { render } from '@testing-library/react'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
+
+import '@testing-library/jest-dom'
+import { render } from '@testing-library/react'
+
 import { makeTestSetup } from 'lib/components/ActivityLog/activityLogLogic.test.setup'
 
-import { BreakdownFilter } from '~/queries/schema'
+import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { ActivityScope } from '~/types'
 
 jest.mock('lib/colors')
@@ -13,7 +14,7 @@ describe('the activity log logic', () => {
     describe('humanizing insights', () => {
         const insightTestSetup = makeTestSetup(
             ActivityScope.INSIGHT,
-            `/api/projects/${MOCK_TEAM_ID}/insights/activity/`
+            `/api/environments/${MOCK_TEAM_ID}/insights/activity/`
         )
 
         it('can handle change of name', async () => {
@@ -134,6 +135,7 @@ describe('the activity log logic', () => {
                                 {
                                     type: 'cohort',
                                     key: 'id',
+                                    operator: 'in',
                                     value: 2,
                                 },
                             ],
@@ -158,7 +160,7 @@ describe('the activity log logic', () => {
 
             let renderedExtendedDescription = render(<>{actual[0].extendedDescription}</>).container
             expect(renderedExtendedDescription).toHaveTextContent(
-                "Query summaryAShowing \"Views\"Pageviewcounted by total countwhere event'sBrowser= equals Chromeand person belongs to cohortID 2FiltersEvent'sCurrent URL= equals https://hedgebox.net/files/or event'sCountry Code= equals US or AUBreakdown byCountry Code"
+                "Query summaryAShowing \"Views\"Pageviewcounted by total countwhere event'sBrowser= equals Chromeand person belongs to cohortUser in ID 2FiltersEvent'sCurrent URL= equals https://hedgebox.net/files/or event'sCountry code= equals US or AUBreakdown byCountry code"
             )
             ;(insightMock.after.breakdownFilter as BreakdownFilter) = {
                 breakdowns: [
@@ -181,7 +183,7 @@ describe('the activity log logic', () => {
 
             renderedExtendedDescription = render(<>{actual[0].extendedDescription}</>).container
             expect(renderedExtendedDescription).toHaveTextContent(
-                "Query summaryAShowing \"Views\"Pageviewcounted by total countwhere event'sBrowser= equals Chromeand person belongs to cohortID 2FiltersEvent'sCurrent URL= equals https://hedgebox.net/files/or event'sCountry Code= equals US or AUBreakdown byCountry CodeSession duration"
+                "Query summaryAShowing \"Views\"Pageviewcounted by total countwhere event'sBrowser= equals Chromeand person belongs to cohortUser in ID 2FiltersEvent'sCurrent URL= equals https://hedgebox.net/files/or event'sCountry code= equals US or AUBreakdown byCountry codeSession duration"
             )
         })
 

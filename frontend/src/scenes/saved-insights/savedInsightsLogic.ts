@@ -1,11 +1,16 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
+
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { AlertType } from 'lib/components/Alerts/types'
 import { dayjs } from 'lib/dayjs'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
@@ -15,6 +20,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
@@ -25,11 +31,7 @@ import type { savedInsightsLogicType } from './savedInsightsLogicType'
 
 export const INSIGHTS_PER_PAGE = 30
 
-export interface InsightsResult {
-    results: QueryBasedInsightModel[]
-    count: number
-    previous?: string
-    next?: string
+export interface InsightsResult extends CountedPaginatedResponse<QueryBasedInsightModel> {
     /* not in the API response */
     filters?: SavedInsightFilters | null
     /* not in the API response */
@@ -47,9 +49,10 @@ export interface SavedInsightFilters {
     dateTo: string | dayjs.Dayjs | undefined | null
     page: number
     dashboardId: number | undefined | null
+    events: string[] | undefined | null
 }
 
-function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
+export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
     return {
         layoutView: values.layoutView || LayoutView.List,
         order: values.order || '-last_modified_at', // Sync with `sorting` selector
@@ -61,13 +64,15 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
         dateTo: values.dateTo || undefined,
         page: parseInt(String(values.page)) || 1,
         dashboardId: values.dashboardId,
+        events: values.events,
     }
 }
 
 export const savedInsightsLogic = kea<savedInsightsLogicType>([
     path(['scenes', 'saved-insights', 'savedInsightsLogic']),
+    tabAwareScene(),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], sceneLogic, ['activeScene']],
+        values: [teamLogic, ['currentTeamId'], sceneLogic, ['activeSceneId']],
         logic: [eventUsageLogic],
     })),
     actions({
@@ -85,6 +90,9 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
         loadInsights: (debounce: boolean = true) => ({ debounce }),
         updateInsight: (insight: QueryBasedInsightModel) => ({ insight }),
         addInsight: (insight: QueryBasedInsightModel) => ({ insight }),
+        openAlertModal: (alertId: AlertType['id']) => ({ alertId }),
+        closeAlertModal: true,
+        setDashboardUpdateLoading: (insightId: number, loading: boolean) => ({ insightId, loading }),
     }),
     loaders(({ values }) => ({
         insights: {
@@ -101,7 +109,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 }
 
                 const legacyResponse: CountedPaginatedResponse<InsightModel> = await api.get(
-                    `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
+                    `api/environments/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
                 )
                 const response = {
                     ...legacyResponse,
@@ -118,14 +126,14 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                             filters,
                             offset: params.offset,
                         } as CountedPaginatedResponse<QueryBasedInsightModel> & { offset: number }
-                    } catch (e) {
+                    } catch {
                         // no insight with this ID found, discard
                     }
                 }
 
                 // scroll to top if the page changed, except if changed via back/forward
                 if (
-                    sceneLogic.findMounted()?.values.activeScene === Scene.SavedInsights &&
+                    sceneLogic.findMounted()?.values.activeSceneId === Scene.SavedInsights &&
                     router.values.lastMethod !== 'POP' &&
                     values.insights.filters?.page !== filters.page
                 ) {
@@ -171,6 +179,21 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                         // Reset page on filter change EXCEPT if it's page or view that's being updated
                         ...('page' in filters || 'layoutView' in filters ? {} : { page: 1 }),
                     }),
+            },
+        ],
+        alertModalId: [
+            null as AlertType['id'] | null,
+            {
+                openAlertModal: (_, { alertId }) => alertId,
+                closeAlertModal: () => null,
+            },
+        ],
+        dashboardUpdatesInProgress: [
+            {} as Record<number, boolean>,
+            {
+                setDashboardUpdateLoading: (state, { insightId, loading }) => {
+                    return { ...state, [insightId]: loading }
+                },
             },
         ],
     }),
@@ -234,6 +257,14 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     pageSize: INSIGHTS_PER_PAGE,
                     currentPage: filters.page,
                     entryCount: count,
+                }
+            },
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            () => [],
+            (): SidePanelSceneContext => {
+                return {
+                    discussions_disabled: true,
                 }
             },
         ],
@@ -306,7 +337,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             }
         },
     })),
-    actionToUrl(({ values }) => {
+    tabAwareActionToUrl(({ values }) => {
         const changeUrl = ():
             | [
                   string,
@@ -314,11 +345,11 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                   Record<string, any>,
                   {
                       replace: boolean
-                  }
+                  },
               ]
             | void => {
             const currentScene = sceneLogic.findMounted()?.values
-            if (currentScene?.activeScene === Scene.SavedInsights) {
+            if (currentScene?.activeSceneId === Scene.SavedInsights) {
                 const nextValues = cleanFilters(values.filters)
                 const urlValues = cleanFilters(router.values.searchParams)
                 if (!objectsEqual(nextValues, urlValues)) {
@@ -336,8 +367,18 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             setLayoutView: changeUrl,
         }
     }),
-    urlToAction(({ actions, values }) => ({
-        [urls.savedInsights()]: async (_, searchParams, hashParams) => {
+    tabAwareUrlToAction(({ actions, values }) => ({
+        [urls.savedInsights()]: async (
+            _,
+            { alert_id, ...searchParams }, // search params,
+            hashParams
+        ) => {
+            if (alert_id) {
+                actions.openAlertModal(alert_id)
+            } else {
+                actions.closeAlertModal()
+            }
+
             if (hashParams.fromItem && String(hashParams.fromItem).match(/^[0-9]+$/)) {
                 // `fromItem` for legacy /insights url redirect support
                 const insightNumericId = parseInt(hashParams.fromItem)
@@ -349,7 +390,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                     router.actions.replace(
                         hashParams.edit ? urls.insightEdit(insight.short_id) : urls.insightView(insight.short_id)
                     )
-                } catch (e) {
+                } catch {
                     lemonToast.error(`Insight ID ${insightNumericId} couldn't be retrieved`)
                     router.actions.push(urls.savedInsights())
                 }

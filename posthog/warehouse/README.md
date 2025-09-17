@@ -13,3 +13,17 @@ Without this, you'll get the following error when connecting a SQL database to d
 ```
 symbol not found in flat namespace '_bcp_batch'
 ```
+
+If the issue persists, install from source without cache again
+
+```
+pip install --pre --no-binary :all: pymssql --no-cache
+```
+
+See https://github.com/pymssql/pymssql/issues/769 for a full set of debugging opportunities.
+
+For Apple Silicon machines running into the error consistently, the following command may resolve it.
+
+```bash
+uv add git+https://github.com/pymssql/pymssql@master
+```

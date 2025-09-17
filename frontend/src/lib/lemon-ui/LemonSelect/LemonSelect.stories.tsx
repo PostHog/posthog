@@ -1,5 +1,8 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
+
 import { capitalizeFirstLetter } from 'lib/utils'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from './LemonSelect'
 
@@ -57,13 +60,13 @@ SectionedOptions.args = {
             title: (
                 <div>
                     <h5>I am a Custom label!</h5>
-                    <div className="text-muted mx-2 mb-2">I can put whatever I want here</div>
+                    <div className="text-secondary mx-2 mb-2">I can put whatever I want here</div>
                 </div>
             ),
             options: [{ value: 'tomato', label: 'Tomato??', disabled: true }],
             footer: (
-                <div className="bg-bg-3000 rounded p-2">
-                    <p className="text-muted max-w-60">
+                <div className="bg-primary rounded p-2">
+                    <p className="text-secondary max-w-60">
                         I am a custom footer! <br />
                         This might be a good time to tell you about our premium features...
                     </p>
@@ -132,6 +135,37 @@ export const FullWidth: StoryFn<typeof LemonSelect> = (props: LemonSelectProps<a
     return (
         <div className="items-center w-full border p-4 gap-2">
             <LemonSelect {...props} fullWidth={true} allowClear={true} value="poodle" />
+        </div>
+    )
+}
+
+export const WithAccessControl = (): JSX.Element => {
+    const options = [
+        { value: 'husky', label: 'Husky' },
+        { value: 'poodle', label: 'Poodle' },
+        { value: 'labrador', label: 'Labrador' },
+    ] as LemonSelectOptions<string>
+
+    return (
+        <div className="flex gap-4 items-center">
+            <LemonSelect
+                options={options}
+                placeholder="Enabled (editor ≥ viewer)"
+                accessControl={{
+                    resourceType: AccessControlResourceType.Dashboard,
+                    minAccessLevel: AccessControlLevel.Viewer,
+                    userAccessLevel: AccessControlLevel.Editor,
+                }}
+            />
+            <LemonSelect
+                options={options}
+                placeholder="Disabled (viewer < editor)"
+                accessControl={{
+                    resourceType: AccessControlResourceType.Dashboard,
+                    minAccessLevel: AccessControlLevel.Editor,
+                    userAccessLevel: AccessControlLevel.Viewer,
+                }}
+            />
         </div>
     )
 }

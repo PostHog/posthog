@@ -1,17 +1,17 @@
-import { Tooltip } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
-import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { identifierToHuman, objectsEqual, stripHTTP } from 'lib/utils'
-import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { projectLogic } from 'scenes/projectLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { OrganizationSwitcherOverlay } from '~/layout/navigation/OrganizationSwitcher'
-import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
-import { Breadcrumb } from '~/types'
+import { Breadcrumb, ProjectTreeRef } from '~/types'
 
 import type { breadcrumbsLogicType } from './breadcrumbsLogicType'
 
@@ -27,13 +27,17 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
             preflightLogic,
             ['preflight'],
             sceneLogic,
-            ['sceneConfig', 'activeScene'],
+            ['sceneConfig', 'activeSceneId', 'activeTabId'],
             userLogic,
             ['user', 'otherOrganizations'],
             organizationLogic,
             ['currentOrganization'],
+            projectLogic,
+            ['currentProject'],
             teamLogic,
             ['currentTeam'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     })),
     actions({
@@ -73,16 +77,24 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                 // this every time it's rendered. Caching will happen within the scene's breadcrumb selector.
                 (state, props): Breadcrumb[] => {
                     const activeSceneLogic = sceneLogic.selectors.activeSceneLogic(state, props)
-                    const activeScene = s.activeScene(state, props)
+                    const activeSceneId = s.activeSceneId(state, props)
+                    const activeTabId = s.activeTabId(state, props)
+
                     if (activeSceneLogic && 'breadcrumbs' in activeSceneLogic.selectors) {
-                        const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, props)
-                        return activeSceneLogic.selectors.breadcrumbs(
-                            state,
-                            activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props
-                        )
-                    } else if (activeScene) {
+                        try {
+                            const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, props)
+                            return activeSceneLogic.selectors.breadcrumbs(state, {
+                                ...(activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props),
+                                tabId: activeTabId,
+                            })
+                        } catch {
+                            // If the breadcrumb selector fails, we'll just ignore it and return an empty array below
+                        }
+                    }
+
+                    if (activeSceneId) {
                         const sceneConfig = s.sceneConfig(state, props)
-                        return [{ name: sceneConfig?.name ?? identifierToHuman(activeScene), key: activeScene }]
+                        return [{ name: sceneConfig?.name ?? identifierToHuman(activeSceneId), key: activeSceneId }]
                     }
                     return []
                 },
@@ -90,11 +102,42 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
             (crumbs): Breadcrumb[] => crumbs,
             { equalityCheck: objectsEqual },
         ],
+        projectTreeRef: [
+            (s) => [
+                // Similar logic to the breadcrumbs above. This is used to find the object in the project tree.
+                (state, props): ProjectTreeRef | null => {
+                    const activeSceneLogic = sceneLogic.selectors.activeSceneLogic(state, props)
+                    const activeTabId = s.activeTabId(state, props)
+                    if (activeSceneLogic && 'projectTreeRef' in activeSceneLogic.selectors) {
+                        try {
+                            const activeLoadedScene = sceneLogic.selectors.activeLoadedScene(state, props)
+                            return activeSceneLogic.selectors.projectTreeRef(state, {
+                                ...(activeLoadedScene?.paramsToProps?.(activeLoadedScene?.sceneParams) || props),
+                                tabId: activeTabId,
+                            })
+                        } catch {
+                            // If the breadcrumb selector fails, we'll just ignore it and return null below
+                        }
+                    }
+                    return null
+                },
+            ],
+            (ref: ProjectTreeRef | null): ProjectTreeRef | null => ref,
+            { equalityCheck: objectsEqual },
+        ],
         appBreadcrumbs: [
-            (s) => [s.preflight, s.sceneConfig, s.activeScene, s.user, s.currentOrganization, s.currentTeam],
-            (preflight, sceneConfig, activeScene, user, currentOrganization, currentTeam) => {
+            (s) => [
+                s.preflight,
+                s.sceneConfig,
+                s.activeSceneId,
+                s.user,
+                s.currentProject,
+                s.currentTeam,
+                s.featureFlags,
+            ],
+            (preflight, sceneConfig, activeSceneId, user, currentProject, currentTeam, featureFlags) => {
                 const breadcrumbs: Breadcrumb[] = []
-                if (!activeScene || !sceneConfig) {
+                if (!activeSceneId || !sceneConfig) {
                     return breadcrumbs
                 }
                 // User
@@ -117,39 +160,16 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                         name: stripHTTP(preflight.site_url),
                     })
                 }
-                // Organization
-                if (sceneConfig.organizationBased || sceneConfig.projectBased) {
-                    if (!currentOrganization) {
-                        return breadcrumbs
-                    }
-                    breadcrumbs.push({
-                        key: 'organization',
-                        symbol: (
-                            <Tooltip title={currentOrganization.name} placement="left">
-                                <UploadedLogo
-                                    name={currentOrganization.name}
-                                    entityId={currentOrganization.id}
-                                    mediaId={currentOrganization.logo_media_id}
-                                    size="xsmall"
-                                />
-                            </Tooltip>
-                        ),
-                        popover: {
-                            overlay: <OrganizationSwitcherOverlay />,
-                        },
-                    })
-                }
                 // Project
                 if (sceneConfig.projectBased) {
-                    if (!currentTeam) {
+                    if (!currentProject || !currentTeam) {
                         return breadcrumbs
                     }
                     breadcrumbs.push({
                         key: 'project',
-                        name: currentTeam.name,
-                        popover: {
-                            overlay: <ProjectSwitcherOverlay />,
-                        },
+                        name: featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? currentProject.name : currentTeam.name,
+                        tag: featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? currentTeam.name : null,
+                        isPopoverProject: true,
                     })
                 }
 
@@ -178,13 +198,21 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                 return tailBreadcrumbs
             },
         ],
+        sceneBreadcrumbsDisplayString: [
+            (s) => [s.sceneBreadcrumbs],
+            (sceneBreadcrumbs): string =>
+                sceneBreadcrumbs
+                    .filter((breadcrumb) => !!breadcrumb.name)
+                    .map((breadcrumb) => breadcrumb.name)
+                    .join(' / '),
+        ],
         documentTitle: [
             (s) => [s.sceneBreadcrumbs, s.preflight],
             (sceneBreadcrumbs, preflight): string =>
                 [
                     ...sceneBreadcrumbs
                         .filter((breadcrumb) => !!breadcrumb.name)
-                        .map((breadcrumb) => breadcrumb.name as string)
+                        .map((breadcrumb) => breadcrumb.name)
                         .reverse(),
                     preflight?.demo ? 'PostHog Demo' : 'PostHog',
                 ].join(' • '),

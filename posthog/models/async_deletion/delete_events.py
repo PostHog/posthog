@@ -1,12 +1,12 @@
 from typing import Any
 
+from clickhouse_driver.errors import SocketTimeoutError
 from prometheus_client import Counter
 
-from posthog.client import sync_execute
+from posthog.clickhouse.client import sync_execute
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.async_deletion.delete import AsyncDeletionProcess, logger
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
-
 
 logger.setLevel("DEBUG")
 
@@ -69,11 +69,18 @@ class AsyncEventDeletion(AsyncDeletionProcess):
             # If the query size is greater than the max predicate size, execute the query and reset the query predicate
             if query_size > MAX_QUERY_SIZE:
                 logger.debug(f"Executing query with args: {args}")
-                sync_execute(
-                    query,
-                    args,
-                    settings={},
-                )
+                try:
+                    sync_execute(
+                        query,
+                        args,
+                        settings={},
+                    )
+                except SocketTimeoutError:
+                    # This is unfortunately needed because currently all lightweight deletes are executed sync
+                    logger.warning(
+                        "ClickHouse query timed out during async deletion. This is expected. Continuing with next batch.",
+                        exc_info=True,
+                    )
 
                 conditions, args = [], {}
 

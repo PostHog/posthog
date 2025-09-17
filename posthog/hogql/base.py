@@ -1,7 +1,6 @@
 import re
 from dataclasses import dataclass, field
-
-from typing import TYPE_CHECKING, Literal, Optional
+from typing import TYPE_CHECKING, Literal, Optional, TypeVar
 
 from posthog.hogql.constants import ConstantDataType
 from posthog.hogql.errors import NotImplementedError
@@ -23,7 +22,13 @@ class AST:
         name = camel_case_pattern.sub("_", self.__class__.__name__).lower()
 
         # NOTE: Sync with ./test/test_visitor.py#test_hogql_visitor_naming_exceptions
-        replacements = {"hog_qlxtag": "hogqlx_tag", "hog_qlxattribute": "hogqlx_attribute", "uuidtype": "uuid_type"}
+        replacements = {
+            "hog_qlxtag": "hogqlx_tag",
+            "hog_qlxattribute": "hogqlx_attribute",
+            "uuidtype": "uuid_type",
+            "string_jsontype": "string_json_type",
+        }
+
         for old, new in replacements.items():
             name = name.replace(old, new)
         method_name = f"visit_{name}"
@@ -33,6 +38,24 @@ class AST:
         if hasattr(visitor, "visit_unknown"):
             return visitor.visit_unknown(self)
         raise NotImplementedError(f"{visitor.__class__.__name__} has no method {method_name}")
+
+    def to_hogql(self):
+        from posthog.hogql.context import HogQLContext
+        from posthog.hogql.printer import print_prepared_ast
+
+        return print_prepared_ast(
+            node=self,
+            context=HogQLContext(enable_select_queries=True, limit_top_select=False),
+            dialect="hogql",
+        )
+
+    def __str__(self):
+        if isinstance(self, Type):
+            return super().__str__()
+        return f"sql({self.to_hogql()})"
+
+
+_T_AST = TypeVar("_T_AST", bound=AST)
 
 
 @dataclass(kw_only=True)

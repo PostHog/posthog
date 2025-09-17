@@ -1,13 +1,14 @@
-import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { dayjs } from 'lib/dayjs'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
-import { IconChevronLeft } from 'lib/lemon-ui/icons'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -16,18 +17,19 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { membersLogic } from 'scenes/organization/membersLogic'
+import { IconChevronLeft } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 
 import { subscriptionLogic } from '../subscriptionLogic'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import {
+    SubscriptionBaseProps,
     bysetposOptions,
     frequencyOptionsPlural,
     frequencyOptionsSingular,
     intervalOptions,
     monthlyWeekdayOptions,
-    SubscriptionBaseProps,
     targetTypeOptions,
     timeOptions,
     weekdayOptions,
@@ -94,10 +96,10 @@ export function EditSubscription({
                 </div>
             </LemonModal.Header>
 
-            <LemonModal.Content className="space-y-2">
+            <LemonModal.Content className="deprecated-space-y-2">
                 {!subscription ? (
                     subscriptionLoading ? (
-                        <div className="space-y-4">
+                        <div className="deprecated-space-y-4">
                             <LemonSkeleton className="w-1/2 h-4" />
                             <LemonSkeleton.Row />
                             <LemonSkeleton className="w-1/2 h-4" />
@@ -240,7 +242,8 @@ export function EditSubscription({
                                                     <Link to="https://posthog.com/docs/webhooks/slack" target="_blank">
                                                         added the PostHog Slack App
                                                     </Link>{' '}
-                                                    to them
+                                                    to them. You can also paste the channel ID (e.g.{' '}
+                                                    <code>C1234567890</code>) to search for channels.
                                                 </>
                                             }
                                         >
@@ -262,7 +265,7 @@ export function EditSubscription({
                                 <LemonField name="target_value" label="Webhook URL">
                                     <LemonInput placeholder="https://example.com/webhooks/1234" />
                                 </LemonField>
-                                <div className="text-xs text-muted mt-2">
+                                <div className="text-xs text-secondary mt-2">
                                     Webhooks will be called with a HTTP POST request. The webhook endpoint should
                                     respond with a healthy HTTP code (2xx).
                                 </div>
@@ -272,7 +275,7 @@ export function EditSubscription({
                         <div>
                             <div className="flex items-baseline justify-between w-full">
                                 <LemonLabel className="mb-2">Recurrence</LemonLabel>
-                                <div className="text-xs text-muted text-right">{currentTimezone}</div>
+                                <div className="text-xs text-secondary text-right">{currentTimezone}</div>
                             </div>
                             <div className="flex gap-2 items-center rounded border p-2 flex-wrap">
                                 <span>Send every</span>

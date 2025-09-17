@@ -1,8 +1,9 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
-import { captureTimeToSeeData } from 'lib/internalMetrics'
+
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { InsightLogicProps } from '~/types'
 
@@ -24,6 +25,7 @@ export const insightDataTimingLogic = kea<insightDataTimingLogicType>([
             dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             ['loadData', 'loadDataSuccess', 'loadDataFailure', 'abortQuery as loadDataCancellation'],
         ],
+        logic: [eventUsageLogic],
     })),
     actions({
         startQuery: (queryId: string) => ({ queryId }),
@@ -52,7 +54,9 @@ export const insightDataTimingLogic = kea<insightDataTimingLogicType>([
             }
 
             const duration = performance.now() - values.queryStartTimes[payload.queryId]
-            void captureTimeToSeeData(values.currentTeamId, {
+
+            eventUsageLogic.actions.reportTimeToSeeData({
+                team_id: values.currentTeamId,
                 type: 'insight_load',
                 context: 'insight',
                 primary_interaction_id: payload.queryId,
@@ -60,7 +64,8 @@ export const insightDataTimingLogic = kea<insightDataTimingLogicType>([
                 status: 'success',
                 time_to_see_data_ms: Math.floor(duration),
                 insights_fetched: 1,
-                insights_fetched_cached: values.response?.is_cached ? 1 : 0,
+                insights_fetched_cached:
+                    values.response && 'is_cached' in values.response && values.response.is_cached ? 1 : 0,
                 // api_response_bytes: values.response?.apiResponseBytes, getResponseB
                 // api_url: values.response?.apiUrl,
                 insight: values.query.kind,
@@ -76,7 +81,8 @@ export const insightDataTimingLogic = kea<insightDataTimingLogicType>([
             }
 
             const duration = performance.now() - values.queryStartTimes[errorObject.queryId]
-            void captureTimeToSeeData(values.currentTeamId, {
+            eventUsageLogic.actions.reportTimeToSeeData({
+                team_id: values.currentTeamId,
                 type: 'insight_load',
                 context: 'insight',
                 primary_interaction_id: errorObject.queryId,
@@ -84,7 +90,8 @@ export const insightDataTimingLogic = kea<insightDataTimingLogicType>([
                 status: 'failure',
                 time_to_see_data_ms: Math.floor(duration),
                 insights_fetched: 1,
-                insights_fetched_cached: values.response?.is_cached ? 1 : 0,
+                insights_fetched_cached:
+                    values.response && 'is_cached' in values.response && values.response.is_cached ? 1 : 0,
                 // api_response_bytes: values.response?.apiResponseBytes, getResponseB
                 // api_url: values.response?.apiUrl,
                 insight: values.query.kind,
@@ -95,7 +102,8 @@ export const insightDataTimingLogic = kea<insightDataTimingLogicType>([
         },
         loadDataCancellation: (payload) => {
             const duration = performance.now() - values.queryStartTimes[payload.queryId]
-            void captureTimeToSeeData(values.currentTeamId, {
+            eventUsageLogic.actions.reportTimeToSeeData({
+                team_id: values.currentTeamId,
                 type: 'insight_load',
                 context: 'insight',
                 primary_interaction_id: payload.queryId,

@@ -1,7 +1,10 @@
-from enum import StrEnum
-from prometheus_client import Counter
-from sentry_sdk import set_tag
 from collections.abc import Callable
+from enum import StrEnum
+from functools import wraps
+
+from prometheus_client import Counter
+
+from posthog.clickhouse.query_tagging import tag_queries
 
 
 class Feature(StrEnum):
@@ -27,15 +30,16 @@ API_REQUESTS_ERROR_COUNTER = Counter(
 def monitor(*, feature: Feature | None, endpoint: str, method: str) -> Callable:
     """
     Decorator to increment the API requests counter
-    Sets sentry tags for the endpoint and method
+    Tags endpoints and methods with the feature name
     """
 
     def decorator(func: Callable) -> Callable:
+        @wraps(func)
         def wrapper(*args, **kwargs):
             API_REQUESTS_COUNTER.labels(endpoint=endpoint, method=method).inc()
 
             if feature:
-                set_tag("feature", feature.value)
+                tag_queries(feature=feature.value)
             try:
                 return func(*args, **kwargs)
             except Exception:

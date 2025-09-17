@@ -1,0 +1,33 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block heading %}A PostHog app has experienced a fatal error{% endblock %}
+{% block section %}
+<!-- prettier-ignore -->
+<p>
+    The destination <b>{{ hog_function.name }}</b> has been disabled in project <b>{{ team }}</b> due to too many errors occurring. 
+</p>
+<p>We've disabled the app for now. We recommend checking the logs, and re-enabling it when the issues have been addressed.</p>
+<div class="mb mt text-center">
+    <a class="button" href="{{ hog_function.url }}">Go to destination</a>
+</div>
+<p>
+    If the issue persists, please contact the PostHog team for help.
+</p>
+<div class="mt">
+    <p>
+        If the button above doesn't work, paste this link into your browser:<br />
+        <a href="{{ hog_function.url }}">{{ hog_function.url }}</a>
+    </p>
+</div>
+{% endblock %}
+
+{% block footer %}
+Need help?
+<a href="https://posthog.com/questions?{{ utm_tags }}"
+    target="_blank"><b>Visit support</b></a>
+or
+<a href="https://posthog.com/docs?{{ utm_tags }}"
+    target="_blank"><b>read our documentation</b></a>.<br /><br />
+
+<a href="{% absolute_uri '/settings/user-notifications' %}">Manage these notifications in PostHog</a>
+
+{% endblock %}

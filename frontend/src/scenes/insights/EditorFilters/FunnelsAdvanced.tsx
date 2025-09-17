@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -15,7 +16,7 @@ export function FunnelsAdvanced({ insightProps }: EditorFilterProps): JSX.Elemen
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
     return (
-        <div className="space-y-4">
+        <div className="deprecated-space-y-4">
             <LemonField.Pure label="Step order" info={<StepOrderInfo />}>
                 <FunnelStepOrderPicker />
             </LemonField.Pure>
@@ -73,7 +74,7 @@ function StepOrderInfo(): JSX.Element {
 
 type ExclusionStepsInfoProps = {
     aggregationTargetLabel: Noun
-    aggregation_group_type_index?: number
+    aggregation_group_type_index?: number | null
 }
 
 function ExclusionStepsInfo({

@@ -1,9 +1,9 @@
 import * as schedule from 'node-schedule'
 
-import { Action, Hook, PluginsServerConfig, RawAction, Team } from '../../types'
+import { Action, Hook, RawAction, Team } from '../../types'
 import { PostgresRouter, PostgresUse } from '../../utils/db/postgres'
+import { logger } from '../../utils/logger'
 import { PubSub } from '../../utils/pubsub'
-import { status } from '../../utils/status'
 
 export type ActionMap = Record<Action['id'], Action>
 type ActionCache = Record<Team['id'], ActionMap>
@@ -12,23 +12,24 @@ export class ActionManager {
     private started: boolean
     private ready: boolean
     private actionCache: ActionCache
-    private pubSub: PubSub
     private refreshJob?: schedule.Job
 
-    constructor(private postgres: PostgresRouter, private serverConfig: PluginsServerConfig) {
+    constructor(
+        private postgres: PostgresRouter,
+        private pubSub: PubSub
+    ) {
         this.started = false
         this.ready = false
         this.actionCache = {}
 
-        this.pubSub = new PubSub(this.serverConfig, {
-            'reload-action': async (message) => {
-                const { actionId, teamId } = JSON.parse(message)
+        this.pubSub.on<{ actionId: Action['id']; teamId: Team['id'] }>(
+            'reload-action',
+            async ({ actionId, teamId }) => {
                 await this.reloadAction(teamId, actionId)
-            },
-            'drop-action': (message) => {
-                const { actionId, teamId } = JSON.parse(message)
-                this.dropAction(teamId, actionId)
-            },
+            }
+        )
+        this.pubSub.on<{ actionId: Action['id']; teamId: Team['id'] }>('drop-action', ({ actionId, teamId }) => {
+            this.dropAction(teamId, actionId)
         })
     }
 
@@ -38,13 +39,13 @@ export class ActionManager {
             return
         }
         this.started = true
-        await this.pubSub.start()
+
         await this.reloadAllActions()
 
         // every 5 minutes all ActionManager caches are reloaded for eventual consistency
         this.refreshJob = schedule.scheduleJob('*/5 * * * *', async () => {
             await this.reloadAllActions().catch((error) => {
-                status.error('🍿', 'Error reloading actions:', error)
+                logger.error('🍿', 'Error reloading actions:', error)
             })
         })
         this.ready = true
@@ -67,7 +68,7 @@ export class ActionManager {
 
     public async reloadAllActions(): Promise<void> {
         this.actionCache = await fetchAllActionsGroupedByTeam(this.postgres)
-        status.info('🍿', 'Fetched all actions from DB anew')
+        logger.info('🍿', 'Fetched all actions from DB anew')
     }
 
     public async reloadAction(teamId: Team['id'], actionId: Action['id']): Promise<void> {
@@ -82,7 +83,7 @@ export class ActionManager {
         }
 
         if (refetchedAction) {
-            status.debug(
+            logger.debug(
                 '🍿',
                 wasCachedAlready
                     ? `Refetched action ID ${actionId} (team ID ${teamId}) from DB`
@@ -98,16 +99,32 @@ export class ActionManager {
         const wasCachedAlready = !!this.actionCache?.[teamId]?.[actionId]
 
         if (wasCachedAlready) {
-            status.info('🍿', `Deleted action ID ${actionId} (team ID ${teamId}) from cache`)
+            logger.info('🍿', `Deleted action ID ${actionId} (team ID ${teamId}) from cache`)
             delete this.actionCache[teamId][actionId]
         } else {
-            status.info(
+            logger.info(
                 '🍿',
                 `Tried to delete action ID ${actionId} (team ID ${teamId}) from cache, but it wasn't found in cache, so did nothing instead`
             )
         }
     }
 }
+
+const ACTION_SELECT_FIELDS = [
+    'id',
+    'team_id',
+    'name',
+    'description',
+    'created_at',
+    'created_by_id',
+    'deleted',
+    'post_to_slack',
+    'slack_message_format',
+    'is_calculating',
+    'updated_at',
+    'last_calculated_at',
+    'steps_json',
+] as const
 
 export async function fetchAllActionsGroupedByTeam(
     client: PostgresRouter
@@ -120,22 +137,7 @@ export async function fetchAllActionsGroupedByTeam(
         await client.query<RawAction>(
             PostgresUse.COMMON_READ,
             `
-            SELECT
-                id,
-                team_id,
-                name,
-                description,
-                created_at,
-                created_by_id,
-                deleted,
-                post_to_slack,
-                slack_message_format,
-                is_calculating,
-                updated_at,
-                last_calculated_at,
-                steps_json,
-                bytecode,
-                bytecode_error
+            SELECT ${ACTION_SELECT_FIELDS.join(',')}
             FROM posthog_action
             WHERE deleted = FALSE AND (post_to_slack OR id = ANY($1))
         `,
@@ -192,7 +194,7 @@ export async function fetchAction(client: PostgresRouter, id: Action['id']): Pro
     const rawActions: RawAction[] = (
         await client.query(
             PostgresUse.COMMON_READ,
-            `SELECT * FROM posthog_action WHERE id = $1 AND deleted = FALSE`,
+            `SELECT ${ACTION_SELECT_FIELDS.join(',')} FROM posthog_action WHERE id = $1 AND deleted = FALSE`,
             [id],
             'fetchActions'
         )

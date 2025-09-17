@@ -5,8 +5,8 @@ use std::str::FromStr;
 
 use serde::{de::Visitor, Deserialize, Serialize};
 
-use crate::kafka_messages::app_metrics;
 use crate::pgqueue::ParseError;
+use common_kafka::kafka_messages::app_metrics;
 
 /// Supported HTTP methods for webhooks.
 #[derive(Debug, PartialEq, Clone, Copy)]

@@ -1,7 +1,9 @@
+import zxcvbn from 'zxcvbn'
+
 import { LemonDivider } from '@posthog/lemon-ui'
+
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import zxcvbn from 'zxcvbn'
 
 export type ValidatedPasswordResult = {
     score: number // 0 is no passsword - otherwise 1-5,
@@ -39,7 +41,7 @@ export default function PasswordStrength({
             title={
                 <>
                     Your password scores a{' '}
-                    <strong className="space-x-0.5">
+                    <strong className="flex gap-x-0.5">
                         <span>{score}</span>
                         <span>/</span>
                         <span>5</span>

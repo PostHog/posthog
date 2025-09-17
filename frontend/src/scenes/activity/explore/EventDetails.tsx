@@ -1,19 +1,16 @@
-import './EventDetails.scss'
-
-import { Properties } from '@posthog/plugin-scaffold'
-import { ErrorDisplay } from 'lib/components/Errors/ErrorDisplay'
-import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
+import { ErrorDisplay, idFrom } from 'lib/components/Errors/ErrorDisplay'
+import { EventPropertyTabs } from 'lib/components/EventPropertyTabs/EventPropertyTabs'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { dayjs } from 'lib/dayjs'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { CORE_FILTER_DEFINITIONS_BY_GROUP } from 'lib/taxonomy'
-import { pluralize } from 'lib/utils'
-import { useState } from 'react'
+import { Link } from 'lib/lemon-ui/Link'
 
+import { KNOWN_PROMOTED_PROPERTY_PARENTS } from '~/taxonomy/taxonomy'
 import { EventType, PropertyDefinitionType } from '~/types'
+
+import { ConversationDisplay } from 'products/llm_analytics/frontend/ConversationDisplay/ConversationDisplay'
 
 interface EventDetailsProps {
     event: EventType
@@ -21,83 +18,126 @@ interface EventDetailsProps {
 }
 
 export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Element {
-    const [showSystemProps, setShowSystemProps] = useState(false)
-    const [activeTab, setActiveTab] = useState(event.event === '$exception' ? 'exception' : 'properties')
-
-    const displayedEventProperties: Properties = {}
-    const visibleSystemProperties: Properties = {}
-    let systemPropsCount = 0
-    for (const key of Object.keys(event.properties)) {
-        if (CORE_FILTER_DEFINITIONS_BY_GROUP.events[key] && CORE_FILTER_DEFINITIONS_BY_GROUP.events[key].system) {
-            systemPropsCount += 1
-            if (showSystemProps) {
-                visibleSystemProperties[key] = event.properties[key]
-            }
-        }
-        if (!CORE_FILTER_DEFINITIONS_BY_GROUP.events[key] || !CORE_FILTER_DEFINITIONS_BY_GROUP.events[key].system) {
-            displayedEventProperties[key] = event.properties[key]
-        }
-    }
-
-    const tabs = [
-        {
-            key: 'properties',
-            label: 'Properties',
-            content: (
-                <div className="ml-10 mt-2">
-                    <PropertiesTable
-                        type={PropertyDefinitionType.Event}
-                        properties={{
-                            ...('timestamp' in event ? { $timestamp: dayjs(event.timestamp).toISOString() } : {}),
-                            ...displayedEventProperties,
-                            ...visibleSystemProperties,
-                        }}
-                        useDetectedPropertyType={true}
-                        tableProps={tableProps}
-                        filterable
-                        searchable
-                    />
-                    {systemPropsCount > 0 && (
-                        <LemonButton className="mb-2" onClick={() => setShowSystemProps(!showSystemProps)} size="small">
-                            {showSystemProps ? 'Hide' : 'Show'}{' '}
-                            {pluralize(systemPropsCount, 'system property', 'system properties')}
-                        </LemonButton>
-                    )}
-                </div>
-            ),
-        },
-        {
-            key: 'json',
-            label: 'JSON',
-            content: (
-                <div className="px-4 py-4">
-                    <JSONViewer src={event} name="event" collapsed={1} collapseStringsAfterLength={80} sortKeys />
-                </div>
-            ),
-        },
-    ]
-
-    if (event.elements && event.elements.length > 0) {
-        tabs.push({
-            key: 'elements',
-            label: 'Elements',
-            content: (
-                <HTMLElementsDisplay elements={event.elements} selectedText={event.properties['$selected_content']} />
-            ),
-        })
-    }
-
-    if (event.event === '$exception') {
-        tabs.push({
-            key: 'exception',
-            label: 'Exception',
-            content: (
-                <div className="ml-10 my-2">
-                    <ErrorDisplay eventProperties={event.properties} />
-                </div>
-            ),
-        })
-    }
-
-    return <LemonTabs data-attr="event-details" tabs={tabs} activeKey={activeTab} onChange={setActiveTab} />
+    return (
+        <EventPropertyTabs
+            barClassName="px-2"
+            data-attr="event-details"
+            size="medium"
+            event={event}
+            tabContentComponentFn={({ event, properties, tabKey }) => {
+                switch (tabKey) {
+                    case 'conversation':
+                        return (
+                            <div className="mx-3 -mt-2 mb-2 gap-y-2">
+                                {properties.$session_id ? (
+                                    <div className="flex flex-row items-center gap-2">
+                                        <ViewRecordingButton
+                                            sessionId={properties.$session_id}
+                                            recordingStatus={properties.$recording_status}
+                                            timestamp={event.timestamp}
+                                            inModal={false}
+                                            size="small"
+                                            type="secondary"
+                                            data-attr="conversation-view-session-recording-button"
+                                        />
+                                    </div>
+                                ) : null}
+                                <ConversationDisplay eventProperties={properties} />
+                            </div>
+                        )
+                    case 'error_display':
+                        return (
+                            <div className="mx-3">
+                                <ErrorDisplay eventProperties={properties} eventId={idFrom(event)} />
+                            </div>
+                        )
+                    case 'exception_properties':
+                        return (
+                            <div className="mx-3 -mt-4">
+                                <LemonBanner type="info" dismissKey="event-details-exception-properties-why-banner">
+                                    These are the internal properties that PostHog uses to display information about
+                                    exceptions.
+                                </LemonBanner>
+                                <PropertiesTable
+                                    type={PropertyDefinitionType.Event}
+                                    properties={properties}
+                                    sortProperties
+                                    tableProps={tableProps}
+                                />
+                            </div>
+                        )
+                    case '$set_properties':
+                        return (
+                            <div className="mx-3 -mt-4">
+                                <p>
+                                    Person properties sent with this event. Will replace any property value that may
+                                    have been set on this person profile before now.{' '}
+                                    <Link to="https://posthog.com/docs/getting-started/person-properties">
+                                        Learn more
+                                    </Link>
+                                </p>
+                                <PropertiesTable
+                                    type={PropertyDefinitionType.Event}
+                                    properties={properties}
+                                    useDetectedPropertyType={true}
+                                    tableProps={tableProps}
+                                    searchable
+                                />
+                            </div>
+                        )
+                    case '$set_once_properties':
+                        return (
+                            <div className="mx-3 -mt-4">
+                                <p>
+                                    "Set once" person properties sent with this event. Will replace any property value
+                                    that have never been set on this person profile before now.{' '}
+                                    <Link to="https://posthog.com/docs/getting-started/person-properties">
+                                        Learn more
+                                    </Link>
+                                </p>
+                                <PropertiesTable
+                                    type={PropertyDefinitionType.Event}
+                                    properties={properties}
+                                    useDetectedPropertyType={true}
+                                    tableProps={tableProps}
+                                    searchable
+                                />
+                            </div>
+                        )
+                    case 'raw':
+                        return (
+                            <div className="mx-3 -mt-3 py-2">
+                                <JSONViewer
+                                    src={event}
+                                    name="event"
+                                    collapsed={1}
+                                    collapseStringsAfterLength={80}
+                                    sortKeys
+                                />
+                            </div>
+                        )
+                    default:
+                        return (
+                            <div className="mx-3">
+                                <PropertiesTable
+                                    type={PropertyDefinitionType.Event}
+                                    properties={properties}
+                                    useDetectedPropertyType={['flags', 'properties'].includes(tabKey)}
+                                    tableProps={tableProps}
+                                    filterable={tabKey === 'properties'}
+                                    sortProperties
+                                    // metadata is so short, that serachable is wasted space
+                                    searchable={tabKey !== 'metadata'}
+                                    parent={
+                                        tabKey === 'properties'
+                                            ? (event.event as KNOWN_PROMOTED_PROPERTY_PARENTS)
+                                            : undefined
+                                    }
+                                />
+                            </div>
+                        )
+                }
+            }}
+        />
+    )
 }

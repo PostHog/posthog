@@ -6,8 +6,8 @@ import billingUnsubscribedJson from '~/mocks/fixtures/_billing_unsubscribed.json
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { AvailableFeature, Realm } from '~/types'
 
-import meCurrent from '../../../../../cypress/fixtures/api/users/@me.json'
 import { PayGateMini, PayGateMiniProps } from './PayGateMini'
+import meCurrent from './__mocks__/@me.json'
 
 const meta: Meta<typeof PayGateMini> = {
     title: 'Components/Pay Gate Mini',
@@ -83,9 +83,8 @@ export const PayGateMiniLimitFeatureOther = (): JSX.Element => {
                         ...meCurrent.organization,
                         available_product_features: [
                             {
-                                key: 'recordings_playlists',
-                                name: 'Recordings Playlists',
-                                limit: 3,
+                                key: 'advanced_permissions',
+                                name: 'Advanced Permissions',
                             },
                         ],
                     },
@@ -93,7 +92,7 @@ export const PayGateMiniLimitFeatureOther = (): JSX.Element => {
             ],
         },
     })
-    return <Template feature={AvailableFeature.RECORDINGS_PLAYLISTS} currentUsage={3} />
+    return <Template feature={AvailableFeature.ADVANCED_PERMISSIONS} currentUsage={3} />
 }
 
 export const PayGateMiniLimitFeatureProjects = (): JSX.Element => {
