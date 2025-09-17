@@ -79,7 +79,8 @@
             "prettier --write"
         ],
         "{playwright,frontend,products,common,ee}/**/*.{js,jsx,mjs,ts,tsx}": [
-            "oxlint --fix --fix-suggestions --fix-dangerously --quiet",
+            "oxlint --react-plugin -D react/exhaustive-deps --deny-warnings",
+            "oxlint --fix --fix-suggestions --fix-dangerously --quiet -A react/exhaustive-deps",
             "prettier --write"
         ],
         "plugin-server/**/*.{js,jsx,mjs,ts,tsx}": [
