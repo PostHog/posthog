@@ -8,6 +8,7 @@ import contextlib
 from collections.abc import Callable
 
 import pytest
+import unittest.mock
 
 import numpy as np
 from databricks import sql
@@ -24,6 +25,7 @@ from products.batch_exports.backend.temporal.destinations.databricks_batch_expor
 from products.batch_exports.backend.tests.temporal.destinations.base_destination_tests import (
     BaseDestinationTest,
     CommonDestinationTests,
+    RetryableTestException,
 )
 
 REQUIRED_ENV_VARS = (
@@ -88,6 +90,21 @@ class DatabricksDestinationTest(BaseDestinationTest):
             "schema": os.getenv("DATABRICKS_SCHEMA", f"test_workflow_schema_{team_id}"),
             "table_name": f"test_workflow_table_{team_id}",
         }
+
+    def get_invalid_destination_config(self) -> tuple[dict, str]:
+        """Provide invalid test configuration for Databricks destination."""
+        return (
+            {
+                "server_hostname": "invalid",
+                "http_path": "invalid",
+                "client_id": "invalid",
+                "client_secret": "invalid",
+                "catalog": "invalid",
+                "schema": "invalid",
+                "table_name": "invalid",
+            },
+            "DatabricksConnectionError: Invalid host: invalid",
+        )
 
     async def get_inserted_records(
         self,
@@ -196,6 +213,14 @@ class TestDatabricksBatchExport(CommonDestinationTests):
             yield destination_test
 
             cursor.execute(f'DROP SCHEMA IF EXISTS `{destination_config["schema"]}` CASCADE')
+
+    @pytest.fixture
+    def simulate_unexpected_error(self):
+        with unittest.mock.patch(
+            "products.batch_exports.backend.temporal.destinations.databricks_batch_export.Producer.start",
+            side_effect=RetryableTestException("A useful error message"),
+        ):
+            yield
 
     # @pytest.fixture
     # def batch_export_for_destination(self, ateam, databricks_config):
