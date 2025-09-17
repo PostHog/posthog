@@ -23,6 +23,7 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.testing._activity import ActivityEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from tenacity import retry, retry_if_exception_type, stop_after_delay, wait_fixed
 from types_aiobotocore_s3.client import S3Client
 
 from posthog import constants
@@ -148,8 +149,8 @@ async def delete_all_from_s3(minio_client, bucket_name: str, key_prefix: str):
 
 
 @pytest.fixture
-async def minio_client(bucket_name):
-    """Manage an S3 client to interact with a MinIO bucket.
+async def object_storage_client(bucket_name):
+    """Manage an S3 client to interact with a local object storage bucket.
 
     Yields the client after creating a bucket. Upon resuming, we delete
     the contents and the bucket itself.
@@ -158,14 +159,33 @@ async def minio_client(bucket_name):
         "s3",
         aws_access_key_id="object_storage_root_user",
         aws_secret_access_key="object_storage_root_password",
-    ) as minio_client:
-        await minio_client.create_bucket(Bucket=bucket_name)
+    ) as object_storage_client:
+        # Try to create the bucket, ignoring if it already exists
+        try:
+            await object_storage_client.create_bucket(Bucket=bucket_name)
+        except Exception as e:
+            # Ignore error if bucket already exists, otherwise re-raise
+            if "BucketAlreadyExists" not in str(e) and "BucketAlreadyOwnedByYou" not in str(e):
+                raise RuntimeError(f"Failed to create bucket '{bucket_name}': {e}") from e
 
-        yield minio_client
+        # Use tenacity to retry checking bucket availability
+        @retry(
+            stop=stop_after_delay(10),  # Stop after 10 seconds
+            wait=wait_fixed(0.5),  # Wait 0.5 seconds between attempts
+            retry=retry_if_exception_type(Exception),
+        )
+        async def verify_bucket_exists():
+            await object_storage_client.head_bucket(Bucket=bucket_name)
 
-        await delete_all_from_s3(minio_client, bucket_name, key_prefix="")
+        await verify_bucket_exists()
 
-        await minio_client.delete_bucket(Bucket=bucket_name)
+        yield object_storage_client
+
+        try:
+            await delete_all_from_s3(object_storage_client, bucket_name, key_prefix="")
+            await object_storage_client.delete_bucket(Bucket=bucket_name)
+        except Exception as e:
+            raise RuntimeError(f"Failed to clean up bucket '{bucket_name}': {e}") from e
 
 
 async def assert_files_in_s3(s3_compatible_client, bucket_name, key_prefix, file_format, compression, json_columns):
@@ -506,7 +526,7 @@ class TestInsertIntoS3ActivityFromStage:
         self,
         clickhouse_client,
         bucket_name,
-        minio_client,
+        object_storage_client,
         activity_environment: ActivityEnvironment,
         compression,
         exclude_events,
@@ -594,7 +614,7 @@ class TestInsertIntoS3ActivityFromStage:
             sort_key = "session_id"
 
         await assert_clickhouse_records_in_s3(
-            s3_compatible_client=minio_client,
+            s3_compatible_client=object_storage_client,
             clickhouse_client=clickhouse_client,
             bucket_name=bucket_name,
             key_prefix=prefix,
@@ -620,7 +640,7 @@ class TestInsertIntoS3ActivityFromStage:
         self,
         clickhouse_client,
         bucket_name,
-        minio_client,
+        object_storage_client,
         activity_environment,
         compression,
         max_file_size_mb,
@@ -707,7 +727,7 @@ class TestInsertIntoS3ActivityFromStage:
         # 2. We can read it (so, it's a valid file).
         # 3. It has the same length as the events we have created.
         s3_data, s3_keys = await assert_files_in_s3(
-            s3_compatible_client=minio_client,
+            s3_compatible_client=object_storage_client,
             bucket_name=bucket_name,
             key_prefix=prefix,
             file_format=file_format,
@@ -761,10 +781,10 @@ class TestInsertIntoS3ActivityFromStage:
         manifest_key = f"{prefix}/{data_interval_start.isoformat()}-{data_interval_end.isoformat()}_manifest.json"
         # we only expect a manifest file if we have set a max file size
         if max_file_size_mb is None:
-            with pytest.raises(minio_client.exceptions.NoSuchKey):
-                await read_json_file_from_s3(minio_client, bucket_name, manifest_key)
+            with pytest.raises(object_storage_client.exceptions.NoSuchKey):
+                await read_json_file_from_s3(object_storage_client, bucket_name, manifest_key)
         else:
-            manifest_data: dict | list = await read_json_file_from_s3(minio_client, bucket_name, manifest_key)
+            manifest_data: dict | list = await read_json_file_from_s3(object_storage_client, bucket_name, manifest_key)
             assert isinstance(manifest_data, dict)
             assert manifest_data["files"] == expected_keys
 
@@ -774,7 +794,7 @@ class TestInsertIntoS3ActivityFromStage:
         self,
         clickhouse_client,
         bucket_name,
-        minio_client,
+        object_storage_client,
         activity_environment,
         compression,
         exclude_events,
@@ -993,7 +1013,7 @@ class TestS3BatchExportWorkflowWithMinioBucket:
     async def test_s3_export_workflow_with_minio_bucket_with_various_intervals_and_models(
         self,
         clickhouse_client,
-        minio_client,
+        object_storage_client,
         ateam,
         s3_batch_export,
         bucket_name,
@@ -1029,7 +1049,7 @@ class TestS3BatchExportWorkflowWithMinioBucket:
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             clickhouse_client=clickhouse_client,
-            s3_client=minio_client,
+            s3_client=object_storage_client,
         )
 
     @pytest.mark.parametrize("interval", ["hour"], indirect=True)
@@ -1040,7 +1060,7 @@ class TestS3BatchExportWorkflowWithMinioBucket:
     async def test_s3_export_workflow_with_minio_bucket_with_various_compression_and_file_formats(
         self,
         clickhouse_client,
-        minio_client,
+        object_storage_client,
         ateam,
         s3_batch_export,
         bucket_name,
@@ -1068,7 +1088,7 @@ class TestS3BatchExportWorkflowWithMinioBucket:
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             clickhouse_client=clickhouse_client,
-            s3_client=minio_client,
+            s3_client=object_storage_client,
         )
 
     @pytest.mark.parametrize("interval", ["hour"], indirect=True)
@@ -1079,7 +1099,7 @@ class TestS3BatchExportWorkflowWithMinioBucket:
     async def test_s3_export_workflow_with_minio_bucket_with_exclude_events(
         self,
         clickhouse_client,
-        minio_client,
+        object_storage_client,
         ateam,
         s3_batch_export,
         bucket_name,
@@ -1107,7 +1127,7 @@ class TestS3BatchExportWorkflowWithMinioBucket:
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             clickhouse_client=clickhouse_client,
-            s3_client=minio_client,
+            s3_client=object_storage_client,
         )
 
     @pytest.mark.parametrize(
@@ -1123,7 +1143,7 @@ class TestS3BatchExportWorkflowWithMinioBucket:
     async def test_s3_export_workflow_backfill_earliest_persons_with_minio_bucket(
         self,
         clickhouse_client,
-        minio_client,
+        object_storage_client,
         ateam,
         s3_batch_export,
         bucket_name,
@@ -1165,7 +1185,7 @@ class TestS3BatchExportWorkflowWithMinioBucket:
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             clickhouse_client=clickhouse_client,
-            s3_client=minio_client,
+            s3_client=object_storage_client,
             backfill_details=backfill_details,
         )
 
@@ -1177,7 +1197,7 @@ class TestS3BatchExportWorkflowWithMinioBucket:
     async def test_s3_export_workflow_with_minio_bucket_without_events(
         self,
         clickhouse_client,
-        minio_client,
+        object_storage_client,
         ateam,
         s3_batch_export,
         bucket_name,
@@ -1203,7 +1223,7 @@ class TestS3BatchExportWorkflowWithMinioBucket:
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             clickhouse_client=clickhouse_client,
-            s3_client=minio_client,
+            s3_client=object_storage_client,
             expect_no_data=True,
         )
 
@@ -1223,7 +1243,7 @@ class TestS3BatchExportWorkflowWithMinioBucket:
         self,
         clickhouse_client,
         ateam,
-        minio_client,
+        object_storage_client,
         bucket_name,
         compression,
         interval,
@@ -1250,7 +1270,7 @@ class TestS3BatchExportWorkflowWithMinioBucket:
             data_interval_start=data_interval_start,
             data_interval_end=data_interval_end,
             clickhouse_client=clickhouse_client,
-            s3_client=minio_client,
+            s3_client=object_storage_client,
         )
 
 
@@ -1578,7 +1598,7 @@ class TestErrorHandling:
         self,
         clickhouse_client,
         ateam,
-        minio_client,
+        object_storage_client,
         bucket_name,
         interval,
         s3_batch_export,
@@ -1702,7 +1722,7 @@ class TestErrorHandling:
             second=data_interval_end.strftime("%S"),
         )
 
-        objects = await minio_client.list_objects_v2(Bucket=bucket_name, Prefix=expected_key_prefix)
+        objects = await object_storage_client.list_objects_v2(Bucket=bucket_name, Prefix=expected_key_prefix)
         key = objects["Contents"][0].get("Key")
         assert len(objects.get("Contents", [])) == 1
         assert key.startswith(expected_key_prefix)
@@ -1715,7 +1735,7 @@ class TestErrorHandling:
                 sort_key = "session_id"
 
         await assert_clickhouse_records_in_s3(
-            s3_compatible_client=minio_client,
+            s3_compatible_client=object_storage_client,
             clickhouse_client=clickhouse_client,
             bucket_name=bucket_name,
             key_prefix=expected_key_prefix,
