@@ -53,7 +53,7 @@ export function RevenueExampleEventsTable(): JSX.Element | null {
             title="Revenue events"
             description="The following revenue events are available in your data. This is helpful when you're trying to debug what your revenue events look like."
         >
-            <Query query={exampleEventsQuery} context={queryContext} />
+            <Query attachTo={revenueAnalyticsSettingsLogic} query={exampleEventsQuery} context={queryContext} />
         </SceneSection>
     )
 }

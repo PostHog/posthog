@@ -11,7 +11,7 @@ import type { appLogicType } from './appLogicType'
 
 export const appLogic = kea<appLogicType>([
     path(['scenes', 'App']),
-    connect([teamLogic, organizationLogic]),
+    connect([teamLogic, organizationLogic, preflightLogic]),
     actions({
         enableDelayedSpinner: true,
         ignoreFeatureFlags: true,
