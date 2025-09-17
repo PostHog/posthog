@@ -5,8 +5,11 @@ import { useState } from 'react'
 import { IconCode, IconPageChart, IconPencil } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { urls } from 'scenes/urls'
 
@@ -62,63 +65,86 @@ export const QueryEndpointsTable = (): JSX.Element => {
             dataIndex: 'description',
         },
         {
+            title: 'Status',
+            key: 'is_active',
+            dataIndex: 'is_active',
+            render: (_, record) => (
+                <span>
+                    {record.is_active ? (
+                        <LemonTag type="success">Active</LemonTag>
+                    ) : (
+                        <LemonTag type="danger">Inactive</LemonTag>
+                    )}
+                </span>
+            ),
+        },
+        {
             title: 'Created At',
             key: 'created_at',
             dataIndex: 'created_at',
+            render: (_, record) => new Date(record.created_at).toLocaleDateString(),
         },
         {
             title: 'Created By',
             key: 'created_by',
             dataIndex: 'created_by',
+            render: (_, record) =>
+                record.created_by
+                    ? `${record.created_by.first_name} ${record.created_by.last_name}`.trim() || record.created_by.email
+                    : 'Unknown',
         },
         {
-            title: 'URL',
-            key: 'url',
-            dataIndex: 'url',
-        },
-        {
-            title: 'SQL',
-            key: 'sql',
-            align: 'center',
-            dataIndex: 'sql',
+            title: 'Endpoint Path',
+            key: 'endpoint_path',
+            dataIndex: 'endpoint_path',
             render: (_, record) => (
-                <div className="flex justify-center">
-                    <SQLButton sql={record.sql} />
-                </div>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={() => {
+                        navigator.clipboard.writeText(record.endpoint_path)
+                        lemonToast.success('Endpoint URL copied to clipboard')
+                    }}
+                    className="font-mono text-xs"
+                >
+                    {record.endpoint_path}
+                </LemonButton>
             ),
         },
         {
-            title: 'Query Endpoint Usage',
-            key: 'usage',
-            align: 'center',
+            title: 'Actions',
+            key: 'actions',
+            width: 0,
             render: (_, record) => (
-                <div className="flex justify-center">
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconPageChart />}
-                        onClick={() => {
-                            router.actions.push(`/embedded-analytics?request_name=${encodeURIComponent(record.name)}`)
-                        }}
-                    />
-                </div>
-            ),
-        },
-        {
-            title: 'Edit',
-            key: 'edit',
-            align: 'center',
-            tooltip: 'Pushing to SQL Editor with a Query is not working properly.',
-            render: (_, record) => (
-                <div className="flex justify-center">
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        icon={<IconPencil />}
-                        onClick={() => {
-                            // TODO: Once editor is refactored, allow sending #output-pane-tab=query-endpoint
-                            router.actions.push(urls.sqlEditor(record.sql))
-                        }}
+                <div className="flex items-center gap-2">
+                    <SQLButton sql={record.query.query} />
+                    <More
+                        overlay={
+                            <>
+                                <LemonButton
+                                    icon={<IconPageChart />}
+                                    onClick={() => {
+                                        router.actions.push(
+                                            `/embedded-analytics?request_name=${encodeURIComponent(record.name)}`
+                                        )
+                                    }}
+                                    fullWidth
+                                >
+                                    View Usage
+                                </LemonButton>
+
+                                <LemonButton
+                                    icon={<IconPencil />}
+                                    onClick={() => {
+                                        // TODO: Once editor is refactored, allow sending #output-pane-tab=query-endpoint
+                                        router.actions.push(urls.sqlEditor(record.query.query))
+                                    }}
+                                    fullWidth
+                                >
+                                    Edit Query
+                                </LemonButton>
+                            </>
+                        }
                     />
                 </div>
             ),

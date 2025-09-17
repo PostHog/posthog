@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonInput, LemonTable, LemonTableColumns, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { projectLogic } from 'scenes/projectLogic'
 
 import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
@@ -77,8 +78,16 @@ function generateVariablesJson(variables: Variable[]): string {
         .join('\n')
 }
 
-function generateTerminalExample(queryEndpointName: string | null, variables: Variable[]): string {
-    return `curl -X POST https://us.posthog.com/api/projects/{project_id}/query/${queryEndpointName || 'your-query-name'} \\
+function getNamedQueryEndpointUrl(projectId: number | undefined, queryEndpointName: string | null): string {
+    return `${window.location.origin}/${projectId}/named_query/d/${queryEndpointName || 'your-query-name'}`
+}
+
+function generateTerminalExample(
+    queryEndpointName: string | null,
+    variables: Variable[],
+    projectId: number | undefined
+): string {
+    return `curl -X POST ${getNamedQueryEndpointUrl(projectId, queryEndpointName)} \\
   -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
@@ -88,11 +97,15 @@ ${generateVariablesJson(variables)}
   }'`
 }
 
-function generatePythonExample(queryEndpointName: string | null, variables: Variable[]): string {
+function generatePythonExample(
+    queryEndpointName: string | null,
+    variables: Variable[],
+    projectId: number | undefined
+): string {
     return `import requests
 import json
 
-url = "https://us.posthog.com/api/projects/{project_id}/query/${queryEndpointName || 'your-query-name'}"
+url = "${getNamedQueryEndpointUrl(projectId, queryEndpointName)}"
 
 headers = {
     'Content-Type': 'application/json',
@@ -109,10 +122,14 @@ response = requests.post(url, headers=headers, data=json.dumps(payload))
 print(response.json())`
 }
 
-function generateNodeExample(queryEndpointName: string | null, variables: Variable[]): string {
+function generateNodeExample(
+    queryEndpointName: string | null,
+    variables: Variable[],
+    projectId: number | undefined
+): string {
     return `const fetch = require('node-fetch');
 
-const url = 'https://us.posthog.com/api/projects/{project_id}/query/${queryEndpointName || 'your-query-name'}';
+const url = '${getNamedQueryEndpointUrl(projectId, queryEndpointName)}';
 
 const headers = {
     'Content-Type': 'application/json',
@@ -138,22 +155,23 @@ fetch(url, {
 interface CodeExamplesProps {
     queryEndpointName: string | null
     variables: Variable[]
+    projectId: number | undefined
 }
 
-function CodeExamples({ queryEndpointName, variables }: CodeExamplesProps): JSX.Element {
+function CodeExamples({ queryEndpointName, variables, projectId }: CodeExamplesProps): JSX.Element {
     const { setActiveCodeExampleTab } = useActions(queryEndpointLogic)
     const { activeCodeExampleTab } = useValues(queryEndpointLogic)
 
     const getCodeExample = (tab: CodeExampleTab): string => {
         switch (tab) {
             case 'terminal':
-                return generateTerminalExample(queryEndpointName, variables)
+                return generateTerminalExample(queryEndpointName, variables, projectId)
             case 'python':
-                return generatePythonExample(queryEndpointName, variables)
+                return generatePythonExample(queryEndpointName, variables, projectId)
             case 'nodejs':
-                return generateNodeExample(queryEndpointName, variables)
+                return generateNodeExample(queryEndpointName, variables, projectId)
             default:
-                return generateTerminalExample(queryEndpointName, variables)
+                return generateTerminalExample(queryEndpointName, variables, projectId)
         }
     }
 
@@ -203,9 +221,12 @@ function CodeExamples({ queryEndpointName, variables }: CodeExamplesProps): JSX.
 }
 
 export function QueryEndpoint(): JSX.Element {
-    const { setQueryEndpointName } = useActions(queryEndpointLogic)
-    const { queryEndpointName } = useValues(queryEndpointLogic)
+    const { setQueryEndpointName, setQueryEndpointDescription } = useActions(queryEndpointLogic)
+    const { queryEndpointName, queryEndpointDescription } = useValues(queryEndpointLogic)
     const { variablesForInsight } = useValues(variablesLogic)
+
+    const { currentProject } = useValues(projectLogic)
+    const projectId = currentProject?.id
 
     return (
         <div className="space-y-4">
@@ -227,6 +248,14 @@ export function QueryEndpoint(): JSX.Element {
                     value={queryEndpointName || ''}
                     className="w-1/3"
                 />
+                <LemonInput
+                    type="text"
+                    placeholder="Query description"
+                    size="large"
+                    onChange={setQueryEndpointDescription}
+                    value={queryEndpointDescription || ''}
+                    className="w-1/3"
+                />
             </div>
 
             <div>
@@ -238,7 +267,7 @@ export function QueryEndpoint(): JSX.Element {
                 />
             </div>
 
-            <CodeExamples queryEndpointName={queryEndpointName} variables={variablesForInsight} />
+            <CodeExamples queryEndpointName={queryEndpointName} variables={variablesForInsight} projectId={projectId} />
         </div>
     )
 }

@@ -3,7 +3,6 @@ import 'react-data-grid/lib/styles.css'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { useCallback, useMemo, useState } from 'react'
 import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
 
@@ -27,6 +26,7 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -45,6 +45,7 @@ import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/L
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
 import { Table } from '~/queries/nodes/DataVisualization/Components/Table'
 import { TableDisplay } from '~/queries/nodes/DataVisualization/Components/TableDisplay'
+import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
 import { seriesBreakdownLogic } from '~/queries/nodes/DataVisualization/Components/seriesBreakdownLogic'
 import { DataTableVisualizationProps } from '~/queries/nodes/DataVisualization/DataVisualization'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
@@ -60,6 +61,7 @@ import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { QueryEndpoint } from './sidebar/QueryEndpoint'
 import { QueryInfo } from './sidebar/QueryInfo'
 import { QueryVariables } from './sidebar/QueryVariables'
+import { queryEndpointLogic } from './sidebar/queryEndpointLogic'
 
 interface RowDetailsModalProps {
     isOpen: boolean
@@ -280,6 +282,9 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
     } = useValues(dataNodeLogic)
     const { queryCancelled } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
+    const { createQueryEndpoint } = useActions(queryEndpointLogic)
+    const { queryEndpointName, queryEndpointDescription } = useValues(queryEndpointLogic)
+    const { variablesForInsight } = useValues(variablesLogic)
 
     const response = dataNodeResponse as HogQLQueryResponse | undefined
 
@@ -602,8 +607,40 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                         <LemonButton
                             type="primary"
                             onClick={() => {
-                                // Make API Call to create the Query Endpoint
-                                router.actions.push('/embedded-analytics/query-endpoints')
+                                const sqlQuery = queryInput || ''
+                                if (!sqlQuery.trim()) {
+                                    lemonToast.error('You are missing a HogQL query.')
+                                    return
+                                }
+
+                                if (!queryEndpointName?.trim()) {
+                                    lemonToast.error('You need to name your query endpoint.')
+                                    return
+                                }
+
+                                const parameters = variablesForInsight.reduce(
+                                    (acc, variable) => {
+                                        acc[variable.code_name] = {
+                                            type: variable.type,
+                                            default_value: variable.default_value,
+                                            ...(variable.type === 'List' && 'values' in variable && variable.values
+                                                ? { values: variable.values }
+                                                : {}),
+                                        }
+                                        return acc
+                                    },
+                                    {} as Record<string, any>
+                                )
+
+                                createQueryEndpoint({
+                                    name: queryEndpointName,
+                                    description: queryEndpointDescription || ``,
+                                    query: {
+                                        kind: 'HogQLQuery',
+                                        query: sqlQuery,
+                                    },
+                                    parameters,
+                                })
                             }}
                             icon={<IconCode2 />}
                         >

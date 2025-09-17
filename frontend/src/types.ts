@@ -2106,15 +2106,33 @@ export interface QueryBasedInsightModel extends Omit<InsightModel, 'filters'> {
 }
 
 export interface QueryEndpointType extends WithAccessControl {
-    id: number
+    id: string
     name: string
     description: string
+    query: {
+        kind: string
+        query: string
+    }
+    parameters: Record<string, any>
+    is_active: boolean
+    endpoint_path: string
     created_at: string
+    updated_at: string
     created_by: UserBasicType | null
-    url: string
-    sql: string
-    /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
+    /** Purely local value to determine whether the query endpoint should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
+}
+
+export interface CreateQueryEndpointRequest {
+    name: string
+    description: string
+    query: {
+        kind: string
+        query: string
+        [key: string]: any
+    }
+    parameters?: Record<string, any>
+    is_active?: boolean
 }
 
 export interface DashboardBasicType extends WithAccessControl {

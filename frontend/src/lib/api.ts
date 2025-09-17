@@ -58,6 +58,7 @@ import {
     ConversationDetail,
     CoreMemory,
     CreateGroupParams,
+    CreateQueryEndpointRequest,
     CyclotronJobFiltersType,
     CyclotronJobTestInvocationResult,
     DashboardCollaboratorType,
@@ -130,6 +131,7 @@ import {
     PropertyDefinition,
     PropertyDefinitionType,
     QueryBasedInsightModel,
+    QueryEndpointType,
     QueryTabState,
     RawAnnotationType,
     RawBatchExportBackfill,
@@ -1281,6 +1283,10 @@ export class ApiRequest {
         return this.query(teamId).addPathComponent(queryId).addPathComponent('log')
     }
 
+    public queryEndpoint(teamId?: TeamType['id']): ApiRequest {
+        return this.environmentsDetail(teamId).addPathComponent('named_query')
+    }
+
     // Conversations
     public conversations(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('conversations')
@@ -1604,6 +1610,15 @@ const api = {
         },
         async cancelQuery(clientQueryId: string, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<void> {
             await new ApiRequest().insightsCancel(teamId).create({ data: { client_query_id: clientQueryId } })
+        },
+    },
+
+    queryEndpoint: {
+        async list(): Promise<CountedPaginatedResponse<QueryEndpointType>> {
+            return await new ApiRequest().queryEndpoint().get()
+        },
+        async create(data: CreateQueryEndpointRequest): Promise<QueryEndpointType> {
+            return await new ApiRequest().queryEndpoint().create({ data })
         },
     },
 
