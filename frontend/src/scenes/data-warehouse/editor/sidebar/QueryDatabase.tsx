@@ -40,6 +40,7 @@ export const QueryDatabase = (): JSX.Element => {
         toggleEditJoinModal,
         setEditingDraft,
         renameDraft,
+        openUnsavedQuery,
     } = useActions(queryDatabaseLogic)
     const { deleteDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { deleteJoin } = useActions(dataWarehouseSettingsLogic)
@@ -81,6 +82,10 @@ export const QueryDatabase = (): JSX.Element => {
                 // Copy column name when clicking on a column
                 if (item && item.record?.type === 'column') {
                     void copyToClipboard(item.record.columnName, item.record.columnName)
+                }
+
+                if (item && item.record?.type === 'unsaved-query') {
+                    openUnsavedQuery(item.record)
                 }
             }}
             renderItem={(item) => {
@@ -293,6 +298,7 @@ export const QueryDatabase = (): JSX.Element => {
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
+                                    openUnsavedQuery(item.record)
                                 }}
                             >
                                 <ButtonPrimitive menuItem>Open</ButtonPrimitive>
@@ -303,7 +309,7 @@ export const QueryDatabase = (): JSX.Element => {
                                     e.stopPropagation()
                                 }}
                             >
-                                <ButtonPrimitive menuItem>Delete</ButtonPrimitive>
+                                <ButtonPrimitive menuItem>Discard</ButtonPrimitive>
                             </DropdownMenuItem>
                         </DropdownMenuGroup>
                     )

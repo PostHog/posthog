@@ -1,6 +1,7 @@
 import Fuse from 'fuse.js'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import { IconDatabase, IconDocument, IconPlug, IconPlus } from '@posthog/icons'
@@ -15,6 +16,7 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { DataWarehouseSourceIcon, mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { FuseSearchMatch } from '~/layout/navigation-3000/sidebars/utils'
@@ -325,6 +327,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         selectSourceTable: (tableName: string) => ({ tableName }),
         setSyncMoreNoticeDismissed: (dismissed: boolean) => ({ dismissed }),
         setEditingDraft: (draftId: string) => ({ draftId }),
+        openUnsavedQuery: (record: Record<string, any>) => ({ record }),
     }),
     connect(() => ({
         values: [
@@ -906,6 +909,15 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             // Connect to viewLinkLogic actions
             viewLinkLogic.actions.selectSourceTable(tableName)
             viewLinkLogic.actions.toggleJoinTableModal()
+        },
+        openUnsavedQuery: ({ record }) => {
+            if (record.insight) {
+                router.actions.push(urls.sqlEditor(undefined, undefined, record.insight.short_id))
+            } else if (record.view) {
+                router.actions.push(urls.sqlEditor(undefined, record.view.id))
+            } else {
+                router.actions.push(urls.sqlEditor(record.query))
+            }
         },
     })),
     subscriptions({
