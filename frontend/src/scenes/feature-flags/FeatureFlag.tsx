@@ -478,6 +478,10 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 checked={value}
                                                 data-attr="feature-flag-enabled-checkbox"
                                             />
+                                            <div className="text-secondary text-sm pl-7">
+                                                Disabling this flag doesn’t remove it from your app; evaluations will
+                                                always return <code>false</code>.
+                                            </div>
                                         </div>
                                     )}
                                 </LemonField>
@@ -492,6 +496,10 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                                     checked={value}
                                                     data-attr="create-usage-dashboard-checkbox"
                                                 />
+                                                <div className="text-secondary text-sm pl-7">
+                                                    Automatically creates two insights: feature flag call volume and
+                                                    response value breakdowns.
+                                                </div>
                                             </div>
                                         )}
                                     </LemonField>
