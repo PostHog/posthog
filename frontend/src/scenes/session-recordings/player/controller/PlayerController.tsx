@@ -131,6 +131,7 @@ export function PlayerController({ playerIsHovering }: { playerIsHovering: boole
     const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
     const hoverUIEnabled = useFeatureFlag('REPLAY_HOVER_UI', 'test')
 
+    // If we start commenting or clipping, we want to show the UI
     const isHoverOrAction = playerIsHovering || isCommenting || showingClipParams
 
     const { ref, size } = useResizeBreakpoints({
