@@ -16,6 +16,7 @@ import { ActivityScope, ActivityTab, InsightShortId, PropertyFilterType, ReplayT
 
 import { BillingSectionId } from './billing/types'
 import { DataPipelinesSceneTab } from './data-pipelines/DataPipelinesScene'
+import { sourceWizardLogic } from './data-warehouse/new/sourceWizardLogic'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -88,10 +89,29 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.DataWarehouseSource]: {
         projectBased: true,
         name: 'Data warehouse source',
+        defaultDocsPath: '/docs/cdp/sources',
     },
     [Scene.DataWarehouseSourceNew]: {
         projectBased: true,
         name: 'New data warehouse source',
+        defaultDocsPath: () => {
+            try {
+                const logic = sourceWizardLogic.findMounted()
+                if (logic) {
+                    const { selectedConnector } = logic.values
+
+                    // `docsUrl` includes the full URL, we only need the pathname when opening docs in the sidepanel
+                    if (selectedConnector?.docsUrl) {
+                        const parsedUrl = new URL(selectedConnector.docsUrl)
+                        return parsedUrl.pathname
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to get default docs path for new data warehouse source', error)
+            }
+
+            return '/docs/cdp/sources'
+        },
     },
     [Scene.DeadLetterQueue]: { instanceLevel: true },
     [Scene.DebugHog]: { projectBased: true, name: 'Hog Repl' },

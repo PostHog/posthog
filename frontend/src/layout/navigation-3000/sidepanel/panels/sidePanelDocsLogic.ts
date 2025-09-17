@@ -143,7 +143,11 @@ export const sidePanelDocsLogic = kea<sidePanelDocsLogicType>([
             const initialPath = getPathFromUrl(values.selectedTabOptions)
             actions.setInitialPath(initialPath)
         } else if (values.sceneConfig?.defaultDocsPath) {
-            actions.setInitialPath(values.sceneConfig?.defaultDocsPath)
+            const docsPath =
+                typeof values.sceneConfig?.defaultDocsPath === 'function'
+                    ? values.sceneConfig?.defaultDocsPath()
+                    : values.sceneConfig?.defaultDocsPath
+            actions.setInitialPath(docsPath)
         }
 
         cache.onWindowMessage = (event: MessageEvent): void => {
