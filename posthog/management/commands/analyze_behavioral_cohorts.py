@@ -204,7 +204,7 @@ class Command(BaseCommand):
                     team_id=team_id,
                     feature=Feature.BEHAVIORAL_COHORTS,
                     cohort_id=cohort_id,
-                    product=Product.PRODUCT_ANALYTICS,
+                    product=Product.MESSAGING,
                     query_type="get_cohort_memberships",
                 ):
                     results = sync_execute(
