@@ -836,25 +836,23 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
                 query={"kind": "HogQLQuery", "query": "SELECT person_id FROM persons LIMIT 10"},
             )
 
-            # Mock the query processing to fail but let count calculation succeed
+            # Mock the query processing to fail
             with (
                 patch("posthog.api.cohort.insert_cohort_query_actors_into_ch") as mock_insert_ch,
                 patch("posthog.api.cohort.insert_cohort_people_into_pg") as mock_insert_pg,
-                patch("posthog.tasks.calculate_cohort.get_static_cohort_size") as mock_get_size,
             ):
                 # Make the processing functions throw an exception
                 mock_insert_ch.side_effect = Exception("Simulated query processing error")
                 mock_insert_pg.side_effect = Exception("Simulated pg insert error")
 
-                # But make the count calculation return a value
-                mock_get_size.return_value = 5
-
-                # This should not raise an exception and should update the count
+                # This should not raise an exception and should update the count using PostgreSQL
                 insert_cohort_from_query(cohort.id, self.team.pk)
 
-                # Verify count was updated despite processing errors
+                # Verify count was updated despite processing errors (should be 0 since no people were inserted due to mocked failures)
                 cohort.refresh_from_db()
-                self.assertEqual(cohort.count, 5, "Count should be updated even when query processing fails")
+                self.assertEqual(
+                    cohort.count, 0, "Count should be updated using PostgreSQL even when query processing fails"
+                )
                 self.assertFalse(cohort.is_calculating, "Cohort should not be in calculating state")
                 self.assertGreater(cohort.errors_calculating, 0, "Should have recorded the processing error")
 
