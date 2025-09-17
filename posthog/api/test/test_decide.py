@@ -149,9 +149,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
                         },
                     )
                 },
-                HTTP_ORIGIN=origin,
+                headers={"origin": origin, "user-agent": user_agent or "PostHog test"},
                 REMOTE_ADDR=ip,
-                HTTP_USER_AGENT=user_agent or "PostHog test",
             )
 
         if simulate_database_timeout:

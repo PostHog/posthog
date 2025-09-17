@@ -119,11 +119,7 @@ class TestAccessMiddleware(APIBaseTest):
             USE_X_FORWARDED_HOST=True,
         ):
             with self.settings(TRUST_ALL_PROXIES=True):
-                response = self.client.get(
-                    "/",
-                    REMOTE_ADDR="28.160.62.192",
-                    HTTP_X_FORWARDED_FOR="",
-                )
+                response = self.client.get("/", REMOTE_ADDR="28.160.62.192", headers={"x-forwarded-for": ""})
                 self.assertNotIn(b"PostHog is not available", response.content)
 
 

@@ -310,8 +310,8 @@ class CHQueries:
             route_id=route.route,
             client_query_id=self._get_param(request, "client_query_id"),
             session_id=self._get_param(request, "session_id"),
-            http_referer=request.META.get("HTTP_REFERER"),
-            http_user_agent=request.META.get("HTTP_USER_AGENT"),
+            http_referer=request.headers.get("referer"),
+            http_user_agent=request.headers.get("user-agent"),
         )
 
         try:
@@ -397,8 +397,8 @@ class ShortCircuitMiddleware:
                     kind="request",
                     id=request.path,
                     route_id=resolve(request.path).route,
-                    http_referer=request.META.get("HTTP_REFERER"),
-                    http_user_agent=request.META.get("HTTP_USER_AGENT"),
+                    http_referer=request.headers.get("referer"),
+                    http_user_agent=request.headers.get("user-agent"),
                 )
                 if self.decide_throttler.allow_request(request, None):
                     return get_decide(request)

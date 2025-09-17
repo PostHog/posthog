@@ -71,7 +71,7 @@ class VercelRegionProxyMixin:
 
     def _extract_installation_id(self, request: HttpRequest) -> Optional[str]:
         try:
-            if not all([request.META.get("HTTP_AUTHORIZATION"), request.META.get("HTTP_X_VERCEL_AUTH")]):
+            if not all([request.headers.get("authorization"), request.headers.get("x-vercel-auth")]):
                 return None
 
             drf_request = Request(request)
