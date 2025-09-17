@@ -22,7 +22,7 @@ def build_function_call(postgres_table_name: str, context: Optional[HogQLContext
 
     table = add_param(postgres_table_name)
 
-    if settings.DEBUG:
+    if settings.DEBUG or settings.TEST:
         databases = settings.DATABASES
         database = databases["default"]
 
