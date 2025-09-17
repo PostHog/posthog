@@ -707,17 +707,6 @@ export function ReplayGeneral(): JSX.Element {
                     />
                 </AccessControlAction>
 
-                {/* TODO: This should NOT BE ALLOWED, need to only accept children which expose `disabled` and `disabledReason` */}
-                <AccessControlAction
-                    resourceType={AccessControlResourceType.SessionRecording}
-                    minAccessLevel={AccessControlLevel.Editor}
-                    userAccessLevel={
-                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
-                    }
-                >
-                    <InternalMultipleChoiceSurvey surveyId={SESSION_RECORDING_OPT_OUT_SURVEY_ID} />
-                </AccessControlAction>
-
                 {showSurvey && <InternalMultipleChoiceSurvey surveyId={SESSION_RECORDING_OPT_OUT_SURVEY_ID} />}
             </div>
             <LogCaptureSettings />
