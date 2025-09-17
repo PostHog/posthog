@@ -141,7 +141,7 @@ class BaseDestinationTest(ABC):
         pass
 
     @abstractmethod
-    async def assert_no_data_in_destination(self, **kwargs) -> None:
+    async def assert_no_data_in_destination(self, team_id: int) -> None:
         """Assert that no data was written to the destination."""
         pass
 
@@ -351,8 +351,8 @@ async def assert_clickhouse_records_in_destination(
     assert records_from_destination == records_from_clickhouse
 
 
-class CommonDestinationTests:
-    """Common test patterns for all batch export destinations.
+class CommonWorkflowTests:
+    """Common test patterns for all batch export workflows.
 
     This class provides reusable test methods that work across all destinations
     by using the abstract interface defined in BaseDestinationTest.
@@ -505,6 +505,37 @@ class CommonDestinationTests:
             inputs=inputs,
         )
 
+    async def test_workflow_without_events(
+        self,
+        destination_test: BaseDestinationTest,
+        ateam,
+        batch_export_for_destination,
+        data_interval_start: dt.datetime,
+        data_interval_end: dt.datetime,
+    ):
+        """Test workflow behavior when there are no events to export."""
+        inputs = destination_test.create_batch_export_inputs(
+            team_id=ateam.pk,
+            batch_export_id=str(batch_export_for_destination.id),
+            data_interval_end=data_interval_end,
+            interval="hour",
+            batch_export_model=BatchExportModel(name="events", schema=None),
+            **batch_export_for_destination.destination.config,
+        )
+
+        run = await _run_workflow(
+            destination_test=destination_test,
+            batch_export_id=batch_export_for_destination.id,
+            inputs=inputs,
+        )
+        assert run.status == "Completed"
+        assert run.records_completed == 0
+        assert run.bytes_exported == 0
+
+        await destination_test.assert_no_data_in_destination(
+            team_id=ateam.pk,
+        )
+
     async def test_workflow_handles_unexpected_errors(
         self,
         destination_test: BaseDestinationTest,
@@ -576,111 +607,3 @@ class CommonDestinationTests:
         assert run.latest_error == expected_error_message
         assert run.records_completed is None
         assert run.bytes_exported is None
-
-    # async def test_workflow_handles_cancellation(
-    #     self,
-    #     destination_test: BaseDestinationTest,
-    #     ateam,
-    #     batch_export_for_destination,
-    # ):
-    #     """Test that workflow handles cancellation gracefully."""
-    #     data_interval_end = dt.datetime.fromisoformat("2023-04-25T14:30:00.000000+00:00")
-
-    #     @activity.defn(name="never_finish_activity")
-    #     async def never_finish_activity(_) -> str:
-    #         while True:
-    #             activity.heartbeat()
-    #             await asyncio.sleep(1)
-
-    #     workflow_id = str(uuid.uuid4())
-    #     inputs = destination_test.create_batch_export_inputs(
-    #         team_id=ateam.pk,
-    #         batch_export_id=str(batch_export_for_destination.id),
-    #         data_interval_end=data_interval_end,
-    #         interval="hour",
-    #         **batch_export_for_destination.destination.config,
-    #     )
-
-    #     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-    #         async with Worker(
-    #             activity_environment.client,
-    #             task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-    #             workflows=[destination_test.workflow_class],
-    #             activities=[
-    #                 mocked_start_batch_export_run,
-    #                 never_finish_activity,
-    #                 finish_batch_export_run,
-    #             ],
-    #             workflow_runner=UnsandboxedWorkflowRunner(),
-    #         ):
-    #             handle = await activity_environment.client.start_workflow(
-    #                 destination_test.workflow_class.run,
-    #                 inputs,
-    #                 id=workflow_id,
-    #                 task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-    #                 retry_policy=RetryPolicy(maximum_attempts=1),
-    #             )
-
-    #             await asyncio.sleep(5)
-    #             await handle.cancel()
-
-    #             with pytest.raises(WorkflowFailureError):
-    #                 await handle.result()
-
-    #     # Verify the run was marked as cancelled
-    #     runs = await afetch_batch_export_runs(batch_export_id=batch_export_for_destination.id)
-    #     assert len(runs) == 1
-
-    #     run = runs[0]
-    #     assert run.status == "Cancelled"
-    #     assert run.latest_error == "Cancelled"
-
-    #     await destination_test.assert_no_data_in_destination()
-
-    # async def test_workflow_without_events(
-    #     self,
-    #     destination_test: BaseDestinationTest,
-    #     ateam,
-    #     batch_export_for_destination,
-    #     data_interval_start: dt.datetime,
-    #     data_interval_end: dt.datetime,
-    # ):
-    #     """Test workflow behavior when there are no events to export."""
-    #     workflow_id = str(uuid.uuid4())
-    #     inputs = destination_test.create_batch_export_inputs(
-    #         team_id=ateam.pk,
-    #         batch_export_id=str(batch_export_for_destination.id),
-    #         data_interval_end=data_interval_end,
-    #         interval="hour",
-    #         **batch_export_for_destination.destination.config,
-    #     )
-
-    #     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-    #         async with Worker(
-    #             activity_environment.client,
-    #             task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-    #             workflows=[destination_test.workflow_class],
-    #             activities=[
-    #                 start_batch_export_run,
-    #                 finish_batch_export_run,
-    #             ],
-    #             workflow_runner=UnsandboxedWorkflowRunner(),
-    #         ):
-    #             await activity_environment.client.execute_workflow(
-    #                 destination_test.workflow_class.run,
-    #                 inputs,
-    #                 id=workflow_id,
-    #                 task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-    #                 retry_policy=RetryPolicy(maximum_attempts=1),
-    #                 execution_timeout=dt.timedelta(seconds=10),
-    #             )
-
-    #     # Verify the run completed with 0 records
-    #     runs = await afetch_batch_export_runs(batch_export_id=batch_export_for_destination.id)
-    #     assert len(runs) == 1
-
-    #     run = runs[0]
-    #     assert run.status == "Completed"
-    #     assert run.records_completed == 0
-
-    #     await destination_test.assert_no_data_in_destination()

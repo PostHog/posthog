@@ -5,7 +5,7 @@ import json
 import typing as t
 import datetime as dt
 import contextlib
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 
 import pytest
 import unittest.mock
@@ -13,6 +13,7 @@ import unittest.mock
 import numpy as np
 from databricks import sql
 from databricks.sdk.core import Config, oauth_service_principal
+from databricks.sql.exc import ServerOperationError
 
 from posthog.batch_exports.service import BatchExportField, DatabricksBatchExportInputs
 from posthog.models.team import Team
@@ -24,7 +25,7 @@ from products.batch_exports.backend.temporal.destinations.databricks_batch_expor
 )
 from products.batch_exports.backend.tests.temporal.destinations.base_destination_tests import (
     BaseDestinationTest,
-    CommonDestinationTests,
+    CommonWorkflowTests,
     RetryableTestException,
 )
 
@@ -153,19 +154,18 @@ class DatabricksDestinationTest(BaseDestinationTest):
         """
         return [{k: v for k, v in record.items() if k != "databricks_ingested_timestamp"} for record in records]
 
-    async def assert_no_data_in_destination(self, **kwargs) -> None:
-        """Assert that no data was written to Databricks.
-
-        Note: This is a placeholder implementation. In a real test environment,
-        you would connect to your test Databricks instance and verify no data exists.
-        """
-        # Placeholder - in real implementation, you would:
-        # 1. Connect to test Databricks workspace
-        # 2. Query the target table
-        # 3. Verify no records exist or table doesn't exist
-
-        # For now, we'll just pass since we don't have a test Databricks instance
-        assert False, "Not implemented"
+    async def assert_no_data_in_destination(self, team_id: int) -> None:
+        """Assert that no data was written to Databricks."""
+        try:
+            records = await self.get_inserted_records(
+                team_id=team_id,
+                json_columns=[],
+            )
+            assert len(records) == 0
+        except ServerOperationError as e:
+            if "TABLE_OR_VIEW_NOT_FOUND" in str(e):
+                return
+            raise
 
     @contextlib.contextmanager
     def cursor(self, team_id: int):
@@ -188,7 +188,7 @@ class DatabricksDestinationTest(BaseDestinationTest):
                 yield cursor
 
 
-class TestDatabricksBatchExport(CommonDestinationTests):
+class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
     """Databricks batch export tests using the common test framework.
 
     This class inherits all the common test patterns and runs them specifically
@@ -196,8 +196,17 @@ class TestDatabricksBatchExport(CommonDestinationTests):
     implementation.
     """
 
+    @pytest.fixture(autouse=True)
+    def reduce_poll_interval(self):
+        """Reduce the poll interval for the Databricks client, in order to speed up the tests."""
+        with unittest.mock.patch(
+            "products.batch_exports.backend.temporal.destinations.databricks_batch_export.DatabricksClient.DEFAULT_POLL_INTERVAL",
+            0.2,
+        ):
+            yield
+
     @pytest.fixture
-    def destination_test(self, ateam: Team) -> DatabricksDestinationTest:
+    def destination_test(self, ateam: Team) -> Generator[DatabricksDestinationTest, t.Any, t.Any]:
         """Provide the Databricks-specific test implementation.
 
         This fixture also takes care of setting up the destination for the test.
@@ -221,37 +230,3 @@ class TestDatabricksBatchExport(CommonDestinationTests):
             side_effect=RetryableTestException("A useful error message"),
         ):
             yield
-
-    # @pytest.fixture
-    # def batch_export_for_destination(self, ateam, databricks_config):
-    #     """Create a batch export configured for Databricks destination."""
-
-    #     destination = BatchExportDestination(
-    #         type="Databricks",
-    #         config=databricks_config,
-    #     )
-    #     destination.save()
-
-    #     batch_export = BatchExport(
-    #         name="test-databricks-export",
-    #         destination=destination,
-    #         team=ateam,
-    #         interval="hour",
-    #         paused=False,
-    #     )
-    #     batch_export.save()
-
-    #     return batch_export
-
-    # @pytest.fixture
-    # def databricks_config(self):
-    #     """Provide test configuration for Databricks destination."""
-    #     return {
-    #         "server_hostname": os.getenv("DATABRICKS_SERVER_HOSTNAME"),
-    #         "http_path": os.getenv("DATABRICKS_HTTP_PATH"),
-    #         "client_id": os.getenv("DATABRICKS_CLIENT_ID"),
-    #         "client_secret": os.getenv("DATABRICKS_CLIENT_SECRET"),
-    #         "catalog": os.getenv("DATABRICKS_CATALOG", "workspace"),
-    #         "schema": os.getenv("DATABRICKS_SCHEMA", "batch_export_tests"),
-    #         "table_name": os.getenv("DATABRICKS_TABLE_NAME"),
-    #     }
