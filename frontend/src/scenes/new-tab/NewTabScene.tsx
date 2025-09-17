@@ -5,7 +5,6 @@ import { IconSearch, IconSidePanel } from '@posthog/icons'
 import { LemonInput } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ListBox, ListBoxHandle } from 'lib/ui/ListBox/ListBox'
@@ -17,6 +16,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SidePanelTab } from '~/types'
 
 export const scene: SceneExport = {
@@ -34,13 +34,16 @@ const getCategoryDisplayName = (category: string): string => {
 }
 
 export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
+    const inputRef = useRef<HTMLInputElement>(null)
     const listboxRef = useRef<ListBoxHandle>(null)
     const { filteredItemsGrid, search, selectedItem, categories, selectedCategory } = useValues(
         newTabSceneLogic({ tabId })
     )
+    const { mobileLayout } = useValues(navigationLogic)
     const { setQuestion, focusInput } = useActions(maxLogic)
     const { setSearch, setSelectedCategory } = useActions(newTabSceneLogic({ tabId }))
     const { openSidePanel } = useActions(sidePanelStateLogic)
+
     // scroll it to view
     useEffect(() => {
         if (selectedItem) {
@@ -54,11 +57,13 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
             ref={listboxRef}
             className="w-full grid grid-rows-[auto_1fr] flex-col h-[calc(100vh-var(--scene-layout-header-height))]"
             virtualFocus
+            autoSelectFirst
         >
             <div className="flex flex-col gap-4">
                 <div className="px-1 @lg/main-content:px-8 pt-2 @lg/main-content:pt-8 mx-auto w-full max-w-[1200px] ">
                     <ListBox.Item asChild virtualFocusIgnore>
                         <LemonInput
+                            inputRef={inputRef}
                             value={search}
                             onChange={(value) => setSearch(value)}
                             // onKeyDown={handleKeyDown}
@@ -94,7 +99,8 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                                 </ListBox.Item>
                             </span>
                             <span className="text-primary flex gap-1 items-center">
-                                <ListBox.Item asChild>
+                                {/* if filtered results lenght is 0, this will be the first to focus */}
+                                <ListBox.Item asChild focusFirst={filteredItemsGrid.length === 0}>
                                     <ButtonPrimitive
                                         size="xxs"
                                         onClick={() => {
@@ -104,6 +110,7 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                                             focusInput()
                                         }}
                                         className="text-xs"
+                                        tooltip="Hit enter to open Max!"
                                     >
                                         Ask Max!
                                         <IconSidePanel />
@@ -121,6 +128,14 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                                     value={category.key}
                                     className="px-2 py-1 cursor-pointer"
                                     key={category.key}
+                                    onClick={() => {
+                                        if (!mobileLayout) {
+                                            // If not mobile, we want to re-focus the input if we trigger the tabs (which filter)
+                                            inputRef.current?.focus()
+                                            // Reset listbox focus on first item
+                                            listboxRef.current?.focusFirstItem()
+                                        }
+                                    }}
                                 >
                                     {category.label}
                                 </TabsPrimitiveTrigger>
@@ -140,20 +155,16 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                         <div className="flex flex-col gap-4">
                             <div className="flex gap-1 items-center">
                                 No results found,{' '}
-                                <ListBox.Item asChild>
-                                    <LemonButton type="primary" size="xsmall" onClick={() => setSearch('')}>
+                                <ListBox.Item asChild className="list-none">
+                                    <ButtonPrimitive size="sm" onClick={() => setSearch('')}>
                                         Clear search
-                                    </LemonButton>{' '}
+                                    </ButtonPrimitive>{' '}
                                 </ListBox.Item>
                                 or{' '}
                                 <ListBox.Item asChild>
-                                    <LemonButton
-                                        type="primary"
-                                        size="xsmall"
-                                        onClick={() => openSidePanel(SidePanelTab.Max)}
-                                    >
+                                    <ButtonPrimitive size="sm" onClick={() => openSidePanel(SidePanelTab.Max)}>
                                         Ask Max!
-                                    </LemonButton>
+                                    </ButtonPrimitive>
                                 </ListBox.Item>
                             </div>
                         </div>
@@ -175,7 +186,11 @@ export function NewTabScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                                     </div>
                                     <div className="flex flex-col gap-2">
                                         {types.map((qt, index) => (
-                                            <ListBox.Item asChild focusFirst={index === 0}>
+                                            // If we have filtered results set virtual focus to first item
+                                            <ListBox.Item
+                                                asChild
+                                                focusFirst={filteredItemsGrid.length > 0 && index === 0}
+                                            >
                                                 <Link
                                                     key={qt.name}
                                                     to={qt.href}

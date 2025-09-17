@@ -35,6 +35,7 @@ interface ListBoxProps extends React.HTMLAttributes<HTMLDivElement> {
     className?: string
     focusedElement?: HTMLElement | null
     virtualFocus?: boolean
+    autoSelectFirst?: boolean
     onFinishedKeyDown?: ({
         e,
         activeElement,
@@ -50,7 +51,7 @@ interface ListBoxProps extends React.HTMLAttributes<HTMLDivElement> {
 
 /** Root ListBox implementation */
 const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
-    { children, className, onFinishedKeyDown, focusedElement, virtualFocus = false, ...props },
+    { children, className, onFinishedKeyDown, focusedElement, virtualFocus = false, autoSelectFirst = false, ...props },
     ref
 ) {
     const containerRef = useRef<HTMLDivElement>(null)
@@ -179,7 +180,10 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
 
     useEffect(() => {
         recalculateFocusableElements()
-    }, [children]) // oxlint-disable-line react-hooks/exhaustive-deps
+        if (autoSelectFirst) {
+            focusFirstItem()
+        }
+    }, [children, autoSelectFirst, focusFirstItem]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (focusedElement) {
