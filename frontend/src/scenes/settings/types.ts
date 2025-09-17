@@ -173,6 +173,17 @@ export type Setting = {
      * can check if a team should have access to a setting and return false if not
      */
     allowForTeam?: (team: TeamType | TeamPublicType | null) => boolean
+}
+
+export interface SettingSection extends Pick<Setting, 'flag'> {
+    id: SettingSectionId
+    to?: string
+    title: JSX.Element | string
+    hideSelfHost?: boolean
+    level: SettingLevelId
+    settings: Setting[]
+    minimumAccessLevel?: EitherMembershipLevel
+    searchValue?: string
 
     /**
      * If the setting is restricted, the resource type and minimum access level
@@ -182,15 +193,4 @@ export type Setting = {
         resourceType: AccessControlResourceType
         minimumAccessLevel: AccessControlLevel
     }
-}
-
-export interface SettingSection extends Pick<Setting, 'flag' | 'accessControl'> {
-    id: SettingSectionId
-    to?: string
-    title: JSX.Element | string
-    hideSelfHost?: boolean
-    level: SettingLevelId
-    settings: Setting[]
-    minimumAccessLevel?: EitherMembershipLevel
-    searchValue?: string
 }
