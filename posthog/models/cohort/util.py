@@ -286,7 +286,7 @@ def insert_static_cohort(person_uuids: list[Optional[uuid.UUID]], cohort_id: int
 
 
 def get_static_cohort_size(*, cohort_id: int, team_id: int) -> int:
-    count = CohortPeople.objects.select_related("person").filter(cohort_id=cohort_id, person__team_id=team_id).count()
+    count = CohortPeople.objects.filter(cohort_id=cohort_id, person__team_id=team_id).count()
 
     return count
 
