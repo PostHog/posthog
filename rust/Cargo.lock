@@ -1453,6 +1453,7 @@ dependencies = [
  "rand 0.8.5",
  "rdkafka",
  "redis",
+ "regex",
  "reqwest 0.12.15",
  "serde",
  "serde_json",

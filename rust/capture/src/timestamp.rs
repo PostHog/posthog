@@ -2,6 +2,7 @@ use std::borrow::Cow;
 
 use chrono::{DateTime, Datelike, Duration, Utc};
 use jiff::civil::DateTime as JiffDateTime;
+use regex::Regex;
 
 const FUTURE_EVENT_HOURS_CUTOFF_MILLIS: i64 = 23 * 3600 * 1000; // 23 hours
 
@@ -109,31 +110,38 @@ fn parse_date(supposed_iso_string: &str) -> Option<DateTime<Utc>> {
 
 /// Normalize non-standard timezone formats to standard RFC3339 format
 /// Returns a Cow that borrows the input if no normalization is needed, or owns a new string if modified
-/// Only processes strings that look like ISO datetime with 'T' to avoid matching date-only strings
+/// Uses regex to precisely match ISO datetime strings with non-standard timezone format
 /// Examples:
 /// - "2025-09-17T14:05:04.805+03" -> "2025-09-17T14:05:04.805+03:00" (owned)
 /// - "2025-09-17T14:05:04.805-05" -> "2025-09-17T14:05:04.805-05:00" (owned)
 /// - "2025-09-17T14:05:04.805Z" -> "2025-09-17T14:05:04.805Z" (borrowed)
-/// - "2023-01-01" -> "2023-01-01" (borrowed, no T so no processing)
+/// - "2023-01-01" -> "2023-01-01" (borrowed, no match)
 fn normalize_timezone_format(input: &str) -> Cow<'_, str> {
-    // Only process strings that contain 'T' (ISO datetime format)
-    // This prevents matching date-only strings like "2023-01-01"
-    if !input.contains('T') {
+    // Quick optimization: check last 3 chars first
+    if input.len() < 3 {
         return Cow::Borrowed(input);
     }
 
-    // Look for timezone offset at the end of the string: +XX or -XX
-    if input.len() >= 3 {
-        let last_3_chars = &input[input.len() - 3..];
-        if (last_3_chars.starts_with('+') || last_3_chars.starts_with('-'))
-            && last_3_chars[1..].chars().all(|c| c.is_ascii_digit())
-        {
-            // Found +XX or -XX pattern at the end, convert to +XX:00 or -XX:00
-            return Cow::Owned(format!("{}:00", input));
-        }
+    let last_3_chars = &input[input.len() - 3..];
+    if !(last_3_chars.starts_with('+') || last_3_chars.starts_with('-'))
+        || !last_3_chars[1..].chars().all(|c| c.is_ascii_digit())
+    {
+        return Cow::Borrowed(input);
     }
-    // Return input unchanged if no normalization needed
-    Cow::Borrowed(input)
+
+    // Use regex to confirm this is an ISO datetime with non-standard timezone format
+    // Pattern: YYYY-MM-DDTHH:MM:SS[.fff][+/-]HH
+    static TIMEZONE_REGEX: std::sync::LazyLock<Regex> = std::sync::LazyLock::new(|| {
+        Regex::new(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?[+-]\d{2}$").unwrap()
+    });
+
+    if TIMEZONE_REGEX.is_match(input) {
+        // Found ISO datetime with +XX or -XX timezone, convert to +XX:00 or -XX:00
+        Cow::Owned(format!("{}:00", input))
+    } else {
+        // Not the format we're looking for, return unchanged
+        Cow::Borrowed(input)
+    }
 }
 
 /// Helper function to convert jiff timestamp to chrono DateTime<Utc>
@@ -644,14 +652,22 @@ mod tests {
     fn test_normalize_timezone_format() {
         // Test the timezone normalization function
         let test_cases = vec![
+            // Cases that should be normalized
             ("2025-09-17T14:05:04.805+03", "2025-09-17T14:05:04.805+03:00"),
             ("2025-09-17T14:05:04.805-05", "2025-09-17T14:05:04.805-05:00"),
             ("2025-09-17T14:05:04.805+00", "2025-09-17T14:05:04.805+00:00"),
+            ("2025-09-17T14:05:04+03", "2025-09-17T14:05:04+03:00"), // Without fractional seconds
+            ("2025-09-17T14:05:04-05", "2025-09-17T14:05:04-05:00"), // Without fractional seconds
+
+            // Cases that should NOT be normalized
             ("2025-09-17T14:05:04.805Z", "2025-09-17T14:05:04.805Z"), // Already standard format
             ("2025-09-17T14:05:04.805+03:00", "2025-09-17T14:05:04.805+03:00"), // Already standard format
             ("2023-01-01", "2023-01-01"), // Date-only, should not be processed
             ("2021-10-29", "2021-10-29"), // Date-only, should not be processed
             ("invalid", "invalid"), // No change for invalid input
+            ("2025-09-17T14:05:04.805+123", "2025-09-17T14:05:04.805+123"), // Invalid timezone (3 digits)
+            ("not-a-date-01", "not-a-date-01"), // Ends with -01 but not a datetime
+            ("T14:05:04+03", "T14:05:04+03"), // Missing date part
         ];
 
         for (input, expected) in test_cases {
