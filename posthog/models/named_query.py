@@ -53,6 +53,8 @@ class NamedQuery(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     is_active = models.BooleanField(default=True, help_text="Whether this named query is available via the API")
 
     created_by = models.ForeignKey(User, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         constraints = [

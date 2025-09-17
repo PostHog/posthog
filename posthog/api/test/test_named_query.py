@@ -12,7 +12,19 @@ class TestNamedQuery(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self):
         super().setUp()
-        self.sample_query = {"kind": "HogQLQuery", "query": "SELECT count(1) FROM query_log"}
+        self.sample_query = {
+            "explain": None,
+            "filters": None,
+            "kind": "HogQLQuery",
+            "modifiers": None,
+            "name": None,
+            "query": "SELECT count(1) FROM query_log",
+            "response": None,
+            "tags": None,
+            "values": None,
+            "variables": None,
+            "version": None,
+        }
 
     def test_list_named_queries(self):
         """Test listing all named queries for a team."""
@@ -63,19 +75,18 @@ class TestNamedQuery(ClickhouseTestMixin, APIBaseTest):
         """Test creating a named query successfully."""
         data = {
             "name": "test_query",
-            "query": self.sample_query,
             "description": "Test query description",
-            "is_active": True,
+            "query": self.sample_query,
         }
 
         response = self.client.post(f"/api/environments/{self.team.id}/named_query/", data, format="json")
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
         response_data = response.json()
 
-        self.assertEqual(response_data["name"], "test_query")
-        self.assertEqual(response_data["query"], self.sample_query)
-        self.assertEqual(response_data["description"], "Test query description")
+        self.assertEqual("test_query", response_data["name"])
+        self.assertEqual(self.sample_query, response_data["query"])
+        self.assertEqual("Test query description", response_data["description"])
         self.assertTrue(response_data["is_active"])
         self.assertIn("id", response_data)
         self.assertIn("endpoint_path", response_data)
@@ -109,13 +120,26 @@ class TestNamedQuery(ClickhouseTestMixin, APIBaseTest):
             f"/api/environments/{self.team.id}/named_query/{named_query.name}/", updated_data, format="json"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response_data)
 
-        self.assertEqual(response_data["name"], "update_test")
-        self.assertEqual(response_data["description"], "Updated description")
+        self.assertEqual("update_test", response_data["name"])
+        self.assertEqual("Updated description", response_data["description"])
         self.assertFalse(response_data["is_active"])
-        self.assertEqual(response_data["query"], {"kind": "HogQLQuery", "query": "SELECT 1"})
+        want_query = {
+            "explain": None,
+            "filters": None,
+            "kind": "HogQLQuery",
+            "modifiers": None,
+            "name": None,
+            "query": "SELECT 1",
+            "response": None,
+            "tags": None,
+            "values": None,
+            "variables": None,
+            "version": None,
+        }
+        self.assertEqual(want_query, response_data["query"])
 
         # Verify database was updated
         named_query.refresh_from_db()

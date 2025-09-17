@@ -9,7 +9,7 @@ from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import QueryRequest
+from posthog.schema import NamedQueryRequest, NamedQueryRunRequest, QueryRequest
 
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
@@ -27,13 +27,14 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES
 from posthog.models.named_query import NamedQuery
 from posthog.rate_limit import APIQueriesBurstThrottle, APIQueriesSustainedThrottle
+from posthog.schema_migrations.upgrade import upgrade
 
 from common.hogvm.python.utils import HogVMException
 
 
 class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ModelViewSet):
     # NOTE: Do we need to override the scopes for the "create"
-    scope_object = "hogql_query"
+    scope_object = "named_query"
     # Special case for query - these are all essentially read actions
     scope_object_read_actions = ["retrieve", "create", "list", "destroy", "update", "run"]
     scope_object_write_actions: list[str] = []
@@ -79,31 +80,41 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
 
         return Response({"results": results})
 
-    @extend_schema(
-        request=QueryRequest,
-        description="Create a new named query",
-    )
-    def create(self, request: Request, *args, **kwargs) -> Response:
-        """Create a new named query."""
-        data = request.data
-
-        name = data.get("name")
+    def validate_request(self, data: QueryRequest, strict: bool = True) -> None:
+        if strict and not data.query:
+            raise ValidationError("Must specify query")
+        kind = data.query.kind
+        if kind != "HogQLQuery":
+            capture_exception(f"unsupported query kind: {kind}")
+            raise ValidationError("Only HogQLQuery query kind is supported (speak to us)")
+        name = data.name
         if not name:
-            raise ValidationError("Named query must have a name.")
+            if name is not None or strict:
+                raise ValidationError("Named query must have a name.")
+            return
         if not isinstance(name, str) or not re.fullmatch(r"^[a-zA-Z0-9_-]{1,128}$", name):
             raise ValidationError(
                 "Named query name must be alphanumeric characters, hyphens, or underscores, "
                 "and be between 1 and 128 characters long."
             )
 
+    @extend_schema(
+        request=NamedQueryRequest,
+        description="Create a new named query",
+    )
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        """Create a new named query."""
+        upgraded_query = upgrade(request.data)
+        data = self.get_model(upgraded_query, NamedQueryRequest)
+        self.validate_request(data)
+
         try:
             named_query = NamedQuery.objects.create(
-                name=data["name"],
+                name=data.name,
                 team=self.team,
-                query=data["query"],
-                description=data.get("description", ""),
-                parameters=data.get("parameters", {}),
-                is_active=data.get("is_active", True),
+                query=data.query.model_dump(),
+                description=data.description or "",
+                is_active=data.is_active if data.is_active is not None else True,
                 created_by=request.user,
             )
 
@@ -124,24 +135,29 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
 
         except Exception as e:
             capture_exception(e)
-            raise ValidationError("Failed to create named query")
+            raise ValidationError(f"Failed to create named query {e}")
 
+    @extend_schema(
+        request=NamedQueryRequest,
+        description="Update an existing named query. Parameters are optional.",
+    )
     def update(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Update an existing named query."""
         named_query = get_object_or_404(NamedQuery, team=self.team, name=name)
-        data = request.data
+
+        upgraded_query = upgrade(request.data)
+        data = self.get_model(upgraded_query, NamedQueryRequest)
+        self.validate_request(data, strict=False)
 
         try:
-            if "name" in data:
-                named_query.name = data["name"]
-            if "query" in data:
-                named_query.query = data["query"]
-            if "description" in data:
-                named_query.description = data["description"]
-            if "parameters" in data:
-                named_query.parameters = data["parameters"]
-            if "is_active" in data:
-                named_query.is_active = data["is_active"]
+            if data.name is not None:
+                named_query.name = data.name
+            if data.query is not None:
+                named_query.query = data.query.model_dump()
+            if data.description is not None:
+                named_query.description = data.description
+            if data.is_active is not None:
+                named_query.is_active = data.is_active
 
             named_query.save()
 
@@ -161,7 +177,7 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
 
         except Exception as e:
             capture_exception(e)
-            raise ValidationError("Failed to update named query")
+            raise ValidationError(f"Failed to update named query: {e}")
 
     def destroy(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Delete a named query."""
@@ -169,17 +185,18 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
         named_query.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
+    @extend_schema(
+        request=NamedQueryRunRequest,
+        description="Update an existing named query. Parameters are optional.",
+    )
     @action(methods=["GET", "POST"], detail=True)
     def run(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Execute a named query with optional parameters."""
         named_query = get_object_or_404(NamedQuery, team=self.team, name=name, is_active=True)
 
-        # Get query with parameters applied
-        query_data = named_query.get_query_with_parameters(request.query_params.dict())
-
         # Build QueryRequest
         query_request_data = {
-            "query": query_data,
+            "query": named_query.query,
             **request.data,  # Allow overriding QueryRequest fields like refresh, client_query_id
         }
 
