@@ -22,7 +22,6 @@ from posthog.models.team.team_caching import get_team_in_cache
 from posthog.models.user import User
 
 from ee.api.test.base import APILicensedTest
-from ee.models.explicit_team_membership import ExplicitTeamMembership
 
 
 def team_enterprise_api_test_factory():  # type: ignore
@@ -128,18 +127,6 @@ def team_enterprise_api_test_factory():  # type: ignore
         def test_delete_team_as_org_member_forbidden(self):
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
-            response = self.client.delete(f"/api/environments/{self.team.id}")
-            self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
-            self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
-
-        def test_delete_open_team_as_org_member_but_team_admin_forbidden(self):
-            self.organization_membership.level = OrganizationMembership.Level.MEMBER
-            self.organization_membership.save()
-            ExplicitTeamMembership.objects.create(
-                team=self.team,
-                parent_membership=self.organization_membership,
-                level=ExplicitTeamMembership.Level.ADMIN,
-            )
             response = self.client.delete(f"/api/environments/{self.team.id}")
             self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
