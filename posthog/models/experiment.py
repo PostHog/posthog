@@ -175,7 +175,7 @@ class ExperimentTimeseriesResult(models.Model):
     experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)
     metric_uuid = models.CharField(max_length=255)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
-    timeseries = models.JSONField(null=True, blank=True)
+    timeseries = models.JSONField(null=True, blank=True, default=None)
     computed_at = models.DateTimeField(null=True, blank=True)
     error_message = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
