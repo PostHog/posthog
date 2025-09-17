@@ -701,7 +701,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not retention_limit:
             raise ImproperlyConfigured("No retention period limit specified.")
 
-        match retention_feature.get("unit", "").lower():
+        retention_unit = retention_feature.get("unit")
+
+        if not retention_unit:
+            raise ImproperlyConfigured("No retention period unit specified.")
+
+        match retention_unit.lower():
             case "day" | "days":
                 highest_retention_entitlement = f"{retention_limit}d"
             case "month" | "months":
