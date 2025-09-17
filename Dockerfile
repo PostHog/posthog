@@ -104,7 +104,8 @@ RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v23 \
 #
 # ---------------------------------------------------------
 #
-FROM python:3.12.11-slim-bookworm AS posthog-build
+# Exact Python version installed by uv is in pyproject.toml, so we can be more lenient here.
+FROM python:3.12-slim-bookworm AS posthog-build
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
