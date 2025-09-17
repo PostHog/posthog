@@ -472,13 +472,13 @@ const SelectExistingFeatureFlagModal = ({
                 filters={featureFlagModalFilters}
                 setFeatureFlagsFilters={setFeatureFlagModalFilters}
                 searchPlaceholder="Search for feature flags"
-                filtersConfig={{ search: true, type: true }}
+                filtersConfig={{ search: true }}
             />
         </div>
     )
 
     return (
-        <LemonModal isOpen={isOpen} onClose={handleClose} title="Choose an existing feature flag">
+        <LemonModal isOpen={isOpen} onClose={handleClose} title="Choose an existing feature flag" width="30%">
             <div className="deprecated-space-y-2">
                 <div className="text-muted mb-2 max-w-xl">
                     Select an existing feature flag to use with this experiment. The feature flag must use multiple
@@ -488,7 +488,13 @@ const SelectExistingFeatureFlagModal = ({
                 {filtersSection}
                 <LemonTable
                     id="ff"
-                    dataSource={featureFlagModalFeatureFlags.results}
+                    dataSource={featureFlagModalFeatureFlags.results.filter((featureFlag) => {
+                        try {
+                            return featureFlagEligibleForExperiment(featureFlag)
+                        } catch {
+                            return false
+                        }
+                    })}
                     loading={featureFlagModalFeatureFlagsLoading}
                     useURLForSorting={false}
                     columns={[
@@ -517,17 +523,11 @@ const SelectExistingFeatureFlagModal = ({
                         {
                             title: null,
                             render: function RenderActions(_, flag) {
-                                let disabledReason: string | undefined = undefined
-                                try {
-                                    featureFlagEligibleForExperiment(flag)
-                                } catch (error) {
-                                    disabledReason = (error as Error).message
-                                }
                                 return (
                                     <LemonButton
                                         size="xsmall"
                                         type="primary"
-                                        disabledReason={disabledReason}
+                                        disabledReason={undefined}
                                         onClick={() => {
                                             onSelect(flag)
                                             handleClose()
