@@ -125,11 +125,13 @@ export function Screenshot({ className }: { className?: string }): JSX.Element {
 }
 
 export function PlayerController({ playerIsHovering }: { playerIsHovering: boolean }): JSX.Element {
-    const { playlistLogic, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { playlistLogic, logicProps, showingClipParams, isCommenting } = useValues(sessionRecordingPlayerLogic)
     const { isCinemaMode } = useValues(playerSettingsLogic)
 
     const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
     const hoverUIEnabled = useFeatureFlag('REPLAY_HOVER_UI', 'test')
+
+    const isHoverOrAction = playerIsHovering || isCommenting || showingClipParams
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -141,7 +143,7 @@ export function PlayerController({ playerIsHovering }: { playerIsHovering: boole
             className={cn(
                 'flex flex-col select-none',
                 hoverUIEnabled ? 'absolute bottom-0 left-0 right-0 transition-all duration-150 ease-out' : '',
-                hoverUIEnabled && playerIsHovering
+                hoverUIEnabled && isHoverOrAction
                     ? 'opacity-100 bg-surface-primary pointer-events-auto'
                     : hoverUIEnabled
                       ? 'opacity-0 pointer-events-none'
