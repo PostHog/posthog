@@ -373,7 +373,7 @@ class DatabricksClient:
             )
         except ServerOperationError as err:
             if err.message and "INSUFFICIENT_PERMISSIONS" in err.message:
-                self.external_logger.error("Failed to create table: %s", err.message)
+                self.external_logger.error("Failed to create table: %s", err.message)  # noqa: TRY400
                 raise DatabricksInsufficientPermissionsError(f"Failed to create table: {err.message}")
             raise
 
@@ -420,7 +420,7 @@ class DatabricksClient:
             await self.execute_async_query(query, fetch_results=False)
         except ServerOperationError as err:
             if err.message and "INSUFFICIENT_PERMISSIONS" in err.message:
-                self.external_logger.error("Failed to copy data from volume into table: %s", err.message)
+                self.external_logger.error("Failed to copy data from volume into table: %s", err.message)  # noqa: TRY400
                 raise DatabricksInsufficientPermissionsError(
                     f"Failed to copy data from volume into table: {err.message}"
                 )
@@ -829,9 +829,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
                     producer_task=producer_task,
                     schema=record_batch_schema,
                     file_format="Parquet",
-                    # TODO - add compression
-                    # compression="zstd",
-                    compression=None,
+                    compression="zstd",
                     include_inserted_at=False,
                     max_file_size_bytes=settings.BATCH_EXPORT_DATABRICKS_UPLOAD_CHUNK_SIZE_BYTES,
                     json_columns=known_variant_columns,
