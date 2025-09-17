@@ -1905,7 +1905,7 @@ const api = {
 
     comments: {
         async create(
-            data: Partial<CommentType>,
+            data: Partial<CommentType> & { mentions?: number[] },
             params: Record<string, any> = {},
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): Promise<CommentType> {
@@ -1914,7 +1914,7 @@ const api = {
 
         async update(
             id: CommentType['id'],
-            data: Partial<CommentType>,
+            data: Partial<CommentType> & { new_mentions?: number[] },
             params: Record<string, any> = {},
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): Promise<CommentType> {

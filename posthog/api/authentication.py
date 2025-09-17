@@ -185,7 +185,9 @@ class LoginSerializer(serializers.Serializer):
         if not was_authenticated_before_login_attempt:
             short_user_agent = get_short_user_agent(request)
             ip_address = get_ip_address(request)
-            login_from_new_device_notification.delay(user.id, timezone.now(), short_user_agent, ip_address)
+            login_from_new_device_notification.delay(
+                user.id, timezone.now(), short_user_agent, ip_address, "Email/password"
+            )
 
         report_user_logged_in(user, social_provider="")
         return user
@@ -459,4 +461,5 @@ def social_login_notification(
         request = strategy.request
         short_user_agent = get_short_user_agent(request)
         ip_address = get_ip_address(request)
-        login_from_new_device_notification.delay(user.id, timezone.now(), short_user_agent, ip_address)
+        backend_name = getattr(backend, "name", "")
+        login_from_new_device_notification.delay(user.id, timezone.now(), short_user_agent, ip_address, backend_name)

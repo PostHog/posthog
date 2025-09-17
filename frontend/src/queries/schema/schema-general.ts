@@ -3762,6 +3762,7 @@ export enum MarketingAnalyticsColumnsSchemaNames {
     Date = 'date',
     Impressions = 'impressions',
     Source = 'source',
+    ReportedConversion = 'reported_conversion',
 }
 
 export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaNames, MarketingAnalyticsSchemaField> = {
@@ -3772,6 +3773,10 @@ export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaN
     [MarketingAnalyticsColumnsSchemaNames.Clicks]: { type: ['integer', 'number', 'float'], required: false },
     [MarketingAnalyticsColumnsSchemaNames.Currency]: { type: ['string'], required: false },
     [MarketingAnalyticsColumnsSchemaNames.Impressions]: { type: ['integer', 'number', 'float'], required: false },
+    [MarketingAnalyticsColumnsSchemaNames.ReportedConversion]: {
+        type: ['integer', 'number', 'float'],
+        required: false,
+    },
 }
 
 export type SourceMap = Record<MarketingAnalyticsColumnsSchemaNames, string | undefined>
@@ -3797,6 +3802,7 @@ export enum MarketingAnalyticsBaseColumns {
     Impressions = 'Impressions',
     CPC = 'CPC',
     CTR = 'CTR',
+    ReportedConversion = 'Reported Conversion',
 }
 
 export enum MarketingAnalyticsHelperForColumnNames {
@@ -3881,7 +3887,8 @@ export type SourceFieldConfig =
 export interface SourceConfig {
     name: ExternalDataSourceType
     label?: string
-    caption: string | any
+    docsUrl?: string
+    caption?: string | any
     fields: SourceFieldConfig[]
     disabledReason?: string | null
     existingSource?: boolean

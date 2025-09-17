@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { CategorySelect } from 'products/messaging/frontend/OptOuts/CategorySelect'
 
-import { HogFlowFilters } from '../filters/HogFlowFilters'
+import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { isOptOutEligibleAction } from '../steps/types'
@@ -103,7 +103,8 @@ export function HogFlowEditorPanelBuildDetail(): JSX.Element | null {
                                                     Add conditions to the step. If these conditions aren't met, the user
                                                     will skip this step and continue to the next one.
                                                 </p>
-                                                <HogFlowFilters
+                                                <HogFlowPropertyFilters
+                                                    actionId={action.id}
                                                     filters={action.filters ?? {}}
                                                     setFilters={(filters) =>
                                                         setCampaignAction(action.id, { ...action, filters })
