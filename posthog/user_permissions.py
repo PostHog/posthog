@@ -62,7 +62,7 @@ class UserPermissions:
     @cached_property
     def teams_visible_for_user(self) -> list[Team]:
         candidate_teams = Team.objects.filter(organization_id__in=self.organizations.keys()).only(
-            "pk", "organization_id", "access_control"
+            "pk", "organization_id"
         )
         return [team for team in candidate_teams if self.team(team).effective_membership_level is not None]
 
@@ -164,18 +164,7 @@ class UserTeamPermissions:
         if not organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
             return organization_membership.level
 
-        # This path is deprecated, and will be removed soon
-        if self.team.access_control:
-            explicit_membership_level = self.p.explicit_team_memberships.get(self.team.id)
-            if explicit_membership_level is not None:
-                return max(explicit_membership_level, organization_membership.level)
-            # Only organizations admins and above get implicit project membership
-            elif organization_membership.level < OrganizationMembership.Level.ADMIN:
-                return None
-            else:
-                return organization_membership.level
-
-        # New access control system
+        # Use the new access control system
         from ee.models.rbac.access_control import AccessControl
 
         # Check if the team is private

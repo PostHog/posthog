@@ -66,10 +66,11 @@ class ExplicitTeamMemberSerializer(serializers.ModelSerializer, UserPermissionsS
 
     def validate(self, attrs):
         team: Team = self.context["get_team"]()
-        if not team.access_control:
-            raise exceptions.ValidationError(
-                "Explicit members can only be accessed for projects with project-based permissioning enabled."
-            )
+        from posthog.rbac.user_access_control import UserAccessControl
+
+        user_access_control = UserAccessControl(self.context["request"].user, team)
+        if not user_access_control.access_controls_supported:
+            raise exceptions.ValidationError("Advanced permissions are not available on your current plan.")
         requesting_user: User = self.context["request"].user
         membership_being_accessed = cast(Optional[ExplicitTeamMembership], self.instance)
         try:
