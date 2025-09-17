@@ -56,6 +56,9 @@ export type SdkVersionInfo = {
     deviceContext?: 'mobile' | 'desktop' | 'mixed' // Based on detected usage patterns
     eventVolume?: 'low' | 'medium' | 'high' // Based on event count
     lastSeenTimestamp?: string // ISO timestamp of most recent event
+
+    // Error handling
+    error?: string // Error message when SDK Doctor is unavailable
 }
 
 // NEW: Device context detection configuration
@@ -222,6 +225,34 @@ const fetchReactNativeGitHubReleaseDates = async (): Promise<Record<string, stri
         return releaseDates
     } catch (error) {
         console.warn('[SDK Doctor] Failed to fetch React Native SDK GitHub release dates:', error)
+        return {}
+    }
+}
+
+// Fetch Flutter SDK release dates from GitHub Releases API for time-based detection
+const fetchFlutterGitHubReleaseDates = async (): Promise<Record<string, string>> => {
+    try {
+        const response = await fetch('https://api.github.com/repos/PostHog/posthog-flutter/releases?per_page=100')
+        if (!response.ok) {
+            throw new Error(`GitHub API error: ${response.status}`)
+        }
+
+        const releases = await response.json()
+        const releaseDates: Record<string, string> = {}
+
+        // Flutter releases use simple semantic version tags like "5.5.0"
+        releases.forEach((release: any) => {
+            if (release.tag_name && /^\d+\.\d+\.\d+$/.test(release.tag_name)) {
+                releaseDates[release.tag_name] = release.published_at
+            }
+        })
+
+        console.info(
+            `[SDK Doctor] Fetched ${Object.keys(releaseDates).length} Flutter SDK release dates from GitHub API`
+        )
+        return releaseDates
+    } catch (error) {
+        console.warn('[SDK Doctor] Failed to fetch Flutter SDK GitHub release dates:', error)
         return {}
     }
 }
@@ -571,7 +602,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                             }
                                             return r.text()
                                         })
-                                        .then((changelogText) => {
+                                        .then(async (changelogText) => {
                                             // Extract version numbers using the same regex as test files
                                             const versionMatches = changelogText.match(/^## (\d+\.\d+\.\d+)$/gm)
 
@@ -581,6 +612,9 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                     .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
 
                                                 if (versions.length > 0) {
+                                                    // Fetch GitHub release dates for accurate time-based detection
+                                                    const releaseDates = await fetchFlutterGitHubReleaseDates()
+
                                                     if (IS_DEBUG_MODE) {
                                                         console.info(
                                                             `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
@@ -589,12 +623,15 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                                         console.info(
                                                             `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
                                                         )
+                                                        console.info(
+                                                            `[SDK Doctor] ${sdkType} release dates: ${Object.keys(releaseDates).length} found`
+                                                        )
                                                     }
                                                     return {
                                                         sdkType,
                                                         versions: versions,
                                                         latestVersion: versions[0],
-                                                        releaseDates: {},
+                                                        releaseDates: releaseDates,
                                                     }
                                                 }
                                             }
@@ -1456,6 +1493,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 daysSinceRelease,
                                 isAgeOutdated,
                                 deviceContext,
+                                error,
                             } = versionCheckResult
 
                             updatedMap[key] = {
@@ -1470,6 +1508,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                 deviceContext,
                                 eventVolume: categorizeEventVolume(info.count),
                                 lastSeenTimestamp: new Date().toISOString(), // Current processing time
+                                error,
                             }
                         })
                     } else {
@@ -1817,6 +1856,7 @@ function checkVersionAgainstLatest(
     daysSinceRelease?: number
     isAgeOutdated?: boolean
     deviceContext?: 'mobile' | 'desktop' | 'mixed'
+    error?: string
 } {
     // Convert type to lib name for consistency
     let lib = 'web'
@@ -1921,25 +1961,28 @@ function checkVersionAgainstLatest(
         // Dual check logic: Don't flag as "Outdated" if version released <48 hours ago, even if 2+ releases behind
         let isRecentRelease = false
 
+        // Debug logging for Flutter specifically
+
         if (daysSinceRelease !== undefined) {
-            isRecentRelease = daysSinceRelease < 2 // Less than 48 hours (2 days)
-        } else if (type === 'web' && releasesBehind >= 0 && releasesBehind <= 5) {
-            // Fallback for web SDK: assume versions 0-5 releases behind are "recent" when no date data
-            // This handles the common case of web snippet rollout delays (PostHog can do 6+ releases per day)
-            isRecentRelease = true
-            console.info(
-                `[SDK Doctor] Fallback: web SDK v${version} is ${releasesBehind} releases behind - assuming recent`
-            )
-        } else if (type === 'node' && releasesBehind >= 0 && releasesBehind <= 5) {
-            // Fallback for Node.js SDK: assume versions 0-5 releases behind are "recent" when no date data
-            isRecentRelease = true
-        } else if (type === 'react-native' && releasesBehind >= 0 && releasesBehind <= 5) {
-            // Fallback for React Native SDK: assume versions 0-5 releases behind are "recent" when no date data
-            isRecentRelease = true
+            isRecentRelease = daysSinceRelease < 2 // 48 hours
+        } else if (['web', 'python', 'node', 'react-native', 'flutter'].includes(type)) {
+            // For these SDKs, we require GitHub API data for accurate detection
+            // Return error state instead of misleading fallbacks
+            const errorMessage = `SDK Doctor is currently unavailable for ${type} SDK. Please try again later.`
+            console.error(`[SDK Doctor] ${errorMessage} (Missing GitHub release date data for version ${version})`)
+
+            return {
+                isOutdated: false,
+                error: errorMessage,
+                releasesAhead: 0,
+                latestVersion,
+                releaseDate,
+                daysSinceRelease,
+                isAgeOutdated: false,
+                deviceContext,
+            }
         } else {
-            console.info(
-                `[SDK Doctor] No fallback: type=${type}, releasesBehind=${releasesBehind}, daysSinceRelease=${daysSinceRelease}`
-            )
+            console.info(`[SDK Doctor] No time-based detection available for SDK type: ${type}`)
         }
 
         // Final logic: 2+ releases behind AND >48h old

@@ -279,8 +279,15 @@ export function SidePanelSdkDoctor(): JSX.Element {
                         <code className="text-xs font-mono bg-muted-highlight rounded-sm px-1 py-0.5">
                             {record.version}
                         </code>
-                        {/* NEW: Enhanced age-based status with enhanced context */}
-                        {record.isAgeOutdated && !record.isOutdated ? (
+                        {/* Error handling - show when SDK Doctor is unavailable */}
+                        {record.error ? (
+                            <Tooltip placement="right" title={record.error}>
+                                <LemonTag type="muted" className="shrink-0">
+                                    Unavailable
+                                </LemonTag>
+                            </Tooltip>
+                        ) : /* NEW: Enhanced age-based status with enhanced context */
+                        record.isAgeOutdated && !record.isOutdated ? (
                             <Tooltip
                                 placement="right"
                                 title={`Version is ${Math.floor((record.daysSinceRelease || 0) / 7)} weeks old. Consider updating.`}
