@@ -110,7 +110,7 @@ describe('processEvent', () => {
             hub.groupRepository,
             hub.clickhouseGroupRepository
         )
-        const runner = new EventPipelineRunner(hub, pluginEvent, null, [], personsStoreForBatch, groupStoreForBatch)
+        const runner = new EventPipelineRunner(hub, pluginEvent, null, personsStoreForBatch, groupStoreForBatch)
         const res = await runner.runEventPipeline(pluginEvent, team)
         await flushPersonStoreToKafka(hub, personsStoreForBatch, res.ackPromises ?? [])
         await groupStoreForBatch.flush()
@@ -219,7 +219,7 @@ describe('processEvent', () => {
             hub.groupRepository,
             hub.clickhouseGroupRepository
         )
-        const runner = new EventPipelineRunner(hub, event, null, [], personsStoreForBatch, groupStoreForBatch)
+        const runner = new EventPipelineRunner(hub, event, null, personsStoreForBatch, groupStoreForBatch)
         const res = await runner.runEventPipeline(event, team)
         await flushPersonStoreToKafka(hub, personsStoreForBatch, res.ackPromises ?? [])
         await groupStoreForBatch.flush()

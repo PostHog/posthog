@@ -1,5 +1,10 @@
-import { validateEventUuid } from '../../../src/ingestion/event-preprocessing/validate-event-uuid'
+import { createValidateEventUuidStep } from '../../../src/ingestion/event-preprocessing/validate-event-uuid'
 import { Hub, IncomingEventWithTeam } from '../../../src/types'
+import {
+    PipelineStepResultType,
+    drop,
+    success,
+} from '../../../src/worker/ingestion/event-pipeline/pipeline-step-result'
 import { captureIngestionWarning } from '../../../src/worker/ingestion/utils'
 import { getMetricValues, resetMetrics } from '../../helpers/metrics'
 
@@ -7,9 +12,10 @@ import { getMetricValues, resetMetrics } from '../../helpers/metrics'
 jest.mock('../../../src/worker/ingestion/utils')
 const mockCaptureIngestionWarning = captureIngestionWarning as jest.MockedFunction<typeof captureIngestionWarning>
 
-describe('validateEventUuid', () => {
-    let mockHub: Pick<Hub, 'db'>
+describe('createValidateEventUuidStep', () => {
+    let mockHub: Hub
     let mockEventWithTeam: IncomingEventWithTeam
+    let step: ReturnType<typeof createValidateEventUuidStep>
 
     beforeEach(() => {
         resetMetrics()
@@ -17,7 +23,7 @@ describe('validateEventUuid', () => {
             db: {
                 kafkaProducer: {} as any,
             } as any,
-        }
+        } as Hub
 
         mockEventWithTeam = {
             event: {
@@ -39,22 +45,25 @@ describe('validateEventUuid', () => {
             headers: {},
         }
 
+        step = createValidateEventUuidStep(mockHub)
         jest.clearAllMocks()
     })
 
-    it('should return eventWithTeam when UUID is valid', async () => {
-        const result = await validateEventUuid(mockEventWithTeam, mockHub)
+    it('should return success when UUID is valid', async () => {
+        const input = { eventWithTeam: mockEventWithTeam }
+        const result = await step(input)
 
-        expect(result).toBe(mockEventWithTeam)
+        expect(result).toEqual(success(input))
         expect(mockCaptureIngestionWarning).not.toHaveBeenCalled()
     })
 
-    it('should return null when UUID is invalid', async () => {
+    it('should return drop when UUID is invalid', async () => {
         mockEventWithTeam.event.uuid = 'invalid-uuid'
+        const input = { eventWithTeam: mockEventWithTeam }
 
-        const result = await validateEventUuid(mockEventWithTeam, mockHub)
+        const result = await step(input)
 
-        expect(result).toBeNull()
+        expect(result).toEqual(drop('Event has invalid UUID'))
         expect(mockCaptureIngestionWarning).toHaveBeenCalledWith(
             mockHub.db.kafkaProducer,
             1,
@@ -63,12 +72,13 @@ describe('validateEventUuid', () => {
         )
     })
 
-    it('should return null when UUID is null', async () => {
+    it('should return drop when UUID is null', async () => {
         mockEventWithTeam.event.uuid = null as any
+        const input = { eventWithTeam: mockEventWithTeam }
 
-        const result = await validateEventUuid(mockEventWithTeam, mockHub)
+        const result = await step(input)
 
-        expect(result).toBeNull()
+        expect(result).toEqual(drop('Event has invalid UUID'))
         expect(mockCaptureIngestionWarning).toHaveBeenCalledWith(
             mockHub.db.kafkaProducer,
             1,
@@ -77,12 +87,13 @@ describe('validateEventUuid', () => {
         )
     })
 
-    it('should return null when UUID is undefined', async () => {
+    it('should return drop when UUID is undefined', async () => {
         mockEventWithTeam.event.uuid = undefined as any
+        const input = { eventWithTeam: mockEventWithTeam }
 
-        const result = await validateEventUuid(mockEventWithTeam, mockHub)
+        const result = await step(input)
 
-        expect(result).toBeNull()
+        expect(result).toEqual(drop('Event has invalid UUID'))
         expect(mockCaptureIngestionWarning).toHaveBeenCalledWith(
             mockHub.db.kafkaProducer,
             1,
@@ -91,12 +102,13 @@ describe('validateEventUuid', () => {
         )
     })
 
-    it('should return null when UUID is empty string', async () => {
+    it('should return drop when UUID is empty string', async () => {
         mockEventWithTeam.event.uuid = ''
+        const input = { eventWithTeam: mockEventWithTeam }
 
-        const result = await validateEventUuid(mockEventWithTeam, mockHub)
+        const result = await step(input)
 
-        expect(result).toBeNull()
+        expect(result).toEqual(drop('Event has invalid UUID'))
         expect(mockCaptureIngestionWarning).toHaveBeenCalledWith(
             mockHub.db.kafkaProducer,
             1,
@@ -107,8 +119,9 @@ describe('validateEventUuid', () => {
 
     it('should increment metrics when UUID is invalid', async () => {
         mockEventWithTeam.event.uuid = 'invalid-uuid'
+        const input = { eventWithTeam: mockEventWithTeam }
 
-        await validateEventUuid(mockEventWithTeam, mockHub)
+        await step(input)
 
         const metrics = await getMetricValues('ingestion_event_dropped_total')
         expect(metrics).toEqual([
@@ -124,8 +137,9 @@ describe('validateEventUuid', () => {
 
     it('should increment metrics with empty_uuid when UUID is null', async () => {
         mockEventWithTeam.event.uuid = null as any
+        const input = { eventWithTeam: mockEventWithTeam }
 
-        await validateEventUuid(mockEventWithTeam, mockHub)
+        await step(input)
 
         const metrics = await getMetricValues('ingestion_event_dropped_total')
         expect(metrics).toEqual([
@@ -142,8 +156,9 @@ describe('validateEventUuid', () => {
     it('should handle different team IDs', async () => {
         mockEventWithTeam.team.id = 999
         mockEventWithTeam.event.uuid = 'invalid-uuid'
+        const input = { eventWithTeam: mockEventWithTeam }
 
-        await validateEventUuid(mockEventWithTeam, mockHub)
+        await step(input)
 
         expect(mockCaptureIngestionWarning).toHaveBeenCalledWith(
             mockHub.db.kafkaProducer,
@@ -154,19 +169,24 @@ describe('validateEventUuid', () => {
     })
 
     it('should preserve event data when UUID is valid', async () => {
-        const result = await validateEventUuid(mockEventWithTeam, mockHub)
+        const input = { eventWithTeam: mockEventWithTeam }
+        const result = await step(input)
 
-        expect(result?.event.token).toBe('test-token-123')
-        expect(result?.event.distinct_id).toBe('test-user-456')
-        expect(result?.event.event).toBe('test-event')
-        expect(result?.event.properties).toEqual({ testProp: 'testValue' })
-        expect(result?.event.ip).toBe('127.0.0.1')
-        expect(result?.event.site_url).toBe('https://example.com')
-        expect(result?.event.now).toBe(mockEventWithTeam.event.now)
-        expect(result?.event.uuid).toBe('123e4567-e89b-12d3-a456-426614174000')
-        expect(result?.team.id).toBe(1)
-        expect(result?.team.name).toBe('Test Team')
-        expect(result?.team.person_processing_opt_out).toBe(false)
-        expect(result?.message).toBe(mockEventWithTeam.message)
+        expect(result).toEqual(success(input))
+
+        if (result.type === PipelineStepResultType.OK) {
+            expect(result.value.eventWithTeam.event.token).toBe('test-token-123')
+            expect(result.value.eventWithTeam.event.distinct_id).toBe('test-user-456')
+            expect(result.value.eventWithTeam.event.event).toBe('test-event')
+            expect(result.value.eventWithTeam.event.properties).toEqual({ testProp: 'testValue' })
+            expect(result.value.eventWithTeam.event.ip).toBe('127.0.0.1')
+            expect(result.value.eventWithTeam.event.site_url).toBe('https://example.com')
+            expect(result.value.eventWithTeam.event.now).toBe(mockEventWithTeam.event.now)
+            expect(result.value.eventWithTeam.event.uuid).toBe('123e4567-e89b-12d3-a456-426614174000')
+            expect(result.value.eventWithTeam.team.id).toBe(1)
+            expect(result.value.eventWithTeam.team.name).toBe('Test Team')
+            expect(result.value.eventWithTeam.team.person_processing_opt_out).toBe(false)
+            expect(result.value.eventWithTeam.message).toBe(mockEventWithTeam.message)
+        }
     })
 })
