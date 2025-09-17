@@ -71,6 +71,13 @@ class DatabricksInsufficientPermissionsError(Exception):
     pass
 
 
+class DatabricksInvalidPartitionFieldError(Exception):
+    """Error raised when the table partition field provided is invalid."""
+
+    def __init__(self, partition_field: str):
+        super().__init__(f"Invalid table partition field: '{partition_field}'")
+
+
 @dataclasses.dataclass(kw_only=True)
 class DatabricksInsertInputs(BatchExportInsertInputs):
     """Inputs for Databricks.
@@ -101,6 +108,7 @@ class DatabricksInsertInputs(BatchExportInsertInputs):
     table_name: str
     use_variant_type: bool = True
     use_automatic_schema_evolution: bool = True
+    table_partition_field: str | None = None
 
 
 class DatabricksClient:
@@ -218,7 +226,6 @@ class DatabricksClient:
                 _socket_timeout=60,  # 1 minute
             )
         except OperationalError as err:
-            # TODO: check what kinds of errors we get here
             raise DatabricksConnectionError(f"Failed to connect to Databricks: {err}") from err
 
         self.logger.debug("Connected to Databricks")
@@ -332,14 +339,13 @@ class DatabricksClient:
     async def use_schema(self, schema: str):
         await self.execute_query(f"USE SCHEMA `{schema}`", fetch_results=False)
 
-    # TODO - add tests for names that contain non-ascii characters to ensure we escape them correctly
-
     @contextlib.asynccontextmanager
     async def managed_table(
         self,
         table_name: str,
         fields: list[DatabricksField],
         delete: bool = False,
+        partition_by: str | None = None,
     ):
         """Manage a table in Databricks by ensuring it exists while in context."""
         # log if we're creating a permanent table
@@ -348,7 +354,7 @@ class DatabricksClient:
         else:
             self.logger.info("Creating Databricks table %s", table_name)
 
-        await self.acreate_table(table_name, fields)
+        await self.acreate_table(table_name=table_name, fields=fields, partition_by=partition_by)
 
         yield table_name
 
@@ -356,10 +362,10 @@ class DatabricksClient:
             self.logger.info("Deleting Databricks table %s", table_name)
             await self.adelete_table(table_name)
 
-    async def acreate_table(self, table_name: str, fields: list[DatabricksField]):
+    async def acreate_table(self, table_name: str, fields: list[DatabricksField], partition_by: str | None = None):
         """Asynchronously create the Databricks delta table if it doesn't exist."""
-        # TODO - add partition by timestamp if it exists?
         field_ddl = ", ".join(f"`{field[0]}` {field[1]}" for field in fields)
+        partitioned_by_ddl = f"PARTITIONED BY (`{partition_by}`)" if partition_by else ""
         try:
             await self.execute_query(
                 f"""
@@ -367,6 +373,7 @@ class DatabricksClient:
                     {field_ddl}
                 )
                 USING DELTA
+                {partitioned_by_ddl}
                 COMMENT 'PostHog generated table'
                 """,
                 fetch_results=False,
@@ -600,9 +607,19 @@ def _get_databricks_fields_from_record_schema(
     return databricks_schema
 
 
+class TableSettings(t.NamedTuple):
+    table_fields: list[DatabricksField]
+    record_batch_schema: pa.Schema
+    known_variant_columns: list[str]
+    partition_field: str | None
+
+
 def _get_databricks_table_settings(
-    model: BatchExportModel | BatchExportSchema | None, record_batch_schema: pa.Schema, use_variant_type: bool
-) -> tuple[list[DatabricksField], pa.Schema, list[str]]:
+    model: BatchExportModel | BatchExportSchema | None,
+    record_batch_schema: pa.Schema,
+    use_variant_type: bool,
+    input_partition_field: str | None,
+) -> TableSettings:
     """Get the various table settings for this batch export.
 
     For the events model, we actually export a reduced set of fields compared to other destinations for a number of reasons:
@@ -638,7 +655,27 @@ def _get_databricks_table_settings(
             known_variant_columns=known_variant_columns,
         )
 
-    return table_fields, record_batch_schema, known_variant_columns
+    table_fields_names = [field[0] for field in table_fields]
+    partition_field = None
+    if input_partition_field is not None:
+        if input_partition_field not in table_fields_names:
+            raise DatabricksInvalidPartitionFieldError(input_partition_field)
+        partition_field = input_partition_field
+    else:
+        # get default partition by field
+        if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
+            partition_field = "timestamp"
+        elif isinstance(model, BatchExportModel) and model.name == "sessions":
+            partition_field = "end_timestamp"
+        # TODO: not sure if we have a decent default partition by field for persons?
+        # elif isinstance(model, BatchExportModel) and model.name == "persons":
+        # partition_field = "person_version"
+
+        # double check the partition by field is present in the table fields
+        if partition_field not in table_fields_names:
+            partition_field = None
+
+    return TableSettings(table_fields, record_batch_schema, known_variant_columns, partition_field)
 
 
 def _get_databricks_merge_config(
@@ -733,10 +770,11 @@ async def manage_resources(
     fields: list[DatabricksField],
     table_name: str,
     stage_table_name: str | None = None,
+    partition_field: str | None = None,
 ) -> t.AsyncGenerator[tuple[str, str, str | None], None]:
     """Manage resources in Databricks by ensuring they exist while in context."""
     async with client.managed_volume(volume_name) as volume:
-        async with client.managed_table(table_name, fields, delete=False) as table:
+        async with client.managed_table(table_name, fields, delete=False, partition_by=partition_field) as table:
             if stage_table_name is not None:
                 async with client.managed_table(stage_table_name, fields, delete=True) as stage_table:
                     yield volume, table, stage_table
@@ -797,8 +835,11 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
 
             return BatchExportResult(records_completed=0, bytes_exported=0)
 
-        table_fields, record_batch_schema, known_variant_columns = _get_databricks_table_settings(
-            model=model, record_batch_schema=record_batch_schema, use_variant_type=inputs.use_variant_type
+        table_fields, record_batch_schema, known_variant_columns, partition_field = _get_databricks_table_settings(
+            model=model,
+            record_batch_schema=record_batch_schema,
+            use_variant_type=inputs.use_variant_type,
+            input_partition_field=inputs.table_partition_field,
         )
 
         requires_merge, merge_key, update_key = _get_databricks_merge_config(model=model)
@@ -817,6 +858,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
                 fields=table_fields,
                 table_name=inputs.table_name,
                 stage_table_name=stage_table_name,
+                partition_field=partition_field,
             ):
                 consumer = DatabricksConsumer(
                     client=databricks_client,
