@@ -5,6 +5,7 @@ import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { urls } from 'scenes/urls'
 
 import { repositorySelectorLogic } from './repositorySelectorLogic'
 
@@ -45,7 +46,9 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
                     </div>
                     <LemonButton
                         type="primary"
-                        onClick={() => window.open('/project/settings/environment-integrations', '_blank')}
+                        onClick={() =>
+                            window.open(urls.currentProject(urls.settings('environment-integrations')), '_blank')
+                        }
                     >
                         Configure GitHub Integration
                     </LemonButton>

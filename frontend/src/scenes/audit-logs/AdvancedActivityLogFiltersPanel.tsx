@@ -4,14 +4,13 @@ import { useState } from 'react'
 import { IconDownload } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonTabs } from '@posthog/lemon-ui'
 
-import { AdvancedFiltersTab } from './AdvancedFiltersTab'
 import { BasicFiltersTab } from './BasicFiltersTab'
 import { advancedActivityLogsLogic } from './advancedActivityLogsLogic'
 
 export function AdvancedActivityLogFiltersPanel(): JSX.Element {
     const { hasActiveFilters, exportsLoading } = useValues(advancedActivityLogsLogic)
     const { clearAllFilters, exportLogs } = useActions(advancedActivityLogsLogic)
-    const [activeTab, setActiveTab] = useState<'basic' | 'advanced' | 'hogql'>('basic')
+    const [activeTab, setActiveTab] = useState<'basic' | 'hogql'>('basic')
 
     return (
         <div className="border rounded-md p-4 bg-bg-light">
@@ -74,11 +73,7 @@ export function AdvancedActivityLogFiltersPanel(): JSX.Element {
                         label: 'Filters',
                         content: <BasicFiltersTab />,
                     },
-                    {
-                        key: 'advanced',
-                        label: 'Advanced',
-                        content: <AdvancedFiltersTab />,
-                    },
+
                     {
                         key: 'hogql',
                         label: 'HogQL',

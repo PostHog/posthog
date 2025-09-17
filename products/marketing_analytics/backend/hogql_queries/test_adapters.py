@@ -25,10 +25,12 @@ from products.marketing_analytics.backend.hogql_queries.adapters.base import (
     GoogleAdsConfig,
     LinkedinAdsConfig,
     QueryContext,
+    RedditAdsConfig,
 )
 from products.marketing_analytics.backend.hogql_queries.adapters.bigquery import BigQueryAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.google_ads import GoogleAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.linkedin_ads import LinkedinAdsAdapter
+from products.marketing_analytics.backend.hogql_queries.adapters.reddit_ads import RedditAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.self_managed import (
     AWSAdapter,
     AzureAdapter,
@@ -217,6 +219,147 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
                         "schema_valid": True,
                     },
                     "external_website_conversions": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                },
+            ),
+            "reddit_campaign": DataConfig(
+                csv_filename="test/reddit/campaigns.csv",
+                table_name="reddit_campaigns_table",
+                platform="Reddit Ads",
+                source_type="RedditAds",
+                bucket_suffix="reddit_campaign",
+                column_schema={
+                    "id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "name": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "app_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "goal_type": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "objective": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "spend_cap": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "created_at": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "goal_value": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "modified_at": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "ad_account_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "age_restriction": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "effective_status": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "configured_status": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "skadnetwork_metadata": {
+                        "hogql": "StringDatabaseField",
+                        "clickhouse": "String",
+                        "schema_valid": True,
+                    },
+                    "funding_instrument_id": {
+                        "hogql": "StringDatabaseField",
+                        "clickhouse": "String",
+                        "schema_valid": True,
+                    },
+                    "special_ad_categories": {
+                        "hogql": "StringDatabaseField",
+                        "clickhouse": "String",
+                        "schema_valid": True,
+                    },
+                },
+            ),
+            "reddit_stats": DataConfig(
+                csv_filename="test/reddit/campaign_report.csv",
+                table_name="reddit_campaign_report_table",
+                platform="Reddit Ads",
+                source_type="RedditAds",
+                bucket_suffix="reddit_stats",
+                column_schema={
+                    "cpc": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "ctr": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "date": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "ecpm": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "hour": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "reach": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "spend": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "clicks": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "currency": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "frequency": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "campaign_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "impressions": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "video_started": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "conversion_roas": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "video_view_rate": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "app_install_revenue": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "key_conversion_rate": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "video_completion_rate": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "app_install_roas_double": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "conversion_sign_up_views": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "video_watched_25_percent": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "video_watched_50_percent": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "video_watched_75_percent": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "app_install_install_count": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "video_watched_100_percent": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "app_install_purchase_count": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "key_conversion_total_count": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "video_viewable_impressions": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "conversion_signup_total_value": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "conversion_purchase_total_items": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "conversion_purchase_total_value": {
                         "hogql": "FloatDatabaseField",
                         "clickhouse": "Float64",
                         "schema_valid": True,
@@ -541,6 +684,24 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert result.is_valid, "LinkedinAdsAdapter validation should succeed"
         assert isinstance(result.errors, list), "LinkedinAdsAdapter should return list of errors"
 
+    def test_reddit_ads_adapter_validation_consistency(self):
+        """Test Reddit Ads adapter validation consistency."""
+        campaign_table = self._create_mock_table("reddit_campaigns_table", "RedditAds")
+        stats_table = self._create_mock_table("reddit_campaign_report_table", "RedditAds")
+
+        config = RedditAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="RedditAds",
+            source_id="test_consistency",
+        )
+
+        adapter = RedditAdsAdapter(config=config, context=self.context)
+        result = adapter.validate()
+
+        assert result.is_valid, "RedditAdsAdapter validation should succeed"
+        assert isinstance(result.errors, list), "RedditAdsAdapter should return list of errors"
+
     # ================================================================
     # QUERY GENERATION TESTS
     # ================================================================
@@ -569,6 +730,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         adapter = BigQueryAdapter(config=config, context=self.context)
         query = adapter.build_query()
 
+        assert query is not None, "BigQueryAdapter should generate a query"
         self._validate_query_structure(query, "BigQueryAdapter")
         assert self._execute_and_snapshot(query) == self.snapshot
 
@@ -587,7 +749,27 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         adapter = GoogleAdsAdapter(config=config, context=self.context)
         query = adapter.build_query()
 
+        assert query is not None, "GoogleAdsAdapter should generate a query"
         self._validate_query_structure(query, "GoogleAdsAdapter")
+        assert self._execute_and_snapshot(query) == self.snapshot
+
+    def test_reddit_ads_query_generation(self):
+        """Test Reddit Ads adapter query generation with JOIN."""
+        campaign_table = self._create_mock_table("reddit_campaign", "RedditAds")
+        stats_table = self._create_mock_table("reddit_stats", "RedditAds")
+
+        config = RedditAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="RedditAds",
+            source_id="reddit_ads",
+        )
+
+        adapter = RedditAdsAdapter(config=config, context=self.context)
+        query = adapter.build_query()
+
+        assert query is not None, "RedditAdsAdapter should generate a query"
+        self._validate_query_structure(query, "RedditAdsAdapter")
         assert self._execute_and_snapshot(query) == self.snapshot
 
     def test_tiktok_ads_query_generation(self):
@@ -614,6 +796,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         adapter = AWSAdapter(config=config, context=self.context)
         query = adapter.build_query()
 
+        assert query is not None, "AWSAdapter should generate a query"
         self._validate_query_structure(query, "AWSAdapter")
         assert self._execute_and_snapshot(query) == self.snapshot
 
@@ -632,6 +815,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         adapter = LinkedinAdsAdapter(config=config, context=self.context)
         query = adapter.build_query()
 
+        assert query is not None, "LinkedinAdsAdapter should generate a query"
         self._validate_query_structure(query, "LinkedinAdsAdapter")
         assert self._execute_and_snapshot(query) == self.snapshot
 
@@ -659,6 +843,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         adapter = AzureAdapter(config=config, context=self.context)
         query = adapter.build_query()
 
+        assert query is not None, "AzureAdapter should generate a query"
         self._validate_query_structure(query, "AzureAdapter")
         assert self._execute_and_snapshot(query) == self.snapshot
 
@@ -686,6 +871,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         adapter = CloudflareR2Adapter(config=config, context=self.context)
         query = adapter.build_query()
 
+        assert query is not None, "CloudflareR2Adapter should generate a query"
         self._validate_query_structure(query, "CloudflareR2Adapter")
         assert self._execute_and_snapshot(query) == self.snapshot
 
@@ -718,6 +904,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         for adapter_class, config in configs:
             adapter = adapter_class(config=config, context=self.context)
             query = adapter.build_query()
+            assert query is not None, f"{adapter_class.__name__} should generate a query"
             self._validate_query_structure(query, adapter_class.__name__)
             queries.append(query)
 
@@ -756,10 +943,12 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         adapter = BigQueryAdapter(config=config, context=self.context)
         query = adapter.build_query()
 
+        assert query is not None, "BigQueryAdapter should generate a query"
         self._validate_query_structure(query, "BigQueryAdapter")
 
         cost_select = next((col for col in query.select if hasattr(col, "alias") and col.alias == "cost"), None)
         assert cost_select is not None, "Cost column should exist"
+        assert isinstance(cost_select, ast.Alias), "Cost column should be an Alias"
 
         cost_expr = cost_select.expr
         assert isinstance(cost_expr, ast.Call), "Cost should be a function call"
@@ -796,6 +985,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         adapter = BigQueryAdapter(config=config, context=self.context)
         query = adapter.build_query()
 
+        assert query is not None, "BigQueryAdapter should generate a query"
         results = self._execute_query_and_validate(query)
 
         total_cost = sum(float(row[4] or 0) for row in results)
@@ -828,6 +1018,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert validation_result.is_valid, f"Validation failed: {validation_result.errors}"
 
         query = adapter.build_query()
+        assert query is not None, "GoogleAdsAdapter should generate a query"
         results = self._execute_query_and_validate(query)
 
         total_cost = sum(float(row[4] or 0) for row in results)
@@ -874,6 +1065,39 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
         sources = [row[1] for row in results]
         assert all(source == "linkedin" for source in sources), "All sources should be 'linkedin'"
+
+    def test_reddit_ads_adapter_with_real_data(self):
+        """Test Reddit Ads adapter with real CSV data (JOIN operation)."""
+        campaign_info = self._setup_csv_table("reddit_campaign")
+        stats_info = self._setup_csv_table("reddit_stats")
+
+        config = RedditAdsConfig(
+            campaign_table=campaign_info.table,
+            stats_table=stats_info.table,
+            source_type="RedditAds",
+            source_id="reddit_ads",
+        )
+
+        adapter = RedditAdsAdapter(config=config, context=self.context)
+
+        validation_result = adapter.validate()
+        assert validation_result.is_valid, f"Validation failed: {validation_result.errors}"
+
+        query = adapter.build_query()
+        assert query is not None, "RedditAdsAdapter should generate a query"
+        results = self._execute_query_and_validate(query)
+
+        total_cost = sum(float(row[4] or 0) for row in results)
+        total_impressions = sum(int(row[2] or 0) for row in results)
+        total_clicks = sum(int(row[3] or 0) for row in results)
+
+        assert len(results) == 10, "Expected 10 campaigns from Reddit Ads JOIN"
+        assert abs(total_cost - 90.6) < 0.01, f"Expected cost $90.6, got ${total_cost}"
+        assert total_impressions == 14299, f"Expected 14299 impressions, got {total_impressions}"
+        assert total_clicks == 454, f"Expected 454 clicks, got {total_clicks}"
+
+        sources = [row[1] for row in results]
+        assert all(source == "reddit" for source in sources), "All sources should be 'reddit'"
 
     def test_multi_adapter_union_with_real_data(self):
         """Test UNION query with multiple adapters using real data."""
