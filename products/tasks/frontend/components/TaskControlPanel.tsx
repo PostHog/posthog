@@ -1,11 +1,12 @@
-import { LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
-import { IconExclamation } from 'lib/lemon-ui/icons'
-import { IconInfo, IconExternal, IconClock, IconCheckCircle } from '@posthog/icons'
+import { IconCheckCircle, IconClock, IconExternal, IconInfo } from '@posthog/icons'
+import { LemonButton, LemonCard, LemonTag } from '@posthog/lemon-ui'
 
-import { Task } from '../types'
+import { IconExclamation } from 'lib/lemon-ui/icons'
+
 import { tasksLogic } from '../tasksLogic'
+import { Task } from '../types'
 
 export function TaskControlPanel(): JSX.Element {
     const { tasks, workflowStages, allWorkflows } = useValues(tasksLogic)
@@ -14,31 +15,60 @@ export function TaskControlPanel(): JSX.Element {
     // Helper to get stage key for a task
     const getTaskStageKey = (task: Task): string => {
         if (task.workflow && task.current_stage) {
-            const stage = allWorkflows
-                .flatMap(w => w.stages || [])
-                .find(s => s.id === task.current_stage)
+            const stage = allWorkflows.flatMap((w) => w.stages || []).find((s) => s.id === task.current_stage)
             return stage?.key || 'backlog'
         }
         return 'backlog'
     }
 
-    const tasksByStage = workflowStages.reduce((acc, stage) => {
-        acc[stage.key] = tasks.filter(task => getTaskStageKey(task) === stage.key)
-        return acc
-    }, {} as Record<string, Task[]>)
+    const tasksByStage = workflowStages.reduce(
+        (acc, stage) => {
+            acc[stage.key] = tasks.filter((task) => getTaskStageKey(task) === stage.key)
+            return acc
+        },
+        {} as Record<string, Task[]>
+    )
 
-    const needsAttention = tasks.filter(task => {
-        const stageKey = getTaskStageKey(task)
-        return stageKey === 'testing' || stageKey === 'done'
+    const needsAttention = tasks.filter((task) => {
+        if (task.workflow && task.current_stage) {
+            const stage = allWorkflows.flatMap((w) => w.stages || []).find((s) => s.id === task.current_stage)
+
+            // Tasks need attention if they are in a manual stage (no agent) that isn't complete
+            if (stage) {
+                const isManualStage = stage.is_manual_only || !stage.agent_name
+                const isCompleteStage = ['done', 'completed', 'closed', 'finished'].includes(stage.key.toLowerCase())
+                return isManualStage && !isCompleteStage
+            }
+        }
+        return false
     })
 
-    const activeTasks = tasks.filter(task => {
-        const stageKey = getTaskStageKey(task)
-        return stageKey === 'todo' || stageKey === 'in_progress'
+    const activeTasks = tasks.filter((task) => {
+        if (task.workflow && task.current_stage) {
+            const stage = allWorkflows.flatMap((w) => w.stages || []).find((s) => s.id === task.current_stage)
+
+            // Task is active if it's not in a completion stage and not archived
+            if (stage && !stage.is_archived) {
+                const completionStageKeys = ['done', 'completed', 'closed', 'finished']
+                return !completionStageKeys.includes(stage.key.toLowerCase())
+            }
+        }
+        return false
     })
 
     const recentlyCompleted = tasks
-        .filter(task => getTaskStageKey(task) === 'done')
+        .filter((task) => {
+            if (task.workflow && task.current_stage) {
+                const stage = allWorkflows.flatMap((w) => w.stages || []).find((s) => s.id === task.current_stage)
+
+                // Task is completed if it's in a completion stage
+                if (stage) {
+                    const completionStageKeys = ['done', 'completed', 'closed', 'finished']
+                    return completionStageKeys.includes(stage.key.toLowerCase())
+                }
+            }
+            return false
+        })
         .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
         .slice(0, 5)
 
@@ -47,9 +77,7 @@ export function TaskControlPanel(): JSX.Element {
             <div className="flex justify-between items-center">
                 <div>
                     <h2 className="text-xl font-semibold">Task Control Panel</h2>
-                    <p className="text-muted text-sm mt-1">
-                        Monitor and manage your task workflows
-                    </p>
+                    <p className="text-muted text-sm mt-1">Monitor and manage your task workflows</p>
                 </div>
             </div>
 
@@ -88,18 +116,16 @@ export function TaskControlPanel(): JSX.Element {
                         <h3 className="text-lg font-medium">Tasks Needing Attention</h3>
                         <LemonTag type="warning">{needsAttention.length}</LemonTag>
                     </div>
-                    
+
                     <div className="space-y-3">
                         {needsAttention.length === 0 ? (
                             <p className="text-muted text-sm">No tasks need attention</p>
                         ) : (
-                            needsAttention.slice(0, 5).map((task) => (
-                                <TaskSummaryCard 
-                                    key={task.id}
-                                    task={task}
-                                    onClick={() => openTaskModal(task.id)}
-                                />
-                            ))
+                            needsAttention
+                                .slice(0, 5)
+                                .map((task) => (
+                                    <TaskSummaryCard key={task.id} task={task} onClick={() => openTaskModal(task.id)} />
+                                ))
                         )}
                     </div>
                 </LemonCard>
@@ -110,17 +136,13 @@ export function TaskControlPanel(): JSX.Element {
                         <h3 className="text-lg font-medium">Recently Completed</h3>
                         <LemonTag type="success">{recentlyCompleted.length}</LemonTag>
                     </div>
-                    
+
                     <div className="space-y-3">
                         {recentlyCompleted.length === 0 ? (
                             <p className="text-muted text-sm">No completed tasks</p>
                         ) : (
                             recentlyCompleted.map((task) => (
-                                <TaskSummaryCard 
-                                    key={task.id}
-                                    task={task}
-                                    onClick={() => openTaskModal(task.id)}
-                                />
+                                <TaskSummaryCard key={task.id} task={task} onClick={() => openTaskModal(task.id)} />
                             ))
                         )}
                     </div>
@@ -130,31 +152,23 @@ export function TaskControlPanel(): JSX.Element {
             {/* Workflow Stage Overview */}
             <LemonCard className="p-6">
                 <h3 className="text-lg font-medium mb-4">Workflow Overview</h3>
-                
+
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
                     {workflowStages.map((stage) => {
                         const stageTasks = tasksByStage[stage.key] || []
                         return (
-                            <div
-                                key={stage.id}
-                                className="p-4 bg-bg-light rounded-lg"
-                            >
+                            <div key={stage.id} className="p-4 bg-bg-light rounded-lg">
                                 <div className="flex items-center gap-2 mb-2">
-                                    <div
-                                        className="w-3 h-3 rounded-full"
-                                        style={{ backgroundColor: stage.color }}
-                                    />
+                                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: stage.color }} />
                                     <h4 className="font-medium text-sm">{stage.name}</h4>
                                 </div>
-                                
-                                <div className="text-2xl font-bold text-primary mb-1">
-                                    {stageTasks.length}
-                                </div>
-                                
+
+                                <div className="text-2xl font-bold text-primary mb-1">{stageTasks.length}</div>
+
                                 <div className="text-xs text-muted">
                                     {stage.is_manual_only ? 'Manual' : 'Automated'}
                                 </div>
-                                
+
                                 {stageTasks.length > 0 && (
                                     <div className="mt-3">
                                         <div className="text-xs text-muted mb-1">Latest:</div>
@@ -187,9 +201,7 @@ function OverviewCard({ title, value, icon, color }: OverviewCardProps): JSX.Ele
                     <p className="text-sm text-muted">{title}</p>
                     <p className="text-2xl font-bold">{value}</p>
                 </div>
-                <div className={color}>
-                    {icon}
-                </div>
+                <div className={color}>{icon}</div>
             </div>
         </LemonCard>
     )
@@ -202,30 +214,32 @@ interface TaskSummaryCardProps {
 
 function TaskSummaryCard({ task, onClick }: TaskSummaryCardProps): JSX.Element {
     const { allWorkflows } = useValues(tasksLogic)
-    
+
     const getTaskStageKey = (task: Task): string => {
         if (task.workflow && task.current_stage) {
-            const stage = allWorkflows
-                .flatMap(w => w.stages || [])
-                .find(s => s.id === task.current_stage)
+            const stage = allWorkflows.flatMap((w) => w.stages || []).find((s) => s.id === task.current_stage)
             return stage?.key || 'backlog'
         }
         return 'backlog'
     }
 
-    const getStageColor = (stageKey: string): string => {
-        switch (stageKey) {
-            case 'todo':
-                return 'text-primary'
-            case 'in_progress':
-                return 'text-warning'
-            case 'testing':
-                return 'text-purple'
-            case 'done':
-                return 'text-success'
-            default:
-                return 'text-muted'
+    const getStageColor = (task: Task): string => {
+        if (task.workflow && task.current_stage) {
+            const stage = allWorkflows.flatMap((w) => w.stages || []).find((s) => s.id === task.current_stage)
+
+            if (stage) {
+                // Use dynamic colors based on stage properties
+                const completionStageKeys = ['done', 'completed', 'closed', 'finished']
+                if (completionStageKeys.includes(stage.key.toLowerCase())) {
+                    return 'text-success'
+                } else if (stage.agent_name && !stage.is_manual_only) {
+                    return 'text-warning' // Agent stages
+                } else if (stage.is_manual_only || !stage.agent_name) {
+                    return 'text-primary' // Manual stages
+                }
+            }
         }
+        return 'text-muted'
     }
 
     return (
@@ -234,12 +248,13 @@ function TaskSummaryCard({ task, onClick }: TaskSummaryCardProps): JSX.Element {
             onClick={onClick}
         >
             <div className="flex-1">
-                <div className="font-medium text-sm mb-1 truncate">
-                    {task.title}
-                </div>
+                <div className="font-medium text-sm mb-1 truncate">{task.title}</div>
                 <div className="flex items-center gap-2">
-                    <LemonTag size="small" className={getStageColor(getTaskStageKey(task))}>
-                        {getTaskStageKey(task)}
+                    <LemonTag size="small" className={getStageColor(task)}>
+                        {task.workflow && task.current_stage
+                            ? allWorkflows.flatMap((w) => w.stages || []).find((s) => s.id === task.current_stage)
+                                  ?.name || getTaskStageKey(task)
+                            : getTaskStageKey(task)}
                     </LemonTag>
                     {task.github_pr_url && (
                         <LemonTag size="small" type="highlight">

@@ -72,7 +72,7 @@ export const tasksLogic = kea<tasksLogicType>([
                 },
                 assignTaskToWorkflow: async ({ taskId, workflowId }) => {
                     // Find the target workflow
-                    const targetWorkflow = values.allWorkflows.find(w => w.id === workflowId)
+                    const targetWorkflow = values.allWorkflows.find((w) => w.id === workflowId)
                     if (!targetWorkflow || !targetWorkflow.stages?.length) {
                         console.error('Workflow not found or has no stages:', workflowId)
                         return values.tasks
@@ -80,17 +80,17 @@ export const tasksLogic = kea<tasksLogicType>([
 
                     // Find the input stage (first stage by position)
                     const inputStage = targetWorkflow.stages
-                        .filter(s => !s.is_archived)
+                        .filter((s) => !s.is_archived)
                         .sort((a, b) => a.position - b.position)[0]
-                    
+
                     if (!inputStage) {
                         console.error('No input stage found for workflow:', workflowId)
                         return values.tasks
                     }
 
                     // Count tasks already in this stage for positioning
-                    const stageTaskCount = values.tasks.filter(task => 
-                        task.workflow === workflowId && task.current_stage === inputStage.id
+                    const stageTaskCount = values.tasks.filter(
+                        (task) => task.workflow === workflowId && task.current_stage === inputStage.id
                     ).length
 
                     // Optimistic update
@@ -123,12 +123,12 @@ export const tasksLogic = kea<tasksLogicType>([
                     const stageTasks = values.tasks
                         .filter((task: Task) => {
                             // For tasks with workflow, check current_stage ID matches stage ID
-                            // For tasks without workflow, they're in 'backlog' 
+                            // For tasks without workflow, they're in 'backlog'
                             if (task.workflow && task.current_stage) {
                                 // Find stage by ID and check if key matches
                                 const stage = values.allWorkflows
-                                    .flatMap(w => w.stages || [])
-                                    .find(s => s.id === task.current_stage)
+                                    .flatMap((w) => w.stages || [])
+                                    .find((s) => s.id === task.current_stage)
                                 return stage?.key === stageKey
                             }
                             return stageKey === 'backlog'
@@ -150,13 +150,13 @@ export const tasksLogic = kea<tasksLogicType>([
                         let taskInStage = false
                         if (task.workflow && task.current_stage) {
                             const stage = values.allWorkflows
-                                .flatMap(w => w.stages || [])
-                                .find(s => s.id === task.current_stage)
+                                .flatMap((w) => w.stages || [])
+                                .find((s) => s.id === task.current_stage)
                             taskInStage = stage?.key === stageKey
                         } else {
                             taskInStage = stageKey === 'backlog'
                         }
-                        
+
                         if (taskInStage) {
                             const newIndex = reorderedStageTasks.findIndex((st) => st.id === task.id)
                             return { ...task, position: newIndex }
@@ -262,38 +262,45 @@ export const tasksLogic = kea<tasksLogicType>([
     selectors({
         workflowKanbanData: [
             (s) => [s.tasks, s.allWorkflows],
-            (tasks, allWorkflows): Array<{
-                workflow: TaskWorkflow;
+            (
+                tasks,
+                allWorkflows
+            ): Array<{
+                workflow: TaskWorkflow
                 stages: Array<{
-                    stage: WorkflowStage;
-                    tasks: Task[];
-                }>;
+                    stage: WorkflowStage
+                    tasks: Task[]
+                }>
             }> => {
-                return allWorkflows.map(workflow => {
-                    // Get active stages for this workflow
-                    const workflowStages = (workflow.stages || [])
-                        .filter(stage => !stage.is_archived)
-                        .sort((a, b) => a.position - b.position)
+                return allWorkflows
+                    .map((workflow) => {
+                        // Get active stages for this workflow
+                        const workflowStages = (workflow.stages || [])
+                            .filter((stage) => !stage.is_archived)
+                            .sort((a, b) => a.position - b.position)
 
-                    // Create stage buckets for this workflow
-                    const stageBuckets = workflowStages.map(stage => {
-                        // Find tasks for this specific stage/workflow
-                        const stageTasks = tasks.filter(task => {
-                            // Task must be in this workflow and this stage
-                            return task.workflow === workflow.id && task.current_stage === stage.id
-                        }).sort((a, b) => a.position - b.position)
+                        // Create stage buckets for this workflow
+                        const stageBuckets = workflowStages.map((stage) => {
+                            // Find tasks for this specific stage/workflow
+                            const stageTasks = tasks
+                                .filter((task) => {
+                                    // Task must be in this workflow and this stage
+                                    return task.workflow === workflow.id && task.current_stage === stage.id
+                                })
+                                .sort((a, b) => a.position - b.position)
+
+                            return {
+                                stage,
+                                tasks: stageTasks,
+                            }
+                        })
 
                         return {
-                            stage,
-                            tasks: stageTasks
+                            workflow,
+                            stages: stageBuckets,
                         }
                     })
-
-                    return {
-                        workflow,
-                        stages: stageBuckets
-                    }
-                }).filter(workflowData => workflowData.stages.length > 0) // Only show workflows with stages
+                    .filter((workflowData) => workflowData.stages.length > 0) // Only show workflows with stages
             },
         ],
 
@@ -303,7 +310,7 @@ export const tasksLogic = kea<tasksLogicType>([
             (workflowKanbanData): Record<UniqueIdentifier, Task[]> => {
                 // Flatten all workflow stages into a single structure for legacy compatibility
                 const buckets: Record<string, Task[]> = {}
-                
+
                 workflowKanbanData.forEach(({ stages }) => {
                     stages.forEach(({ stage, tasks }) => {
                         buckets[stage.key] = [...(buckets[stage.key] || []), ...tasks]
@@ -315,25 +322,21 @@ export const tasksLogic = kea<tasksLogicType>([
         ],
 
         // Backlog shows ALL tasks regardless of workflow status
-        backlogTasks: [
-            (s) => [s.tasks],
-            (tasks): Task[] =>
-                tasks.sort((a, b) => a.position - b.position),
-        ],
+        backlogTasks: [(s) => [s.tasks], (tasks): Task[] => tasks.sort((a, b) => a.position - b.position)],
         workflowStages: [
             (s) => [s.allWorkflows],
             (allWorkflows): WorkflowStage[] => {
                 // Collect all unique stages from all active workflows
                 const allStages = new Map<string, WorkflowStage>()
-                
-                allWorkflows.forEach(workflow => {
-                    workflow.stages?.forEach(stage => {
+
+                allWorkflows.forEach((workflow) => {
+                    workflow.stages?.forEach((stage) => {
                         if (!stage.is_archived) {
                             allStages.set(stage.key, stage)
                         }
                     })
                 })
-                
+
                 // Sort stages by position and return as array
                 return Array.from(allStages.values()).sort((a, b) => a.position - b.position)
             },
@@ -349,8 +352,8 @@ export const tasksLogic = kea<tasksLogicType>([
                 tasks.some((task) => {
                     if (task.workflow && task.current_stage) {
                         const stage = allWorkflows
-                            .flatMap(w => w.stages || [])
-                            .find(s => s.id === task.current_stage)
+                            .flatMap((w) => w.stages || [])
+                            .find((s) => s.id === task.current_stage)
                         // Consider any non-final stage as "active" (exclude archived stages and common final stage names)
                         if (stage && !stage.is_archived) {
                             // Common final stage names that indicate completion
@@ -365,7 +368,7 @@ export const tasksLogic = kea<tasksLogicType>([
     listeners(({ actions, values, cache }) => ({
         moveTask: async ({ taskId, newStageKey, newPosition }) => {
             actions.startReordering()
-            
+
             const currentTasks = [...values.tasks]
             const moved = currentTasks.find((t) => t.id === taskId)
             if (!moved) {
@@ -378,7 +381,7 @@ export const tasksLogic = kea<tasksLogicType>([
             let targetStage = null
 
             for (const workflow of values.allWorkflows) {
-                const stage = workflow.stages?.find(s => s.key === newStageKey)
+                const stage = workflow.stages?.find((s) => s.key === newStageKey)
                 if (stage) {
                     targetWorkflow = workflow
                     targetStage = stage
@@ -411,9 +414,7 @@ export const tasksLogic = kea<tasksLogicType>([
             }
 
             // Optimistically update the tasks
-            const updatedTasks = currentTasks.map(t => 
-                t.id === taskId ? updatedTask : t
-            )
+            const updatedTasks = currentTasks.map((t) => (t.id === taskId ? updatedTask : t))
             actions.loadTasksSuccess(updatedTasks)
 
             // Persist the task update to backend
