@@ -1,5 +1,5 @@
 import { Monaco } from '@monaco-editor/react'
-import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -36,7 +36,6 @@ import {
     ExportContext,
     LineageGraph,
     QueryBasedInsightModel,
-    QueryTabState,
 } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
@@ -286,41 +285,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             actions.initialize()
         }
     }),
-    loaders(({ values }) => ({
-        queryTabState: [
-            null as QueryTabState | null,
-            {
-                loadQueryTabState: async () => {
-                    if (!values.user) {
-                        return null
-                    }
-                    let queryTabStateModel = null
-                    try {
-                        queryTabStateModel = await api.queryTabState.user(values.user?.uuid)
-                    } catch (e) {
-                        console.error(e)
-                    }
-
-                    return (
-                        queryTabStateModel ||
-                        ({
-                            id: '0',
-                            state: {
-                                editorModelsStateKey: '[]',
-                                activeModelStateKey: '0',
-                                sourceQuery: JSON.stringify(values.sourceQuery) || '',
-                            },
-                        } as QueryTabState)
-                    )
-                },
-            },
-        ],
+    loaders(() => ({
         upstream: [
             null as LineageGraph | null,
             {
                 loadUpstream: async (payload: { modelId: string }) => {
-                    const upstream = await api.upstream.get(payload.modelId)
-                    return upstream
+                    return await api.upstream.get(payload.modelId)
                 },
             },
         ],
@@ -795,7 +765,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             actions.removeTab(tabToRemove)
         },
         initialize: async () => {
-            // TODO: replace with queryTabState
             const allModelQueries = await getStorageItem(editorModelsStateKey(props.key))
             const activeModelUri = await getStorageItem(activeModelStateKey(props.key))
             const allTabs = await getStorageItem(deprecatedAllTabsStateKey(props.key), allTabsStateKey(props.key))
@@ -1571,7 +1540,4 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             })
         },
     })),
-    afterMount(({ actions }) => {
-        actions.loadQueryTabState()
-    }),
 ])
