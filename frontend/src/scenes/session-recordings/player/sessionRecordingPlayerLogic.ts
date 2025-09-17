@@ -121,6 +121,7 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataLo
     playlistLogic?: BuiltLogic<sessionRecordingsPlaylistLogicType>
     autoPlay?: boolean
     noInspector?: boolean
+    mode?: SessionRecordingPlayerMode
     playerRef?: RefObject<HTMLDivElement>
     pinned?: boolean
     setPinned?: (pinned: boolean) => void
@@ -337,9 +338,7 @@ function registerErrorListeners({
 
 export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
-    props({
-        mode: SessionRecordingPlayerMode.Unknown,
-    } as SessionRecordingPlayerLogicProps),
+    props({} as SessionRecordingPlayerLogicProps),
     key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect((props: SessionRecordingPlayerLogicProps) => ({
         values: [
