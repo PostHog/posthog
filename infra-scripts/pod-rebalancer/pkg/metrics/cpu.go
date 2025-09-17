@@ -34,7 +34,6 @@ func NewCPUMetrics(client PrometheusClient, logger *zap.Logger, namespace, deplo
 	}
 }
 
-
 // parseCPUResults parses Prometheus query results into a pod->usage map
 func (f *CPUMetrics) parseCPUResults(result model.Value) (map[string]float64, error) {
 	cpuUsage := make(map[string]float64)
@@ -101,7 +100,7 @@ func (f *CPUMetrics) parseCPUResults(result model.Value) (map[string]float64, er
 func (f *CPUMetrics) FetchCPULimits(ctx context.Context) (float64, error) {
 	query := fmt.Sprintf(`median(sum(median by (container) (kube_pod_container_resource_limits{resource="cpu", namespace="%s", container="%s"})))`,
 		f.namespace, f.deploymentName)
-	
+
 	f.logger.Debug("Executing CPU limits query",
 		zap.String("query", query),
 		zap.String("namespace", f.namespace),
@@ -117,12 +116,12 @@ func (f *CPUMetrics) FetchCPULimits(ctx context.Context) (float64, error) {
 	return f.parseScalarResult(result, "CPU limits")
 }
 
-// FetchCPURequests fetches CPU resource requests for containers  
+// FetchCPURequests fetches CPU resource requests for containers
 // Returns the median CPU request across containers
 func (f *CPUMetrics) FetchCPURequests(ctx context.Context) (float64, error) {
 	query := fmt.Sprintf(`median(sum(median by (container) (kube_pod_container_resource_requests{resource="cpu", namespace="%s", container="%s"})))`,
 		f.namespace, f.deploymentName)
-	
+
 	f.logger.Debug("Executing CPU requests query",
 		zap.String("query", query),
 		zap.String("namespace", f.namespace),

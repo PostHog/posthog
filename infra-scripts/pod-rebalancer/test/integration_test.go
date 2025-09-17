@@ -23,12 +23,12 @@ import (
 
 var _ = Describe("Simple Integration Tests", func() {
 	var (
-		ctx              context.Context
-		logger           *zap.Logger
-		mockPrometheus   *httptest.Server
-		k8sClient        *fake.Clientset
-		namespace        string
-		deploymentName   string
+		ctx            context.Context
+		logger         *zap.Logger
+		mockPrometheus *httptest.Server
+		k8sClient      *fake.Clientset
+		namespace      string
+		deploymentName string
 	)
 
 	BeforeEach(func() {

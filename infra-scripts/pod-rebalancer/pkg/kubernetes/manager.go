@@ -22,10 +22,10 @@ type PodManager struct {
 
 // DeletionResult tracks what happened during pod deletions
 type DeletionResult struct {
-	Attempted []string            // Pod names that were attempted to be deleted
-	Deleted   []string            // Pod names that were successfully deleted
-	Skipped   map[string]string   // pod name -> skip reason
-	Errors    map[string]error    // pod name -> error
+	Attempted []string          // Pod names that were attempted to be deleted
+	Deleted   []string          // Pod names that were successfully deleted
+	Skipped   map[string]string // pod name -> skip reason
+	Errors    map[string]error  // pod name -> error
 }
 
 // NewManager creates a new PodManager with the provided configuration

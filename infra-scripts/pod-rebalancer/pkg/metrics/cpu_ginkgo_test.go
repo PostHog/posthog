@@ -153,7 +153,7 @@ avg(kube_pod_container_resource_requests{
 
 			It("should return top K pods above tolerance", func() {
 				usage, err := fetcher.FetchTopKPodsAboveTolerance(ctx, 2, 1.5, "keda-hpa-")
-				
+
 				Expect(err).NotTo(HaveOccurred())
 				Expect(usage).To(HaveLen(2))
 				Expect(usage["consumer-pod-1"]).To(Equal(1.2))
@@ -170,7 +170,7 @@ avg(kube_pod_container_resource_requests{
 
 			It("should return empty map", func() {
 				usage, err := fetcher.FetchTopKPodsAboveTolerance(ctx, 2, 1.5, "keda-hpa-")
-				
+
 				Expect(err).NotTo(HaveOccurred())
 				Expect(usage).To(BeEmpty())
 				client.AssertExpectations(GinkgoT())
@@ -184,7 +184,7 @@ avg(kube_pod_container_resource_requests{
 
 			It("should return error", func() {
 				usage, err := fetcher.FetchTopKPodsAboveTolerance(ctx, 2, 1.5, "keda-hpa-")
-				
+
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("failed to query top K pods above tolerance"))
 				Expect(usage).To(BeNil())
@@ -222,7 +222,7 @@ avg(kube_pod_container_resource_requests{
 
 			It("should return bottom K pods", func() {
 				usage, err := fetcher.FetchBottomKPods(ctx, 2)
-				
+
 				Expect(err).NotTo(HaveOccurred())
 				Expect(usage).To(HaveLen(2))
 				Expect(usage["consumer-pod-3"]).To(Equal(0.3))
@@ -238,7 +238,7 @@ avg(kube_pod_container_resource_requests{
 
 			It("should return error", func() {
 				usage, err := fetcher.FetchBottomKPods(ctx, 2)
-				
+
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("failed to query bottom K pods"))
 				Expect(usage).To(BeNil())

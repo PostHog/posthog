@@ -22,13 +22,13 @@ type Config struct {
 	MetricsTimeWindow time.Duration // Time window for rate calculations
 
 	// Decision making parameters
-	RebalanceTopKPods        int     // Number of top/bottom pods to consider
-	ToleranceMultiplier      float64 // Only act on pods above this threshold (multiplier of HPA target)
+	RebalanceTopKPods         int     // Number of top/bottom pods to consider
+	ToleranceMultiplier       float64 // Only act on pods above this threshold (multiplier of HPA target)
 	MinimumImprovementPercent float64 // Minimum improvement required (% of top pod average CPU)
-	HPAPrefix                string  // Optional prefix for HPA name (e.g., "keda-hpa-")
+	HPAPrefix                 string  // Optional prefix for HPA name (e.g., "keda-hpa-")
 
 	// Safety and debugging
-	MinimumPodsRequired int  // Minimum pods that must remain after deletion
+	MinimumPodsRequired int // Minimum pods that must remain after deletion
 	DryRun              bool
 	LogLevel            string
 }

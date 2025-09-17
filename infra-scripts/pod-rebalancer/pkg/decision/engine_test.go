@@ -17,7 +17,6 @@ type MockCPUMetricsFetcher struct {
 	mock.Mock
 }
 
-
 func (m *MockCPUMetricsFetcher) FetchCPULimits(ctx context.Context) (float64, error) {
 	args := m.Called(ctx)
 	return args.Get(0).(float64), args.Error(1)
@@ -67,9 +66,9 @@ var _ = Describe("Engine", func() {
 			BeforeEach(func() {
 				engine = decision.NewEngine(
 					mockFetcher,
-					2,     // topK
-					1.5,   // toleranceMultiplier
-					10.0,  // minimumImprovementPercent
+					2,           // topK
+					1.5,         // toleranceMultiplier
+					10.0,        // minimumImprovementPercent
 					"keda-hpa-", // hpaPrefix
 					logger,
 				)
@@ -95,14 +94,14 @@ var _ = Describe("Engine", func() {
 
 					Expect(err).NotTo(HaveOccurred())
 					Expect(analysis.ShouldRebalance).To(BeTrue())
-					
+
 					// Average top only: (1.2 + 1.1) / 2 = 1.15
 					// Average top+bottom: (1.2 + 1.1 + 0.3 + 0.4) / 4 = 0.75
 					// Improvement: (1.15 - 0.75) / 1.15 * 100 = 34.8%
 					Expect(analysis.Metrics.CurrentAvgTopOnly).To(BeNumerically("~", 1.15, 0.01))
 					Expect(analysis.Metrics.CurrentAvgTopBottom).To(BeNumerically("~", 0.75, 0.01))
 					Expect(analysis.Metrics.ImprovementPercent).To(BeNumerically("~", 34.8, 0.1))
-					
+
 					Expect(analysis.TargetPods).To(ConsistOf("pod-high-1", "pod-high-2", "pod-low-1", "pod-low-2"))
 					Expect(analysis.Reason).To(ContainSubstring("exceeds minimum"))
 				})
@@ -112,7 +111,7 @@ var _ = Describe("Engine", func() {
 				It("should not recommend rebalancing", func() {
 					// No pods above tolerance
 					topPods := map[string]float64{}
-					
+
 					mockFetcher.On("FetchTopKPodsAboveTolerance", ctx, 2, 1.5, "keda-hpa-").Return(topPods, nil)
 					// Should not call FetchBottomKPods since no top pods found
 
@@ -145,7 +144,7 @@ var _ = Describe("Engine", func() {
 
 					Expect(err).NotTo(HaveOccurred())
 					Expect(analysis.ShouldRebalance).To(BeFalse())
-					
+
 					// Average top only: (0.9 + 0.85) / 2 = 0.875
 					// Average top+bottom: (0.9 + 0.85 + 0.8 + 0.75) / 4 = 0.825
 					// Improvement: (0.875 - 0.825) / 0.875 * 100 = 5.7%
@@ -171,7 +170,7 @@ var _ = Describe("Engine", func() {
 				It("should return an error", func() {
 					topPods := map[string]float64{"pod-1": 1.2}
 					expectedErr := errors.New("prometheus timeout")
-					
+
 					mockFetcher.On("FetchTopKPodsAboveTolerance", ctx, 2, 1.5, "keda-hpa-").Return(topPods, nil)
 					mockFetcher.On("FetchBottomKPods", ctx, 2).Return(nil, expectedErr)
 
@@ -188,10 +187,10 @@ var _ = Describe("Engine", func() {
 			It("should respect custom tolerance and improvement thresholds", func() {
 				engine = decision.NewEngine(
 					mockFetcher,
-					3,     // topK = 3
-					2.0,   // toleranceMultiplier = 2.0
-					20.0,  // minimumImprovementPercent = 20%
-					"", // no hpaPrefix
+					3,    // topK = 3
+					2.0,  // toleranceMultiplier = 2.0
+					20.0, // minimumImprovementPercent = 20%
+					"",   // no hpaPrefix
 					logger,
 				)
 

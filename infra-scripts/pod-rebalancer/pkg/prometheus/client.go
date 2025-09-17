@@ -21,7 +21,7 @@ func NewClient(endpoint string, timeout time.Duration) (*Client, error) {
 	config := api.Config{
 		Address: endpoint,
 	}
-	
+
 	client, err := api.NewClient(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Prometheus client: %w", err)

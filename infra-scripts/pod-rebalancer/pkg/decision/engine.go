@@ -11,42 +11,42 @@ import (
 
 // Engine analyzes CPU usage and selects pods for deletion based on the sophisticated algorithm
 type Engine struct {
-	cpuFetcher               metrics.CPUMetricsFetcher
-	topKPods                 int
-	toleranceMultiplier      float64
+	cpuFetcher                metrics.CPUMetricsFetcher
+	topKPods                  int
+	toleranceMultiplier       float64
 	minimumImprovementPercent float64
-	hpaPrefix                string
-	logger                   *zap.Logger
+	hpaPrefix                 string
+	logger                    *zap.Logger
 }
 
 // NewEngine creates a new decision engine with the specified parameters
 func NewEngine(cpuFetcher metrics.CPUMetricsFetcher, topK int, toleranceMultiplier, minimumImprovementPercent float64, hpaPrefix string, logger *zap.Logger) *Engine {
 	return &Engine{
-		cpuFetcher:               cpuFetcher,
-		topKPods:                 topK,
-		toleranceMultiplier:      toleranceMultiplier,
+		cpuFetcher:                cpuFetcher,
+		topKPods:                  topK,
+		toleranceMultiplier:       toleranceMultiplier,
 		minimumImprovementPercent: minimumImprovementPercent,
-		hpaPrefix:                hpaPrefix,
-		logger:                   logger,
+		hpaPrefix:                 hpaPrefix,
+		logger:                    logger,
 	}
 }
 
 // Analysis contains the CPU-based decision results
 type Analysis struct {
-	ShouldRebalance    bool
-	TargetPods         []string
-	FilteredTopPods    map[string]float64
-	BottomPods         map[string]float64
-	Reason             string
-	Metrics            AnalysisMetrics
+	ShouldRebalance bool
+	TargetPods      []string
+	FilteredTopPods map[string]float64
+	BottomPods      map[string]float64
+	Reason          string
+	Metrics         AnalysisMetrics
 }
 
 // AnalysisMetrics contains detailed metrics about the analysis
 type AnalysisMetrics struct {
-	CurrentAvgTopBottom     float64
-	CurrentAvgTopOnly       float64
-	ImprovementAbsolute     float64
-	ImprovementPercent      float64
+	CurrentAvgTopBottom float64
+	CurrentAvgTopOnly   float64
+	ImprovementAbsolute float64
+	ImprovementPercent  float64
 }
 
 // Analyze implements the sophisticated HPA-aware algorithm using two PromQL queries
@@ -78,7 +78,7 @@ func (e *Engine) Analyze(ctx context.Context) (*Analysis, error) {
 
 	// Calculate averages
 	avgTopOnly := e.calculateAverage(filteredTopPods)
-	
+
 	// Combine top and bottom pods for combined average
 	combinedPods := make(map[string]float64)
 	for k, v := range filteredTopPods {
@@ -97,9 +97,9 @@ func (e *Engine) Analyze(ctx context.Context) (*Analysis, error) {
 	// Make decision
 	if analysis.Metrics.ImprovementPercent > e.minimumImprovementPercent {
 		analysis.ShouldRebalance = true
-		analysis.Reason = fmt.Sprintf("Improvement %.1f%% exceeds minimum %.1f%%", 
+		analysis.Reason = fmt.Sprintf("Improvement %.1f%% exceeds minimum %.1f%%",
 			analysis.Metrics.ImprovementPercent, e.minimumImprovementPercent)
-		
+
 		// Build target pod list
 		for podName := range filteredTopPods {
 			analysis.TargetPods = append(analysis.TargetPods, podName)
@@ -109,7 +109,7 @@ func (e *Engine) Analyze(ctx context.Context) (*Analysis, error) {
 		}
 	} else {
 		analysis.ShouldRebalance = false
-		analysis.Reason = fmt.Sprintf("Improvement %.1f%% below minimum %.1f%%", 
+		analysis.Reason = fmt.Sprintf("Improvement %.1f%% below minimum %.1f%%",
 			analysis.Metrics.ImprovementPercent, e.minimumImprovementPercent)
 	}
 
@@ -122,14 +122,13 @@ func (e *Engine) calculateAverage(pods map[string]float64) float64 {
 	if len(pods) == 0 {
 		return 0
 	}
-	
+
 	sum := 0.0
 	for _, cpu := range pods {
 		sum += cpu
 	}
 	return sum / float64(len(pods))
 }
-
 
 // logAnalysis logs detailed analysis results
 func (e *Engine) logAnalysis(analysis *Analysis) {

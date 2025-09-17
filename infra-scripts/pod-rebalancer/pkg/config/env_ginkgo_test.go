@@ -20,7 +20,7 @@ var _ = Describe("Configuration", func() {
 			"REBALANCE_TOP_K_PODS", "TOLERANCE_MULTIPLIER", "MINIMUM_IMPROVEMENT_PERCENT",
 			"HPA_PREFIX", "DRY_RUN", "LOG_LEVEL",
 		}
-		
+
 		for _, envVar := range envVars {
 			originalEnv[envVar] = os.Getenv(envVar)
 			os.Unsetenv(envVar)
@@ -42,7 +42,7 @@ var _ = Describe("Configuration", func() {
 		Context("when no environment variables are set", func() {
 			It("should return default configuration but fail validation due to missing deployment name", func() {
 				config, err := LoadFromEnv()
-				
+
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("DEPLOYMENT_NAME is required"))
 				Expect(config).To(BeNil())
@@ -56,10 +56,10 @@ var _ = Describe("Configuration", func() {
 
 			It("should successfully load configuration", func() {
 				config, err := LoadFromEnv()
-				
+
 				Expect(err).NotTo(HaveOccurred())
 				Expect(config).NotTo(BeNil())
-				
+
 				// Test that the config passes validation (tests the interface behavior)
 				err = config.Validate()
 				Expect(err).NotTo(HaveOccurred())
@@ -84,10 +84,10 @@ var _ = Describe("Configuration", func() {
 
 			It("should successfully load custom configuration", func() {
 				config, err := LoadFromEnv()
-				
+
 				Expect(err).NotTo(HaveOccurred())
 				Expect(config).NotTo(BeNil())
-				
+
 				// Test that the config passes validation (tests the interface behavior)
 				err = config.Validate()
 				Expect(err).NotTo(HaveOccurred())
@@ -127,14 +127,13 @@ var _ = Describe("Configuration", func() {
 						checkResult(config)
 					}
 				},
-				Entry("invalid rebalance top k becomes zero and fails validation", "REBALANCE_TOP_K_PODS", "invalid", 
+				Entry("invalid rebalance top k becomes zero and fails validation", "REBALANCE_TOP_K_PODS", "invalid",
 					nil, true),
-				Entry("invalid tolerance multiplier becomes zero and fails validation", "TOLERANCE_MULTIPLIER", "invalid", 
+				Entry("invalid tolerance multiplier becomes zero and fails validation", "TOLERANCE_MULTIPLIER", "invalid",
 					nil, true),
-				Entry("invalid dry run becomes false", "DRY_RUN", "invalid", 
+				Entry("invalid dry run becomes false", "DRY_RUN", "invalid",
 					func(c *Config) { Expect(c.DryRun).To(BeFalse()) }, false),
 			)
-
 
 			Context("when REBALANCE_TOP_K_PODS is invalid", func() {
 				BeforeEach(func() {
@@ -181,7 +180,7 @@ var _ = Describe("Configuration", func() {
 						PrometheusEndpoint:        "http://localhost:9090",
 						PrometheusTimeout:         30 * time.Second,
 						KubeNamespace:             "default",
-						KubeLabelSelector:         "app=consumer", 
+						KubeLabelSelector:         "app=consumer",
 						DeploymentName:            "ingestion-consumer",
 						MetricsTimeWindow:         5 * time.Minute,
 						RebalanceTopKPods:         2,
@@ -192,9 +191,9 @@ var _ = Describe("Configuration", func() {
 						DryRun:                    false,
 						LogLevel:                  "info",
 					}
-					
+
 					modifyConfig(config)
-					
+
 					err := config.Validate()
 					Expect(err).To(HaveOccurred())
 					Expect(err.Error()).To(ContainSubstring(expectedError))
