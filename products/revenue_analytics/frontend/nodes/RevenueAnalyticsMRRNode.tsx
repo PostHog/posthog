@@ -1,10 +1,10 @@
-import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
+import { BindLogic, BuiltLogic, LogicWrapper, useActions, useMountedLogic, useValues } from 'kea'
 import { useState } from 'react'
 
 import { IconGraph } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonSegmentedButtonOption } from '@posthog/lemon-ui'
 
-import { SceneLogicAttachTo, useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -39,7 +39,7 @@ export function RevenueAnalyticsMRRNode(props: {
     query: RevenueAnalyticsMRRQuery
     cachedResults?: AnyResponseType
     context: QueryContext
-    attachTo?: SceneLogicAttachTo
+    attachTo?: LogicWrapper | BuiltLogic
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `RevenueAnalyticsMRR.${uniqueNode++}`)

@@ -1,11 +1,9 @@
 import './MarketingAnalyticsTableStyleOverride.scss'
 
-import { useActions } from 'kea'
+import { BuiltLogic, LogicWrapper, useActions } from 'kea'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-
-import { SceneLogicAttachTo } from 'lib/logic/scenes/useAttachedLogic'
 
 import { Query } from '~/queries/Query/Query'
 import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
@@ -27,7 +25,7 @@ import { MarketingAnalyticsColumnConfigModal } from './MarketingAnalyticsColumnC
 export type MarketingAnalyticsTableProps = {
     query: DataTableNode
     insightProps: InsightLogicProps
-    attachTo?: SceneLogicAttachTo
+    attachTo?: LogicWrapper | BuiltLogic
 }
 
 export const MarketingAnalyticsTable = ({

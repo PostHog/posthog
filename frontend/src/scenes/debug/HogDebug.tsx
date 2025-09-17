@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, BuiltLogic, LogicWrapper, useValues } from 'kea'
 import type { IDisposable } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
 
@@ -7,7 +7,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { SceneLogicAttachTo, useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
@@ -111,7 +111,7 @@ interface HogDebugProps {
     setQuery: (query: HogQuery) => void
     debug?: boolean
     modifiers?: HogQLQueryModifiers
-    attachTo?: SceneLogicAttachTo
+    attachTo?: LogicWrapper | BuiltLogic
 }
 
 export function HogDebug({ query, setQuery, queryKey, debug, modifiers, attachTo }: HogDebugProps): JSX.Element {

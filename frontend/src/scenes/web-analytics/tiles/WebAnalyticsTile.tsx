@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
 import { IconChevronDown, IconTrending, IconWarning } from '@posthog/icons'
@@ -14,7 +14,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { IconOpenInNew, IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
-import { SceneLogicAttachTo } from 'lib/logic/scenes/useAttachedLogic'
 import { UnexpectedNeverError, percentage, tryDecodeURIComponent } from 'lib/utils'
 import {
     COUNTRY_CODE_TO_LONG_NAME,
@@ -444,7 +443,7 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
 type QueryWithInsightProps<Q extends QuerySchema> = {
     query: Q
     insightProps: InsightLogicProps
-    attachTo?: SceneLogicAttachTo
+    attachTo?: LogicWrapper | BuiltLogic
 }
 
 export const WebStatsTrendTile = ({
