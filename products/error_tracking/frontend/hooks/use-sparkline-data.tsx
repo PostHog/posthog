@@ -26,6 +26,7 @@ function generateFallbackData(dateRange: DateRange, volumeResolution: number): S
     }
 
     const totalMs = dateTo.diff(dateFrom, 'ms')
+
     const binSize = totalMs / volumeResolution
 
     if (binSize === 0) {
