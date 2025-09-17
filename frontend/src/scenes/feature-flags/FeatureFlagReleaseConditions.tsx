@@ -3,6 +3,7 @@ import './FeatureFlag.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { Fragment } from 'react'
 
 import { IconCopy, IconFlag, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonSelect, LemonSnack, Link, Tooltip } from '@posthog/lemon-ui'
@@ -31,7 +32,6 @@ import { groupsModel } from '~/models/groupsModel'
 import { getFilterLabel } from '~/taxonomy/helpers'
 import { AnyPropertyFilter, FeatureFlagGroupType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import { COHORT_BEHAVIORAL_LIMITATIONS_URL } from './constants'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsLogicProps,
@@ -363,7 +363,7 @@ export function FeatureFlagReleaseConditions({
                                                       <IconErrorOutline className="text-xl" /> {message.value}
                                                   </div>
                                               ) : (
-                                                  <></>
+                                                  <Fragment key={index} />
                                               )
                                           })
                                         : null
@@ -578,17 +578,6 @@ export function FeatureFlagReleaseConditions({
                             Specify {aggregationTargetName} for flag release. Condition sets are evaluated top to bottom
                             - the first matching set is used. A condition matches when all property filters pass AND the
                             target falls within the rollout percentage.
-                        </div>
-                        <div className="text-secondary">
-                            {aggregationTargetName === 'users' && (
-                                <>
-                                    {' '}
-                                    Cohort-based targeting{' '}
-                                    <Link to={COHORT_BEHAVIORAL_LIMITATIONS_URL}>
-                                        doesn't support dynamic behavioral cohorts.
-                                    </Link>{' '}
-                                </>
-                            )}
                         </div>
                     </>
                 )
