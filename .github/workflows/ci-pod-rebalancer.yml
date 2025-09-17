@@ -1,0 +1,52 @@
+name: Pod Rebalancer CI
+
+on:
+    push:
+        paths:
+            - 'infra-scripts/pod-rebalancer/**'
+            - '.github/workflows/ci-pod-rebalancer.yml'
+    pull_request:
+        paths:
+            - 'infra-scripts/pod-rebalancer/**'
+            - '.github/workflows/ci-pod-rebalancer.yml'
+
+env:
+    GO_VERSION: '1.25'
+
+jobs:
+    test:
+        name: Test and Build
+        runs-on: ubuntu-24.04
+        defaults:
+            run:
+                working-directory: infra-scripts/pod-rebalancer
+
+        steps:
+            - name: Check Out Repo
+              uses: actions/checkout@v4
+
+            - name: Set up Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version: ${{ env.GO_VERSION }}
+                  cache-dependency-path: infra-scripts/pod-rebalancer/go.sum
+
+            - name: Install Task
+              uses: arduino/setup-task@v2
+              with:
+                  version: 3.x
+
+            - name: Setup development environment
+              run: task dev-setup
+
+            - name: Run all quality checks
+              run: task check
+
+            - name: Generate coverage report
+              run: task test-coverage
+
+            - name: Build binary
+              run: task build
+
+            - name: Test binary
+              run: ./bin/rebalancer --help
