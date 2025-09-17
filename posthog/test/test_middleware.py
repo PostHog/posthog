@@ -557,7 +557,7 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
             assert res.status_code == 302
             assert res.headers["Location"] == "/logout/"
 
-            res = self.client.post("/logout/")
+            res = self.client.get("/logout/")
             assert res.status_code == 302
             assert res.headers["Location"] == "/admin/"
 
