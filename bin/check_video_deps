@@ -17,7 +17,14 @@ if ! flox activate -- bash -c "python -c 'import playwright'" &> /dev/null; then
 else
     echo "Playwright is already installed"
     # Check if browsers are installed by looking for chromium
-    if [ ! -d "$HOME/Library/Caches/ms-playwright" ] || [ -z "$(find "$HOME/Library/Caches/ms-playwright" -name "chrome-mac" -o -name "headless_shell" 2>/dev/null)" ]; then
+    # Determine the correct cache directory based on OS
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        PLAYWRIGHT_CACHE_DIR="$HOME/Library/Caches/ms-playwright"
+    else
+        PLAYWRIGHT_CACHE_DIR="$HOME/.cache/ms-playwright"
+    fi
+    
+    if [ ! -d "$PLAYWRIGHT_CACHE_DIR" ] || [ -z "$(find "$PLAYWRIGHT_CACHE_DIR" -name "chrome-*" -o -name "headless_shell" -o -name "chromium-*" 2>/dev/null)" ]; then
         echo "Playwright browsers not found, installing..."
         flox activate -- bash -c "playwright install"
     else
