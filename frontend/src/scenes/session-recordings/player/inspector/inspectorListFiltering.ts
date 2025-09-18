@@ -156,6 +156,8 @@ export function itemToMiniFilter(
             return networkMatch(item, miniFiltersByKey)
         case 'comment':
             return item.type === 'comment' ? miniFiltersByKey['comment'] : null
+        case 'state-log':
+            return item.type === 'state-log' ? miniFiltersByKey['console-state-log'] : null
         case 'doctor':
             if (isDoctorEvent(item)) {
                 return miniFiltersByKey['doctor']

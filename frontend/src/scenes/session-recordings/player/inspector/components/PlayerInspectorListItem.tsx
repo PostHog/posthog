@@ -39,7 +39,7 @@ import { ItemPerformanceEvent, ItemPerformanceEventDetail } from '../../../apm/p
 import { IconWindow } from '../../icons'
 import { sessionRecordingPlayerLogic } from '../../sessionRecordingPlayerLogic'
 import { InspectorListItem, playerInspectorLogic } from '../playerInspectorLogic'
-import { ItemConsoleLog, ItemConsoleLogDetail } from './ItemConsoleLog'
+import { ItemConsoleLog, ItemConsoleLogDetail, ItemStateLog, ItemStateLogDetail } from './ItemConsoleLog'
 import { ItemDoctor, ItemDoctorDetail } from './ItemDoctor'
 import { ItemEvent, ItemEventDetail, ItemEventMenu } from './ItemEvent'
 
@@ -53,6 +53,10 @@ const typeToIconAndDescription = {
     console: {
         Icon: IconTerminal,
         tooltip: 'Console log',
+    },
+    'state-log': {
+        Icon: IconTerminal,
+        tooltip: 'State log',
     },
     network: {
         Icon: IconDashboard,
@@ -156,6 +160,8 @@ function RowItemTitle({
                 <ItemPerformanceEvent item={item.data} finalTimestamp={finalTimestamp} />
             ) : item.type === 'console' ? (
                 <ItemConsoleLog item={item} />
+            ) : item.type === 'state-log' ? (
+                <ItemStateLog item={item} />
             ) : item.type === 'events' ? (
                 <ItemEvent item={item} />
             ) : item.type === 'offline-status' ? (
@@ -200,6 +206,8 @@ function RowItemDetail({
         <div onClick={onClick}>
             {item.type === 'network' ? (
                 <ItemPerformanceEventDetail item={item.data} finalTimestamp={finalTimestamp} />
+            ) : item.type === 'state-log' ? (
+                <ItemStateLogDetail item={item} />
             ) : item.type === 'console' ? (
                 <ItemConsoleLogDetail item={item} />
             ) : item.type === 'events' ? (
