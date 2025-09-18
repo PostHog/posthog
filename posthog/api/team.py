@@ -4,12 +4,10 @@ from functools import cached_property
 from typing import Any, Literal, Optional, cast
 
 from django.conf import settings
-from django.core.exceptions import ImproperlyConfigured
 from django.shortcuts import get_object_or_404
 
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, request, response, serializers, viewsets
-from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -46,6 +44,12 @@ from posthog.permissions import (
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.scopes import APIScopeObjectOrNotSupported
+from posthog.session_recordings.data_retention import (
+    VALID_RETENTION_PERIODS,
+    parse_feature_to_entitlement,
+    retention_violates_entitlement,
+    validate_retention_period,
+)
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
 
@@ -374,9 +378,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     @staticmethod
     def validate_session_recording_retention_period(value) -> Literal["30d", "90d", "1y", "5y"] | None:
-        if value not in ["30d", "90d", "1y", "5y"]:
+        if not validate_retention_period(value):
             raise exceptions.ValidationError(
-                "Must provide a valid retention period. Options are: ['30d', '90d', '1y', '5y']."
+                f"Must provide a valid retention period. Options are: {VALID_RETENTION_PERIODS}."
             )
 
         return value
@@ -692,50 +696,19 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     def _verify_update_session_recording_retention_period(self, instance: Team, new_retention_period: str):
         retention_feature = instance.organization.get_available_feature(AvailableFeature.SESSION_REPLAY_DATA_RETENTION)
+        highest_retention_entitlement = parse_feature_to_entitlement(retention_feature)
 
-        if not retention_feature:
-            raise ImproperlyConfigured("No retention period feature found.")
-
-        retention_limit = retention_feature.get("limit")
-
-        if not retention_limit:
-            raise ImproperlyConfigured("No retention period limit specified.")
-
-        retention_unit = retention_feature.get("unit")
-
-        if not retention_unit:
-            raise ImproperlyConfigured("No retention period unit specified.")
-
-        match retention_unit.lower():
-            case "day" | "days":
-                highest_retention_entitlement = f"{retention_limit}d"
-            case "month" | "months":
-                if retention_limit < 12:
-                    highest_retention_entitlement = f"{retention_limit * 30}d"
-                else:
-                    highest_retention_entitlement = f"{retention_limit // 12}y"
-            case "year" | "years":
-                highest_retention_entitlement = f"{retention_limit}y"
-            case invalid:
-                raise ImproperlyConfigured(
-                    f"Invalid unit '{invalid}' encountered - must be one of: ['day', 'days', 'month', 'months', 'year', 'years']."
-                )
-
-        ordered_retention_periods = ["30d", "90d", "1y", "5y"]
-
-        if highest_retention_entitlement not in ordered_retention_periods:
-            raise ImproperlyConfigured("Retention period limit is invalid.")
+        if highest_retention_entitlement is None:
+            raise exceptions.APIException(detail="Invalid retention entitlement.")  # HTTP 500
 
         # Should be validated already, but let's be extra sure to avoid IndexErrors below
-        if new_retention_period not in ordered_retention_periods:
-            raise exceptions.ValidationError(
-                "Must provide a valid retention period. Options are: ['30d', '90d', '1y', '5y']."
+        if not validate_retention_period(new_retention_period):
+            raise exceptions.ValidationError(  # HTTP 400
+                f"Must provide a valid retention period. Options are: {VALID_RETENTION_PERIODS}."
             )
 
-        if ordered_retention_periods.index(new_retention_period) > ordered_retention_periods.index(
-            highest_retention_entitlement
-        ):
-            raise PermissionDenied(
+        if retention_violates_entitlement(new_retention_period, highest_retention_entitlement):
+            raise exceptions.PermissionDenied(  # HTTP 403
                 f"This organization does not have permission to set retention period of length '{new_retention_period}' - longest allowable retention period is '{highest_retention_entitlement}'."
             )
 
