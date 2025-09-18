@@ -4,7 +4,6 @@ import { BindLogic } from 'kea'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { AddSavedInsightsToDashboard } from 'scenes/saved-insights/AddSavedInsightsToDashboard'
 import { addSavedInsightsModalLogic } from 'scenes/saved-insights/addSavedInsightsModalLogic'
 import { urls } from 'scenes/urls'
@@ -36,9 +35,6 @@ export function AddInsightToDashboardModal(): JSX.Element {
                         <AccessControlAction
                             resourceType={AccessControlResourceType.Insight}
                             minAccessLevel={AccessControlLevel.Editor}
-                            userAccessLevel={
-                                getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight]
-                            }
                         >
                             <LemonButton
                                 type="primary"

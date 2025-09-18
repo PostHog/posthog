@@ -10,7 +10,6 @@ import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { PopoverProps } from 'lib/lemon-ui/Popover'
 import { IconWithCount } from 'lib/lemon-ui/icons'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import {
     NotebookSelectButtonLogicProps,
@@ -135,7 +134,6 @@ export function NotebookSelectList(props: NotebookSelectProps): JSX.Element {
                 <AccessControlAction
                     resourceType={AccessControlResourceType.Notebook}
                     minAccessLevel={AccessControlLevel.Editor}
-                    userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.Notebook]}
                 >
                     <LemonButton
                         data-attr="notebooks-select-button-create"

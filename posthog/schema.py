@@ -36,6 +36,7 @@ class AggregationAxisFormat(StrEnum):
     DURATION_MS = "duration_ms"
     PERCENTAGE = "percentage"
     PERCENTAGE_SCALED = "percentage_scaled"
+    CURRENCY = "currency"
 
 
 class AlertCalculationInterval(StrEnum):
@@ -339,7 +340,8 @@ class AssistantTrendsFilter(BaseModel):
             " miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this"
             " option only if you are sure that the values are in miliseconds. `percentage` - adds a percentage sign to"
             " the value, e.g., `50` becomes `50%`. `percentage_scaled` - formats the value as a percentage scaled to"
-            " 0-100, e.g., `0.5` becomes `50%`."
+            " 0-100, e.g., `0.5` becomes `50%`. `currency` - formats the value as a currency, e.g., `1000` becomes"
+            " `$1,000`."
         ),
     )
     aggregationAxisPostfix: Optional[str] = Field(
