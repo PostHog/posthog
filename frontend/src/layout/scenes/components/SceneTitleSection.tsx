@@ -331,7 +331,16 @@ function SceneDescription({
                         )}
                         markdown={markdown}
                         placeholder={emptyText}
-                        onBlur={() => !forceEdit && setIsEditing(false)}
+                        onBlur={() => {
+                            // Save changes when leaving the field
+                            if (onChange && description !== initialDescription) {
+                                onChange(description || '')
+                            }
+                            // Exit edit mode if not forced
+                            if (!forceEdit) {
+                                setIsEditing(false)
+                            }
+                        }}
                         autoFocus={!forceEdit}
                     />
                 ) : (
