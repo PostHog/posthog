@@ -1032,7 +1032,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_checkpoint_partition() {
+    async fn test_worker_checkpoint_partition_full() {
         let (store, temp_dir) = create_test_store("some_test_topic", 0);
         let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
@@ -1067,6 +1067,78 @@ mod tests {
         let worker = CheckpointWorker::new(
             1,
             CheckpointMode::Full,
+            paths.clone(),
+            store.clone(),
+            manager.exporter.clone(),
+        );
+
+        let result = worker.checkpoint_partition().await;
+        assert!(result.is_ok());
+
+        let expected_checkpoint_path = Path::new(&paths.local_path);
+        assert!(expected_checkpoint_path.exists());
+
+        let checkpoint_files_found = find_local_checkpoint_files(expected_checkpoint_path).unwrap();
+        assert!(!checkpoint_files_found.is_empty());
+
+        // there should be lots of checkpoint files collected from
+        // various attempt directories of form /<base_path>/topic/partition/timestamp
+        assert!(checkpoint_files_found
+            .iter()
+            .any(|p| p.to_string_lossy().to_string().ends_with("CURRENT")));
+        assert!(checkpoint_files_found
+            .iter()
+            .any(|p| p.to_string_lossy().to_string().contains("MANIFEST")));
+        assert!(checkpoint_files_found
+            .iter()
+            .any(|p| p.to_string_lossy().to_string().contains("OPTIONS")));
+        assert!(checkpoint_files_found
+            .iter()
+            .any(|p| p.to_string_lossy().to_string().ends_with(".sst")));
+        assert!(checkpoint_files_found
+            .iter()
+            .any(|p| p.to_string_lossy().to_string().ends_with(".log")));
+    }
+
+    // TODO: incremental mode is wired up but not implemented yet.
+    // this test case exercises the config and staging logic
+    // and smoke tests the local checkpoint behavior for now
+    #[tokio::test]
+    async fn test_worker_checkpoint_partition_incremental() {
+        let (store, temp_dir) = create_test_store("some_test_topic", 0);
+        let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
+            path: temp_dir.path().to_path_buf(),
+            max_capacity: 1_000_000,
+        }));
+        let stores = store_manager.stores();
+
+        // Add an event to the store
+        let event = create_test_event();
+        store.handle_event_with_raw(&event).unwrap();
+
+        stores.insert(
+            Partition::new("some_test_topic".to_string(), 0),
+            store.clone(),
+        );
+
+        let tmp_checkpoint_dir = TempDir::new().unwrap();
+        let config = CheckpointConfig {
+            checkpoint_interval: Duration::from_secs(30),
+            cleanup_interval: Duration::from_secs(10),
+            local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+        let manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
+
+        // Create target partition and attempt path objects, run chekcpoint worker
+        let partition = Partition::new("some_test_topic".to_string(), 0);
+        let paths = CheckpointPath::new(partition.clone(), Path::new(&config.local_checkpoint_dir))
+            .unwrap();
+
+        // simulate how the manager's checkpoint loop thread constructs workers
+        let worker = CheckpointWorker::new(
+            1,
+            CheckpointMode::Incremental,
             paths.clone(),
             store.clone(),
             manager.exporter.clone(),
