@@ -309,7 +309,7 @@ function SceneDescription({
         }
     }, [isLoading, forceEdit])
 
-    const debouncedOnBlurSave = useDebouncedCallback((value: string) => {
+    const debouncedOnBlurSaveDescription = useDebouncedCallback((value: string) => {
         if (onChange) {
             onChange(value)
         }
@@ -340,7 +340,7 @@ function SceneDescription({
                         onBlur={() => {
                             // Save changes when leaving the field (debounced)
                             if (description !== initialDescription) {
-                                debouncedOnBlurSave(description || '')
+                                debouncedOnBlurSaveDescription(description || '')
                             }
                             // Exit edit mode if not forced
                             if (!forceEdit) {
