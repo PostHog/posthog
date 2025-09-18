@@ -69,7 +69,7 @@ export const QueryEndpointsTable = (): JSX.Element => {
             render: (_, record) => (
                 <LemonButton
                     type="secondary"
-                    size="small"
+                    size="xsmall"
                     onClick={() => {
                         navigator.clipboard.writeText(record.endpoint_path)
                         lemonToast.success('Endpoint URL copied to clipboard')
@@ -106,8 +106,7 @@ export const QueryEndpointsTable = (): JSX.Element => {
                             <LemonButton
                                 onClick={() => {
                                     router.actions.push(
-                                        // TODO: Add request name to URL
-                                        urls.embeddedAnalytics(EmbeddedTab.USAGE)
+                                        urls.embeddedAnalytics(EmbeddedTab.USAGE, { requestNameFilter: record.name })
                                     )
                                 }}
                                 fullWidth

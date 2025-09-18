@@ -1,14 +1,15 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { EmbeddedTab } from 'scenes/embedded-analytics/common'
 import { urls } from 'scenes/urls'
+import { combineUrl } from 'kea-router'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Embedded analytics',
     urls: {
-        embeddedAnalytics: (tab: EmbeddedTab | ':tab' = EmbeddedTab.QUERY_ENDPOINTS): string =>
-            `/embedded-analytics/${tab}`,
+        embeddedAnalytics: (tab: EmbeddedTab | ':tab' = EmbeddedTab.QUERY_ENDPOINTS, params = {}): string =>
+            combineUrl(`/embedded-analytics/${tab}`, params).url,
     },
     fileSystemTypes: {
         embedded_analytics: {

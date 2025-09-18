@@ -252,8 +252,7 @@ export function QueryEndpoint(): JSX.Element {
 
         const transformedVariables =
             variablesForInsight.length > 0
-                ? {
-                      variables: variablesForInsight.reduce(
+                ? variablesForInsight.reduce(
                           (acc, variable, index) => {
                               acc[`var_${index}`] = {
                                   variableId: variable.id,
@@ -263,8 +262,7 @@ export function QueryEndpoint(): JSX.Element {
                               return acc
                           },
                           {} as Record<string, { variableId: string; code_name: string; value: any }>
-                      ),
-                  }
+                      )
                 : {}
 
         createQueryEndpoint({
@@ -273,7 +271,7 @@ export function QueryEndpoint(): JSX.Element {
             query: {
                 kind: NodeKind.HogQLQuery,
                 query: sqlQuery,
-                variables_values: transformedVariables,
+                variables: transformedVariables,
             },
         })
     }

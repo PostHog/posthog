@@ -1046,7 +1046,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
             const createQueryTab = async (): Promise<void> => {
                 if (searchParams.output_tab) {
-                    outputPaneLogic.actions.setActiveTab(searchParams.output_tab as OutputTab)
+                    actions.setActiveTab(searchParams.output_tab as OutputTab)
                 }
                 if (searchParams.open_draft || (hashParams.draft && !values.queryInput)) {
                     const draftId = searchParams.open_draft || hashParams.draft

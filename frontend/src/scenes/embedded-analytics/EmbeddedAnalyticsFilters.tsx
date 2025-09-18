@@ -92,10 +92,10 @@ const RequestNameFilter = ({ value, onChange }: RequestNameSelectProps): JSX.Ele
 
     return (
         <LemonInputSelect
-            placeholder="Search for request names to filter by…"
+            placeholder="Search request names to filter by…"
             autoWidth={false}
-            popoverClassName="max-h-60 max-w-xs overflow-y-auto"
-            className="max-h-30 max-w-xs overflow-y-auto"
+            popoverClassName="max-h-60 max-w-s overflow-y-auto"
+            className="max-h-30 max-w-s overflow-y-auto"
             value={value.map((v) => v.toString())}
             loading={requestNamesLoading}
             onChange={(newValues: string[]) => {

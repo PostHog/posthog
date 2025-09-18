@@ -30,12 +30,14 @@ export function EmbeddedAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                 />
                 <LemonBanner
                     type="warning"
+                    dismissKey="embedded-analytics-beta-banner"
+                    className="mb-2 mt-4"
                     action={{ children: 'Send feedback', id: 'embedded-analytics-feedback-button' }}
                 >
                     <p>
                         Embedded analytics is in alpha and it may not be fully reliable. We are actively working on it
-                        and how things work may change. Please let us know what you'd like to see here and/or report any
-                        issues directly to us!
+                        and it may change while we work with you on what works best. 
+                        Please let us know what you'd like to see here and/or report any issues directly to us!
                     </p>
                 </LemonBanner>
                 <SceneDivider />
