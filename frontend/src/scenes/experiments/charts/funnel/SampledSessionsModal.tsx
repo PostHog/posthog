@@ -10,17 +10,12 @@ import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/
 
 import { NodeKind } from '~/queries/schema/schema-general'
 
-interface SessionData {
-    sessionId: string
-    eventUuid: string
-    hasRecording?: boolean
-}
-
 interface SampledSessionsModalProps {
     isOpen: boolean
     onClose: () => void
-    stepsEventData: Array<Array<[string, string]>> // From experiment response
-    stepNames: string[] // Names of funnel steps
+    stepsEventData: Array<[string, string]>
+    prevStepsEventData: Array<[string, string]>
+    stepName: string
     variant: string
 }
 
@@ -28,38 +23,18 @@ export function SampledSessionsModal({
     isOpen,
     onClose,
     stepsEventData,
-    stepNames,
+    prevStepsEventData,
+    stepName,
     variant,
 }: SampledSessionsModalProps): JSX.Element {
     const [recordingAvailability, setRecordingAvailability] = useState<Map<string, boolean>>(new Map())
     const [loading, setLoading] = useState(false)
-    const [activeTab, setActiveTab] = useState('0')
-
-    // Parse sessions from steps data - memoized to prevent recreating on each render
-    const sessionsByStep = useMemo(() => {
-        const map = new Map<number, SessionData[]>()
-
-        stepsEventData.forEach((stepData, stepIndex) => {
-            const sessions: SessionData[] = stepData.map(([sessionId, eventUuid]) => ({
-                sessionId,
-                eventUuid,
-            }))
-            map.set(stepIndex, sessions)
-        })
-
-        return map
-    }, [stepsEventData])
+    const [activeTab, setActiveTab] = useState(stepName)
 
     // Get all unique session IDs - memoized to prevent recreating on each render
     const allSessionIds = useMemo(() => {
-        return Array.from(
-            new Set(
-                Array.from(sessionsByStep.values())
-                    .flat()
-                    .map((s) => s.sessionId)
-            )
-        )
-    }, [sessionsByStep])
+        return Array.from(new Set(stepsEventData.concat(prevStepsEventData).map((s) => s[0])))
+    }, [stepsEventData, prevStepsEventData])
 
     // Check recording availability for all sessions
     useEffect(() => {
@@ -104,13 +79,13 @@ export function SampledSessionsModal({
         })
     }
 
-    const columns: LemonTableColumns<SessionData> = [
+    const columns: LemonTableColumns<[string, string]> = [
         {
             title: 'Session ID',
             key: 'sessionId',
-            render: (_, session) => (
-                <span className="font-mono text-xs" title={session.sessionId}>
-                    {session.sessionId.slice(0, 8)}...
+            render: (_, sutuple) => (
+                <span className="font-mono text-xs" title={sutuple[0]}>
+                    {sutuple[0]}
                 </span>
             ),
             width: '40%',
@@ -118,8 +93,8 @@ export function SampledSessionsModal({
         {
             title: 'Recording',
             key: 'recording',
-            render: (_, session) => {
-                const hasRecording = recordingAvailability.get(session.sessionId) || false
+            render: (_, sutuple) => {
+                const hasRecording = recordingAvailability.get(sutuple[0]) || false
 
                 if (loading) {
                     return <Spinner className="text-sm" />
@@ -131,7 +106,7 @@ export function SampledSessionsModal({
                             size="small"
                             type="secondary"
                             icon={<IconPlayCircle />}
-                            onClick={() => openSessionRecording(session.sessionId, session.eventUuid)}
+                            onClick={() => openSessionRecording(sutuple[0], sutuple[1])}
                         >
                             View recording
                         </LemonButton>
@@ -144,110 +119,58 @@ export function SampledSessionsModal({
         },
     ]
 
-    // Parse which numeric tab is active (could be 'dropped' or a number string)
-    const activeStepIndex = activeTab === 'dropped' ? -1 : parseInt(activeTab)
-
-    // Create tabs for each step
-    const tabs = stepNames.map((stepName, index) => {
-        const sessions = sessionsByStep.get(index) || []
-        const recordingsCount = sessions.filter((s) => recordingAvailability.get(s.sessionId)).length
-
-        return {
-            key: String(index),
+    let tabs = [
+        {
+            key: stepName,
             label: (
                 <div className="flex flex-col items-start">
-                    <div className="font-semibold">{stepName || `Step ${index + 1}`}</div>
-                    <div className="text-xs text-muted">
-                        {sessions.length} session{sessions.length !== 1 ? 's' : ''}
-                        {!loading &&
-                            recordingsCount > 0 &&
-                            ` (${recordingsCount} with recording${recordingsCount !== 1 ? 's' : ''})`}
-                    </div>
+                    <div className="font-semibold">{stepName}</div>
+                    <div className="text-xs text-muted">{stepsEventData.length} sessions</div>
                 </div>
             ),
             content: (
                 <div className="mt-2">
-                    {sessions.length > 0 ? (
-                        <LemonTable
-                            columns={columns}
-                            dataSource={sessions}
-                            size="small"
-                            emptyState="No sessions sampled for this step"
-                            loading={loading}
-                        />
-                    ) : (
-                        <div className="text-muted text-center py-8">No users reached this step</div>
-                    )}
+                    <LemonTable
+                        columns={columns}
+                        dataSource={stepsEventData}
+                        size="small"
+                        emptyState="No sessions sampled for this step"
+                        loading={loading}
+                    />
                 </div>
             ),
-        }
-    })
+        },
+    ]
 
     // Add a "Dropped off" tab that shows sessions from the previous step
-    if (activeStepIndex >= 0) {
-        const droppedOffSessions = activeStepIndex > 0 ? sessionsByStep.get(activeStepIndex - 1) || [] : []
-        const droppedOffRecordingsCount = droppedOffSessions.filter((s) =>
-            recordingAvailability.get(s.sessionId)
-        ).length
-
+    if (prevStepsEventData.length > 0) {
         tabs.push({
             key: 'dropped',
             label: (
                 <div className="flex flex-col items-start">
                     <div className="font-semibold">Dropped off</div>
-                    <div className="text-xs text-muted">
-                        {droppedOffSessions.length} session{droppedOffSessions.length !== 1 ? 's' : ''}
-                        {!loading &&
-                            droppedOffRecordingsCount > 0 &&
-                            ` (${droppedOffRecordingsCount} with recording${droppedOffRecordingsCount !== 1 ? 's' : ''})`}
-                    </div>
+                    <div className="text-xs text-muted">{prevStepsEventData.length} sessions</div>
                 </div>
             ),
             content: (
                 <div className="mt-2">
-                    {activeStepIndex === 0 ? (
-                        <div className="text-muted text-center py-8">No previous step to show drop-offs from</div>
-                    ) : droppedOffSessions.length > 0 ? (
-                        <LemonTable
-                            columns={columns}
-                            dataSource={droppedOffSessions}
-                            size="small"
-                            emptyState="No sessions sampled"
-                            loading={loading}
-                        />
-                    ) : (
-                        <div className="text-muted text-center py-8">No sessions from Step {activeStepIndex}</div>
-                    )}
+                    <LemonTable
+                        columns={columns}
+                        dataSource={prevStepsEventData}
+                        size="small"
+                        emptyState="No sessions sampled"
+                        loading={loading}
+                    />
                 </div>
             ),
         })
     }
 
-    const totalRecordingsAvailable = Array.from(recordingAvailability.values()).filter(Boolean).length
-
     return (
         <LemonModal isOpen={isOpen} onClose={onClose} title={`Sampled Sessions - ${variant}`} width={720}>
             <div className="space-y-4">
-                {/* Summary */}
-                <div className="bg-bg-3000 rounded p-3 text-sm">
-                    <div className="flex justify-between items-center">
-                        <div>
-                            <strong>{allSessionIds.length}</strong> unique session
-                            {allSessionIds.length !== 1 ? 's' : ''} sampled
-                        </div>
-                        {!loading && totalRecordingsAvailable > 0 && (
-                            <div className="text-muted">
-                                <strong>{totalRecordingsAvailable}</strong> with recording
-                                {totalRecordingsAvailable !== 1 ? 's' : ''} available
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                {/* Tabs for each funnel step */}
                 <LemonTabs activeKey={activeTab} onChange={setActiveTab} tabs={tabs} />
 
-                {/* Note about sampling */}
                 <div className="text-xs text-muted border-t pt-2">
                     <strong>Note:</strong> This shows a sample of up to 100 sessions per step. Session recordings are
                     only available for sessions that have been captured and not deleted.
