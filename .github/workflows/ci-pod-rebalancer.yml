@@ -23,16 +23,16 @@ jobs:
 
         steps:
             - name: Check Out Repo
-              uses: actions/checkout@v4
+              uses: actions/checkout@v4.2.2
 
             - name: Set up Go
-              uses: actions/setup-go@v5
+              uses: actions/setup-go@v5.2.0
               with:
                   go-version: ${{ env.GO_VERSION }}
                   cache-dependency-path: infra-scripts/pod-rebalancer/go.sum
 
             - name: Install Task
-              uses: arduino/setup-task@v2
+              uses: arduino/setup-task@v2.0.0
               with:
                   version: 3.x
 
