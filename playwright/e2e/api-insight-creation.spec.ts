@@ -4,6 +4,7 @@
 import { expect } from '@playwright/test'
 
 import { InsightVizNode, NodeKind, TrendsQuery } from '../../frontend/src/queries/schema/schema-general'
+import { PLAYWRIGHT_FROZEN_TIME } from '../utils/time-constants'
 import { test } from '../utils/workspace-test-base'
 
 type InsightCreationPayload = {
@@ -12,6 +13,9 @@ type InsightCreationPayload = {
 }
 
 test('create trends insight via API and snapshot', async ({ page, playwrightSetup }) => {
+    // Freeze time for consistent snapshots
+    await page.clock.setFixedTime(new Date(PLAYWRIGHT_FROZEN_TIME))
+
     // Create workspace with API key
     const workspace = await playwrightSetup.createWorkspace('API Test Org')
 

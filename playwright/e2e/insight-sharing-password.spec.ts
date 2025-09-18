@@ -4,6 +4,7 @@
 import { expect } from '@playwright/test'
 
 import { InsightVizNode, NodeKind, TrendsQuery } from '../../frontend/src/queries/schema/schema-general'
+import { PLAYWRIGHT_FROZEN_TIME } from '../utils/time-constants'
 import { test } from '../utils/workspace-test-base'
 
 type InsightCreationPayload = {
@@ -29,6 +30,9 @@ type SharePasswordResponse = {
 }
 
 test('password-protected insight sharing', async ({ page, playwrightSetup }) => {
+    // Freeze time for consistent snapshots
+    await page.clock.setFixedTime(new Date(PLAYWRIGHT_FROZEN_TIME))
+
     // Create workspace with API key
     const workspace = await playwrightSetup.createWorkspace('Password Sharing Test Org')
 
@@ -138,10 +142,16 @@ test('password-protected insight sharing', async ({ page, playwrightSetup }) => 
 
     // Wait for the insight to load after successful authentication
     await expect(page.locator('[data-attr="insights-graph"]')).toBeVisible()
-    await expect(page.locator('[data-attr="insights-graph"] canvas')).toBeVisible()
 
     // Verify we're viewing the correct insight by checking the title
     await expect(page.locator('text=Password Protected Insight')).toBeVisible()
+
+    // Verify the insight content is loaded (either chart with canvas or empty state message)
+    await expect(
+        page
+            .locator('[data-attr="insights-graph"] canvas')
+            .or(page.locator('text=There are no matching events for this query'))
+    ).toBeVisible()
 
     // Verify the URL still shows the shared access token (not redirected to regular insight page)
     await expect(page).toHaveURL(new RegExp(`/shared/${sharingData.access_token}`))

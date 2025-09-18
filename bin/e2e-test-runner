@@ -102,7 +102,7 @@ $SKIP_SETUP_DEV || setupDev
 # Only start webpack if not already running
 nc -vz 127.0.0.1 8234 2> /dev/null || ./bin/start-frontend &
 python manage.py run_autoreload_celery --type=worker &
-python manage.py runserver 8080 &
+PLAYWRIGHT_FROZEN_TIME=2024-11-08T12:00:00Z python manage.py runserver 8080 &
 
 pnpm --filter=@posthog/frontend build:products
 

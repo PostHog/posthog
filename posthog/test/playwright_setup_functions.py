@@ -32,7 +32,7 @@ def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> Playwri
 
     options = {
         "seed": f"playwright_test",  # constant seed
-        "now": None,
+        "now": None,  # Use current time (which will be frozen by global freezer)
         "days_past": 30,
         "days_future": 0,
         "n_clusters": 10,

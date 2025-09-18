@@ -476,7 +476,7 @@ jobs:
               if: needs.changes.outputs.shouldRun == 'true'
               run: |
                   python manage.py run_autoreload_celery --type=worker &> /tmp/celery.log &
-                  python manage.py runserver 8000 &> /tmp/server.log &
+                  PLAYWRIGHT_FROZEN_TIME=2024-11-08T12:00:00Z python manage.py runserver 8000 &> /tmp/server.log &
 
             # Install Playwright browsers while we wait for PostHog to be ready
             - name: Install Playwright browsers

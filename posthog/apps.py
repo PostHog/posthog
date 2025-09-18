@@ -74,3 +74,13 @@ class PostHogConfig(AppConfig):
         # Skip during tests since we handle this in conftest.py
         if not settings.TEST:
             queue_sync_hog_function_templates()
+
+        # Initialize Playwright time freezing after all imports are done
+        try:
+            from posthog.test.playwright_time_utils import setup_playwright_time_freeze
+
+            setup_playwright_time_freeze()
+        except ImportError:
+            pass  # freezegun might not be available in production
+        except Exception:
+            pass  # Don't break Django startup if time freezing fails
