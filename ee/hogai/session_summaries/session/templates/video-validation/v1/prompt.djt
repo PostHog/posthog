@@ -1,0 +1,51 @@
+<validate_events_instructions>
+- I have a short video - part of a user session, visiting a website
+- I assume a specific issue or underlying error occurred that negatively affected the user experience
+- The assumed description may be technical while the video shows the user-facing result
+- I need you to validate if the assumed underlying issue matches what happened, regardless of how it's presented visually
+</validate_events_instructions>
+
+<video_analysis_instructions>
+- Focus on both visual elements (error dialogs, UI states) and any text visible on screen
+- Note the exact error message if one is displayed
+- Identify the specific point in the video where the error occurs
+- Consider the user's actions leading up to the error
+</video_analysis_instructions>
+
+<assumed_outcome>
+Here's the initial description what I assume happened in the video:
+
+```
+{{ EVENT_DESCRIPTION | safe}}
+```
+</assumed_outcome>
+
+<validation_criteria>
+Consider the assumed error VALID if:
+- The core error type matches (even if wording differs slightly)
+- The error context and cause align with the description
+
+Consider it INVALID if:
+- A different type of error occurred
+- The error message or cause differs substantially
+- No error occurred at all
+</validation_criteria>
+
+<output_format>
+Provide your summary in YAML format using the provided example. Don't replicate the data, or comments, or logic of the example, or the number of example entries. Use it ONLY to understand the format.
+
+IMPORTANT:
+- Always use quotes around indicator strings that contain special characters
+- Replace comparison operators with words:
+  - Instead of ">3" use "more than 3" 
+  - Instead of "<1" use "less than 1"
+  - Instead of ">=5" use "5 or more"
+- Avoid using special YAML characters (>, <, :, &, *, ?, |, -, @, `) at the beginning of unquoted strings
+- When in doubt, wrap the entire indicator string in single or double quotes
+</output_format>
+
+<output_example>
+```
+{{ OUTPUT_EXAMPLE | safe}}
+```
+</output_example>

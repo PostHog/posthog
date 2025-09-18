@@ -1,34 +1,25 @@
-<validate_events_instructions>
+<video_observation_task>
 - I have a short video - part of a user session, visiting a website
-- I assume the blocking error happened in the video that negatively affected the user experience
-- I need you to watch the video and either confirm or deny that the error happened, and generate a new description
-</validate_events_instructions>
+- An issue may have occurred that affected the user experience
+- Watch the entire video carefully and provide a detailed observation report of what happened
+</video_observation_task>
 
 <video_analysis_instructions>
-- Focus on both visual elements (error dialogs, UI states) and any text visible on screen
-- Note the exact error message if one is displayed
-- Identify the specific point in the video where the error occurs
-- Consider the user's actions leading up to the error
+Focus on potential issues the user could've encountered:
+- UI elements (dialogs, errors, tates) and text visible on screen
+- User interactions with the UI
+- Visual issue indicators (red text, error icons, failures)
+- Any loading or processing that was interrupted
+- and similar
 </video_analysis_instructions>
 
 <assumed_outcome>
-Here's the initial description what I assume happened in the video:
+Here's the initial description of what I assume happened in the video:
 
 ```
 {{ EVENT_DESCRIPTION | safe}}
 ```
 </assumed_outcome>
-
-<validation_criteria>
-Consider the assumed error VALID if:
-- The core error type matches (even if wording differs slightly)
-- The error context and cause align with the description
-
-Consider it INVALID if:
-- A different type of error occurred
-- The error message or cause differs substantially
-- No error occurred at all
-</validation_criteria>
 
 <output_format>
 Provide your summary in YAML format using the provided example. Don't replicate the data, or comments, or logic of the example, or the number of example entries. Use it ONLY to understand the format.

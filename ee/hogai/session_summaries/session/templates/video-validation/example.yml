@@ -1,2 +1,3 @@
-- valid: # true if the assumed error matches the video; false otherwise
-- new_description: # if valid - empty; if invalid - provide a concise description of what actually happened (similar length to the initial description)
+description: # concise description of what happened in the video
+error_messages: [] # if any
+error_indicators: [] # if any
