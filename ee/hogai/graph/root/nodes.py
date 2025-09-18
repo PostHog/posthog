@@ -1,7 +1,7 @@
 import re
 import json
 import math
-from typing import Any, Literal, Optional, TypeVar, cast
+from typing import Literal, Optional, TypeVar, cast
 from uuid import uuid4
 
 from django.conf import settings
@@ -12,7 +12,6 @@ from langchain_core.messages import (
     BaseMessage,
     HumanMessage as LangchainHumanMessage,
     ToolMessage as LangchainToolMessage,
-    convert_to_openai_messages,
     trim_messages,
 )
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
@@ -24,7 +23,6 @@ from pydantic import BaseModel
 from posthog.schema import (
     AssistantContextualTool,
     AssistantMessage,
-    AssistantToolCall,
     AssistantToolCallMessage,
     FailureMessage,
     FunnelsQuery,
@@ -48,6 +46,7 @@ from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor,
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
+from ee.hogai.utils.anthropic import normalize_ai_anthropic_message
 from ee.hogai.utils.helpers import find_last_ui_context
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantNodeName, BaseState, BaseStateWithMessages, InsightQuery
@@ -391,20 +390,10 @@ class RootNode(RootNodeUIContextMixin):
             },
             config,
         )
-        message: dict[str, Any] = convert_to_openai_messages(cast(LangchainAIMessage, message))
 
         return PartialAssistantState(
             root_conversation_start_id=new_window_id,
-            messages=[
-                AssistantMessage(
-                    content=str(message["content"]),
-                    tool_calls=[
-                        AssistantToolCall(id=tool_call["id"], name=tool_call["name"], args=tool_call["args"])
-                        for tool_call in message["tool_calls"]
-                    ],
-                    id=str(uuid4()),
-                ),
-            ],
+            messages=[normalize_ai_anthropic_message(message)],
         )
 
     async def get_reasoning_message(
@@ -521,7 +510,7 @@ class RootNode(RootNodeUIContextMixin):
 
             available_tools.append(retrieve_billing_information)
 
-        return base_model.bind_tools(available_tools, strict=True, parallel_tool_calls=False)
+        return base_model.bind_tools(available_tools, parallel_tool_calls=False)
 
     def _get_assistant_messages_in_window(self, state: AssistantState) -> list[RootMessageUnion]:
         filtered_conversation = [message for message in state.messages if isinstance(message, RootMessageUnion)]
@@ -545,28 +534,52 @@ class RootNode(RootNodeUIContextMixin):
         history: list[BaseMessage] = []
         for message in conversation_window:
             if isinstance(message, HumanMessage):
-                history.append(LangchainHumanMessage(content=message.content, id=message.id))
+                history.append(
+                    LangchainHumanMessage(content=[{"type": "text", "text": message.content}], id=message.id)
+                )
             elif isinstance(message, AssistantMessage):
                 # Filter out tool calls without a tool response, so the completion doesn't fail.
                 tool_calls = [
                     tool for tool in (message.model_dump()["tool_calls"] or []) if tool["id"] in tool_result_messages
                 ]
 
-                history.append(LangchainAIMessage(content=message.content, tool_calls=tool_calls, id=message.id))
+                history.append(
+                    LangchainAIMessage(
+                        content=[{"type": "text", "text": message.content}], tool_calls=tool_calls, id=message.id
+                    )
+                )
 
                 # Append associated tool call messages.
                 for tool_call in tool_calls:
                     tool_call_id = tool_call["id"]
                     result_message = tool_result_messages[tool_call_id]
                     history.append(
-                        LangchainToolMessage(
-                            content=result_message.content, tool_call_id=tool_call_id, id=result_message.id
-                        )
+                        LangchainHumanMessage(
+                            content=[
+                                {"type": "tool_result", "tool_use_id": tool_call_id, "content": result_message.content}
+                            ],
+                            id=result_message.id,
+                        ),
                     )
             elif isinstance(message, FailureMessage):
                 history.append(
-                    LangchainAIMessage(content=message.content or "An unknown failure occurred.", id=message.id)
+                    LangchainHumanMessage(
+                        content=[{"type": "text", "text": message.content or "An unknown failure occurred."}],
+                        id=message.id,
+                    )
                 )
+
+        # Append a single cache control to the last human message or last tool message
+        for i in range(len(history) - 1, -1, -1):
+            content = history[i].content
+            if (
+                isinstance(history[i], LangchainHumanMessage | LangchainAIMessage)
+                and isinstance(content, list)
+                and len(content) > 0
+                and isinstance(content[-1], dict)
+            ):
+                content[-1]["cache_control"] = {"type": "ephemeral"}
+                break
 
         return history
 

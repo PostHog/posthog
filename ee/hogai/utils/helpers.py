@@ -217,11 +217,8 @@ def extract_content_from_ai_message(response: BaseMessage) -> str:
     if isinstance(response.content, list):
         text_parts = []
         for content_item in response.content:
-            if isinstance(content_item, dict):
-                if "text" in content_item:
-                    text_parts.append(content_item["text"])
-                else:
-                    raise ValueError(f"LangChain AIMessage with unknown content type: {content_item}")
+            if isinstance(content_item, dict) and "text" in content_item:
+                text_parts.append(content_item["text"])
             elif isinstance(content_item, str):
                 text_parts.append(content_item)
         return "".join(text_parts)
