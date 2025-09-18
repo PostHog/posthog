@@ -41,7 +41,7 @@ dependencies = [
     "django-prometheus~=2.3.1",
     "django-redis==5.2.0",
     "django-statsd~=2.7.0",
-    "django-structlog~=9.1.0",
+    "django-structlog[celery]~=9.1.0",
     "django-two-factor-auth~=1.18.0",
     "djangorestframework~=3.16.1",
     "djangorestframework-csv~=3.0.2",

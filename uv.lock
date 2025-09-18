@@ -1604,6 +1604,11 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/ec/c5/c43b4182464e0dada9674c3e9602222023808ad3be39663074b5f9080a8c/django_structlog-9.1.1-py3-none-any.whl", hash = "sha256:5b6ac3abdf6549e94ccb35160b1f10266f1627c3ac77844571235a08a1ddae66", size = 18087, upload-time = "2025-04-07T12:56:33.394Z" },
 ]
 
+[package.optional-dependencies]
+celery = [
+    { name = "celery" },
+]
+
 [[package]]
 name = "django-stubs"
 version = "5.2.5"
@@ -4089,7 +4094,7 @@ dependencies = [
     { name = "django-prometheus" },
     { name = "django-redis" },
     { name = "django-statsd" },
-    { name = "django-structlog" },
+    { name = "django-structlog", extra = ["celery"] },
     { name = "django-two-factor-auth" },
     { name = "djangorestframework" },
     { name = "djangorestframework-csv" },
@@ -4318,7 +4323,7 @@ requires-dist = [
     { name = "django-prometheus", specifier = "~=2.3.1" },
     { name = "django-redis", specifier = "==5.2.0" },
     { name = "django-statsd", specifier = "~=2.7.0" },
-    { name = "django-structlog", specifier = "~=9.1.0" },
+    { name = "django-structlog", extras = ["celery"], specifier = "~=9.1.0" },
     { name = "django-two-factor-auth", specifier = "~=1.18.0" },
     { name = "djangorestframework", specifier = "~=3.16.1" },
     { name = "djangorestframework-csv", specifier = "~=3.0.2" },
