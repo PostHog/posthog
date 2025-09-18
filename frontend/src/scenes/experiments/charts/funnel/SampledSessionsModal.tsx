@@ -1,3 +1,4 @@
+import { combineUrl } from 'kea-router'
 import { useEffect, useMemo, useState } from 'react'
 
 import { LemonButton, LemonModal, LemonTable, LemonTabs, Link } from '@posthog/lemon-ui'
@@ -6,10 +7,13 @@ import api from 'lib/api'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
+import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { urls } from 'scenes/urls'
 
 import { NodeKind } from '~/queries/schema/schema-general'
+import { ActivityTab, PropertyFilterType, PropertyOperator } from '~/types'
 
 interface SampledSessionsModalProps {
     isOpen: boolean
@@ -33,6 +37,19 @@ export function SampledSessionsModal({
     >(new Map())
     const [loading, setLoading] = useState(false)
     const [activeTab, setActiveTab] = useState(stepName)
+
+    // Helper function to get events URL for a session ID
+    const getEventsUrlForSession = (sessionId: string): string => {
+        const eventsQuery = getDefaultEventsSceneQuery([
+            {
+                type: PropertyFilterType.EventMetadata,
+                key: '$session_id',
+                value: [sessionId],
+                operator: PropertyOperator.Exact,
+            },
+        ])
+        return combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: eventsQuery }).url
+    }
 
     // Get all unique session IDs - memoized to prevent recreating on each render
     const allSessionIds = useMemo(() => {
@@ -93,17 +110,23 @@ export function SampledSessionsModal({
 
     const columns: LemonTableColumns<[string, string, string]> = [
         {
-            title: 'Person',
-            key: 'distinctId',
+            title: 'Session',
+            key: 'sessionId',
             render: (_, sutuple) => {
+                const sessionId = sutuple[1]
+                const eventsUrl = getEventsUrlForSession(sessionId)
                 return (
                     <Link
-                        to={urls.personByDistinctId(sutuple[0])}
+                        to={eventsUrl}
+                        onClick={(e) => {
+                            e.preventDefault()
+                            sceneLogic.actions.newTab(eventsUrl)
+                        }}
                         subtle
                         className="font-mono text-xs"
-                        title={sutuple[0]}
+                        title={`View events for session ${sessionId}`}
                     >
-                        {sutuple[0]}
+                        {sessionId}
                     </Link>
                 )
             },
