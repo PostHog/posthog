@@ -725,6 +725,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
                     // Add System tables
                     if (systemTables.length > 0) {
+                        systemTables.sort((a, b) => a.name.localeCompare(b.name))
                         sourcesChildren.push(createSourceFolderNode('System', systemTables))
                     }
 
