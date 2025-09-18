@@ -3815,77 +3815,6 @@ class ExperimentMetricBaseProperties(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class ExperimentStatsBase(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    denominator_sum: Optional[float] = None
-    denominator_sum_squares: Optional[float] = None
-    key: str
-    number_of_samples: int
-    numerator_denominator_sum_product: Optional[float] = None
-    step_counts: Optional[list[int]] = None
-    step_event_uuids: Optional[list[list[str]]] = None
-    sum: float
-    sum_squares: float
-
-
-class ExperimentStatsBaseValidated(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    denominator_sum: Optional[float] = None
-    denominator_sum_squares: Optional[float] = None
-    key: str
-    number_of_samples: int
-    numerator_denominator_sum_product: Optional[float] = None
-    step_counts: Optional[list[int]] = None
-    step_event_uuids: Optional[list[list[str]]] = None
-    sum: float
-    sum_squares: float
-    validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
-
-
-class ExperimentVariantResultBayesian(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    chance_to_win: Optional[float] = None
-    credible_interval: Optional[list[float]] = Field(default=None, max_length=2, min_length=2)
-    denominator_sum: Optional[float] = None
-    denominator_sum_squares: Optional[float] = None
-    key: str
-    method: Literal["bayesian"] = "bayesian"
-    number_of_samples: int
-    numerator_denominator_sum_product: Optional[float] = None
-    significant: Optional[bool] = None
-    step_counts: Optional[list[int]] = None
-    step_event_uuids: Optional[list[list[str]]] = None
-    sum: float
-    sum_squares: float
-    validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
-
-
-class ExperimentVariantResultFrequentist(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    confidence_interval: Optional[list[float]] = Field(default=None, max_length=2, min_length=2)
-    denominator_sum: Optional[float] = None
-    denominator_sum_squares: Optional[float] = None
-    key: str
-    method: Literal["frequentist"] = "frequentist"
-    number_of_samples: int
-    numerator_denominator_sum_product: Optional[float] = None
-    p_value: Optional[float] = None
-    significant: Optional[bool] = None
-    step_counts: Optional[list[int]] = None
-    step_event_uuids: Optional[list[list[str]]] = None
-    sum: float
-    sum_squares: float
-    validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
-
-
 class ExternalQueryError(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4161,14 +4090,6 @@ class MaxBillingContextBillingPeriod(BaseModel):
     current_period_end: str
     current_period_start: str
     interval: MaxBillingContextBillingPeriodInterval
-
-
-class NewExperimentQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    baseline: ExperimentStatsBaseValidated
-    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
 
 
 class NotebookUpdateMessage(BaseModel):
@@ -6346,27 +6267,6 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
         default=None, description="Measured timings for different parts of the query generation process"
     )
     types: Optional[list] = None
-
-
-class CachedNewExperimentQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    baseline: ExperimentStatsBaseValidated
-    cache_key: str
-    cache_target_age: Optional[datetime] = None
-    calculation_trigger: Optional[str] = Field(
-        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
-    )
-    is_cached: bool
-    last_refresh: datetime
-    next_allowed_client_refresh: datetime
-    query_metadata: Optional[dict[str, Any]] = None
-    query_status: Optional[QueryStatus] = Field(
-        default=None, description="Query status indicates whether next to the provided data, a query is still running."
-    )
-    timezone: str
-    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
 
 
 class CachedPathsQueryResponse(BaseModel):
@@ -8580,6 +8480,77 @@ class ExperimentExposureQuery(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class ExperimentStatsBase(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    denominator_sum: Optional[float] = None
+    denominator_sum_squares: Optional[float] = None
+    key: str
+    matched_recordings: Optional[list[list[MatchedRecording]]] = None
+    number_of_samples: int
+    numerator_denominator_sum_product: Optional[float] = None
+    step_counts: Optional[list[int]] = None
+    sum: float
+    sum_squares: float
+
+
+class ExperimentStatsBaseValidated(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    denominator_sum: Optional[float] = None
+    denominator_sum_squares: Optional[float] = None
+    key: str
+    matched_recordings: Optional[list[list[MatchedRecording]]] = None
+    number_of_samples: int
+    numerator_denominator_sum_product: Optional[float] = None
+    step_counts: Optional[list[int]] = None
+    sum: float
+    sum_squares: float
+    validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
+
+
+class ExperimentVariantResultBayesian(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    chance_to_win: Optional[float] = None
+    credible_interval: Optional[list[float]] = Field(default=None, max_length=2, min_length=2)
+    denominator_sum: Optional[float] = None
+    denominator_sum_squares: Optional[float] = None
+    key: str
+    matched_recordings: Optional[list[list[MatchedRecording]]] = None
+    method: Literal["bayesian"] = "bayesian"
+    number_of_samples: int
+    numerator_denominator_sum_product: Optional[float] = None
+    significant: Optional[bool] = None
+    step_counts: Optional[list[int]] = None
+    sum: float
+    sum_squares: float
+    validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
+
+
+class ExperimentVariantResultFrequentist(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    confidence_interval: Optional[list[float]] = Field(default=None, max_length=2, min_length=2)
+    denominator_sum: Optional[float] = None
+    denominator_sum_squares: Optional[float] = None
+    key: str
+    matched_recordings: Optional[list[list[MatchedRecording]]] = None
+    method: Literal["frequentist"] = "frequentist"
+    number_of_samples: int
+    numerator_denominator_sum_product: Optional[float] = None
+    p_value: Optional[float] = None
+    significant: Optional[bool] = None
+    step_counts: Optional[list[int]] = None
+    sum: float
+    sum_squares: float
+    validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
+
+
 class FunnelCorrelationResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -9091,6 +9062,14 @@ class NamedQueryRunRequest(BaseModel):
     )
     variables_override: Optional[dict[str, dict[str, Any]]] = None
     variables_values: Optional[dict[str, Any]] = None
+
+
+class NewExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline: ExperimentStatsBaseValidated
+    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
 
 
 class PathsQueryResponse(BaseModel):
@@ -11515,6 +11494,27 @@ class CachedInsightActorsQueryOptionsResponse(BaseModel):
     series: Optional[list[Series]] = None
     status: Optional[list[StatusItem]] = None
     timezone: str
+
+
+class CachedNewExperimentQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    baseline: ExperimentStatsBaseValidated
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    is_cached: bool
+    last_refresh: datetime
+    next_allowed_client_refresh: datetime
+    query_metadata: Optional[dict[str, Any]] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    timezone: str
+    variant_results: Union[list[ExperimentVariantResultFrequentist], list[ExperimentVariantResultBayesian]]
 
 
 class CachedRetentionQueryResponse(BaseModel):

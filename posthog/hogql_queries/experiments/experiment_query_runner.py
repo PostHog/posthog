@@ -129,6 +129,7 @@ class ExperimentQueryRunner(QueryRunner):
             ast.Field(chain=["exposures", "variant"]),
             ast.Field(chain=["exposures", "entity_id"]),
             ast.Field(chain=["exposures", "exposure_event_uuid"]),
+            ast.Field(chain=["exposures", "exposure_session_id"]),
             ast.Alias(
                 expr=get_metric_aggregation_expr(self.experiment, self.metric, self.team),
                 alias="value",
@@ -187,6 +188,7 @@ class ExperimentQueryRunner(QueryRunner):
                 ast.Field(chain=["exposures", "variant"]),
                 ast.Field(chain=["exposures", "entity_id"]),
                 ast.Field(chain=["exposures", "exposure_event_uuid"]),
+                ast.Field(chain=["exposures", "exposure_session_id"]),
             ],
         )
 
@@ -394,12 +396,12 @@ class ExperimentQueryRunner(QueryRunner):
                 # in the funnel (-1), we return the event uuid for the exposure event.
                 event_uuids_expr = f"""
                     groupArraySampleIf(100)(
-                        if(metric_events.value.2 != '', uuid_to_session[metric_events.value.2], toString(metric_events.exposure_event_uuid)),
+                        if(metric_events.value.2 != '', tuple(uuid_to_session[metric_events.value.2], metric_events.value.2), tuple(toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))),
                         metric_events.value.1 = {i} - 1
                     )
                 """
                 event_uuids_exprs.append(event_uuids_expr)
-            event_uuids_exprs_sql = f"tuple({', '.join(event_uuids_exprs)}) as step_event_uuids"
+            event_uuids_exprs_sql = f"tuple({', '.join(event_uuids_exprs)}) as matched_recordings"
             select_fields.append(parse_expr(event_uuids_exprs_sql))
         else:
             # For non-funnel metrics, use the original logic

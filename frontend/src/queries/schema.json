@@ -12024,6 +12024,15 @@
                 "key": {
                     "type": "string"
                 },
+                "matched_recordings": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/definitions/MatchedRecording"
+                        },
+                        "type": "array"
+                    },
+                    "type": "array"
+                },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
                 },
@@ -12033,15 +12042,6 @@
                 "step_counts": {
                     "items": {
                         "$ref": "#/definitions/integer"
-                    },
-                    "type": "array"
-                },
-                "step_event_uuids": {
-                    "items": {
-                        "items": {
-                            "type": "string"
-                        },
-                        "type": "array"
                     },
                     "type": "array"
                 },
@@ -12067,6 +12067,15 @@
                 "key": {
                     "type": "string"
                 },
+                "matched_recordings": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/definitions/MatchedRecording"
+                        },
+                        "type": "array"
+                    },
+                    "type": "array"
+                },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
                 },
@@ -12076,15 +12085,6 @@
                 "step_counts": {
                     "items": {
                         "$ref": "#/definitions/integer"
-                    },
-                    "type": "array"
-                },
-                "step_event_uuids": {
-                    "items": {
-                        "items": {
-                            "type": "string"
-                        },
-                        "type": "array"
                     },
                     "type": "array"
                 },
@@ -12254,6 +12254,15 @@
                 "key": {
                     "type": "string"
                 },
+                "matched_recordings": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/definitions/MatchedRecording"
+                        },
+                        "type": "array"
+                    },
+                    "type": "array"
+                },
                 "method": {
                     "const": "bayesian",
                     "type": "string"
@@ -12270,15 +12279,6 @@
                 "step_counts": {
                     "items": {
                         "$ref": "#/definitions/integer"
-                    },
-                    "type": "array"
-                },
-                "step_event_uuids": {
-                    "items": {
-                        "items": {
-                            "type": "string"
-                        },
-                        "type": "array"
                     },
                     "type": "array"
                 },
@@ -12318,6 +12318,15 @@
                 "key": {
                     "type": "string"
                 },
+                "matched_recordings": {
+                    "items": {
+                        "items": {
+                            "$ref": "#/definitions/MatchedRecording"
+                        },
+                        "type": "array"
+                    },
+                    "type": "array"
+                },
                 "method": {
                     "const": "frequentist",
                     "type": "string"
@@ -12337,15 +12346,6 @@
                 "step_counts": {
                     "items": {
                         "$ref": "#/definitions/integer"
-                    },
-                    "type": "array"
-                },
-                "step_event_uuids": {
-                    "items": {
-                        "items": {
-                            "type": "string"
-                        },
-                        "type": "array"
                     },
                     "type": "array"
                 },

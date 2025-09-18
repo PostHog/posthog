@@ -398,6 +398,13 @@ def get_experiment_exposure_query(
                 args=[ast.Field(chain=["uuid"]), ast.Field(chain=["timestamp"])],
             ),
         ),
+        ast.Alias(
+            alias="exposure_session_id",
+            expr=ast.Call(
+                name="argMin",
+                args=[ast.Field(chain=["$session_id"]), ast.Field(chain=["timestamp"])],
+            ),
+        ),
     ]
     exposure_query_group_by = [ast.Field(chain=["entity_id"])]
     if data_warehouse_metric_source := get_data_warehouse_metric_source(metric):
