@@ -28,6 +28,8 @@ from posthog.batch_exports.service import (
     BatchExportModel,
     BatchExportSchema,
 )
+from posthog.models.team import Team
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
 
 from products.batch_exports.backend.temporal.batch_exports import finish_batch_export_run, start_batch_export_run
@@ -62,7 +64,7 @@ class BaseDestinationTest(ABC):
 
     @property
     @abstractmethod
-    def workflow_class(self) -> type:
+    def workflow_class(self) -> type[PostHogWorkflow]:
         """Return the workflow class for this destination."""
         pass
 
@@ -74,7 +76,7 @@ class BaseDestinationTest(ABC):
 
     @property
     @abstractmethod
-    def batch_export_inputs_class(self) -> type:
+    def batch_export_inputs_class(self) -> type[BaseBatchExportInputs]:
         """Return the inputs dataclass for the batch export workflow."""
         pass
 
@@ -99,7 +101,7 @@ class BaseDestinationTest(ABC):
         return self.batch_export_inputs_class(
             team_id=team_id,
             batch_export_id=batch_export_id,
-            data_interval_end=data_interval_end,
+            data_interval_end=data_interval_end.isoformat(),
             interval=interval,
             batch_export_model=batch_export_model,
             batch_export_schema=batch_export_schema,
@@ -156,9 +158,6 @@ async def run_workflow(
     """Helper function to run the destination workflow"""
 
     workflow_id = str(uuid.uuid4())
-    # settings_overrides = settings_overrides or {}
-    # if use_internal_stage:
-    #     settings_overrides["BATCH_EXPORT_SNOWFLAKE_USE_STAGE_TEAM_IDS"] = [team.pk]
 
     async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
         async with Worker(
@@ -176,7 +175,7 @@ async def run_workflow(
             if expect_workflow_failure:
                 with pytest.raises(WorkflowFailureError):
                     await activity_environment.client.execute_workflow(
-                        destination_test.workflow_class.run,
+                        destination_test.workflow_class.run,  # type: ignore[attr-defined]
                         inputs,
                         id=workflow_id,
                         task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
@@ -186,7 +185,7 @@ async def run_workflow(
             else:
                 with fail_on_application_error():
                     await activity_environment.client.execute_workflow(
-                        destination_test.workflow_class.run,
+                        destination_test.workflow_class.run,  # type: ignore[attr-defined]
                         inputs,
                         id=workflow_id,
                         task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
@@ -442,7 +441,7 @@ class CommonWorkflowTests:
         await adelete_batch_export(batch_export, temporal_client)
 
     @pytest.fixture
-    def destination_test(self):
+    def destination_test(self, ateam: Team):
         raise NotImplementedError("destination_test fixture must be implemented by destination-specific tests")
 
     @pytest.fixture
@@ -450,9 +449,8 @@ class CommonWorkflowTests:
         raise NotImplementedError("simulate_unexpected_error fixture must be implemented by destination-specific tests")
 
     @pytest.mark.parametrize("interval", ["hour"], indirect=True)
-    # TODO - change back
-    @pytest.mark.parametrize("exclude_events", [None], indirect=True)
-    @pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+    @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
+    @pytest.mark.parametrize("model", TEST_MODELS)
     async def test_workflow_completes_successfully(
         self,
         destination_test: BaseDestinationTest,
