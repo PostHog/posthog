@@ -19,7 +19,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric, ExperimentTimeseriesResult
+from posthog.models.experiment import Experiment, ExperimentDailyResult, ExperimentHoldout, ExperimentSavedMetric
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import model_activity_signal
@@ -30,14 +30,15 @@ from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
 
-class ExperimentTimeseriesResultSerializer(serializers.ModelSerializer):
+class ExperimentDailyResultSerializer(serializers.ModelSerializer):
     class Meta:
-        model = ExperimentTimeseriesResult
+        model = ExperimentDailyResult
         fields = [
             "experiment_id",
             "metric_uuid",
+            "date",
             "status",
-            "timeseries",
+            "result",
             "computed_at",
             "error_message",
             "created_at",
@@ -704,6 +705,7 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
     def timeseries_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Retrieve timeseries results for a specific experiment-metric combination.
+        Aggregates daily results into a timeseries format for frontend compatibility.
 
         Query parameters:
         - metric_uuid (required): The UUID of the metric to retrieve results for
@@ -722,17 +724,56 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
         if not metric_exists:
             raise ValidationError(f"Metric with UUID {metric_uuid} not found in experiment")
 
-        try:
-            timeseries_result = ExperimentTimeseriesResult.objects.get(
-                experiment_id=experiment.id, metric_uuid=metric_uuid
-            )
-            serializer = ExperimentTimeseriesResultSerializer(timeseries_result)
-            return Response(serializer.data)
-        except ExperimentTimeseriesResult.DoesNotExist:
+        # Query all daily results for this experiment-metric combination
+        daily_results = ExperimentDailyResult.objects.filter(
+            experiment_id=experiment.id, metric_uuid=metric_uuid
+        ).order_by("date")
+
+        if not daily_results.exists():
             return Response(
                 {"detail": f"No timeseries results found for experiment {experiment.id} and metric {metric_uuid}"},
                 status=404,
             )
+
+        # Aggregate daily results into timeseries format
+        timeseries = {}
+        overall_status = "completed"
+        latest_computed_at = None
+        error_messages = []
+
+        for daily_result in daily_results:
+            # Convert date to string format (ISO date)
+            date_key = daily_result.date.isoformat()
+            timeseries[date_key] = daily_result.result
+
+            # Track overall status - if any day failed, mark as failed
+            if daily_result.status == "failed":
+                overall_status = "failed"
+                if daily_result.error_message:
+                    error_messages.append(f"{date_key}: {daily_result.error_message}")
+            elif daily_result.status == "pending" and overall_status != "failed":
+                overall_status = "pending"
+
+            # Track latest computed_at
+            if daily_result.computed_at:
+                if latest_computed_at is None or daily_result.computed_at > latest_computed_at:
+                    latest_computed_at = daily_result.computed_at
+
+        # Format response to match frontend expectations
+        first_result = daily_results.first()
+        last_result = daily_results.last()
+        response_data = {
+            "experiment_id": experiment.id,
+            "metric_uuid": metric_uuid,
+            "status": overall_status,
+            "timeseries": timeseries if timeseries else None,
+            "computed_at": latest_computed_at.isoformat() if latest_computed_at else None,
+            "error_message": "; ".join(error_messages) if error_messages else None,
+            "created_at": first_result.created_at.isoformat() if first_result else None,
+            "updated_at": last_result.updated_at.isoformat() if last_result else None,
+        }
+
+        return Response(response_data)
 
 
 @receiver(model_activity_signal, sender=Experiment)

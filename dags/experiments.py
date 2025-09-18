@@ -15,7 +15,7 @@ import dagster
 from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQuery, ExperimentRatioMetric
 
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
-from posthog.models.experiment import Experiment, ExperimentTimeseriesResult
+from posthog.models.experiment import Experiment, ExperimentDailyResult
 
 from dags.common import JobOwners
 
@@ -137,26 +137,16 @@ def experiment_timeseries(context: dagster.AssetExecutionContext) -> dict[str, A
         result = query_runner._calculate()
 
         computed_at = datetime.now(UTC)
-        today_key = computed_at.date().isoformat()  # Format: "2025-01-17"
+        today = computed_at.date()  # Get the date as a date object
 
-        existing_result = ExperimentTimeseriesResult.objects.filter(
+        # Store or update the daily result for today
+        ExperimentDailyResult.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
-        ).first()
-
-        if existing_result and existing_result.timeseries:
-            timeseries_obj = existing_result.timeseries
-        else:
-            timeseries_obj = {}
-
-        timeseries_obj[today_key] = result.model_dump()
-
-        ExperimentTimeseriesResult.objects.update_or_create(
-            experiment_id=experiment_id,
-            metric_uuid=metric_uuid,
+            date=today,
             defaults={
-                "status": ExperimentTimeseriesResult.Status.COMPLETED,
-                "timeseries": timeseries_obj,
+                "status": ExperimentDailyResult.Status.COMPLETED,
+                "result": result.model_dump(),
                 "computed_at": computed_at,
                 "error_message": None,
             },
@@ -172,9 +162,8 @@ def experiment_timeseries(context: dagster.AssetExecutionContext) -> dict[str, A
                 "experiment_name": experiment.name,
                 "metric_definition": str(metric),
                 "computed_at": computed_at.isoformat(),
-                "date_key": today_key,
+                "date": today.isoformat(),
                 "results_status": "success",
-                "total_days_calculated": len(timeseries_obj),
             }
         )
 
@@ -182,18 +171,22 @@ def experiment_timeseries(context: dagster.AssetExecutionContext) -> dict[str, A
             "experiment_id": experiment_id,
             "metric_uuid": metric_uuid,
             "metric_definition": metric,
-            "date_key": today_key,
-            "result": timeseries_obj[today_key],
+            "date": today.isoformat(),
+            "result": result.model_dump(),
             "computed_at": computed_at.isoformat(),
         }
 
     except Exception as e:
-        ExperimentTimeseriesResult.objects.update_or_create(
+        computed_at = datetime.now(UTC)
+        today = computed_at.date()
+
+        ExperimentDailyResult.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
+            date=today,
             defaults={
-                "status": ExperimentTimeseriesResult.Status.FAILED,
-                "timeseries": None,
+                "status": ExperimentDailyResult.Status.FAILED,
+                "result": None,
                 "computed_at": None,
                 "error_message": str(e),
             },
