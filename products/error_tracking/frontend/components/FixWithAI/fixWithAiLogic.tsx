@@ -59,7 +59,7 @@ export const fixWithAiLogic = kea<fixWithAiLogicType>([
         generateFix: async () => {
             actions.setFixStatus('in_progress')
 
-            await new Promise((resolve) => setTimeout(resolve, 1_500))
+            await new Promise((resolve) => setTimeout(resolve, 3_000))
 
             actions.setFixStatus('done')
 

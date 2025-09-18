@@ -22,25 +22,30 @@ export function FixWithAI(): JSX.Element {
 
     if (!pullRequest) {
         return (
-            <div className="flex gap-2 items-stretch">
-                <RepositorySelectorButton />
-                <LemonButton
-                    type="primary"
-                    icon={<IconMagicWand />}
-                    onClick={generateFix}
-                    loading={isInProgress}
-                    disabled={isDone || !repository || !integrationId}
-                    disabledReason={
-                        !integrationId
-                            ? 'No GitHub integration configured'
-                            : !repository
-                              ? 'Select a repository first'
-                              : undefined
-                    }
-                    className="flex-shrink-0"
-                >
-                    {isInProgress ? 'Generating fix...' : isDone ? 'Fix generated' : 'Fix with AI'}
-                </LemonButton>
+            <div className="flex flex-col gap-2">
+                <div className="flex gap-2 items-stretch">
+                    <RepositorySelectorButton />
+                    <LemonButton
+                        type="primary"
+                        icon={<IconMagicWand />}
+                        onClick={generateFix}
+                        loading={isInProgress}
+                        disabled={isDone || !repository || !integrationId}
+                        disabledReason={
+                            !integrationId
+                                ? 'No GitHub integration configured'
+                                : !repository
+                                  ? 'Select a repository first'
+                                  : undefined
+                        }
+                        className="flex-shrink-0"
+                    >
+                        {isInProgress ? 'Generating fix...' : isDone ? 'Fix generated' : 'Fix with AI'}
+                    </LemonButton>
+                </div>
+                {isInProgress && (
+                    <div className="text-xs text-muted text-right">This may take a couple of minutes to complete</div>
+                )}
             </div>
         )
     }
