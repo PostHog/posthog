@@ -64,8 +64,6 @@ export interface MultitabEditorLogicProps {
     editor?: editor.IStandaloneCodeEditor | null
 }
 
-export const editorModelsStateKey = (key: string | number): string => `${key}/editorModelQueries`
-
 export const NEW_QUERY = 'Untitled'
 
 export interface QueryTab {
@@ -105,6 +103,23 @@ export type UpdateViewPayload = Partial<DatabaseSchemaViewTable> & {
     shouldRematerialize?: boolean
     sync_frequency?: string
     types: string[][]
+}
+
+function getTabHash(values: multitabEditorLogicType['values']): Record<string, any> {
+    const hash: Record<string, any> = {
+        q: values.queryInput,
+    }
+    if (values.activeTab.view) {
+        hash['view'] = values.activeTab.view.id
+    }
+    if (values.activeTab.insight) {
+        hash['insight'] = values.activeTab.insight.short_id
+    }
+    if (values.activeTab.draft) {
+        hash['draft'] = values.activeTab.draft.id
+    }
+
+    return hash
 }
 
 export const multitabEditorLogic = kea<multitabEditorLogicType>([
@@ -1014,9 +1029,16 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             },
         ],
     }),
-    tabAwareActionToUrl(() => ({
-        setQueryInput: ({ queryInput }) => {
-            return [urls.sqlEditor(), undefined, { q: queryInput }, { replace: true }]
+    tabAwareActionToUrl(({ values }) => ({
+        setQueryInput: () => {
+            if (values.queryInput) {
+                return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
+            }
+        },
+        createTab: () => {
+            if (values.queryInput) {
+                return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
+            }
         },
     })),
     tabAwareUrlToAction(({ actions, values, props }) => ({
@@ -1026,7 +1048,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 !searchParams.open_view &&
                 !searchParams.open_insight &&
                 !searchParams.open_draft &&
-                !hashParams.q
+                !hashParams.q &&
+                !hashParams.view &&
+                !hashParams.insight
             ) {
                 return
             }
@@ -1034,8 +1058,8 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             let tabAdded = false
 
             const createQueryTab = async (): Promise<void> => {
-                if (searchParams.open_draft) {
-                    const draftId = searchParams.open_draft
+                if (searchParams.open_draft || (hashParams.draft && !values.queryInput)) {
+                    const draftId = searchParams.open_draft || hashParams.draft
                     const draft = values.drafts.find((draft) => {
                         return (draft.id = draftId)
                     })
@@ -1062,9 +1086,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         }
                     }
                     return
-                } else if (searchParams.open_view) {
+                } else if (searchParams.open_view || (hashParams.view && !values.queryInput)) {
                     // Open view
-                    const viewId = searchParams.open_view
+                    const viewId = searchParams.open_view || hashParams.view
 
                     if (values.dataWarehouseSavedQueries.length === 0) {
                         await dataWarehouseViewsLogic.asyncActions.loadDataWarehouseSavedQueries()
@@ -1080,18 +1104,18 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
                     actions.editView(queryToOpen, view)
                     tabAdded = true
-                    router.actions.replace(router.values.location.pathname)
-                } else if (searchParams.open_insight) {
-                    if (searchParams.open_insight === 'new') {
+                    router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
+                } else if (searchParams.open_insight || (hashParams.insight && !values.queryInput)) {
+                    const shortId = searchParams.open_insight || hashParams.insight
+                    if (shortId === 'new') {
                         // Add new blank tab
                         actions.createTab()
                         tabAdded = true
-                        router.actions.replace(router.values.location.pathname)
+                        router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
                         return
                     }
 
                     // Open Insight
-                    const shortId = searchParams.open_insight
                     const insight = await insightsApi.getByShortId(shortId, undefined, 'async')
                     if (!insight) {
                         lemonToast.error('Insight not found')
@@ -1131,12 +1155,13 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     }
 
                     tabAdded = true
-                    router.actions.replace(router.values.location.pathname)
+                    router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
                 } else if (searchParams.open_query) {
                     // Open query string
                     actions.createTab(searchParams.open_query)
                     tabAdded = true
                 } else if (hashParams.q && !values.queryInput) {
+                    // only when opening the tab
                     actions.createTab(hashParams.q)
                     tabAdded = true
                 }
