@@ -16,8 +16,8 @@ don't need to consider this).
 Upgrades over v2:
 * Uses the UUIDv7ToDateTime function in the ORDER BY clause, which was not available when we built v2
 * Has a property map for storing lower-tier ad ids, making it easier to add new ad ids in the future
-* Stores presence of ad ids separately from the value, so e.g. channel type calculations can be done with reading the actual (long) gclids and fbclids, just a boolean
-* Parses JSON only once per event rather than once per column per event
+* Stores presence of ad ids separately from the value, so e.g. channel type calculations only need to read 1 bit instead of a gclid string up to 100 chars
+* Parses JSON only once per event rather than once per column per event, saving CPU usage
 * Removes a lot of deprecated fields that are no longer used
 """
 
