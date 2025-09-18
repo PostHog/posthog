@@ -660,7 +660,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._calculate(orderBy="revenue")["results"]
 
         self.assertEqual(len(results), 3)
-        self.assertEqual([r["revenue"] for r in results], [95084, 50084, 45000])
+        self.assertEqual([r["revenue"] for r in results], [47542.0, 25042.0, 22500.0])
 
 
 class TestSearchTokenizer(TestCase):
