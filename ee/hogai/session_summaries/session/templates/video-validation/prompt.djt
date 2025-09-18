@@ -4,38 +4,40 @@
 - Watch the entire video carefully and provide a detailed observation report of what happened
 </video_observation_task>
 
-<video_analysis_instructions>
-Focus on potential issues the user could've encountered:
-- UI elements (dialogs, errors, tates) and text visible on screen
-- User interactions with the UI
-- Visual issue indicators (red text, error icons, failures)
-- Any loading or processing that was interrupted
-- and similar
-</video_analysis_instructions>
+<observation_guidelines>
+Focus on capturing:
 
-<assumed_outcome>
-Here's the initial description of what I assume happened in the video:
+USER ACTIONS:
+- What the user was trying to accomplish
+- Which UI elements they interacted with
+- Whether their actions succeeded or failed
 
-```
-{{ EVENT_DESCRIPTION | safe}}
-```
-</assumed_outcome>
+ERRORS & ISSUES:
+- Exact text of any error messages, warnings, or notifications (use quotation marks)
+- Visual problem indicators (red text, error icons, failed states, stopped spinners)
+- Unexpected UI behaviors, state changes, or system responses that seem abnormal
 
-<output_format>
-Provide your summary in YAML format using the provided example. Don't replicate the data, or comments, or logic of the example, or the number of example entries. Use it ONLY to understand the format.
+CONTEXT:
+- Relevant on-screen text or labels
+- State of the interface before and after issues, if any
+- Any patterns or notable details about the interaction
 
-IMPORTANT:
-- Always use quotes around indicator strings that contain special characters
-- Replace comparison operators with words:
-  - Instead of ">3" use "more than 3" 
-  - Instead of "<1" use "less than 1"
-  - Instead of ">=5" use "5 or more"
-- Avoid using special YAML characters (>, <, :, &, *, ?, |, -, @, `) at the beginning of unquoted strings
-- When in doubt, wrap the entire indicator string in single or double quotes
-</output_format>
+IMPORTANT: 
+- Report only what you directly observe. 
+- Don't mention or focus on specific timecodes, only ensure the chronological order
+- Be factual, avoiding interpretation or speculation.
+</observation_guidelines>
 
-<output_example>
-```
-{{ OUTPUT_EXAMPLE | safe}}
-```
-</output_example>
+<assumption>
+For reference, I initially suspected this issue occurred: 
+
+"{{ EVENT_DESCRIPTION | safe}}"
+
+However, describe everything you observe, not just what relates to this assumption.
+</assumption>
+
+<output_instructions>
+- Provide a natural language summary of your observations, 5-15 sentences based on activity
+- Ensure to mention only actions and behaviors that were actually observed through the video
+- Keep language clear and factual - write as if describing to someone who cannot see the video
+</output_instructions>
