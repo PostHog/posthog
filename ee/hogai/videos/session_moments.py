@@ -31,34 +31,39 @@ class SessionMomentInput:
     timestamp_s: int
     # How long the video should be
     duration_s: int
+    # Prompt to validate the moment
+    prompt: str
 
 
 class SessionMomentsLLMAnalyzer:
     """Generate videos for Replay session events and analyze them with LLM"""
 
-    def __init__(self, session_id: str, team_id: int, user: User, prompt: str, failed_moments_min_ratio: float):
+    def __init__(self, session_id: str, team_id: int, user: User, failed_moments_min_ratio: float):
         self.session_id = session_id
         self.team_id = team_id
         self.user = user
-        self.prompt = prompt
         # If less than N% of moments were generated, fail the analysis
         # Allow as an input as the expected success ratio could differ from task to tasks
         self._failed_moments_min_ratio = failed_moments_min_ratio
 
-    async def analyze(self, moments: list[SessionMomentInput]) -> dict[str, str]:
+    async def analyze(self, moments_input: list[SessionMomentInput]) -> dict[str, str]:
         """Analyze the session moments with LLM and return mapping of moment_id to LLM analysis"""
-        # Generate videos
-        asset_ids = await self._generate_videos_for_moments(moments)
+        # Generate mapping of moments to moment ids
+        moment_id_to_moment = {moment.moment_id: moment for moment in moments_input}
+        # Generate mapping of created videos (asset IDs) to moment ids
+        moment_id_to_asset_id = await self._generate_videos_for_moments(moments_input=moments_input)
         # Analyze videos with LLM
-        results = await self._analyze_moment_videos_with_llm(asset_ids)
+        results = await self._analyze_moment_videos_with_llm(
+            moment_id_to_asset_id=moment_id_to_asset_id, moment_id_to_moment=moment_id_to_moment
+        )
         return results
 
-    async def _generate_videos_for_moments(self, moments: list[SessionMomentInput]) -> dict[str, int]:
+    async def _generate_videos_for_moments(self, moments_input: list[SessionMomentInput]) -> dict[str, int]:
         """Generate videos for moments and return mapping of moment_id to asset_id"""
         tasks = {}
         async with asyncio.TaskGroup() as tg:
-            for moment in moments:
-                tasks[moment.moment_id] = tg.create_task(self._generate_video_for_single_moment(moment))
+            for moment in moments_input:
+                tasks[moment.moment_id] = tg.create_task(self._generate_video_for_single_moment(moment=moment))
         # Collect asset IDs
         moment_to_asset_id = {}
         for moment_id, task in tasks.items():
@@ -71,9 +76,9 @@ class SessionMomentsLLMAnalyzer:
                 continue
             moment_to_asset_id[moment_id] = await task
         # Check if enough moments were generated
-        expected_min_moments = ceil(len(moments) * self._failed_moments_min_ratio)
+        expected_min_moments = ceil(len(moments_input) * self._failed_moments_min_ratio)
         if expected_min_moments > len(moment_to_asset_id):
-            exception_message = f"Not enough moments were generated for session {self.session_id} of team {self.team_id}: {len(moment_to_asset_id)} out of {len(moments)}, expected at least {expected_min_moments}"
+            exception_message = f"Not enough moments were generated for session {self.session_id} of team {self.team_id}: {len(moment_to_asset_id)} out of {len(moments_input)}, expected at least {expected_min_moments}"
             logger.exception(exception_message)
             raise Exception(exception_message)
         return moment_to_asset_id
@@ -85,7 +90,7 @@ class SessionMomentsLLMAnalyzer:
     async def _generate_video_for_single_moment(self, moment: SessionMomentInput) -> int | Exception:
         """Generate a video for an event in Replay session and return the asset ID"""
         try:
-            moment_filename = self._generate_moment_video_filename(moment.moment_id)
+            moment_filename = self._generate_moment_video_filename(moment_id=moment.moment_id)
             exported_asset = await ExportedAsset.objects.acreate(
                 team_id=self.team_id,
                 export_format="video/mp4",
@@ -142,10 +147,11 @@ class SessionMomentsLLMAnalyzer:
         self,
         asset_id: int,
         moment_id: str,
+        prompt: str,
     ) -> str | None | Exception:
         """Analyze a moment video with LLM"""
         try:
-            video_bytes = await self._get_video_bytes(asset_id)
+            video_bytes = await self._get_video_bytes(asset_id=asset_id)
             if not video_bytes:
                 logger.warning(
                     f"No video bytes found for asset {asset_id} for moment {moment_id} of session {self.session_id} of team {self.team_id}"
@@ -170,7 +176,7 @@ class SessionMomentsLLMAnalyzer:
                 contents=Content(
                     parts=[
                         Part(inline_data=Blob(data=video_bytes, mime_type="video/mp4")),
-                        Part(text=self.prompt),
+                        Part(text=prompt),
                     ]
                 ),
             )
@@ -187,12 +193,17 @@ class SessionMomentsLLMAnalyzer:
             )
             return err  # Let caller handle the error
 
-    async def _analyze_moment_videos_with_llm(self, asset_ids: dict[str, int]) -> dict[str, str]:
+    async def _analyze_moment_videos_with_llm(
+        self, moment_id_to_asset_id: dict[str, int], moment_id_to_moment: dict[str, SessionMomentInput]
+    ) -> dict[str, str]:
         """Send videos to LLM for validation and get analysis results"""
         tasks = {}
         async with asyncio.TaskGroup() as tg:
-            for moment_id, asset_id in asset_ids.items():
-                tasks[moment_id] = tg.create_task(self._analyze_single_moment_video_with_llm(asset_id, moment_id))
+            for moment_id, asset_id in moment_id_to_asset_id.items():
+                prompt = moment_id_to_moment[moment_id].prompt
+                tasks[moment_id] = tg.create_task(
+                    self._analyze_single_moment_video_with_llm(asset_id=asset_id, moment_id=moment_id, prompt=prompt)
+                )
         results = {}
         for moment_id, task in tasks.items():
             res = task.result()

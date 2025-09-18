@@ -4,6 +4,7 @@ from typing import cast
 import temporalio
 from temporalio.exceptions import ApplicationError
 
+from ee.hogai.session_summaries.session.summarize_session import generate_video_validation_prompt
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
@@ -19,7 +20,7 @@ from ee.models.session_summaries import SingleSessionSummary
 
 
 def _prepare_moment_input_from_summary_event(
-    event: EnrichedKeyActionSerializer, session_id: str
+    prompt: str, event: EnrichedKeyActionSerializer, session_id: str
 ) -> SessionMomentInput | None:
     event_uuid = event.data["event_uuid"]
     ms_from_start = event.data.get("milliseconds_since_start")
@@ -35,6 +36,7 @@ def _prepare_moment_input_from_summary_event(
         moment_id=event_uuid,
         timestamp_s=moment_timestamp,
         duration_s=VALIDATION_VIDEO_DURATION,
+        prompt=prompt,
     )
 
 
@@ -63,8 +65,8 @@ async def validate_llm_single_session_summary_with_videos_activity(
     summary_row = cast(SingleSessionSummary, summary_row)
     summary = SessionSummarySerializer(data=summary_row.summary)
     summary.is_valid(raise_exception=True)
-    # Pick events to generate videos for
-    events_to_validate: list[EnrichedKeyActionSerializer] = []
+    # Pick blocking exceptions to generate videos for
+    events_to_validate: list[tuple[str, EnrichedKeyActionSerializer]] = []
     for key_actions in summary.data.get("key_actions", []):
         for event in key_actions.get("events", []):
             if event.get("exception") != "blocking":
@@ -72,25 +74,50 @@ async def validate_llm_single_session_summary_with_videos_activity(
             # Keep only blocking exceptions
             validated_event = EnrichedKeyActionSerializer(data=event)
             validated_event.is_valid(raise_exception=True)
-            events_to_validate.append(validated_event)
+            # Generate prompt
+            prompt = generate_video_validation_prompt(event=validated_event)
+            events_to_validate.append((prompt, validated_event))
     if not events_to_validate:
         # No blocking issues detected in the summary, no need to validate
         return None
-    # Generate videos for events and get asset IDs
-    # TODO: Remove after testing # Temporalily limiting to one event
-    events_to_validate = events_to_validate[:1]
-    # Send videos to LLM for validation
+
+    # Pick events that happened before/after the exception, if they fit within the video duration
+    # TODO: Decide if I need it
+    # events_context: dict[str, dict[str, list[EnrichedKeyActionSerializer]]] = {}
+    # for etv in events_to_validate:
+    #     events_context[etv.data["event_uuid"]] = {
+    #         "before": [],
+    #         "after": [],
+    #     }
+    #     etv_timestamp = etv.data.get("milliseconds_since_start")
+    #     if etv_timestamp is None:
+    #         # No context available
+    #         continue
+    #     # Don't want to go negative
+    #     etv_from_timestamp = max(0, etv_timestamp - SECONDS_BEFORE_EVENT_FOR_VALIDATION_VIDEO*1000)
+    #     etv_to_timestamp = etv_timestamp + VALIDATION_VIDEO_DURATION*1000
+    #     for event in summary.data.get("key_actions", []):
+    #         if event.get("event_uuid") == etv.data["event_uuid"]:
+    #             continue
+    #         event_timestamp = event.get("milliseconds_since_start")
+    #         if event_timestamp is None:
+    #             continue
+    #         if event_timestamp >= etv_from_timestamp and event_timestamp <= etv_timestamp:
+    #             events_context[etv.data["event_uuid"]]["before"].append(event)
+    #         elif event_timestamp >= etv_timestamp and event_timestamp <= etv_to_timestamp:
+    #             events_context[etv.data["event_uuid"]]["after"].append(event)
+
+    # Prepare input for video validation
     moments_analyzer = SessionMomentsLLMAnalyzer(
         session_id=inputs.session_id,
         team_id=inputs.team_id,
         user=user,
-        prompt="Please summarize the video in 3 sentences.",
         failed_moments_min_ratio=FAILED_MOMENTS_MIN_RATIO,
     )
     moments_input = [
         moment
-        for event in events_to_validate
-        if (moment := _prepare_moment_input_from_summary_event(event, inputs.session_id))
+        for prompt, event in events_to_validate
+        if (moment := _prepare_moment_input_from_summary_event(prompt=prompt, event=event, session_id=inputs.session_id))
     ]
     if not moments_input:
         raise ApplicationError(
@@ -98,7 +125,7 @@ async def validate_llm_single_session_summary_with_videos_activity(
             # No sense to retry, as the events picked to validate don't have enough metadata to generate a moment
             non_retryable=True,
         )
-    # TODO: 
-    validation_results = await moments_analyzer.analyze(moments_input)
+    # Generate videos and validate them with LLM
+    validation_results = await moments_analyzer.analyze(moments_input=moments_input)
     print(validation_results)
     print("")
