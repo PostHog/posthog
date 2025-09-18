@@ -137,9 +137,8 @@ def experiment_timeseries(context: dagster.AssetExecutionContext) -> dict[str, A
         result = query_runner._calculate()
 
         computed_at = datetime.now(UTC)
-        today = computed_at.date()  # Get the date as a date object
+        today = computed_at.date()
 
-        # Store or update the daily result for today
         ExperimentDailyResult.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
