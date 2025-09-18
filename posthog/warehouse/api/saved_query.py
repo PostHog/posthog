@@ -443,7 +443,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             .select_related("datawarehousesnapshotconfig")
             .exclude(deleted=True)
             # Exclude snapshots because they're special case system tables
-            .exclude(is_snapshot=True)
+            .exclude(type=DataWarehouseSavedQuery.Type.SNAPSHOT)
             .order_by(self.ordering)
         )
 

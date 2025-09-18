@@ -203,7 +203,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
 
     @property
     def snapshot_folder_path(self):
-        return f"team_{self.team.pk}_snapshot_{self.id.hex}/snapshots"
+        return f"team_{self.team.pk}_snapshot_{self.id.hex}"
 
     @property
     def normalized_name(self):
@@ -225,8 +225,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
             parsed = urlparse(settings.BUCKET_URL)
             bucket_name = parsed.netloc
 
-            return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{bucket_name}/team_{self.team.pk}_snapshot_{self.id.hex}/snapshots/{self.normalized_name}"
-        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_snapshot_{self.id.hex}/snapshots/{self.normalized_name}"
+            return f"http://{settings.AIRBYTE_BUCKET_DOMAIN}/{bucket_name}/team_{self.team.pk}_snapshot_{self.id.hex}/{self.normalized_name}"
+        return f"https://{settings.AIRBYTE_BUCKET_DOMAIN}/dlt/team_{self.team.pk}_snapshot_{self.id.hex}/{self.normalized_name}"
 
     def hogql_definition(
         self, modifiers: Optional[HogQLQueryModifiers] = None

@@ -92,9 +92,9 @@ async def finish_snapshot_job_activity(inputs: FinishSnapshotJobInputs) -> None:
         name=f"{snapshot_table.name}_{format_snapshot_name(inputs.snapshot_ts)}",
         query={
             "kind": "HogQLQuery",
-            "query": f"""SELECT * FROM snapshots.{snapshot_table.name} WHERE snapshot_ts <= toDateTime('{inputs.snapshot_ts}', 'UTC') AND (valid_until > toDateTime('{inputs.snapshot_ts}', 'UTC') OR valid_until IS NULL)""",
+            "query": f"""SELECT * FROM snapshots.{snapshot_table.name} WHERE _ph_snapshot_ts <= toDateTime('{inputs.snapshot_ts}', 'UTC') AND (_ph_valid_until > toDateTime('{inputs.snapshot_ts}', 'UTC') OR _ph_valid_until IS NULL)""",
         },
-        is_snapshot=True,
+        type=DataWarehouseSavedQuery.Type.SNAPSHOT,
         snapshot_table_id=inputs.snapshot_table_id,
     )
 
@@ -168,9 +168,9 @@ async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> tuple[str,
             f"""
         SELECT
             *,
-            {merge_key} AS merge_key,
-            toString(cityHash64(concatWithSeparator('_', {', '.join(stringified_hashed_columns)}))) AS row_hash,
-            toDateTime('{snapshot_ts}', 'UTC') AS snapshot_ts
+            {merge_key} AS _ph_merge_key,
+            toString(cityHash64(concatWithSeparator('_', {', '.join(stringified_hashed_columns)}))) AS _ph_row_hash,
+            toDateTime('{snapshot_ts}', 'UTC') AS _ph_snapshot_ts
         FROM ({hogql_query})
     """,
             team,
@@ -320,12 +320,12 @@ def validate_snapshot_schema(
                 "url_pattern": new_url_pattern,
                 "team_id": team_id,
                 "row_count": 0,
-                "is_snapshot": True,
+                "type": DataWarehouseTable.Type.SNAPSHOT,
             }
 
             # Check if we already have an orphaned table that we can repurpose
             existing_tables = DataWarehouseTable.objects.filter(
-                team_id=team_id, name=saved_query.normalized_name, deleted=False, is_snapshot=True
+                team_id=team_id, name=saved_query.normalized_name, deleted=False, type=DataWarehouseTable.Type.SNAPSHOT
             )
             existing_tables_count = existing_tables.count()
             table_created = None

@@ -19,7 +19,7 @@ from posthog.warehouse.types import PartitionSettings
 
 
 class DeltaSnapshot:
-    VALID_UNTIL_COLUMN: str = "valid_until"
+    VALID_UNTIL_COLUMN: str = "_ph_valid_until"
 
     def __init__(self, saved_query: DataWarehouseSavedQuery):
         self.saved_query = saved_query
@@ -34,7 +34,7 @@ class DeltaSnapshot:
         return self.saved_query.datawarehousesnapshotconfig.config.get("fields", [])
 
     def _get_delta_table_uri(self) -> str:
-        return f"{settings.BUCKET_URL}/team_{self.saved_query.team.pk}_snapshot_{self.saved_query.id.hex}/snapshots/{self.saved_query.normalized_name}"
+        return f"{settings.BUCKET_URL}/team_{self.saved_query.team.pk}_snapshot_{self.saved_query.id.hex}/{self.saved_query.normalized_name}"
 
     def _get_credentials(self):
         if not settings.AIRBYTE_BUCKET_KEY or not settings.AIRBYTE_BUCKET_SECRET or not settings.AIRBYTE_BUCKET_REGION:
@@ -97,7 +97,10 @@ class DeltaSnapshot:
             )
 
         if use_partitioning:
-            predicate_ops = ["source.merge_key = target.merge_key", f"source.{PARTITION_KEY} = target.{PARTITION_KEY}"]
+            predicate_ops = [
+                "source._ph_merge_key = target._ph_merge_key",
+                f"source.{PARTITION_KEY} = target.{PARTITION_KEY}",
+            ]
             unique_partitions = pc.unique(data[PARTITION_KEY])
             for partition in unique_partitions:
                 predicate_ops.append(f"target.{PARTITION_KEY} = '{partition}'")
@@ -106,7 +109,7 @@ class DeltaSnapshot:
                 self._merge_table(delta_table, filtered_table, predicate)
             self._merge_table(delta_table, data, predicate)
         else:
-            self._merge_table(delta_table, data, "source.merge_key = target.merge_key")
+            self._merge_table(delta_table, data, "source._ph_merge_key = target._ph_merge_key")
 
     def _merge_table(self, delta_table: deltalake.DeltaTable, data: pa.RecordBatch, predicate: str):
         now_micros = int(datetime.now(UTC).timestamp() * 1_000_000)
@@ -119,15 +122,15 @@ class DeltaSnapshot:
         ).when_matched_update(
             updates={
                 # indicates update
-                "valid_until": "source.snapshot_ts",
+                "valid_until": "source._ph_snapshot_ts",
             },
-            predicate="source.row_hash != target.row_hash AND target.valid_until IS NULL",
+            predicate="source._ph_row_hash != target._ph_row_hash AND target._ph_valid_until IS NULL",
         ).when_not_matched_by_source_update(
             updates={
                 # indicates deletion
                 "valid_until": f"to_timestamp_micros({now_micros})",
             },
-            predicate="target.valid_until IS NULL",
+            predicate="target._ph_valid_until IS NULL",
             # insert brand new rows
         ).when_not_matched_insert_all().execute()
 
@@ -136,7 +139,7 @@ class DeltaSnapshot:
             source=data,
             source_alias="source",
             target_alias="target",
-            predicate=f"source.merge_key = target.merge_key AND target.valid_until IS NULL",
+            predicate=f"source._ph_merge_key = target._ph_merge_key AND target._ph_valid_until IS NULL",
             streamed_exec=True,
         ).when_not_matched_insert_all().execute()
 
