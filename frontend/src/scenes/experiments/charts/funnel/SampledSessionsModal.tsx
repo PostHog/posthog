@@ -14,8 +14,8 @@ import { NodeKind } from '~/queries/schema/schema-general'
 interface SampledSessionsModalProps {
     isOpen: boolean
     onClose: () => void
-    stepsEventData: Array<[string, string]>
-    prevStepsEventData: Array<[string, string]>
+    stepsEventData: Array<[string, string, string]>
+    prevStepsEventData: Array<[string, string, string]>
     stepName: string
     variant: string
 }
@@ -36,7 +36,7 @@ export function SampledSessionsModal({
 
     // Get all unique session IDs - memoized to prevent recreating on each render
     const allSessionIds = useMemo(() => {
-        return Array.from(new Set(stepsEventData.concat(prevStepsEventData).map((s) => s[0])))
+        return Array.from(new Set(stepsEventData.concat(prevStepsEventData).map((s) => s[1])))
     }, [stepsEventData, prevStepsEventData])
 
     // Check recording availability for all sessions
@@ -91,31 +91,20 @@ export function SampledSessionsModal({
         })
     }
 
-    const columns: LemonTableColumns<[string, string]> = [
+    const columns: LemonTableColumns<[string, string, string]> = [
         {
-            title: 'Session ID',
-            key: 'sessionId',
+            title: 'Person',
+            key: 'distinctId',
             render: (_, sutuple) => {
-                const sessionInfo = recordingAvailability.get(sutuple[0])
-                const distinct_id = sessionInfo?.distinct_id
-
-                if (distinct_id) {
-                    return (
-                        <Link
-                            to={urls.personByDistinctId(distinct_id)}
-                            subtle
-                            className="font-mono text-xs"
-                            title={sutuple[0]}
-                        >
-                            {sutuple[0]}
-                        </Link>
-                    )
-                }
-
                 return (
-                    <span className="font-mono text-xs" title={sutuple[0]}>
+                    <Link
+                        to={urls.personByDistinctId(sutuple[0])}
+                        subtle
+                        className="font-mono text-xs"
+                        title={sutuple[0]}
+                    >
                         {sutuple[0]}
-                    </span>
+                    </Link>
                 )
             },
             width: '40%',
@@ -124,7 +113,7 @@ export function SampledSessionsModal({
             title: 'Recording',
             key: 'recording',
             render: (_, sutuple) => {
-                const sessionInfo = recordingAvailability.get(sutuple[0])
+                const sessionInfo = recordingAvailability.get(sutuple[1])
                 const hasRecording = sessionInfo?.hasRecording || false
 
                 if (loading) {
@@ -137,7 +126,7 @@ export function SampledSessionsModal({
                             size="small"
                             type="secondary"
                             icon={<IconPlayCircle />}
-                            onClick={() => openSessionRecording(sutuple[0], sutuple[1])}
+                            onClick={() => openSessionRecording(sutuple[1], sutuple[2])}
                         >
                             View recording
                         </LemonButton>
