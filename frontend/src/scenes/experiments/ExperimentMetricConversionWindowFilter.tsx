@@ -1,6 +1,4 @@
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect, LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
@@ -17,7 +15,6 @@ export function ExperimentMetricConversionWindowFilter({
     metric: ExperimentMetric
     handleSetMetric: (newMetric: ExperimentMetric) => void
 }): JSX.Element {
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     const options: LemonSelectOption<FunnelConversionWindowTimeUnit>[] = Object.keys(TIME_INTERVAL_BOUNDS).map(
         (unit) => ({
             label: capitalizeFirstLetter(pluralize(metric.conversion_window ?? 72, unit, `${unit}s`, false)),
@@ -44,30 +41,7 @@ export function ExperimentMetricConversionWindowFilter({
                     </ul>
                 </>
             }
-            hideTitleAndDescription={!newSceneLayout}
         >
-            {!newSceneLayout && (
-                <LemonLabel
-                    className="mb-1"
-                    info={
-                        <>
-                            Controls how long a metric value is considered relevant to an experiment exposure:
-                            <ul className="list-disc pl-4">
-                                <li>
-                                    <strong>Experiment duration</strong> considers any data from when a user is first
-                                    exposed until the experiment ends.
-                                </li>
-                                <li>
-                                    <strong>Time window</strong> only includes data that occurs within the specified
-                                    time window after a user's first exposure (also ignoring the experiment end date).
-                                </li>
-                            </ul>
-                        </>
-                    }
-                >
-                    Conversion window limit
-                </LemonLabel>
-            )}
             <div className="flex flex-col gap-2">
                 <LemonRadio
                     className="my-1.5"

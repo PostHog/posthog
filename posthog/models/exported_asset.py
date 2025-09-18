@@ -133,6 +133,10 @@ class ExportedAsset(models.Model):
         logger.info("deleting_expired_assets", count=expired_assets.count())
         expired_assets.delete()
 
+    @classmethod
+    def get_supported_format_values(cls):
+        return [format_choice.value for format_choice in cls.SUPPORTED_FORMATS]
+
 
 def get_public_access_token(asset: ExportedAsset, expiry_delta: Optional[timedelta] = None) -> str:
     if not expiry_delta:

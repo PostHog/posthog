@@ -673,6 +673,13 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"error_tracking/fingerprints",
+    error_tracking.ErrorTrackingFingerprintViewSet,
+    "project_error_tracking_fingerprint",
+    ["team_id"],
+)
+
+environments_router.register(
     r"error_tracking/issues",
     error_tracking.ErrorTrackingIssueViewSet,
     "project_error_tracking_issue",
@@ -834,14 +841,14 @@ projects_router.register(
     ["project_id"],
 )
 
-environments_router.register(
+register_grandfathered_environment_nested_viewset(
     r"datasets",
     DatasetViewSet,
     "environment_datasets",
     ["team_id"],
 )
 
-environments_router.register(
+register_grandfathered_environment_nested_viewset(
     r"dataset_items",
     DatasetItemViewSet,
     "environment_dataset_items",

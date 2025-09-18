@@ -23,7 +23,6 @@ import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
 import { ToolsDisplay } from './ToolsDisplay'
 
 interface QuestionInputProps {
-    isFloating?: boolean
     isSticky?: boolean
     placeholder?: string
     children?: ReactNode
@@ -39,7 +38,6 @@ interface QuestionInputProps {
 
 export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps>(function BaseQuestionInput(
     {
-        isFloating,
         isSticky,
         placeholder,
         children,
@@ -75,7 +73,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         <div
             className={clsx(
                 containerClassName,
-                !isSticky && !isFloating
+                !isSticky && !isThreadVisible
                     ? 'px-3 w-[min(40rem,100%)]'
                     : 'sticky bottom-0 z-10 w-full max-w-[45.25rem] self-center'
             )}
@@ -96,7 +94,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             'border border-[var(--color-border-primary)] rounded-[var(--radius)]',
                             'bg-[var(--color-bg-fill-input)]',
                             'hover:border-[var(--border-bold)] focus-within:border-[var(--border-bold)]',
-                            isFloating && 'border-primary m-1'
+                            isThreadVisible && 'border-primary m-1'
                         )}
                         onClick={(e) => {
                             // If user clicks anywhere with the area with a hover border, activate input - except on button clicks
@@ -124,7 +122,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                 placeholder={
                                     threadLoading
                                         ? 'Thinking…'
-                                        : isFloating
+                                        : isThreadVisible
                                           ? placeholder || 'Ask follow-up (/ for commands)'
                                           : 'Ask away (/ for commands)'
                                 }
@@ -143,8 +141,8 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     </div>
                     <div
                         className={clsx('absolute flex items-center', {
-                            'bottom-[11px] right-3': isFloating,
-                            'bottom-[7px] right-2': !isFloating,
+                            'bottom-[11px] right-3': isThreadVisible,
+                            'bottom-[7px] right-2': !isThreadVisible,
                         })}
                     >
                         <AIConsentPopoverWrapper
@@ -160,7 +158,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             hidden={!threadLoading}
                         >
                             <LemonButton
-                                type={(isFloating && !question) || threadLoading ? 'secondary' : 'primary'}
+                                type={(isThreadVisible && !question) || threadLoading ? 'secondary' : 'primary'}
                                 onClick={() => {
                                     if (threadLoading) {
                                         stopGeneration()
@@ -197,7 +195,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                     </div>
                 </div>
                 <ToolsDisplay
-                    isFloating={isFloating}
+                    isFloating={isThreadVisible}
                     tools={tools}
                     bottomActions={bottomActions}
                     deepResearchMode={deepResearchMode}

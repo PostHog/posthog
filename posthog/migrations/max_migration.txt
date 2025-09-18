@@ -1,1 +1,1 @@
-0856_add_web_analytics_tables_version
+0859_alter_team_session_recording_retention_period

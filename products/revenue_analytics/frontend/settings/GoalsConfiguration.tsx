@@ -5,7 +5,6 @@ import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -164,7 +163,6 @@ export function GoalsConfiguration(): JSX.Element {
     const [isAdding, setIsAdding] = useState(() => inStorybook() || inStorybookTestRunner())
     const [editingIndex, setEditingIndex] = useState<number | null>(null)
     const [temporaryGoal, setTemporaryGoal] = useState<RevenueAnalyticsGoal>(EMPTY_GOAL)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     const handleAddGoal = (): void => {
         if (temporaryGoal.name && temporaryGoal.due_date && temporaryGoal.goal) {
             addGoal(temporaryGoal)
@@ -346,23 +344,10 @@ export function GoalsConfiguration(): JSX.Element {
 
     return (
         <SceneSection
-            hideTitleAndDescription={!newSceneLayout}
-            className={cn(!newSceneLayout && 'gap-y-0')}
             title="Goals"
             description="Set revenue targets for specific dates to track your progress. You can track goals based on your monthly/quarterly/yearly targets. These can be displayed either on your MRR/ARR or gross revenue charts on the revenue analytics dashboard!"
         >
-            {!newSceneLayout && (
-                <>
-                    <h3 className="mb-2">Goals</h3>
-                    <p className="mb-4">
-                        Set revenue targets for specific dates to track your progress. You can track goals based on your
-                        monthly/quarterly/yearly targets. These can be displayed either on your MRR/ARR or gross revenue
-                        charts on the revenue analytics dashboard, you choose!
-                    </p>
-                </>
-            )}
-
-            <div className={cn('flex flex-col items-end w-full', !newSceneLayout && 'mb-1')}>
+            <div className={cn('flex flex-col items-end w-full')}>
                 <LemonButton
                     type="primary"
                     icon={<IconPlus />}
