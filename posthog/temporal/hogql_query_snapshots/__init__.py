@@ -1,4 +1,4 @@
-from posthog.temporal.data_snapshots.run_workflow import (
+from posthog.temporal.hogql_query_snapshots.run_workflow import (
     RunWorkflow,
     create_snapshot_job_activity,
     finish_snapshot_job_activity,

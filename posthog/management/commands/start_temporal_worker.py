@@ -40,10 +40,6 @@ from posthog.temporal.data_modeling import (
     ACTIVITIES as DATA_MODELING_ACTIVITIES,
     WORKFLOWS as DATA_MODELING_WORKFLOWS,
 )
-from posthog.temporal.data_snapshots import (
-    ACTIVITIES as DATA_SNAPSHOTS_ACTIVITIES,
-    WORKFLOWS as DATA_SNAPSHOTS_WORKFLOWS,
-)
 from posthog.temporal.delete_persons import (
     ACTIVITIES as DELETE_PERSONS_ACTIVITIES,
     WORKFLOWS as DELETE_PERSONS_WORKFLOWS,
@@ -51,6 +47,10 @@ from posthog.temporal.delete_persons import (
 from posthog.temporal.exports_video import (
     ACTIVITIES as VIDEO_EXPORT_ACTIVITIES,
     WORKFLOWS as VIDEO_EXPORT_WORKFLOWS,
+)
+from posthog.temporal.hogql_query_snapshots import (
+    ACTIVITIES as DATA_SNAPSHOTS_ACTIVITIES,
+    WORKFLOWS as DATA_SNAPSHOTS_WORKFLOWS,
 )
 from posthog.temporal.product_analytics import (
     ACTIVITIES as PRODUCT_ANALYTICS_ACTIVITIES,

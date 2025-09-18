@@ -24,7 +24,7 @@ from posthog.temporal.common.schedule import (
     unpause_schedule,
     update_schedule,
 )
-from posthog.temporal.data_snapshots.run_workflow import RunWorkflowInputs
+from posthog.temporal.hogql_query_snapshots.run_workflow import RunWorkflowInputs
 
 if TYPE_CHECKING:
     from posthog.warehouse.models import DataWarehouseSavedQuery
