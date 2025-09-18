@@ -17,7 +17,7 @@ fi
 
 # Install development tools
 echo "Installing golangci-lint..."
-go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+go install github.com/golangci/golangci-lint/cmd/golangci-lint/v2@latest
 
 echo "Installing govulncheck..."
 go install golang.org/x/vuln/cmd/govulncheck@latest
