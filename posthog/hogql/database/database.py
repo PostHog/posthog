@@ -294,7 +294,7 @@ class Database(BaseModel):
         return self._table_names
 
     def get_system_tables(self) -> list[str]:
-        return [*self.system.resolve_all_table_names(), "query_log", "numbers"]
+        return [*self.system.resolve_all_table_names(), "query_log"]
 
     def get_warehouse_tables(self) -> list[str]:
         return self._warehouse_table_names + self._warehouse_self_managed_table_names
