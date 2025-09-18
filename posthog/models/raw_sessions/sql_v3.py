@@ -19,6 +19,7 @@ Upgrades over v2:
 * Stores presence of ad ids separately from the value, so e.g. channel type calculations only need to read 1 bit instead of a gclid string up to 100 chars
 * Parses JSON only once per event rather than once per column per event, saving CPU usage
 * Removes a lot of deprecated fields that are no longer used
+* Has a dedicated column for the channel type properties, reducing the number of times the timestamp needs to be read when calculating channel type
 """
 
 TABLE_BASE_NAME_V3 = "raw_sessions_v3"
@@ -118,6 +119,10 @@ CREATE TABLE IF NOT EXISTS {table_name}
     -- for lower-tier ad ids, just put them in a map, and set of the ones present
     entry_ad_ids_map AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC')),
     entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
+
+    -- channel type properties tuple - to reduce redundant reading of the timestamp when loading all of these columns
+    -- utm_source, utm_campaign, utm_medium, referring domain, has_gclid, has_fbclid, gad_source
+    entry_channel_type_properties AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Boolean, Boolean, Nullable(String)), DateTime64(6, 'UTC')),
 
     -- Count pageview, autocapture, and screen events for providing totals.
     -- Use uniq instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
@@ -353,6 +358,9 @@ SELECT
     initializeAggregation('argMinState', ({AD_IDS_MAP}), timestamp) as entry_ad_ids_map,
     initializeAggregation('argMinState', ({AD_IDS_SET}), timestamp) as entry_ad_ids_set,
 
+    -- channel type
+    initializeAggregation('argMinState', tuple(utm_source, utm_medium, utm_campaign, referring_domain, gclid IS NOT NULL, fbclid IS NOT NULL, gad_source), timestamp) as entry_channel_type_properties,
+
     -- counts
     initializeAggregation('uniqState', if(event='$pageview', uuid, NULL)) as pageview_uniq,
     initializeAggregation('uniqState', if(event='$autocapture', uuid, NULL)) as autocapture_uniq,
@@ -439,6 +447,10 @@ SELECT
     -- other ad ids
     initializeAggregation('argMinState', ({AD_IDS_MAP}), timestamp) as entry_ad_ids_map,
     initializeAggregation('argMinState', ({AD_IDS_SET}), timestamp) as entry_ad_ids_set,
+
+    -- channel type
+    initializeAggregation('argMinState', tuple(utm_source, utm_medium, utm_campaign, referring_domain, gclid IS NOT NULL, fbclid IS NOT NULL, gad_source), timestamp) as entry_channel_type_properties,
+
 
     -- counts
     initializeAggregation('uniqState', if(event='$pageview', uuid, NULL)) as pageview_uniq,
@@ -567,6 +579,8 @@ SELECT
 
     argMinMerge(entry_ad_ids_map) as entry_ad_ids_map,
     argMinMerge(entry_ad_ids_set) as entry_ad_ids_set,
+
+    argMinMerge(entry_channel_type_properties) as entry_channel_type_properties,
 
     -- counts
     uniqMerge(pageview_uniq) as pageview_uniq,

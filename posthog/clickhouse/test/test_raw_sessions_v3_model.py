@@ -349,3 +349,35 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
 
         assert present_ad_id in result[0]["entry_ad_ids_set"]
         assert missing_ad_id not in result[0]["entry_ad_ids_set"]
+
+    def test_channel_type_properties(self):
+        distinct_id = create_distinct_id()
+        session_id = create_session_id()
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={
+                "$session_id": session_id,
+                "gad_source": "1",
+                "gclid": "some_gclid",
+                "$referring_domain": "google.com",
+                "utm_campaign": "some_campaign",
+                "utm_medium": "some_medium",
+                "utm_source": "some_source",
+            },
+            timestamp="2024-03-08",
+        )
+
+        result = self.select_by_session_id(session_id)
+
+        assert result[0]["entry_channel_type_properties"] == (
+            "some_source",
+            "some_medium",
+            "some_campaign",
+            "google.com",
+            True,
+            False,
+            "1",
+        )
