@@ -7,9 +7,9 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/stretchr/testify/mock"
-	"go.uber.org/zap"
 
 	"github.com/posthog/pod-rebalancer/pkg/decision"
+	"github.com/posthog/pod-rebalancer/pkg/logging"
 )
 
 // MockCPUMetricsFetcher is a mock implementation for testing
@@ -47,13 +47,13 @@ var _ = Describe("Engine", func() {
 	var (
 		engine      *decision.Engine
 		mockFetcher *MockCPUMetricsFetcher
-		logger      *zap.Logger
+		logger      *logging.Logger
 		ctx         context.Context
 	)
 
 	BeforeEach(func() {
 		mockFetcher = new(MockCPUMetricsFetcher)
-		logger = zap.NewNop()
+		logger, _ = logging.New("error") // Use error level to minimize test output
 		ctx = context.Background()
 	})
 
