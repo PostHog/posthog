@@ -959,7 +959,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 cache_key=cache_key,
                 insight_id=insight_id,
                 dashboard_id=dashboard_id,
-                user=user,
             )
 
             if execution_mode == ExecutionMode.CALCULATE_ASYNC_ALWAYS:
