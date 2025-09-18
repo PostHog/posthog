@@ -7,11 +7,6 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 const meta: Meta<typeof PlayerCommentModal> = {
     title: 'Replay/Components/Comment modal',
     component: PlayerCommentModal,
-    parameters: {
-        testOptions: {
-            waitForLoadersToDisappear: true,
-        },
-    },
     tags: ['autodocs'],
 }
 export default meta
