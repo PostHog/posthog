@@ -20,14 +20,13 @@ export type HogFlowFiltersProps = {
  * Standard components wherever we do conditional matching to support whatever we know the hogflow engine supports
  */
 export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }: HogFlowFiltersProps): JSX.Element {
-    const _setFilters = (filters: FilterType): void => {
-        // TODO: Improve the types here...
-        setFilters(filters as HogFlowAction['filters'])
-    }
     return (
         <ActionFilter
             filters={filters ?? {}}
-            setFilters={_setFilters}
+            setFilters={(filters: FilterType): void => {
+                // TODO: Improve the types here...
+                setFilters(filters as HogFlowAction['filters'])
+            }}
             typeKey={typeKey ?? 'hogflow-filters'}
             mathAvailability={MathAvailability.None}
             hideRename
@@ -56,16 +55,16 @@ export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }
 }
 
 export function HogFlowPropertyFilters({ actionId, filters, setFilters }: HogFlowFiltersProps): JSX.Element {
-    const _setFilters = (properties: FilterType['properties']): void => {
-        setFilters({ ...filters, properties: properties ?? [] } as HogFlowAction['filters'])
-    }
-
     return (
         <PropertyFilters
             propertyFilters={filters?.properties}
-            onChange={_setFilters}
+            onChange={(properties: FilterType['properties']): void => {
+                setFilters({ ...filters, properties: properties ?? [] } as HogFlowAction['filters'])
+            }}
             pageKey={`HogFlowPropertyFilters.${actionId}`}
             taxonomicGroupTypes={[
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.EventFeatureFlags,
                 TaxonomicFilterGroupType.PersonProperties,
                 TaxonomicFilterGroupType.Cohorts,
                 TaxonomicFilterGroupType.HogQLExpression,

@@ -3316,16 +3316,24 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     properties?: AnyPropertyFilter[]
 }
 
-export interface TraceQuery extends DataNode<TracesQueryResponse> {
+export interface TraceQueryResponse extends AnalyticsQueryResponseBase {
+    results: LLMTrace[]
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    columns?: string[]
+}
+
+export interface TraceQuery extends DataNode<TraceQueryResponse> {
     kind: NodeKind.TraceQuery
     traceId: string
     dateRange?: DateRange
-    filterTestAccounts?: boolean
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
 }
 
 export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>
+export type CachedTraceQueryResponse = CachedQueryResponse<TraceQueryResponse>
 
 // NOTE: Keep in sync with posthog/models/exchange_rate/currencies.py
 // to provide proper type safety for the baseCurrency field
@@ -3887,7 +3895,8 @@ export type SourceFieldConfig =
 export interface SourceConfig {
     name: ExternalDataSourceType
     label?: string
-    caption: string | any
+    docsUrl?: string
+    caption?: string | any
     fields: SourceFieldConfig[]
     disabledReason?: string | null
     existingSource?: boolean

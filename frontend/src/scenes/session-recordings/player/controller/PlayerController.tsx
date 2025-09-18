@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconCamera, IconPause, IconPlay, IconRewindPlay, IconVideoCamera } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconFullScreen } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
@@ -125,11 +124,10 @@ export function Screenshot({ className }: { className?: string }): JSX.Element {
 }
 
 export function PlayerController({ playerIsHovering }: { playerIsHovering: boolean }): JSX.Element {
-    const { playlistLogic, logicProps } = useValues(sessionRecordingPlayerLogic)
+    const { playlistLogic, logicProps, hoverModeIsEnabled } = useValues(sessionRecordingPlayerLogic)
     const { isCinemaMode } = useValues(playerSettingsLogic)
 
     const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
-    const hoverUIEnabled = useFeatureFlag('REPLAY_HOVER_UI', 'test')
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -140,10 +138,10 @@ export function PlayerController({ playerIsHovering }: { playerIsHovering: boole
         <div
             className={cn(
                 'flex flex-col select-none',
-                hoverUIEnabled ? 'absolute bottom-0 left-0 right-0 transition-all duration-150 ease-out' : '',
-                hoverUIEnabled && playerIsHovering
+                hoverModeIsEnabled ? 'absolute bottom-0 left-0 right-0 transition-all duration-150 ease-out' : '',
+                hoverModeIsEnabled && playerIsHovering
                     ? 'opacity-100 bg-surface-primary pointer-events-auto'
-                    : hoverUIEnabled
+                    : hoverModeIsEnabled
                       ? 'opacity-0 pointer-events-none'
                       : 'bg-surface-primary'
             )}
