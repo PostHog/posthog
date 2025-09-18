@@ -44,22 +44,6 @@ export type CohortLogicProps = {
     id?: CohortType['id']
 }
 
-function errorForCsvInForm(
-    isStatic: boolean | undefined,
-    id: number | 'new',
-    csv: File | undefined,
-    personsToCreateStaticCohort: Record<string, boolean>
-): string | undefined {
-    if (isStatic && id === 'new' && !csv) {
-        const personIds = Object.keys(personsToCreateStaticCohort)
-        if (personIds.length > 0) {
-            return
-        }
-        return 'You need to upload a CSV file or add people manually'
-    }
-    return
-}
-
 export const cohortEditLogic = kea<cohortEditLogicType>([
     props({} as CohortLogicProps),
     key((props) => props.id || 'new'),
@@ -253,9 +237,9 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     forms(({ actions, values }) => ({
         cohort: {
             defaults: NEW_COHORT,
-            errors: ({ name, is_static, id, csv, filters }) => ({
+            errors: ({ name, is_static, filters }) => ({
                 name: !name ? 'Cohort name cannot be empty' : undefined,
-                csv: errorForCsvInForm(is_static, id, csv, values.personsToCreateStaticCohort),
+                csv: undefined,
                 filters: {
                     properties: {
                         values: is_static ? undefined : filters.properties.values.map(validateGroup),
@@ -267,6 +251,10 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                     actions.saveCohort(cohort)
                 } else {
                     const personIds = Object.keys(values.personsToCreateStaticCohort)
+                    if (cohort.is_static && cohort.csv == null && personIds.length === 0) {
+                        lemonToast.error('You need to upload a csv file or add a person manually.')
+                        return
+                    }
                     actions.saveCohort({
                         ...cohort,
                         _create_in_folder: 'Unfiled/Cohorts',
