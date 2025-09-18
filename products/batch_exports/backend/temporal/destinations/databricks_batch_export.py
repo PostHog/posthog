@@ -54,6 +54,8 @@ NON_RETRYABLE_ERROR_TYPES: list[str] = [
     "DatabricksConnectionError",
     # Raised when we don't have sufficient permissions to perform an operation.
     "DatabricksInsufficientPermissionsError",
+    # Raised when the table partition field provided is invalid.
+    "DatabricksInvalidPartitionFieldError",
 ]
 
 DatabricksField = tuple[str, str]
@@ -86,6 +88,9 @@ class DatabricksInsertInputs(BatchExportInsertInputs):
     http_path: HTTP Path value for user's all-purpose compute or SQL warehouse.
     client_id: the service principal's UUID or Application ID value.
     client_secret: the Secret value for the service principal's OAuth secret.
+    catalog: the catalog to use for the export.
+    schema: the schema to use for the export.
+    table_name: the name of the table to use for the export.
     use_variant_type: whether to use the VARIANT data type for storing JSON data.
         If False, we will use the STRING data type. Using VARIANT for storing JSON data is recommended by Databricks,
         however, VARIANT is only available in Databricks Runtime 15.3 and above.
@@ -95,6 +100,9 @@ class DatabricksInsertInputs(BatchExportInsertInputs):
         evolution](https://docs.databricks.com/aws/en/delta/update-schema#automatic-schema-evolution-for-delta-lake-merge).
         This means the target table will automatically be updated with the schema of the source table (however, no
         columns will be dropped from the target table).
+    table_partition_field: the field to partition the table by.
+        If None, we will use the default partition by field for the model (if exists)
+        If the field is not in the table, we will raise a DatabricksInvalidPartitionFieldError.
     """
 
     # TODO - some of this will go in the integration model once ready
@@ -258,7 +266,7 @@ class DatabricksClient:
                 self.logger.debug("Query completed in %.2fs", query_execution_time)
 
             if not fetch_results:
-                return
+                return None
 
             results = await asyncio.to_thread(cursor.fetchall)
             return results
@@ -314,7 +322,7 @@ class DatabricksClient:
                 self.logger.debug("Async query completed in %.2fs", query_execution_time)
 
             if fetch_results is False:
-                return
+                return None
 
             self.logger.debug("Fetching query results")
             results = await asyncio.to_thread(cursor.fetchall)
@@ -383,13 +391,7 @@ class DatabricksClient:
         )
 
     async def acopy_into_table_from_volume(self, table_name: str, volume_path: str, fields: list[DatabricksField]):
-        """Asynchronously copy data from a Databricks volume into a Databricks table.
-
-        Databricks is very strict about the schema of the destination table matching the schema of the Parquet file.
-        Therefore, we need to cast the data to the correct type, otherwise the request will fail.
-        - If the field type is VARIANT, we need to parse the string as JSON
-        - If the field type is BIGINT or INTEGER, we cast the data in the file to that type just in case it is an unsigned integer
-        """
+        """Asynchronously copy data from a Databricks volume into a Databricks table."""
         query = self._get_copy_into_table_from_volume_query(
             table_name=table_name, volume_path=volume_path, fields=fields
         )
@@ -406,6 +408,13 @@ class DatabricksClient:
     def _get_copy_into_table_from_volume_query(
         self, table_name: str, volume_path: str, fields: list[DatabricksField]
     ) -> str:
+        """Get the query to copy data from a Databricks volume into a Databricks table.
+
+        Databricks is very strict about the schema of the destination table matching the schema of the Parquet file.
+        Therefore, we need to cast the data to the correct type, otherwise the request will fail.
+        - If the field type is VARIANT, we need to parse the string as JSON
+        - If the field type is BIGINT or INTEGER, we cast the data in the file to that type just in case it is an unsigned integer
+        """
         select_fields = []
         for field in fields:
             if field[1] == "VARIANT":
@@ -416,12 +425,12 @@ class DatabricksClient:
                 select_fields.append(f"CAST(`{field[0]}` as INTEGER) as `{field[0]}`")
             else:
                 select_fields.append(f"`{field[0]}`")
-        select_fields = ", ".join(select_fields)
+        select_fields_str = ", ".join(select_fields)
 
         return f"""
         COPY INTO `{table_name}`
         FROM (
-            SELECT {select_fields} FROM '{volume_path}'
+            SELECT {select_fields_str} FROM '{volume_path}'
         )
         FILEFORMAT = PARQUET
         """
@@ -610,8 +619,11 @@ def _get_databricks_field_type(pa_type: pa.DataType, is_variant: bool) -> str | 
         return "TIMESTAMP"
 
     elif pa.types.is_list(pa_type):
+        assert isinstance(pa_type, pa.ListType)
         list_type = _get_databricks_field_type(pa_type.value_type, False)
         return f"ARRAY<{list_type}>"
+
+    return None
 
 
 def _get_databricks_fields_from_record_schema(

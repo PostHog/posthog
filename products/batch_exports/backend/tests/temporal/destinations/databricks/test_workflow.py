@@ -16,8 +16,14 @@ from databricks import sql
 from databricks.sdk.core import Config, oauth_service_principal
 from databricks.sql.exc import ServerOperationError
 
-from posthog.batch_exports.service import BatchExportField, BatchExportModel, DatabricksBatchExportInputs
+from posthog.batch_exports.service import (
+    BaseBatchExportInputs,
+    BatchExportField,
+    BatchExportModel,
+    DatabricksBatchExportInputs,
+)
 from posthog.models.team import Team
+from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.tests.utils.persons import (
     generate_test_person_distinct_id2_in_clickhouse,
     generate_test_persons_in_clickhouse,
@@ -61,7 +67,7 @@ class DatabricksDestinationTest(BaseDestinationTest):
         return "Databricks"
 
     @property
-    def workflow_class(self) -> type:
+    def workflow_class(self) -> type[PostHogWorkflow]:
         return DatabricksBatchExportWorkflow
 
     @property
@@ -76,7 +82,8 @@ class DatabricksDestinationTest(BaseDestinationTest):
     def destination_default_fields(self) -> list[BatchExportField]:
         return databricks_default_fields()
 
-    def get_json_columns(self, inputs: DatabricksBatchExportInputs) -> list[str]:
+    def get_json_columns(self, inputs: BaseBatchExportInputs) -> list[str]:
+        assert isinstance(inputs, DatabricksBatchExportInputs)
         if inputs.use_variant_type is True:
             json_columns = ["properties", "person_properties"]
         else:
@@ -121,11 +128,7 @@ class DatabricksDestinationTest(BaseDestinationTest):
         team_id: int,
         json_columns: list[str],
     ) -> list[dict[str, t.Any]]:
-        """Get the inserted records from Databricks.
-
-        Note: This is a placeholder implementation. In a real test environment,
-        you would connect to your test Databricks instance and verify the data.
-        """
+        """Get the inserted records from Databricks."""
         config = self.get_destination_config(team_id)
 
         with self.cursor(team_id) as cursor:
@@ -133,6 +136,7 @@ class DatabricksDestinationTest(BaseDestinationTest):
             cursor.execute(f'USE SCHEMA `{config["schema"]}`')
             cursor.execute(f'SELECT * FROM `{config["table_name"]}`')
             rows = cursor.fetchall()
+            assert cursor.description is not None
             columns = {index: metadata[0] for index, metadata in enumerate(cursor.description)}
 
         # Rows are tuples, so we construct a dictionary using the metadata from cursor.description.
@@ -195,18 +199,6 @@ class DatabricksDestinationTest(BaseDestinationTest):
         ) as connection:
             with connection.cursor() as cursor:
                 yield cursor
-
-    def drop_column(self, team_id: int, column_name: str):
-        config = self.get_destination_config(team_id)
-        with self.cursor(team_id) as cursor:
-            cursor.execute(f'USE CATALOG `{config["catalog"]}`')
-            cursor.execute(f'USE SCHEMA `{config["schema"]}`')
-            # Delta tables need column mapping mode set to 'name' to support DROP COLUMN operations. The error suggests running:
-            # ALTER TABLE table_name SET TBLPROPERTIES ('delta.columnMapping.mode' = 'name')
-            cursor.execute(
-                f'ALTER TABLE `{config["table_name"]}` SET TBLPROPERTIES (\'delta.columnMapping.mode\' = \'name\')'
-            )
-            cursor.execute(f'ALTER TABLE `{config["table_name"]}` DROP COLUMN `{column_name}`')
 
 
 class TestDatabricksBatchExportWorkflow(CommonWorkflowTests):
