@@ -1,6 +1,5 @@
 import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
-import { useDebouncedCallback } from 'use-debounce'
 
 import { IconPencil } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
@@ -57,7 +56,6 @@ type SceneMainTitleProps = {
      * e.g. insights are renamed too fast, so we need to debounce it with 1000ms
      * @default 100
      */
-    renameDebounceMs?: number
     /**
      * If true, the actions from PageHeader will be shown
      * @default false
@@ -80,7 +78,6 @@ export function SceneTitleSection({
     onDescriptionChange,
     canEdit = false,
     forceEdit = false,
-    renameDebounceMs,
     actions = true,
     forceBackTo,
 }: SceneMainTitleProps): JSX.Element | null {
@@ -123,7 +120,6 @@ export function SceneTitleSection({
                             onChange={onNameChange}
                             canEdit={canEdit}
                             forceEdit={forceEdit}
-                            renameDebounceMs={renameDebounceMs}
                         />
                     </div>
                     {/* If we're not showing breadcrumbs, we want to show the actions inline with the title */}
@@ -140,7 +136,6 @@ export function SceneTitleSection({
                             onChange={onDescriptionChange}
                             canEdit={canEdit}
                             forceEdit={forceEdit}
-                            renameDebounceMs={renameDebounceMs}
                         />
                     </div>
                 )}
@@ -155,7 +150,6 @@ type SceneNameProps = {
     onChange?: (value: string) => void
     canEdit?: boolean
     forceEdit?: boolean
-    renameDebounceMs?: number
 }
 
 function SceneName({
@@ -164,7 +158,6 @@ function SceneName({
     onChange,
     canEdit = false,
     forceEdit = false,
-    renameDebounceMs = 100,
 }: SceneNameProps): JSX.Element {
     const [name, setName] = useState(initialName)
     const [isEditing, setIsEditing] = useState(forceEdit)
@@ -186,8 +179,6 @@ function SceneName({
         }
     }, [isLoading, forceEdit])
 
-    const debouncedOnChange = useDebouncedCallback(onChange || (() => {}), renameDebounceMs)
-
     // If onBlur is provided, we want to show a button that allows the user to edit the name
     // Otherwise, we want to show the name as a text
     const Element =
@@ -200,7 +191,6 @@ function SceneName({
                         value={name || ''}
                         onChange={(e) => {
                             setName(e.target.value)
-                            debouncedOnChange(e.target.value)
                         }}
                         data-attr="scene-title-textarea"
                         className={cn(
@@ -273,7 +263,6 @@ type SceneDescriptionProps = {
     onChange?: (value: string) => void
     canEdit?: boolean
     forceEdit?: boolean
-    renameDebounceMs?: number
 }
 
 function SceneDescription({
@@ -283,7 +272,6 @@ function SceneDescription({
     onChange,
     canEdit = false,
     forceEdit = false,
-    renameDebounceMs = 100,
 }: SceneDescriptionProps): JSX.Element | null {
     const [description, setDescription] = useState(initialDescription)
     const [isEditing, setIsEditing] = useState(forceEdit)
@@ -306,8 +294,6 @@ function SceneDescription({
         }
     }, [isLoading, forceEdit])
 
-    const debouncedOnDescriptionChange = useDebouncedCallback(onChange || (() => {}), renameDebounceMs)
-
     const Element =
         onChange && canEdit ? (
             <>
@@ -318,7 +304,6 @@ function SceneDescription({
                         value={description || ''}
                         onChange={(e) => {
                             setDescription(e.target.value)
-                            debouncedOnDescriptionChange(e.target.value)
                         }}
                         data-attr="scene-description-textarea"
                         className={cn(
