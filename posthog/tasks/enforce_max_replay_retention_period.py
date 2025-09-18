@@ -1,8 +1,10 @@
 import logging
+from typing import Optional
 
 from celery import shared_task
 
 from posthog.constants import AvailableFeature
+from posthog.models.organization import ProductFeature
 from posthog.models.team import Team
 
 logger = logging.getLogger(__name__)
@@ -11,12 +13,15 @@ logger = logging.getLogger(__name__)
 BATCH_SIZE = 100
 
 
-def _parse_feature_to_retention(retention_feature: dict) -> str | None:
-    if not retention_feature or not retention_feature.get("limit") or not retention_feature.get("unit"):
+def _parse_feature_to_retention(retention_feature: Optional[ProductFeature]) -> str | None:
+    if retention_feature is None:
         return None
 
-    retention_limit = retention_feature.get("limit")
-    retention_unit = retention_feature.get("unit")
+    retention_limit: int | None = retention_feature.get("limit")
+    retention_unit: str | None = retention_feature.get("unit")
+
+    if retention_limit is None or retention_unit is None:
+        return None
 
     match retention_unit.lower():
         case "day" | "days":
