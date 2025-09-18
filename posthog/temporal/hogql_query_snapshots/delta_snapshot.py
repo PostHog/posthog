@@ -34,7 +34,7 @@ class DeltaSnapshot:
         return self.saved_query.datawarehousesnapshotconfig.config.get("fields", [])
 
     def _get_delta_table_uri(self) -> str:
-        return f"{settings.BUCKET_URL}/team_{self.saved_query.team.pk}_snapshot_{self.saved_query.id.hex}/{self.saved_query.normalized_name}"
+        return f"{settings.BUCKET_URL}/{self.saved_query.snapshot_folder_path}/{self.saved_query.normalized_name}"
 
     def _get_credentials(self):
         if not settings.AIRBYTE_BUCKET_KEY or not settings.AIRBYTE_BUCKET_SECRET or not settings.AIRBYTE_BUCKET_REGION:
