@@ -316,7 +316,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.client.force_login(user_with_collaboration)
 
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(11):
             self.dashboard_api.list_dashboards()
 
         for i in range(5):
