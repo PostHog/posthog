@@ -26,27 +26,25 @@ export function StepBar({ step, stepIndex, series }: StepBarProps): JSX.Element 
     const { showTooltip, hideTooltip } = useTooltip()
     const { experimentResult } = useFunnelChartData()
     const [isModalOpen, setIsModalOpen] = useState(false)
-    const [modalType, setModalType] = useState<'converted' | 'dropped'>('converted')
 
     const seriesColor = getSeriesColor(series)
 
     // Get sampled sessions from the experiment result
     // Find the variant result that matches this series
-    let stepEventUUIDs: string[][] | undefined
+    let stepsEventData: Array<Array<[string, string]>> | undefined
     if (experimentResult) {
         const variantKey = series.breakdown_value
         if (variantKey === 'control') {
-            stepEventUUIDs = experimentResult.baseline?.steps_event_data
+            stepsEventData = experimentResult.baseline?.steps_event_data as Array<Array<[string, string]>> | undefined
         } else {
             const variantResult = experimentResult.variant_results?.find((v: any) => v.key === variantKey)
-            stepEventUUIDs = variantResult?.steps_event_data
+            stepsEventData = variantResult?.steps_event_data as Array<Array<[string, string]>> | undefined
         }
     }
-    const hasRecordings = stepEventUUIDs && stepEventUUIDs[stepIndex]?.length > 0
+    const hasRecordings = stepsEventData && stepsEventData[stepIndex]?.length > 0
 
-    const handleClick = (converted: boolean): void => {
+    const handleClick = (): void => {
         if (hasRecordings) {
-            setModalType(converted ? 'converted' : 'dropped')
             setIsModalOpen(true)
         }
     }
@@ -73,25 +71,23 @@ export function StepBar({ step, stepIndex, series }: StepBarProps): JSX.Element 
             >
                 <div
                     className="StepBar__backdrop"
-                    onClick={() => handleClick(false)}
+                    onClick={handleClick}
                     style={{ cursor: hasRecordings ? 'pointer' : 'default' }}
                 />
                 <div
                     className="StepBar__fill"
-                    onClick={() => handleClick(true)}
+                    onClick={handleClick}
                     style={{ cursor: hasRecordings ? 'pointer' : 'default' }}
                 />
             </div>
 
-            {isModalOpen && stepEventUUIDs && (
+            {isModalOpen && stepsEventData && (
                 <SampledSessionsModal
                     isOpen={isModalOpen}
                     onClose={() => setIsModalOpen(false)}
-                    title={`Step ${stepIndex + 1}: ${step.name}`}
-                    sessions={stepEventUUIDs[stepIndex].map((id: string) => ({ session_id: id }))}
+                    stepsEventData={stepsEventData}
+                    stepNames={[step.name]}
                     variant={String(series.breakdown_value || 'control')}
-                    stepName={step.name}
-                    converted={modalType === 'converted'}
                 />
             )}
         </>

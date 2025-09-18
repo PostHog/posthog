@@ -35,7 +35,6 @@ import {
     LifecycleFilterType,
     LifecycleToggle,
     LogEntryPropertyFilter,
-    MatchedRecording,
     PathsFilterType,
     PersonPropertyFilter,
     PropertyGroupFilter,
