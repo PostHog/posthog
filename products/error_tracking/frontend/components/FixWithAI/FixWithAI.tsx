@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconGithub, IconMagicWand } from '@posthog/icons'
+import { IconMagicWand, IconPullRequest } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import 'lib/integrations/GitHubIntegrationHelpers'
@@ -51,7 +51,7 @@ export function FixWithAI(): JSX.Element {
                 type="tertiary"
                 to={pullRequest.url}
                 targetBlank
-                icon={<IconGithub />}
+                icon={<IconPullRequest />}
                 onClick={() => client.capture('error_tracking_fix_with_ai_open_pr_button_clicked')}
             >
                 {pullRequest.title}

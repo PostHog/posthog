@@ -169,6 +169,13 @@ const IssueExternalReference = (): JSX.Element => {
 }
 
 const IssueFixWithAISection = (): JSX.Element => {
+    // const hasFixWithAIFlag = useFeatureFlag('ERROR_TRACKING_FIX_WITH_AI')
+    const hasFixWithAIFlag = true
+
+    if (!hasFixWithAIFlag) {
+        return <></>
+    }
+
     return (
         <ScenePanelLabel title="Fix with AI">
             <FixWithAI />
