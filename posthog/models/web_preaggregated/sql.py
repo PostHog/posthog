@@ -126,6 +126,7 @@ def REPLACE_WEB_STATS_HOURLY_STAGING_SQL():
 #
 # Production table schemas extracted from DESCRIBE TABLE commands:
 WEB_STATS_V2_PRODUCTION_COLUMNS = """
+    pathname String,
     entry_pathname String,
     end_pathname String,
     browser String,
@@ -149,9 +150,6 @@ WEB_STATS_V2_PRODUCTION_COLUMNS = """
     persons_uniq_state AggregateFunction(uniq, UUID),
     sessions_uniq_state AggregateFunction(uniq, String),
     pageviews_count_state AggregateFunction(sum, UInt64),
-    bounces_count_state AggregateFunction(sum, UInt64),
-    total_session_duration_state AggregateFunction(sum, Int64),
-    total_session_count_state AggregateFunction(sum, UInt64),
     mat_metadata_loggedIn Nullable(Bool)
 """
 
@@ -185,12 +183,67 @@ WEB_BOUNCES_V2_PRODUCTION_COLUMNS = """
     mat_metadata_loggedIn Nullable(Bool)
 """
 
+# Production ORDER BY clauses extracted from production tables
+# These exclude nullable columns to avoid ClickHouse "Sorting key contains nullable columns" error
+WEB_STATS_V2_PRODUCTION_ORDER_BY = """(
+    team_id,
+    period_bucket,
+    host,
+    device_type,
+    pathname,
+    entry_pathname,
+    end_pathname,
+    browser,
+    os,
+    viewport_width,
+    viewport_height,
+    referring_domain,
+    utm_source,
+    utm_medium,
+    utm_campaign,
+    utm_term,
+    utm_content,
+    country_code,
+    city_name,
+    region_code,
+    region_name,
+    has_gclid,
+    has_gad_source_paid_search,
+    has_fbclid
+)"""
+
+WEB_BOUNCES_V2_PRODUCTION_ORDER_BY = """(
+    team_id,
+    period_bucket,
+    host,
+    device_type,
+    entry_pathname,
+    end_pathname,
+    browser,
+    os,
+    viewport_width,
+    viewport_height,
+    referring_domain,
+    utm_source,
+    utm_medium,
+    utm_campaign,
+    utm_term,
+    utm_content,
+    country_code,
+    city_name,
+    region_code,
+    region_name,
+    has_gclid,
+    has_gad_source_paid_search,
+    has_fbclid
+)"""
+
 
 def REPLACE_WEB_STATS_V2_STAGING_SQL():
     return TABLE_TEMPLATE(
         "web_pre_aggregated_stats_staging",
         WEB_STATS_V2_PRODUCTION_COLUMNS,
-        WEB_STATS_ORDER_BY_FUNC("period_bucket"),
+        WEB_STATS_V2_PRODUCTION_ORDER_BY,
         force_unique_zk_path=True,
         replace=True,
         on_cluster=False,
@@ -201,7 +254,7 @@ def REPLACE_WEB_BOUNCES_V2_STAGING_SQL():
     return TABLE_TEMPLATE(
         "web_pre_aggregated_bounces_staging",
         WEB_BOUNCES_V2_PRODUCTION_COLUMNS,
-        WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"),
+        WEB_BOUNCES_V2_PRODUCTION_ORDER_BY,
         force_unique_zk_path=True,
         replace=True,
         on_cluster=False,

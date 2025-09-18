@@ -2938,6 +2938,7 @@ export interface DatabaseSchemaField {
 
 export type DatabaseSchemaTableType =
     | 'posthog'
+    | 'system'
     | 'data_warehouse'
     | 'view'
     | 'batch_export'
@@ -2983,6 +2984,10 @@ export interface DatabaseSchemaPostHogTable extends DatabaseSchemaTableCommon {
     type: 'posthog'
 }
 
+export interface DatabaseSchemaSystemTable extends DatabaseSchemaTableCommon {
+    type: 'system'
+}
+
 export interface DatabaseSchemaDataWarehouseTable extends DatabaseSchemaTableCommon {
     type: 'data_warehouse'
     format: string
@@ -2997,6 +3002,7 @@ export interface DatabaseSchemaBatchExportTable extends DatabaseSchemaTableCommo
 
 export type DatabaseSchemaTable =
     | DatabaseSchemaPostHogTable
+    | DatabaseSchemaSystemTable
     | DatabaseSchemaDataWarehouseTable
     | DatabaseSchemaViewTable
     | DatabaseSchemaManagedViewTable
