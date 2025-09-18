@@ -6,6 +6,7 @@ from typing import Optional
 import dagster
 from dagster import Array, Backoff, DagsterRunStatus, Field, Jitter, RetryPolicy, RunsFilter, SkipReason
 
+from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.settings.base_variables import DEBUG
 
@@ -62,16 +63,8 @@ def get_partitions(
     context: dagster.AssetExecutionContext,
     cluster: ClickhouseCluster,
     table_name: str,
-    filter_by_partition_window: bool = False,
 ) -> list[str]:
     partition_query = f"SELECT DISTINCT partition FROM system.parts WHERE table = '{table_name}' AND active = 1"
-
-    if filter_by_partition_window and context.partition_time_window:
-        start_datetime, end_datetime = context.partition_time_window
-        start_partition = start_datetime.strftime("%Y%m%d")
-        end_partition = end_datetime.strftime("%Y%m%d")
-        partition_query += f" AND partition >= '{start_partition}' AND partition < '{end_partition}'"
-
     partitions_result = cluster.any_host(lambda client: client.execute(partition_query)).result()
     context.log.info(f"Found {len(partitions_result)} partitions for {table_name}: {partitions_result}")
     return sorted([partition_row[0] for partition_row in partitions_result if partition_row and len(partition_row) > 0])
@@ -101,20 +94,30 @@ def drop_partitions_for_date_range(
 def swap_partitions_from_staging(
     context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, target_table: str, staging_table: str
 ) -> None:
-    staging_partitions = get_partitions(context, cluster, staging_table, filter_by_partition_window=True)
-    context.log.info(f"Swapping partitions {staging_partitions} from {staging_table} to {target_table}")
+    if not context.partition_time_window:
+        raise dagster.Failure("partition_time_window is required for partition swapping")
 
-    def replace_partition(client, pid):
-        return client.execute(f"ALTER TABLE {target_table} REPLACE PARTITION '{pid}' FROM {staging_table}")
+    # Generate partition list directly from time window (end is exclusive)
+    start_datetime, end_datetime = context.partition_time_window
+    partitions_to_swap = []
+    current_date = start_datetime.date()
+    end_date = end_datetime.date()
 
-    for partition_id in staging_partitions:
-        cluster.any_host(partial(replace_partition, pid=partition_id)).result()
+    while current_date < end_date:
+        partition_id = current_date.strftime("%Y%m%d")
+        partitions_to_swap.append(partition_id)
+        current_date += timedelta(days=1)
+
+    context.log.info(f"Swapping partitions {partitions_to_swap} from {staging_table} to {target_table}")
+
+    for partition_id in partitions_to_swap:
+        sync_execute(f"ALTER TABLE {target_table} REPLACE PARTITION '{partition_id}' FROM {staging_table}")
 
 
 def clear_all_staging_partitions(
     context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, staging_table: str
 ) -> None:
-    all_partitions = get_partitions(context, cluster, staging_table, filter_by_partition_window=False)
+    all_partitions = get_partitions(context, cluster, staging_table)
 
     if not all_partitions:
         context.log.info(f"No partitions found in {staging_table}")
