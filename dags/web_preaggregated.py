@@ -74,7 +74,7 @@ def pre_aggregate_web_analytics_data(
 
         # 3. Atomically swap partitions from staging to target
         context.log.info(f"Swapping partitions from {staging_table_name} to {table_name}")
-        swap_partitions_from_staging(context, cluster, table_name, staging_table_name)
+        swap_partitions_from_staging(context, table_name, staging_table_name)
 
         # 4. Clean up staging partitions to speed up next run
         context.log.info(f"Cleaning up staging partitions")

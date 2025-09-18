@@ -76,6 +76,15 @@ def drop_partitions_for_date_range(
     current_date = datetime.strptime(start_date, "%Y-%m-%d").date()
     end_date_obj = datetime.strptime(end_date, "%Y-%m-%d").date()
 
+    # Calculate total partitions to drop for logging
+    total_days = (end_date_obj - current_date).days
+    context.log.info(
+        f"Starting to drop {total_days} partitions from {table_name} for date range {start_date} to {end_date}"
+    )
+
+    dropped_count = 0
+    skipped_count = 0
+
     while current_date < end_date_obj:
         partition_id = current_date.strftime("%Y%m%d")
 
@@ -84,16 +93,20 @@ def drop_partitions_for_date_range(
 
         try:
             cluster.any_host(partial(drop_partition, pid=partition_id)).result()
-            context.log.info(f"Dropped partition {partition_id} from {table_name}")
-        except Exception as e:
-            context.log.info(f"Partition {partition_id} doesn't exist or couldn't be dropped: {e}")
+            dropped_count += 1
+            context.log.info(f"Dropped partition {partition_id} from {table_name} ({dropped_count}/{total_days})")
+        except Exception:
+            # Skip errors for non-existent partitions
+            skipped_count += 1
 
         current_date += timedelta(days=1)
 
+    context.log.info(
+        f"Completed dropping partitions from {table_name}: {dropped_count} dropped, {skipped_count} skipped"
+    )
 
-def swap_partitions_from_staging(
-    context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, target_table: str, staging_table: str
-) -> None:
+
+def swap_partitions_from_staging(context: dagster.AssetExecutionContext, target_table: str, staging_table: str) -> None:
     if not context.partition_time_window:
         raise dagster.Failure("partition_time_window is required for partition swapping")
 
@@ -108,10 +121,19 @@ def swap_partitions_from_staging(
         partitions_to_swap.append(partition_id)
         current_date += timedelta(days=1)
 
-    context.log.info(f"Swapping partitions {partitions_to_swap} from {staging_table} to {target_table}")
+    context.log.info(
+        f"Generated {len(partitions_to_swap)} partitions to swap from time window {start_datetime.date()} to {end_datetime.date()}: {partitions_to_swap}"
+    )
+    context.log.info(f"Starting partition swap from {staging_table} to {target_table}")
 
-    for partition_id in partitions_to_swap:
+    for i, partition_id in enumerate(partitions_to_swap, 1):
+        context.log.info(f"Swapping partition {i}/{len(partitions_to_swap)}: {partition_id}")
         sync_execute(f"ALTER TABLE {target_table} REPLACE PARTITION '{partition_id}' FROM {staging_table}")
+        context.log.info(f"Successfully swapped partition {partition_id}")
+
+    context.log.info(
+        f"Completed swapping all {len(partitions_to_swap)} partitions from {staging_table} to {target_table}"
+    )
 
 
 def clear_all_staging_partitions(
@@ -123,17 +145,22 @@ def clear_all_staging_partitions(
         context.log.info(f"No partitions found in {staging_table}")
         return
 
-    context.log.info(f"Clearing {len(all_partitions)} partitions from {staging_table}: {all_partitions}")
+    context.log.info(f"Starting to clear {len(all_partitions)} partitions from {staging_table}: {all_partitions}")
 
     def drop_partition(client, pid):
         return client.execute(f"ALTER TABLE {staging_table} DROP PARTITION '{pid}'")
 
-    for partition_id in all_partitions:
+    dropped_count = 0
+    for i, partition_id in enumerate(all_partitions, 1):
         try:
             cluster.any_host(partial(drop_partition, pid=partition_id)).result()
-            context.log.info(f"Dropped partition {partition_id} from {staging_table}")
-        except Exception as e:
-            context.log.warning(f"Failed to drop partition {partition_id} from {staging_table}: {e}")
+            dropped_count += 1
+            context.log.info(f"Dropped partition {partition_id} from {staging_table} ({i}/{len(all_partitions)})")
+        except Exception:
+            # Skip errors for non-existent partitions
+            pass
+
+    context.log.info(f"Completed clearing {staging_table}: {dropped_count}/{len(all_partitions)} partitions dropped")
 
 
 # Shared config schema for daily processing
