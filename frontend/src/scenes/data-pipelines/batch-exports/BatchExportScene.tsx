@@ -225,7 +225,7 @@ export function BatchExportSceneContent(): JSX.Element {
     ]
 
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             <BatchExportSceneHeader />
             <SceneDivider />
             <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />

@@ -344,7 +344,7 @@
             "type": "object"
         },
         "AggregationAxisFormat": {
-            "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled"],
+            "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled", "currency"],
             "type": "string"
         },
         "AlertCalculationInterval": {
@@ -784,6 +784,7 @@
                 "find_error_tracking_impactful_issue_event_list",
                 "experiment_results_summary",
                 "create_survey",
+                "analyze_survey_responses",
                 "search_docs",
                 "search_insights",
                 "session_summarization"
@@ -2027,7 +2028,7 @@
                 "aggregationAxisFormat": {
                     "$ref": "#/definitions/AggregationAxisFormat",
                     "default": "numeric",
-                    "description": "Formats the trends value axis. Do not use the formatting unless you are absolutely sure that formatting will match the data. `numeric` - no formatting. Prefer this option by default. `duration` - formats the value in seconds to a human-readable duration, e.g., `132` becomes `2 minutes 12 seconds`. Use this option only if you are sure that the values are in seconds. `duration_ms` - formats the value in miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this option only if you are sure that the values are in miliseconds. `percentage` - adds a percentage sign to the value, e.g., `50` becomes `50%`. `percentage_scaled` - formats the value as a percentage scaled to 0-100, e.g., `0.5` becomes `50%`."
+                    "description": "Formats the trends value axis. Do not use the formatting unless you are absolutely sure that formatting will match the data. `numeric` - no formatting. Prefer this option by default. `duration` - formats the value in seconds to a human-readable duration, e.g., `132` becomes `2 minutes 12 seconds`. Use this option only if you are sure that the values are in seconds. `duration_ms` - formats the value in miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this option only if you are sure that the values are in miliseconds. `percentage` - adds a percentage sign to the value, e.g., `50` becomes `50%`. `percentage_scaled` - formats the value as a percentage scaled to 0-100, e.g., `0.5` becomes `50%`. `currency` - formats the value as a currency, e.g., `1000` becomes `$1,000`."
                 },
                 "aggregationAxisPostfix": {
                     "description": "Custom postfix to add to the aggregation axis, e.g., ` clicks` to format 5 as `5 clicks`. You may need to add a space before postfix.",
@@ -5577,6 +5578,96 @@
                 },
                 "results": {
                     "$ref": "#/definitions/TeamTaxonomyResponse"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedTraceQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "columns": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/LLMTrace"
+                    },
+                    "type": "array"
                 },
                 "timezone": {
                     "type": "string"
@@ -15461,11 +15552,11 @@
             "type": "object"
         },
         "MarketingAnalyticsBaseColumns": {
-            "enum": ["Campaign", "Source", "Cost", "Clicks", "Impressions", "CPC", "CTR"],
+            "enum": ["Campaign", "Source", "Cost", "Clicks", "Impressions", "CPC", "CTR", "Reported Conversion"],
             "type": "string"
         },
         "MarketingAnalyticsColumnsSchemaNames": {
-            "enum": ["campaign", "clicks", "cost", "currency", "date", "impressions", "source"],
+            "enum": ["campaign", "clicks", "cost", "currency", "date", "impressions", "source", "reported_conversion"],
             "type": "string"
         },
         "MarketingAnalyticsConfig": {
@@ -20617,6 +20708,61 @@
                 {
                     "additionalProperties": false,
                     "properties": {
+                        "columns": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/LLMTrace"
+                            },
+                            "type": "array"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
@@ -23252,6 +23398,9 @@
                 "disabledReason": {
                     "type": ["string", "null"]
                 },
+                "docsUrl": {
+                    "type": "string"
+                },
                 "existingSource": {
                     "type": "boolean"
                 },
@@ -23277,7 +23426,7 @@
                     "type": "boolean"
                 }
             },
-            "required": ["name", "caption", "fields", "iconPath"],
+            "required": ["name", "fields", "iconPath"],
             "type": "object"
         },
         "SourceFieldConfig": {
@@ -23516,6 +23665,9 @@
                     "type": "string"
                 },
                 "impressions": {
+                    "type": "string"
+                },
+                "reported_conversion": {
                     "type": "string"
                 },
                 "source": {
@@ -23852,6 +24004,53 @@
                 }
             },
             "required": ["questions"],
+            "type": "object"
+        },
+        "SurveyAnalysisQuestionGroup": {
+            "additionalProperties": false,
+            "properties": {
+                "questionId": {
+                    "default": "unknown",
+                    "description": "Question identifier",
+                    "type": "string"
+                },
+                "questionName": {
+                    "default": "Unknown question",
+                    "description": "Question text",
+                    "type": "string"
+                },
+                "responses": {
+                    "default": [],
+                    "description": "List of responses for this question",
+                    "items": {
+                        "$ref": "#/definitions/SurveyAnalysisResponseItem"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["questionName", "questionId", "responses"],
+            "type": "object"
+        },
+        "SurveyAnalysisResponseItem": {
+            "additionalProperties": false,
+            "properties": {
+                "isOpenEnded": {
+                    "default": true,
+                    "description": "Whether this is an open-ended response",
+                    "type": "boolean"
+                },
+                "responseText": {
+                    "default": "",
+                    "description": "The response text content",
+                    "type": "string"
+                },
+                "timestamp": {
+                    "default": "",
+                    "description": "Response timestamp",
+                    "type": "string"
+                }
+            },
+            "required": ["responseText", "timestamp", "isOpenEnded"],
             "type": "object"
         },
         "SurveyAppearanceSchema": {
@@ -24457,6 +24656,41 @@
             ],
             "type": "object"
         },
+        "TileFilters": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdown_filter": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BreakdownFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "date_from": {
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "type": ["string", "null"]
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "type": "object"
+        },
         "TimelineEntry": {
             "additionalProperties": false,
             "properties": {
@@ -24484,9 +24718,6 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
-                "filterTestAccounts": {
-                    "type": "boolean"
-                },
                 "kind": {
                     "const": "TraceQuery",
                     "type": "string"
@@ -24503,7 +24734,7 @@
                     "type": "array"
                 },
                 "response": {
-                    "$ref": "#/definitions/TracesQueryResponse"
+                    "$ref": "#/definitions/TraceQueryResponse"
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
@@ -24517,6 +24748,61 @@
                 }
             },
             "required": ["kind", "traceId"],
+            "type": "object"
+        },
+        "TraceQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "items": {
+                        "$ref": "#/definitions/LLMTrace"
+                    },
+                    "type": "array"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
             "type": "object"
         },
         "TracesQuery": {

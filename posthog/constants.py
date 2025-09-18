@@ -321,6 +321,7 @@ TASKS_TASK_QUEUE = "tasks-task-queue"
 TEST_TASK_QUEUE = "test-task-queue"
 BILLING_TASK_QUEUE = "billing-task-queue"
 VIDEO_EXPORT_TASK_QUEUE = "video-export-task-queue"
+MESSAGING_TASK_QUEUE = "messaging-task-queue"
 
 PERMITTED_FORUM_DOMAINS = ["localhost", "posthog.com"]
 
@@ -353,4 +354,12 @@ DEFAULT_SURVEY_APPEARANCE = {
     "borderRadius": "10px",
     "shuffleQuestions": False,
     "surveyPopupDelaySeconds": None,
+}
+
+# Mapping of social_django backend names
+SOCIAL_AUTH_PROVIDER_DISPLAY_NAMES = {
+    "google-oauth2": "Google OAuth",
+    "github": "GitHub",
+    "gitlab": "GitLab",
+    "saml": "SAML",
 }

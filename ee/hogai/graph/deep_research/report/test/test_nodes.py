@@ -31,7 +31,6 @@ from posthog.models import Team, User
 from ee.hogai.graph.deep_research.report.nodes import DeepResearchReportNode, FormattedInsight
 from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,
-    DeepResearchNodeName,
     DeepResearchSingleTaskResult,
     DeepResearchState,
     PartialDeepResearchState,
@@ -485,7 +484,6 @@ class TestDeepResearchReportNode:
 
         call_args = mock_astream_notebook.call_args
         assert call_args[0][1] == self.config
-        assert call_args[0][2] == DeepResearchNodeName.REPORT
 
         stream_params = call_args[1]["stream_parameters"]
         assert "intermediate_results" in stream_params
@@ -594,7 +592,6 @@ class TestDeepResearchReportNode:
 
         call_args = mock_astream_notebook.call_args
         assert call_args[0][1] == self.config
-        assert call_args[0][2] == DeepResearchNodeName.REPORT
 
         stream_params = call_args[1]["stream_parameters"]
         assert "intermediate_results" in stream_params

@@ -48,6 +48,9 @@ export const getFilterSummary = (exportAsset: ExportedAsset): string => {
     if (filters.activities && filters.activities.length > 0) {
         activeFilters.push(`Actions: ${filters.activities.length}`)
     }
+    if (filters.detail_filters && Object.keys(filters.detail_filters).length > 0) {
+        activeFilters.push(`Detail filters: ${Object.keys(filters.detail_filters).length}`)
+    }
 
     return activeFilters.length > 0 ? activeFilters.join(', ') : 'No filters'
 }
@@ -109,6 +112,25 @@ export const getFilterTooltip = (exportAsset: ExportedAsset): JSX.Element => {
                 <br />
                 {filters.activities.slice(0, 5).join(', ')}
                 {filters.activities.length > 5 && `... and ${filters.activities.length - 5} more`}
+            </div>
+        )
+    }
+
+    if (filters.detail_filters && Object.keys(filters.detail_filters).length > 0) {
+        const detailFilterEntries = Object.entries(filters.detail_filters)
+        const detailFilterText = detailFilterEntries.map(([field, filter]) => {
+            const valueText = Array.isArray(filter.value) ? filter.value.join(', ') : filter.value
+            const operationText =
+                filter.operation === 'exact' ? 'equals' : filter.operation === 'contains' ? 'contains' : 'is one of'
+            return `${field} ${operationText} "${valueText}"`
+        })
+
+        filterSections.push(
+            <div key="detail_filters">
+                <strong>Detail Filters ({detailFilterEntries.length}):</strong>
+                <br />
+                {detailFilterText.slice(0, 3).join(', ')}
+                {detailFilterText.length > 3 && `... and ${detailFilterText.length - 3} more`}
             </div>
         )
     }

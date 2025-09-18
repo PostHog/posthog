@@ -36,6 +36,7 @@ class AggregationAxisFormat(StrEnum):
     DURATION_MS = "duration_ms"
     PERCENTAGE = "percentage"
     PERCENTAGE_SCALED = "percentage_scaled"
+    CURRENCY = "currency"
 
 
 class AlertCalculationInterval(StrEnum):
@@ -85,6 +86,7 @@ class AssistantContextualTool(StrEnum):
     FIND_ERROR_TRACKING_IMPACTFUL_ISSUE_EVENT_LIST = "find_error_tracking_impactful_issue_event_list"
     EXPERIMENT_RESULTS_SUMMARY = "experiment_results_summary"
     CREATE_SURVEY = "create_survey"
+    ANALYZE_SURVEY_RESPONSES = "analyze_survey_responses"
     SEARCH_DOCS = "search_docs"
     SEARCH_INSIGHTS = "search_insights"
     SESSION_SUMMARIZATION = "session_summarization"
@@ -338,7 +340,8 @@ class AssistantTrendsFilter(BaseModel):
             " miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this"
             " option only if you are sure that the values are in miliseconds. `percentage` - adds a percentage sign to"
             " the value, e.g., `50` becomes `50%`. `percentage_scaled` - formats the value as a percentage scaled to"
-            " 0-100, e.g., `0.5` becomes `50%`."
+            " 0-100, e.g., `0.5` becomes `50%`. `currency` - formats the value as a currency, e.g., `1000` becomes"
+            " `$1,000`."
         ),
     )
     aggregationAxisPostfix: Optional[str] = Field(
@@ -1696,6 +1699,7 @@ class MarketingAnalyticsBaseColumns(StrEnum):
     IMPRESSIONS = "Impressions"
     CPC = "CPC"
     CTR = "CTR"
+    REPORTED_CONVERSION = "Reported Conversion"
 
 
 class MarketingAnalyticsColumnsSchemaNames(StrEnum):
@@ -1706,6 +1710,7 @@ class MarketingAnalyticsColumnsSchemaNames(StrEnum):
     DATE = "date"
     IMPRESSIONS = "impressions"
     SOURCE = "source"
+    REPORTED_CONVERSION = "reported_conversion"
 
 
 class MarketingAnalyticsHelperForColumnNames(StrEnum):
@@ -2483,6 +2488,7 @@ class SourceMap(BaseModel):
     currency: Optional[str] = None
     date: Optional[str] = None
     impressions: Optional[str] = None
+    reported_conversion: Optional[str] = None
     source: Optional[str] = None
 
 
@@ -2526,6 +2532,15 @@ class SuggestedQuestionsQueryResponse(BaseModel):
         extra="forbid",
     )
     questions: list[str]
+
+
+class SurveyAnalysisResponseItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    isOpenEnded: Optional[bool] = Field(default=True, description="Whether this is an open-ended response")
+    responseText: Optional[str] = Field(default="", description="The response text content")
+    timestamp: Optional[str] = Field(default="", description="Response timestamp")
 
 
 class Value(BaseModel):
@@ -4777,6 +4792,17 @@ class SuggestedQuestionsQuery(BaseModel):
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class SurveyAnalysisQuestionGroup(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    questionId: Optional[str] = Field(default="unknown", description="Question identifier")
+    questionName: Optional[str] = Field(default="Unknown question", description="Question text")
+    responses: Optional[list[SurveyAnalysisResponseItem]] = Field(
+        default=[], description="List of responses for this question"
+    )
+
+
 class SurveyAppearanceSchema(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4932,6 +4958,34 @@ class TestCachedBasicQueryResponse(BaseModel):
     )
     results: list
     timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class TraceQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[LLMTrace]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -6738,6 +6792,44 @@ class CachedTeamTaxonomyQueryResponse(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[TeamTaxonomyItem]
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class CachedTraceQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: datetime
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: datetime
+    offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[LLMTrace]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -10312,7 +10404,7 @@ class QueryResponseAlternative68(BaseModel):
     )
 
 
-class QueryResponseAlternative69(BaseModel):
+class QueryResponseAlternative70(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10710,12 +10802,44 @@ class TeamTaxonomyQueryResponse(BaseModel):
     )
 
 
+class TileFilters(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    breakdown_filter: Optional[BreakdownFilter] = None
+    date_from: Optional[str] = None
+    date_to: Optional[str] = None
+    properties: Optional[
+        list[
+            Union[
+                EventPropertyFilter,
+                PersonPropertyFilter,
+                ElementPropertyFilter,
+                EventMetadataPropertyFilter,
+                SessionPropertyFilter,
+                CohortPropertyFilter,
+                RecordingPropertyFilter,
+                LogEntryPropertyFilter,
+                GroupPropertyFilter,
+                FeaturePropertyFilter,
+                FlagPropertyFilter,
+                HogQLPropertyFilter,
+                EmptyPropertyFilter,
+                DataWarehousePropertyFilter,
+                DataWarehousePersonPropertyFilter,
+                ErrorTrackingIssueFilter,
+                LogPropertyFilter,
+                RevenueAnalyticsPropertyFilter,
+            ]
+        ]
+    ] = None
+
+
 class TraceQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
-    filterTestAccounts: Optional[bool] = None
     kind: Literal["TraceQuery"] = "TraceQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
@@ -10744,7 +10868,7 @@ class TraceQuery(BaseModel):
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
-    response: Optional[TracesQueryResponse] = None
+    response: Optional[TraceQueryResponse] = None
     tags: Optional[QueryLogTags] = None
     traceId: str
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
@@ -13451,7 +13575,7 @@ class QueryResponseAlternative(
             QueryResponseAlternative66,
             QueryResponseAlternative67,
             QueryResponseAlternative68,
-            QueryResponseAlternative69,
+            QueryResponseAlternative70,
         ]
     ]
 ):
@@ -13519,7 +13643,7 @@ class QueryResponseAlternative(
         QueryResponseAlternative66,
         QueryResponseAlternative67,
         QueryResponseAlternative68,
-        QueryResponseAlternative69,
+        QueryResponseAlternative70,
     ]
 
 
@@ -14712,8 +14836,9 @@ class SourceConfig(BaseModel):
         extra="forbid",
     )
     betaSource: Optional[bool] = None
-    caption: Union[str, Any]
+    caption: Optional[Union[str, Any]] = None
     disabledReason: Optional[str] = None
+    docsUrl: Optional[str] = None
     existingSource: Optional[bool] = None
     featureFlag: Optional[str] = None
     fields: list[

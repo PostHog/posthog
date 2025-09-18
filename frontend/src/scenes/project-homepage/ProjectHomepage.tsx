@@ -42,6 +42,9 @@ export function ProjectHomepage(): JSX.Element {
     const aaTestBayesianLegacy = featureFlags[FEATURE_FLAGS.AA_TEST_BAYESIAN_LEGACY]
     const aaTestBayesianNew = featureFlags[FEATURE_FLAGS.AA_TEST_BAYESIAN_NEW]
 
+    // #team-ingestion/nickbest TODO: remove after person database migration tests are complete
+    const personReadTestFlag = featureFlags[FEATURE_FLAGS.PERSON_READ_TEST_FLAG]
+
     const headerButtons = (
         <>
             <LemonButton
@@ -70,6 +73,14 @@ export function ProjectHomepage(): JSX.Element {
             <span className="hidden" data-attr="aa-test-flag-result">
                 AA test flag result: {String(aaTestBayesianLegacy)} {String(aaTestBayesianNew)}
             </span>
+
+            {/* Hidden element for person read feature flag validation */}
+            {personReadTestFlag && (
+                <span className="hidden" data-attr="person-read-test-flag-active">
+                    Person read test flag is active: {String(personReadTestFlag)}
+                </span>
+            )}
+
             <PageHeader buttons={headerButtons} />
             {dashboardLogicProps ? (
                 <HomeDashboard dashboardLogicProps={dashboardLogicProps} />
@@ -93,10 +104,7 @@ function HomeDashboard({ dashboardLogicProps }: { dashboardLogicProps: Dashboard
     return (
         <>
             {featureFlags[FEATURE_FLAGS.POSTHOG_STORIES] && <PosthogStoriesContainer />}
-            <div
-                className="ProjectHomepage__dashboardheader"
-                style={featureFlags[FEATURE_FLAGS.SCENE_TABS] ? { marginTop: 0 } : {}}
-            >
+            <div className="ProjectHomepage__dashboardheader mt-0">
                 <div className="ProjectHomepage__dashboardheader__title">
                     {!dashboard && <LemonSkeleton className="w-20 h-4" />}
                     {dashboard?.name && (
@@ -108,7 +116,7 @@ function HomeDashboard({ dashboardLogicProps }: { dashboardLogicProps: Dashboard
                         </>
                     )}
                 </div>
-                {featureFlags[FEATURE_FLAGS.SCENE_TABS] ? <SceneActions /> : null}
+                <SceneActions />
             </div>
             <LemonDivider className="mt-3 mb-4" />
             <Dashboard id={dashboardLogicProps.id.toString()} placement={DashboardPlacement.ProjectHomepage} />
