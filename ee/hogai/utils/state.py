@@ -85,11 +85,10 @@ def is_task_started_update(
     return len(update) == 2 and update[0] == "debug" and update[1]["type"] == "task"
 
 
-def prepare_reasoning_progress_message(content: str) -> str | None:
+def prepare_reasoning_progress_message(content: str) -> str:
     """Display progress as a reasoning message"""
     if not content:
         logger.warning("Content is required to prepare a reasoning progress message")
-        return None
     elif len(content) > 200:
         logger.warning("Content is too long to prepare a reasoning progress message", extra={"content": content})
         content = content[:200] + "..."

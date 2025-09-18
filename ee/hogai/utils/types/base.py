@@ -26,7 +26,9 @@ from posthog.schema import (
     PlanningMessage,
     ReasoningMessage,
     RetentionQuery,
+    TaskExecutionItem,
     TaskExecutionMessage,
+    TaskExecutionStatus,
     TrendsQuery,
     VisualizationMessage,
 )
@@ -142,6 +144,36 @@ StateType = TypeVar("StateType", bound=BaseModel)
 PartialStateType = TypeVar("PartialStateType", bound=BaseModel)
 
 
+class TaskArtifact(BaseModel):
+    """
+    Base artifact created by a task.
+    """
+
+    id: str | int | None = None  # The id of the object referenced by the artifact
+    task_id: str  # The id of the task that created the artifact
+    content: str  # A string content attached to the artifact
+
+
+class InsightArtifact(TaskArtifact):
+    """
+    An insight artifact created by a task.
+    """
+
+    query: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
+
+
+class TaskResult(BaseModel):
+    """
+    The result of an individual task.
+    """
+
+    id: str
+    description: str
+    result: str
+    artifacts: Sequence[TaskArtifact] = Field(default=[])
+    status: TaskExecutionStatus
+
+
 class BaseState(BaseModel):
     """Base state class with reset functionality."""
 
@@ -163,6 +195,17 @@ class BaseStateWithMessages(BaseState):
     messages: Sequence[AssistantMessageUnion] = Field(default=[])
     """
     Messages exposed to the user.
+    """
+
+
+class BaseStateWithTasks(BaseState):
+    tasks: Annotated[Optional[list[TaskExecutionItem]], replace] = Field(default=None)
+    """
+    The current tasks.
+    """
+    task_results: Annotated[list[TaskResult], append] = Field(default=[])  # pyright: ignore[reportUndefinedVariable]
+    """
+    Results of tasks executed by assistants.
     """
 
 
@@ -309,13 +352,3 @@ class WithCommentary(BaseModel):
     commentary: str = Field(
         description="A commentary on what you are doing, using the first person: 'I am doing this because...'"
     )
-
-
-class InsightArtifact(BaseModel):
-    """
-    An artifacts created by a task.
-    """
-
-    id: str
-    query: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
-    description: str
