@@ -746,7 +746,7 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
         for daily_result in daily_results:
             # Convert date to string format (ISO date)
             date_key = daily_result.date.isoformat()
-            
+
             if daily_result.status == "completed":
                 timeseries[date_key] = daily_result.result
                 completed_count += 1
@@ -788,6 +788,7 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
         }
 
         return Response(response_data)
+
 
 @receiver(model_activity_signal, sender=Experiment)
 def handle_experiment_change(

@@ -59,11 +59,12 @@ export function TimeseriesModal({
                 {timeseries ? (
                     <div>
                         {errorSummary && (
-                            <LemonBanner type="warning" style={{ marginBottom: '16px' }}>
-                                {errorSummary.message}
-                            </LemonBanner>
+                            <div style={{ marginBottom: '16px' }}>
+                                <LemonBanner type="warning">{errorSummary.message}</LemonBanner>
+                            </div>
                         )}
-                        {(timeseries.status === 'completed' || timeseries.status === 'partial') && timeseries.timeseries ? (
+                        {(timeseries.status === 'completed' || timeseries.status === 'partial') &&
+                        timeseries.timeseries ? (
                             <>
                                 {processedChartData ? (
                                     <VariantTimeseriesChart chartData={processedChartData} />

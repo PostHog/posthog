@@ -1,4 +1,4 @@
-import { actions, kea, path, props, selectors } from 'kea'
+import { actions, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -45,8 +45,9 @@ export interface ExperimentTimeseriesLogicProps {
 }
 
 export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
-    path(['scenes', 'experiments', 'experimentTimeseriesLogic']),
     props({} as ExperimentTimeseriesLogicProps),
+    key((props) => props.experimentId),
+    path((key) => ['scenes', 'experiments', 'experimentTimeseriesLogic', key]),
 
     actions(() => ({
         clearTimeseries: true,
