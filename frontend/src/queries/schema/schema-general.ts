@@ -1127,6 +1127,8 @@ export type TrendsFilter = {
     showTrendLines?: boolean
     showMovingAverage?: boolean
     movingAverageIntervals?: number
+    /** detailed results table */
+    detailedResultsAggregationType?: 'total' | 'average' | 'median'
 }
 
 export type CalendarHeatmapFilter = {
@@ -1459,6 +1461,8 @@ export type StickinessFilter = {
     resultCustomizations?:
         | Record<string, ResultCustomizationByValue>
         | Record<numerical_key, ResultCustomizationByPosition>
+    /** detailed results table */
+    detailedResultsAggregationType?: 'total' | 'average' | 'median'
 }
 
 export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([
