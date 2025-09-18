@@ -1,5 +1,6 @@
 import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
 
 import { IconPencil } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
@@ -56,6 +57,7 @@ type SceneMainTitleProps = {
      * e.g. insights are renamed too fast, so we need to debounce it with 1000ms
      * @default 100
      */
+    renameDebounceMs?: number
     /**
      * If true, the actions from PageHeader will be shown
      * @default false
@@ -78,6 +80,7 @@ export function SceneTitleSection({
     onDescriptionChange,
     canEdit = false,
     forceEdit = false,
+    renameDebounceMs,
     actions = true,
     forceBackTo,
 }: SceneMainTitleProps): JSX.Element | null {
@@ -120,6 +123,7 @@ export function SceneTitleSection({
                             onChange={onNameChange}
                             canEdit={canEdit}
                             forceEdit={forceEdit}
+                            renameDebounceMs={renameDebounceMs}
                         />
                     </div>
                     {/* If we're not showing breadcrumbs, we want to show the actions inline with the title */}
@@ -136,6 +140,7 @@ export function SceneTitleSection({
                             onChange={onDescriptionChange}
                             canEdit={canEdit}
                             forceEdit={forceEdit}
+                            renameDebounceMs={renameDebounceMs}
                         />
                     </div>
                 )}
@@ -150,6 +155,7 @@ type SceneNameProps = {
     onChange?: (value: string) => void
     canEdit?: boolean
     forceEdit?: boolean
+    renameDebounceMs?: number
 }
 
 function SceneName({
@@ -158,6 +164,7 @@ function SceneName({
     onChange,
     canEdit = false,
     forceEdit = false,
+    renameDebounceMs = 100,
 }: SceneNameProps): JSX.Element {
     const [name, setName] = useState(initialName)
     const [isEditing, setIsEditing] = useState(forceEdit)
@@ -178,6 +185,12 @@ function SceneName({
             setIsEditing(false)
         }
     }, [isLoading, forceEdit])
+
+    const debouncedOnBlurSave = useDebouncedCallback((value: string) => {
+        if (onChange) {
+            onChange(value)
+        }
+    }, renameDebounceMs)
 
     // If onBlur is provided, we want to show a button that allows the user to edit the name
     // Otherwise, we want to show the name as a text
@@ -203,9 +216,9 @@ function SceneName({
                         )}
                         placeholder="Enter name"
                         onBlur={() => {
-                            // Save changes when leaving the field
-                            if (onChange && name !== initialName) {
-                                onChange(name || '')
+                            // Save changes when leaving the field (debounced)
+                            if (name !== initialName) {
+                                debouncedOnBlurSave(name || '')
                             }
                             // Exit edit mode if not forced
                             if (!forceEdit) {
@@ -263,6 +276,7 @@ type SceneDescriptionProps = {
     onChange?: (value: string) => void
     canEdit?: boolean
     forceEdit?: boolean
+    renameDebounceMs?: number
 }
 
 function SceneDescription({
@@ -272,6 +286,7 @@ function SceneDescription({
     onChange,
     canEdit = false,
     forceEdit = false,
+    renameDebounceMs = 100,
 }: SceneDescriptionProps): JSX.Element | null {
     const [description, setDescription] = useState(initialDescription)
     const [isEditing, setIsEditing] = useState(forceEdit)
@@ -293,6 +308,12 @@ function SceneDescription({
             setIsEditing(false)
         }
     }, [isLoading, forceEdit])
+
+    const debouncedOnBlurSave = useDebouncedCallback((value: string) => {
+        if (onChange) {
+            onChange(value)
+        }
+    }, renameDebounceMs)
 
     const Element =
         onChange && canEdit ? (
@@ -317,9 +338,9 @@ function SceneDescription({
                         markdown={markdown}
                         placeholder={emptyText}
                         onBlur={() => {
-                            // Save changes when leaving the field
-                            if (onChange && description !== initialDescription) {
-                                onChange(description || '')
+                            // Save changes when leaving the field (debounced)
+                            if (description !== initialDescription) {
+                                debouncedOnBlurSave(description || '')
                             }
                             // Exit edit mode if not forced
                             if (!forceEdit) {
