@@ -29,6 +29,10 @@ class MaxChatMixin(BaseModel):
     team: Team
     max_retries: int | None = None
     stream_usage: bool | None = None
+    conversation_start_dt: datetime.datetime | None = None
+    """
+    The datetime of the start of the conversation. If not provided, the current time will be used.
+    """
 
     def model_post_init(self, __context: Any) -> None:
         if self.max_retries is None:
@@ -39,7 +43,8 @@ class MaxChatMixin(BaseModel):
     def _get_project_org_user_variables(self) -> dict[str, Any]:
         """Note: this function may perform Postgres queries on `self._team`, `self._team.organization`, and `self._user`."""
         project_timezone = self.team.timezone
-        project_datetime = datetime.datetime.now(tz=pytz.timezone(project_timezone))
+        adjusted_dt = self.conversation_start_dt or datetime.datetime.now()
+        project_datetime = adjusted_dt.astimezone(tz=pytz.timezone(project_timezone))
 
         region = CLOUD_DEPLOYMENT or "us"
         if region in ["US", "EU"]:

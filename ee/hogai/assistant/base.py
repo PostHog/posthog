@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta
 from typing import Any, Literal, Optional, cast, get_args
 from uuid import UUID, uuid4
 
@@ -304,11 +305,14 @@ class BaseAssistant(ABC):
     async def _init_or_update_state(self):
         config = self._get_config()
         snapshot = await self._graph.aget_state(config)
+        last_recorded_dt: datetime | None = None
 
         # If the graph previously hasn't reset the state, it is an interrupt. We resume from the point of interruption.
-        if snapshot.next and self._latest_message:
+        if snapshot.next:
             saved_state = validate_state_update(snapshot.values, self._state_type)
-            if saved_state.graph_status == "interrupted":
+            last_recorded_dt = saved_state.start_dt
+
+            if self._latest_message and saved_state.graph_status == "interrupted":
                 self._state = saved_state
                 await self._graph.aupdate_state(
                     config,
@@ -321,6 +325,16 @@ class BaseAssistant(ABC):
         if self._initial_state:
             for key, value in self._initial_state.model_dump(exclude_none=True).items():
                 setattr(initial_state, key, value)
+
+        # Reset the start_dt if the conversation has been running for more than 5 minutes.
+        # Helps to keep the cache.
+        if last_recorded_dt is not None:
+            if datetime.now() - last_recorded_dt > timedelta(minutes=5):
+                initial_state.start_dt = datetime.now()
+        # No recorded start_dt, so we set it to the current time.
+        else:
+            initial_state.start_dt = datetime.now()
+
         self._state = initial_state
         return initial_state
 

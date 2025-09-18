@@ -1,5 +1,6 @@
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Any, Literal, Optional, Self, TypeVar, Union
 
@@ -201,6 +202,10 @@ class BaseStateWithMessages(BaseState):
     start_id: Optional[str] = Field(default=None)
     """
     The ID of the message from which the conversation started.
+    """
+    start_dt: Optional[datetime] = Field(default=None)
+    """
+    The datetime of the start of the conversation. Use this datetime to keep the cache.
     """
     graph_status: Optional[Literal["resumed", "interrupted", ""]] = Field(default=None)
     """

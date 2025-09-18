@@ -327,7 +327,16 @@ class RootNode(RootNodeUIContextMixin):
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         from ee.hogai.tool import get_contextual_tool_class
 
-        history, new_window_id = await self._construct_and_update_messages_window(state, config)
+        message_window, ui_context, billing_context, core_memory = await asyncio.gather(
+            self._construct_and_update_messages_window(state, config),
+            self._format_ui_context(self._get_ui_context(state), config),
+            self._get_billing_info(config),
+            self._aget_core_memory_text(),
+        )
+
+        history, new_window_id = message_window
+        should_add_billing_tool, billing_context_prompt = billing_context
+
         # Build system prompt with conditional session summarization and insight search sections
         system_prompt_template = ROOT_SYSTEM_PROMPT
         # Check if session summarization is enabled for the user
@@ -352,13 +361,6 @@ class RootNode(RootNodeUIContextMixin):
                 system_prompt_template,
                 flags=re.DOTALL,
             )
-
-        ui_context, billing_context, core_memory = await asyncio.gather(
-            self._format_ui_context(self._get_ui_context(state), config),
-            self._get_billing_info(config),
-            self._aget_core_memory_text(),
-        )
-        should_add_billing_tool, billing_context_prompt = billing_context
 
         system_prompts = ChatPromptTemplate.from_messages(
             [
@@ -466,10 +468,7 @@ class RootNode(RootNodeUIContextMixin):
     def _get_model(self, state: AssistantState, config: RunnableConfig, extra_tools: list[str] | None = None):
         if extra_tools is None:
             extra_tools = []
-        # Research suggests temperature is not _massively_ correlated with creativity (https://arxiv.org/html/2405.00492v1).
-        # It _probably_ doesn't matter, but let's use a lower temperature for _maybe_ less of a risk of hallucinations.
-        # We were previously using 0.0, but that wasn't useful, as the false determinism didn't help in any way,
-        # only made evals less useful precisely because of the false determinism.
+
         base_model = MaxChatAnthropic(
             model="claude-sonnet-4-0",
             streaming=True,
@@ -477,11 +476,12 @@ class RootNode(RootNodeUIContextMixin):
             user=self._user,
             team=self._team,
             betas=["interleaved-thinking-2025-05-14"],
-            # max_tokens=8192,
+            max_tokens=8192,
             thinking=self.THINKING_CONFIG,
+            conversation_start_dt=state.start_dt,
         )
 
-        # The agent can now be in loops. Since insight building is an expensive operation, we want to limit a recursion depth.
+        # The agent can operate in loops. Since insight building is an expensive operation, we want to limit a recursion depth.
         # This will remove the functions, so the agent doesn't have any other option but to exit.
         if self._is_hard_limit_reached(state):
             return base_model
