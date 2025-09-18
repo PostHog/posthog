@@ -328,7 +328,7 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
     def test_cannot_access_query_runner_without_view_access_control(self):
         """Test that the query runner cannot access the query runner without view access control"""
         AccessControl.objects.create(team=self.team, resource="revenue_analytics", access_level="none")
-        self.organization.available_product_features.append({"key": AvailableFeature.ADVANCED_PERMISSIONS})
+        self.organization.available_product_features.append({"key": AvailableFeature.ADVANCED_PERMISSIONS})  # type: ignore[union-attr]
         self.organization.save()
 
         runner = RevenueAnalyticsQueryRunnerImpl(team=self.team, query=self.query)
