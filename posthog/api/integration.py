@@ -112,6 +112,8 @@ class IntegrationSerializer(serializers.ModelSerializer):
             instance = twilio.integration_from_keys()
             return instance
 
+        # TODO: add Databricks here
+
         elif validated_data["kind"] in OauthIntegration.supported_kinds:
             try:
                 instance = OauthIntegration.integration_from_oauth_response(

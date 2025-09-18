@@ -77,6 +77,7 @@ class Integration(models.Model):
         TWILIO = "twilio"
         CLICKUP = "clickup"
         VERCEL = "vercel"
+        DATABRICKS = "databricks"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -115,6 +116,9 @@ class Integration(models.Model):
             return dot_get(self.config, "account.name", self.integration_id)
         if self.kind == "email":
             return self.config.get("email", self.integration_id)
+        # TODO
+        if self.kind == "databricks":
+            return dot_get(self.config, "server_hostname", self.integration_id)
 
         return f"ID: {self.integration_id}"
 
@@ -1761,3 +1765,12 @@ class TwilioIntegration:
             integration.save()
 
         return integration
+
+
+class DatabricksIntegration:
+    integration: Integration
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != "databricks":
+            raise Exception("DatabricksIntegration init called with Integration with wrong 'kind'")
+        self.integration = integration

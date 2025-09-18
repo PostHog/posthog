@@ -16,6 +16,7 @@ from posthog.api.test.batch_exports.operations import create_batch_export
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.batch_exports.models import BatchExport
+from posthog.models.integration import Integration
 from posthog.temporal.common.codec import EncryptionCodec
 
 pytestmark = [
@@ -627,24 +628,59 @@ def test_create_batch_export_with_invalid_config(
     assert expected_error_message in response.json()["detail"]
 
 
-def test_cannot_create_a_batch_export_for_databricks_if_not_enabled(
-    client: HttpClient, temporal, organization, team, user
-):
-    """A temporary test to ensure that we cannot create a BatchExport for Databricks if the feature flag is not enabled.
+@pytest.fixture
+def databricks_integration(team, user):
+    """Create a Databricks integration."""
+    return Integration.objects.create(
+        team=team,
+        kind=Integration.IntegrationKind.DATABRICKS,
+        integration_id=str(team.pk),
+        config={"server_hostname": "my-server-hostname"},
+        sensitive_config={"client_id": "my-client-id", "client_secret": "my-client-secret"},
+        created_by=user,
+    )
 
-    For now, we don't actually need a feature flag, since Databricks is not a valid choice for a destination.
+
+@pytest.fixture
+def enable_databricks(team):
+    with mock.patch(
+        "posthog.batch_exports.http.posthoganalytics.feature_enabled",
+        return_value=True,
+    ) as feature_enabled:
+        yield
+        feature_enabled.assert_called_once_with(
+            "databricks-batch-exports",
+            str(team.uuid),
+            groups={"organization": str(team.organization.id)},
+            group_properties={
+                "organization": {
+                    "id": str(team.organization.id),
+                    "created_at": team.organization.created_at,
+                }
+            },
+            send_feature_flag_events=False,
+        )
+
+
+def test_creating_databricks_batch_export_using_integration(
+    client: HttpClient, temporal, organization, team, user, databricks_integration, enable_databricks
+):
+    """Test that we can create a Databricks batch export using an integration.
+
+    Using integrations is the preferred way to handle credentials for batch exports going forward.
     """
 
     destination_data = {
         "type": "Databricks",
         "config": {
-            "server_hostname": "my-server-hostname",
+            # "server_hostname": "my-server-hostname",
             "http_path": "my-http-path",
-            "client_id": "my-client-id",
-            "client_secret": "my-client-secret",
+            # "client_id": "my-client-id",
+            # "client_secret": "my-client-secret",
             "catalog": "my-catalog",
             "schema": "my-schema",
             "table_name": "my-table-name",
+            "integration_id": databricks_integration.id,
         },
     }
 
@@ -660,5 +696,95 @@ def test_cannot_create_a_batch_export_for_databricks_if_not_enabled(
         team.pk,
         batch_export_data,
     )
-    assert response.status_code == status.HTTP_400_BAD_REQUEST
-    assert '"Databricks" is not a valid choice.' in response.json()["detail"]
+
+    assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    data = response.json()
+    schedule = describe_schedule(temporal, data["id"])
+    intervals = schedule.schedule.spec.intervals
+
+    assert len(intervals) == 1
+    assert schedule.schedule.spec.intervals[0].every == dt.timedelta(hours=1)
+    # assert schedule.schedule.spec.time_zone_name == timezone
+
+
+def test_creating_databricks_batch_export_fails_if_feature_flag_is_not_enabled(
+    client: HttpClient, temporal, organization, team, user, databricks_integration
+):
+    """Test that creating a Databricks batch export fails if the feature flag is not enabled."""
+
+    destination_data = {
+        "type": "Databricks",
+        "config": {
+            # "server_hostname": "my-server-hostname",
+            "http_path": "my-http-path",
+            # "client_id": "my-client-id",
+            # "client_secret": "my-client-secret",
+            "catalog": "my-catalog",
+            "schema": "my-schema",
+            "table_name": "my-table-name",
+            "integration_id": databricks_integration.id,
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-databricks-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+
+    response = create_batch_export(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+
+    assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+    assert "The Databricks destination is not enabled for this team." in response.json()["detail"]
+
+
+def test_creating_databricks_batch_export_fails_if_integration_is_missing(
+    client: HttpClient, temporal, organization, team, user, enable_databricks
+):
+    """Test that creating a Databricks batch export fails if the integration is missing.
+
+    Using integrations is the preferred way to handle credentials for batch exports going forward.
+    """
+
+    destination_data = {
+        "type": "Databricks",
+        "config": {
+            # "server_hostname": "my-server-hostname",
+            "http_path": "my-http-path",
+            # "client_id": "my-client-id",
+            # "client_secret": "my-client-secret",
+            "catalog": "my-catalog",
+            "schema": "my-schema",
+            "table_name": "my-table-name",
+            "integration_id": None,
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-databricks-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+    response = create_batch_export(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    assert "integration_id" in response.json()["detail"]
+    assert response.json() == {
+        "type": "validation_error",
+        "code": "invalid_input",
+        "detail": "integration_id is required for Databricks batch exports",
+        "attr": "destination",
+    }

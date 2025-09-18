@@ -29,6 +29,7 @@ class BatchExportDestination(UUIDTModel):
         POSTGRES = "Postgres"
         REDSHIFT = "Redshift"
         BIGQUERY = "BigQuery"
+        DATABRICKS = "Databricks"
         HTTP = "HTTP"
         NOOP = "NoOp"
 
@@ -38,6 +39,8 @@ class BatchExportDestination(UUIDTModel):
         "Postgres": {"user", "password"},
         "Redshift": {"user", "password"},
         "BigQuery": {"private_key", "private_key_id", "client_email", "token_uri"},
+        # Databricks does not have any secret fields, as we use integrations to store credentials
+        "Databricks": set(),
         "HTTP": set("token"),
         "NoOp": set(),
     }
@@ -61,6 +64,7 @@ class BatchExportDestination(UUIDTModel):
         auto_now=True,
         help_text="The timestamp at which this BatchExportDestination was last updated.",
     )
+    # TODO: add a new field for integration id or just stick it in config?
 
 
 class BatchExportRun(UUIDTModel):

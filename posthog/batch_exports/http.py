@@ -46,6 +46,7 @@ from posthog.batch_exports.service import (
 )
 from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun, Team, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
+from posthog.models.integration import Integration
 from posthog.models.signals import model_activity_signal
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
@@ -356,6 +357,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "team_id", "created_at", "last_updated_at", "latest_runs", "schema"]
 
+    # TODO: could this be moved inside BatchExportDestinationSerializer::validate?
     def validate_destination(self, destination_attrs: dict):
         destination_type = destination_attrs["type"]
         if destination_type == BatchExportDestination.Destination.SNOWFLAKE:
@@ -378,7 +380,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("Password is required if authentication type is password")
             if config.get("authentication_type") == "keypair" and merged_config.get("private_key") is None:
                 raise serializers.ValidationError("Private key is required if authentication type is key pair")
-        if destination_attrs["type"] == BatchExportDestination.Destination.S3:
+        if destination_type == BatchExportDestination.Destination.S3:
             config = destination_attrs["config"]
             # JSONLines is the default file format for S3 exports for legacy reasons
             file_format = config.get("file_format", "JSONLines")
@@ -392,6 +394,34 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     f"Compression {compression} is not supported for file format {file_format}. Supported compressions are {SUPPORTED_COMPRESSIONS[file_format]}"
                 )
+        if destination_type == BatchExportDestination.Destination.DATABRICKS:
+            team_id = self.context["team_id"]
+            team = Team.objects.get(id=team_id)
+
+            if not posthoganalytics.feature_enabled(
+                "databricks-batch-exports",
+                str(team.uuid),
+                groups={"organization": str(team.organization.id)},
+                group_properties={
+                    "organization": {
+                        "id": str(team.organization.id),
+                        "created_at": team.organization.created_at,
+                    }
+                },
+                send_feature_flag_events=False,
+            ):
+                raise PermissionDenied("The Databricks destination is not enabled for this team.")
+
+            # validate the Integration is valid (this is mandatory for Databricks batch exports)
+            config = destination_attrs["config"]
+            if config.get("integration_id") is None:
+                raise serializers.ValidationError("integration_id is required for Databricks batch exports")
+            try:
+                integration = Integration.objects.get(id=config.get("integration_id"), team_id=team_id)
+            except Integration.DoesNotExist:
+                raise serializers.ValidationError("Integration not found")
+            if integration.kind != Integration.IntegrationKind.DATABRICKS:
+                raise serializers.ValidationError("The provided integration is not a Databricks Integration")
         return destination_attrs
 
     def create(self, validated_data: dict) -> BatchExport:
