@@ -13,7 +13,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::checkpoint::{
-    CheckpointConfig, CheckpointExporter, CheckpointMode, CheckpointPath, CheckpointWorker,
+    CheckpointConfig, CheckpointExporter, CheckpointMode, CheckpointTarget, CheckpointWorker,
     CHECKPOINT_PARTITION_PREFIX, CHECKPOINT_TOPIC_PREFIX,
 };
 use crate::kafka::types::Partition;
@@ -176,7 +176,7 @@ impl CheckpointManager {
                                     continue;
                             }
 
-                            let paths = CheckpointPath::new(partition.clone(), Path::new(&submit_loop_config.local_checkpoint_dir)).unwrap();
+                            let target = CheckpointTarget::new(partition.clone(), Path::new(&submit_loop_config.local_checkpoint_dir)).unwrap();
                             // if the exporter is configured, clone it for the worker thread
                             let resolved_exporter = exporter.as_ref().map(|e| e.clone());
 
@@ -185,7 +185,7 @@ impl CheckpointManager {
                             let worker = CheckpointWorker::new(
                                 worker_task_id,
                                 mode,
-                                paths,
+                                target,
                                 store,
                                 resolved_exporter,
                             );

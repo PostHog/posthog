@@ -17,6 +17,6 @@ pub use s3_client::S3CheckpointClient;
 pub use s3_uploader::S3Uploader;
 pub use uploader::CheckpointUploader;
 pub use worker::{
-    CheckpointMode, CheckpointPath, CheckpointWorker, CHECKPOINT_PARTITION_PREFIX,
+    CheckpointMode, CheckpointTarget, CheckpointWorker, CHECKPOINT_PARTITION_PREFIX,
     CHECKPOINT_TOPIC_PREFIX,
 };

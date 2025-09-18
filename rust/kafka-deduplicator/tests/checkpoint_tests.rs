@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use kafka_deduplicator::checkpoint::{
-    CheckpointConfig, CheckpointExporter, CheckpointMode, CheckpointPath, CheckpointUploader,
+    CheckpointConfig, CheckpointExporter, CheckpointMode, CheckpointTarget, CheckpointUploader,
     CheckpointWorker, CHECKPOINT_PARTITION_PREFIX, CHECKPOINT_TOPIC_PREFIX,
 };
 use kafka_deduplicator::checkpoint_manager::CheckpointManager;
@@ -299,13 +299,13 @@ async fn test_manual_checkpoint_export_incremental() {
     )));
 
     let partition = Partition::new(test_topic.to_string(), test_partition);
-    let paths =
-        CheckpointPath::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
+    let target =
+        CheckpointTarget::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
 
     let worker = CheckpointWorker::new(
         1,
         CheckpointMode::Incremental,
-        paths.clone(),
+        target.clone(),
         store.clone(),
         exporter.clone(),
     );
@@ -319,7 +319,7 @@ async fn test_manual_checkpoint_export_incremental() {
 
     // the expected remote path will include the bucket prefix
     // and the checkpoint mode path element
-    let expected = format!("test-prefix/incremental/{}", &paths.remote_path);
+    let expected = format!("test-prefix/incremental/{}", &target.remote_path);
     assert!(
         result.as_ref().unwrap() == &expected,
         "remote path should match {}, got: {:?}",
@@ -327,14 +327,8 @@ async fn test_manual_checkpoint_export_incremental() {
         result.unwrap()
     );
 
-    let remote_checkpoint_files = uploader.get_stored_files().await.unwrap();
-    assert!(!remote_checkpoint_files.is_empty());
-    assert!(remote_checkpoint_files
-        .keys()
-        .any(|k| k.contains("test-prefix/incremental/")));
-
     // there should be lots of checkpoint files collected from
-    let local_checkpoint_files = find_local_checkpoint_files(&paths.local_path).unwrap();
+    let local_checkpoint_files = find_local_checkpoint_files(&target.local_path).unwrap();
     assert!(!local_checkpoint_files.is_empty());
 
     // there should be lots of checkpoint files collected from
@@ -354,6 +348,12 @@ async fn test_manual_checkpoint_export_incremental() {
     assert!(local_checkpoint_files
         .iter()
         .any(|p| p.to_string_lossy().to_string().ends_with(".log")));
+
+    let remote_checkpoint_files = uploader.get_stored_files().await.unwrap();
+    assert!(!remote_checkpoint_files.is_empty());
+    assert!(remote_checkpoint_files
+        .keys()
+        .all(|k| k.contains("test-prefix/incremental/")));
 }
 
 #[tokio::test]
@@ -392,13 +392,13 @@ async fn test_checkpoint_manual_export_full() {
     )));
 
     let partition = Partition::new(test_topic.to_string(), test_partition);
-    let paths =
-        CheckpointPath::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
+    let target =
+        CheckpointTarget::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
 
     let worker = CheckpointWorker::new(
         1,
         CheckpointMode::Full,
-        paths.clone(),
+        target.clone(),
         store.clone(),
         exporter.clone(),
     );
@@ -410,14 +410,8 @@ async fn test_checkpoint_manual_export_full() {
         result.err()
     );
 
-    let remote_checkpoint_files = uploader.get_stored_files().await.unwrap();
-    assert!(!remote_checkpoint_files.is_empty());
-    assert!(remote_checkpoint_files
-        .keys()
-        .any(|k| k.contains("test-prefix/full/")));
-
     // there should be lots of checkpoint files collected from
-    let local_checkpoint_files = find_local_checkpoint_files(&paths.local_path).unwrap();
+    let local_checkpoint_files = find_local_checkpoint_files(&target.local_path).unwrap();
     assert!(!local_checkpoint_files.is_empty());
 
     // there should be lots of checkpoint files collected from
@@ -437,6 +431,12 @@ async fn test_checkpoint_manual_export_full() {
     assert!(local_checkpoint_files
         .iter()
         .any(|p| p.to_string_lossy().to_string().ends_with(".log")));
+
+    let remote_checkpoint_files = uploader.get_stored_files().await.unwrap();
+    assert!(!remote_checkpoint_files.is_empty());
+    assert!(remote_checkpoint_files
+        .keys()
+        .all(|k| k.contains("test-prefix/full/")));
 }
 
 // TODO: incremental snapshot and export is not implemented yet, but
@@ -554,13 +554,13 @@ async fn test_unavailable_uploader() {
     )));
 
     let partition = Partition::new("test_topic".to_string(), 0);
-    let paths =
-        CheckpointPath::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
+    let target =
+        CheckpointTarget::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
 
     let worker = CheckpointWorker::new(
         1,
         CheckpointMode::Full,
-        paths,
+        target,
         store.clone(),
         exporter.clone(),
     );
@@ -608,12 +608,12 @@ async fn test_unpopulated_exporter() {
     };
 
     let partition = Partition::new("test_topic".to_string(), 0);
-    let paths =
-        CheckpointPath::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
+    let target =
+        CheckpointTarget::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
 
     // without an exporter supplied to the worker, the checkpoint will
     // succeed and be created locally but never uploaded to remote storage
-    let worker = CheckpointWorker::new(1, CheckpointMode::Full, paths, store.clone(), None);
+    let worker = CheckpointWorker::new(1, CheckpointMode::Full, target, store.clone(), None);
 
     // Checkpoint should still succeed even if uploader is unavailable
     let result = worker.checkpoint_partition().await;
