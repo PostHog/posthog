@@ -20,6 +20,7 @@ export const fixWithAiLogic = kea<fixWithAiLogicType>([
         setFixStatus: (fixStatus: FixWithAIStatus) => ({ fixStatus }),
         setRepositoryPopoverVisible: (repositoryPopoverVisible: boolean) => ({ repositoryPopoverVisible }),
         setPullRequest: (pullRequest: FixWithAIPullRequest) => ({ pullRequest }),
+        pushToPullRequests: (pullRequest: FixWithAIPullRequest) => ({ pullRequest }),
     }),
 
     reducers({
@@ -47,10 +48,10 @@ export const fixWithAiLogic = kea<fixWithAiLogicType>([
                 setRepositoryPopoverVisible: (_, { repositoryPopoverVisible }) => repositoryPopoverVisible,
             },
         ],
-        pullRequest: [
-            null as FixWithAIPullRequest | null,
+        pullRequests: [
+            [] as FixWithAIPullRequest[],
             {
-                setPullRequest: (_, { pullRequest }) => pullRequest,
+                pushToPullRequests: (state, { pullRequest }) => [...state, pullRequest],
             },
         ],
     }),
@@ -63,7 +64,7 @@ export const fixWithAiLogic = kea<fixWithAiLogicType>([
 
             actions.setFixStatus('done')
 
-            actions.setPullRequest({
+            actions.pushToPullRequests({
                 id: 1,
                 title: 'fix: ai fixed your code',
                 url: 'https://github.com/posthog/posthog/pull/42424',
