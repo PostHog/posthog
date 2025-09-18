@@ -212,7 +212,16 @@ function SceneName({
                             '[&_.LemonIcon]:size-4'
                         )}
                         placeholder="Enter name"
-                        onBlur={() => !forceEdit && setIsEditing(false)}
+                        onBlur={() => {
+                            // Save changes when leaving the field
+                            if (onChange && name !== initialName) {
+                                onChange(name || '')
+                            }
+                            // Exit edit mode if not forced
+                            if (!forceEdit) {
+                                setIsEditing(false)
+                            }
+                        }}
                         autoFocus={!forceEdit}
                         onKeyDown={(e) => {
                             if (e.key === 'Enter') {
