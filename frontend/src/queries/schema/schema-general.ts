@@ -152,6 +152,7 @@ export enum NodeKind {
     EventTaxonomyQuery = 'EventTaxonomyQuery',
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
     TracesQuery = 'TracesQuery',
+    TraceQuery = 'TraceQuery',
     VectorSearchQuery = 'VectorSearchQuery',
 }
 
@@ -195,6 +196,7 @@ export type AnyDataNode =
     | CalendarHeatmapQuery
     | RecordingsQuery
     | TracesQuery
+    | TraceQuery
     | VectorSearchQuery
 
 /**
@@ -272,6 +274,7 @@ export type QuerySchema =
     | EventTaxonomyQuery
     | ActorsPropertyTaxonomyQuery
     | TracesQuery
+    | TraceQuery
     | VectorSearchQuery
 
 // Keep this, because QuerySchema itself will be collapsed as it is used in other models
@@ -652,6 +655,7 @@ export interface EntityNode extends Node {
     properties?: AnyPropertyFilter[]
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
     fixedProperties?: AnyPropertyFilter[]
+    optionalInFunnel?: boolean
 }
 
 export interface EventsNode extends EntityNode {
@@ -829,6 +833,7 @@ export interface DataTableNode
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
         | TracesQuery
+        | TraceQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -2394,13 +2399,13 @@ export type FileSystemIconType =
     | 'person'
     | 'cohort'
     | 'group'
-    | 'insight_funnel'
-    | 'insight_trend'
-    | 'insight_retention'
-    | 'insight_user_path'
-    | 'insight_lifecycle'
-    | 'insight_stickiness'
-    | 'insight_hogql'
+    | 'insight/funnels'
+    | 'insight/trends'
+    | 'insight/retention'
+    | 'insight/paths'
+    | 'insight/lifecycle'
+    | 'insight/stickiness'
+    | 'insight/hog'
 export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     id?: string
     iconType?: FileSystemIconType
@@ -3054,6 +3059,13 @@ export interface DashboardFilter {
     breakdown_filter?: BreakdownFilter | null
 }
 
+export interface TileFilters {
+    date_from?: string | null | undefined
+    date_to?: string | null | undefined
+    properties?: AnyPropertyFilter[] | null | undefined
+    breakdown_filter?: BreakdownFilter | null | undefined
+}
+
 export interface InsightsThresholdBounds {
     lower?: number
     upper?: number
@@ -3295,7 +3307,6 @@ export interface TracesQueryResponse extends AnalyticsQueryResponseBase {
 
 export interface TracesQuery extends DataNode<TracesQueryResponse> {
     kind: NodeKind.TracesQuery
-    traceId?: string
     dateRange?: DateRange
     limit?: integer
     offset?: integer
@@ -3305,7 +3316,24 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     properties?: AnyPropertyFilter[]
 }
 
+export interface TraceQueryResponse extends AnalyticsQueryResponseBase {
+    results: LLMTrace[]
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    columns?: string[]
+}
+
+export interface TraceQuery extends DataNode<TraceQueryResponse> {
+    kind: NodeKind.TraceQuery
+    traceId: string
+    dateRange?: DateRange
+    /** Properties configurable in the interface */
+    properties?: AnyPropertyFilter[]
+}
+
 export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>
+export type CachedTraceQueryResponse = CachedQueryResponse<TraceQueryResponse>
 
 // NOTE: Keep in sync with posthog/models/exchange_rate/currencies.py
 // to provide proper type safety for the baseCurrency field
@@ -3742,6 +3770,7 @@ export enum MarketingAnalyticsColumnsSchemaNames {
     Date = 'date',
     Impressions = 'impressions',
     Source = 'source',
+    ReportedConversion = 'reported_conversion',
 }
 
 export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaNames, MarketingAnalyticsSchemaField> = {
@@ -3752,6 +3781,10 @@ export const MARKETING_ANALYTICS_SCHEMA: Record<MarketingAnalyticsColumnsSchemaN
     [MarketingAnalyticsColumnsSchemaNames.Clicks]: { type: ['integer', 'number', 'float'], required: false },
     [MarketingAnalyticsColumnsSchemaNames.Currency]: { type: ['string'], required: false },
     [MarketingAnalyticsColumnsSchemaNames.Impressions]: { type: ['integer', 'number', 'float'], required: false },
+    [MarketingAnalyticsColumnsSchemaNames.ReportedConversion]: {
+        type: ['integer', 'number', 'float'],
+        required: false,
+    },
 }
 
 export type SourceMap = Record<MarketingAnalyticsColumnsSchemaNames, string | undefined>
@@ -3777,6 +3810,7 @@ export enum MarketingAnalyticsBaseColumns {
     Impressions = 'Impressions',
     CPC = 'CPC',
     CTR = 'CTR',
+    ReportedConversion = 'Reported Conversion',
 }
 
 export enum MarketingAnalyticsHelperForColumnNames {
@@ -3861,12 +3895,15 @@ export type SourceFieldConfig =
 export interface SourceConfig {
     name: ExternalDataSourceType
     label?: string
-    caption: string | any
+    docsUrl?: string
+    caption?: string | any
     fields: SourceFieldConfig[]
     disabledReason?: string | null
     existingSource?: boolean
     unreleasedSource?: boolean
     betaSource?: boolean
+    iconPath: string
+    featureFlag?: string
 }
 
 export const externalDataSources = [

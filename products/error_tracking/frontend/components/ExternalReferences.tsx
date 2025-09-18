@@ -21,7 +21,7 @@ import { urls } from 'scenes/urls'
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 import { IntegrationKind, IntegrationType } from '~/types'
 
-import { errorTrackingIssueSceneLogic } from '../errorTrackingIssueSceneLogic'
+import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 
 const ERROR_TRACKING_INTEGRATIONS: IntegrationKind[] = ['linear', 'github']
 
@@ -122,6 +122,7 @@ const createGitHubIssueForm = (
 
     LemonDialog.openForm({
         title: 'Create GitHub issue',
+        shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
             body: body,
@@ -157,6 +158,7 @@ const createLinearIssueForm = (
 ): void => {
     LemonDialog.openForm({
         title: 'Create Linear issue',
+        shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
             description: issue.description,

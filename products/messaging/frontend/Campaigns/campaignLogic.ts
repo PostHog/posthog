@@ -8,6 +8,8 @@ import { LemonDialog } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { LiquidRenderer } from 'lib/utils/liquid'
+import { EmailTemplate } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionTemplateType } from '~/types'
@@ -34,7 +36,7 @@ const NEW_CAMPAIGN: HogFlow = {
             id: TRIGGER_NODE_ID,
             type: 'trigger',
             name: 'Trigger',
-            description: 'User performs an action to start the campaign',
+            description: 'User performs an action to start the campaign.',
             created_at: 0,
             updated_at: 0,
             config: {
@@ -46,7 +48,7 @@ const NEW_CAMPAIGN: HogFlow = {
             id: EXIT_NODE_ID,
             type: 'exit',
             name: 'Exit',
-            description: 'User moved through the campaign without errors',
+            description: 'User moved through the campaign without errors.',
             config: {
                 reason: 'Default exit',
             },
@@ -68,6 +70,16 @@ const NEW_CAMPAIGN: HogFlow = {
     team_id: -1,
     created_at: '',
     updated_at: '',
+}
+
+function getTemplatingError(value: string, templating: 'liquid' | 'hog'): string | undefined {
+    if (templating === 'liquid' && typeof value === 'string') {
+        try {
+            LiquidRenderer.parse(value)
+        } catch (e: any) {
+            return `Liquid template error: ${e.message}`
+        }
+    }
 }
 
 export const campaignLogic = kea<campaignLogicType>([
@@ -192,6 +204,36 @@ export const campaignLogic = kea<campaignLogicType>([
                         if (!schemaValidation.success) {
                             result.valid = false
                             result.schema = schemaValidation.error
+                        } else if (action.type === 'function_email') {
+                            // special case for function_email which has nested email inputs, so basic hog input validation is not enough
+                            // TODO: modify email/native_email input type to flatten email inputs so we don't need this special case
+                            const emailValue = action.config.inputs?.email?.value
+
+                            const emailTemplateErrors: Partial<EmailTemplate> = {
+                                html: !emailValue.html
+                                    ? 'HTML is required'
+                                    : getTemplatingError(emailValue.html, emailValue.templating),
+                                subject: !emailValue.subject
+                                    ? 'Subject is required'
+                                    : getTemplatingError(emailValue.subject, emailValue.templating),
+                                from: !emailValue.from.email
+                                    ? 'From is required'
+                                    : getTemplatingError(emailValue.from.email, emailValue.templating),
+                                to: !emailValue.to.email
+                                    ? 'To is required'
+                                    : getTemplatingError(emailValue.to.email, emailValue.templating),
+                            }
+
+                            const combinedErrors = Object.values(emailTemplateErrors)
+                                .filter((v) => !!v)
+                                .join(', ')
+
+                            if (combinedErrors) {
+                                result.valid = false
+                                result.errors = {
+                                    email: combinedErrors,
+                                }
+                            }
                         } else if (isFunctionAction(action)) {
                             const template = hogFunctionTemplatesById[action.config.template_id]
                             if (!template) {

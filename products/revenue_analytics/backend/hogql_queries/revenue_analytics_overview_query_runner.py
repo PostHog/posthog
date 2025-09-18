@@ -94,7 +94,17 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner[RevenueAna
                             ast.Call(
                                 name="toDecimal",
                                 args=[
-                                    ast.Call(name="sum", args=[ast.Field(chain=["amount"])]),
+                                    ast.Call(
+                                        name="sum",
+                                        args=[
+                                            ast.Field(
+                                                chain=[
+                                                    RevenueAnalyticsRevenueItemView.get_generic_view_alias(),
+                                                    "amount",
+                                                ]
+                                            )
+                                        ],
+                                    ),
                                     ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION),
                                 ],
                             ),
@@ -107,7 +117,9 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner[RevenueAna
                     expr=ast.Call(
                         name="count",
                         distinct=True,
-                        args=[ast.Field(chain=["customer_id"])],
+                        args=[
+                            ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "customer_id"])
+                        ],
                     ),
                 ),
             ],
@@ -120,10 +132,12 @@ class RevenueAnalyticsOverviewQueryRunner(RevenueAnalyticsQueryRunner[RevenueAna
             ),
             where=ast.And(
                 exprs=[
-                    self.timestamp_where_clause(["timestamp"]),
+                    self.timestamp_where_clause(
+                        [RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "timestamp"]
+                    ),
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.GtEq,
-                        left=ast.Field(chain=["amount"]),
+                        left=ast.Field(chain=[RevenueAnalyticsRevenueItemView.get_generic_view_alias(), "amount"]),
                         right=ZERO_DECIMAL,
                     ),
                     *self.where_property_exprs(view),

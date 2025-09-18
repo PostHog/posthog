@@ -114,14 +114,12 @@ class ExperimentSavedMetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
 @receiver(model_activity_signal, sender=ExperimentSavedMetric)
 def handle_experiment_saved_metric_change(
-    sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
 ):
     log_activity(
         organization_id=after_update.team.organization_id,
         team_id=after_update.team_id,
-        user=after_update.created_by
-        if activity == "created"
-        else getattr(after_update, "last_modified_by", after_update.created_by),
+        user=user,
         was_impersonated=was_impersonated,
         item_id=after_update.id,
         scope="Experiment",  # log under Experiment scope so it appears in experiment activity log

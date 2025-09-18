@@ -9,6 +9,8 @@ import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+
 import { CampaignMetrics } from './CampaignMetrics'
 import { CampaignOverview } from './CampaignOverview'
 import { CampaignSceneHeader } from './CampaignSceneHeader'
@@ -72,13 +74,13 @@ export function CampaignScene(props: CampaignSceneLogicProps): JSX.Element {
     ]
 
     return (
-        <div className="flex flex-col space-y-4">
+        <SceneContent className="flex flex-col">
             <CampaignSceneHeader {...props} />
             <LemonTabs
                 activeKey={currentTab}
                 onChange={(tab) => router.actions.push(urls.messagingCampaign(props.id ?? 'new', tab))}
                 tabs={tabs}
             />
-        </div>
+        </SceneContent>
     )
 }

@@ -6,6 +6,7 @@ const VERSION: u32 = 1;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SymbolDataType {
     SourceAndMap = 2,
+    HermesMap = 3,
 }
 
 pub trait SymbolData: Sized {

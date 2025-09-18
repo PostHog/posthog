@@ -9,7 +9,6 @@ import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductI
 import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheckerBanner'
 import { FilmCameraHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonSegmentedSelect } from 'lib/lemon-ui/LemonSegmentedSelect/LemonSegmentedSelect'
@@ -138,6 +137,8 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
             )}
 
             <WebQuery
+                attachTo={webAnalyticsLogic}
+                uniqueKey={`WebAnalytics.${tile.tileId}`}
                 query={query}
                 insightProps={insightProps}
                 control={control}
@@ -172,6 +173,8 @@ const TabsTileItem = ({ tile }: { tile: TabsTile }): JSX.Element => {
                 id: tab.id,
                 content: (
                     <WebQuery
+                        attachTo={webAnalyticsLogic}
+                        uniqueKey={`WebAnalytics.${tile.tileId}.${tab.id}`}
                         key={tab.id}
                         query={tab.query}
                         showIntervalSelect={tab.showIntervalSelect}
@@ -508,7 +511,9 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                 <WebAnalyticsModal />
                 <VersionCheckerBanner />
                 <SceneContent className="WebAnalyticsDashboard w-full flex flex-col">
-                    <Filters tabs={<WebAnalyticsTabs />} />
+                    <WebAnalyticsTabs />
+                    {/* Empty fragment so tabs are not part of the sticky bar */}
+                    <Filters tabs={<></>} />
 
                     <WebAnalyticsPageReportsCTA />
                     <WebAnalyticsHealthCheck />
@@ -524,7 +529,6 @@ const WebAnalyticsTabs = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { setProductTab } = useActions(webAnalyticsLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     return (
         <LemonTabs<ProductTab>
@@ -536,7 +540,8 @@ const WebAnalyticsTabs = (): JSX.Element => {
                 ...pageReportsTab(featureFlags),
                 ...marketingTab(featureFlags),
             ]}
-            sceneInset={newSceneLayout}
+            sceneInset
+            className="-mt-4"
         />
     )
 }

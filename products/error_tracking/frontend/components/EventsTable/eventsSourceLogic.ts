@@ -19,6 +19,6 @@ function rowToRecord(row: any): ErrorEventType {
 }
 
 export const eventsSourceLogic = createDataSourceLogic<DataSourceLogicProps<EventsQuery>, ErrorEventType>(
-    () => ['scene', 'error-tracking', 'events-source'],
+    () => ['products', 'error_tracking', 'components', 'EventsTable', 'eventsSourceLogic'],
     rowToRecord
 )

@@ -7,6 +7,7 @@ import { v4 as uuidv4 } from 'uuid'
 
 import api from 'lib/api'
 import { ENTITY_MATCH_TYPE } from 'lib/constants'
+import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
@@ -384,10 +385,12 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             cohortsModel.findMounted()?.actions.deleteCohort({ id: values.cohort.id, name: values.cohort.name })
             router.actions.push(urls.cohorts())
         },
-        submitCohort: () => {
-            if (values.cohortHasErrors) {
-                lemonToast.error('There was an error submiting this cohort. Make sure the cohort filters are correct.')
-            }
+        submitCohortFailure: () => {
+            scrollToFormError({
+                extraErrorSelectors: ['.CohortCriteriaRow__Criteria--error'],
+                fallbackErrorMessage:
+                    'There was an error submitting this cohort. Make sure the cohort filters are correct.',
+            })
         },
         checkIfFinishedCalculating: async ({ cohort }, breakpoint) => {
             if (cohort.is_calculating) {

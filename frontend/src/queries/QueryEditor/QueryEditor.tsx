@@ -40,7 +40,7 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
             <div
                 data-attr="query-editor"
                 className={clsx(
-                    'flex flex-col p-2 bg-primary deprecated-space-y-2 resize-y overflow-auto h-80 rounded',
+                    'flex flex-col p-2 bg-primary deprecated-space-y-2 resize-y overflow-auto min-h-80 rounded',
                     props.className
                 )}
             >

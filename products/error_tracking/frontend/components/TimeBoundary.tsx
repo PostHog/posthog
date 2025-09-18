@@ -9,7 +9,7 @@ import { Dayjs } from 'lib/dayjs'
 
 import { DateRange } from '~/queries/schema/schema-general'
 
-import { errorFiltersLogic } from './ErrorFilters/errorFiltersLogic'
+import { issueFiltersLogic } from './IssueFilters/issueFiltersLogic'
 
 type TimeBoundaryProps = {
     label: string
@@ -19,8 +19,8 @@ type TimeBoundaryProps = {
 }
 
 export function TimeBoundary({ time, loading, label, updateDateRange }: TimeBoundaryProps): JSX.Element {
-    const { dateRange } = useValues(errorFiltersLogic)
-    const { setDateRange } = useActions(errorFiltersLogic)
+    const { dateRange } = useValues(issueFiltersLogic)
+    const { setDateRange } = useActions(issueFiltersLogic)
     const onClick = useCallback(
         (e: MouseEvent): void => {
             setDateRange(updateDateRange(dateRange))

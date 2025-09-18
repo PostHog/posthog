@@ -42,7 +42,7 @@ class SparklineQueryRunner(LogsQueryRunner):
             """
                 SELECT
                     am.time_bucket AS time,
-                    level,
+                    severity_text,
                     ifNull(ac.event_count, 0) AS count
                 FROM (
                     SELECT
@@ -59,11 +59,11 @@ class SparklineQueryRunner(LogsQueryRunner):
                 LEFT JOIN (
                     SELECT
                         toStartOfInterval(timestamp, {one_interval_period}) AS time,
-                        level,
+                        severity_text,
                         count() AS event_count
                     FROM logs
                     WHERE {where}
-                    GROUP BY level, time
+                    GROUP BY severity_text, time
                 ) AS ac ON am.time_bucket = ac.time
                 ORDER BY time asc
                 LIMIT 1000
