@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import { LemonButton, LemonModal, LemonTable, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTable, LemonTabs, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
+import { urls } from 'scenes/urls'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 
@@ -27,7 +28,9 @@ export function SampledSessionsModal({
     stepName,
     variant,
 }: SampledSessionsModalProps): JSX.Element {
-    const [recordingAvailability, setRecordingAvailability] = useState<Map<string, boolean>>(new Map())
+    const [recordingAvailability, setRecordingAvailability] = useState<
+        Map<string, { hasRecording: boolean; distinct_id?: string }>
+    >(new Map())
     const [loading, setLoading] = useState(false)
     const [activeTab, setActiveTab] = useState(stepName)
 
@@ -51,9 +54,18 @@ export function SampledSessionsModal({
                     limit: allSessionIds.length,
                 })
 
-                const availabilityMap = new Map<string, boolean>()
+                const availabilityMap = new Map<string, { hasRecording: boolean; distinct_id?: string }>()
                 response.results?.forEach((recording) => {
-                    availabilityMap.set(recording.id, true)
+                    availabilityMap.set(recording.id, {
+                        hasRecording: true,
+                        distinct_id: recording.distinct_id,
+                    })
+                })
+                // Also add entries for sessions without recordings
+                allSessionIds.forEach((sessionId) => {
+                    if (!availabilityMap.has(sessionId)) {
+                        availabilityMap.set(sessionId, { hasRecording: false })
+                    }
                 })
 
                 setRecordingAvailability(availabilityMap)
@@ -83,18 +95,37 @@ export function SampledSessionsModal({
         {
             title: 'Session ID',
             key: 'sessionId',
-            render: (_, sutuple) => (
-                <span className="font-mono text-xs" title={sutuple[0]}>
-                    {sutuple[0]}
-                </span>
-            ),
+            render: (_, sutuple) => {
+                const sessionInfo = recordingAvailability.get(sutuple[0])
+                const distinct_id = sessionInfo?.distinct_id
+
+                if (distinct_id) {
+                    return (
+                        <Link
+                            to={urls.personByDistinctId(distinct_id)}
+                            subtle
+                            className="font-mono text-xs"
+                            title={sutuple[0]}
+                        >
+                            {sutuple[0]}
+                        </Link>
+                    )
+                }
+
+                return (
+                    <span className="font-mono text-xs" title={sutuple[0]}>
+                        {sutuple[0]}
+                    </span>
+                )
+            },
             width: '40%',
         },
         {
             title: 'Recording',
             key: 'recording',
             render: (_, sutuple) => {
-                const hasRecording = recordingAvailability.get(sutuple[0]) || false
+                const sessionInfo = recordingAvailability.get(sutuple[0])
+                const hasRecording = sessionInfo?.hasRecording || false
 
                 if (loading) {
                     return <Spinner className="text-sm" />
