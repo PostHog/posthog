@@ -285,7 +285,6 @@ class Database(BaseModel):
 
         return (
             self._table_names
-            + self.get_system_tables()
             + warehouse_table_names
             + self._warehouse_self_managed_table_names
             + self._view_table_names
