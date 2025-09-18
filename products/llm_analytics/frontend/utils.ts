@@ -481,3 +481,23 @@ export function looksLikeXml(input: unknown): boolean {
         !!next && ((next >= 'A' && next <= 'Z') || (next >= 'a' && next <= 'z') || next === '_' || next === ':')
     return isNameStart
 }
+
+/**
+ * Formats an ID for display by truncating it to the first and last 4 characters:
+ * `1234567890` -> `1234...7890`
+ * @param value - The string to format.
+ * @returns The formatted string.
+ */
+export function truncateValue(value: unknown): string {
+    if (value === null || value === undefined) {
+        return '-'
+    }
+
+    const stringValue = String(value)
+
+    if (stringValue.length <= 12) {
+        return stringValue
+    }
+
+    return stringValue.slice(0, 4) + '...' + stringValue.slice(-4)
+}

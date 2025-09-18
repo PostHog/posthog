@@ -59,3 +59,4 @@ class ExternalDataSourceType(models.TextChoices):
     POLAR = "Polar", "Polar"
     REVENUECAT = "RevenueCat", "RevenueCat"
     LINKEDINADS = "LinkedinAds", "LinkedinAds"
+    REDDITADS = "RedditAds", "RedditAds"

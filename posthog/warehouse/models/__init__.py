@@ -8,4 +8,5 @@ from .external_data_source import *
 from .join import *
 from .modeling import *
 from .query_tab_state import *
+from .revenue_analytics_config import *
 from .table import *

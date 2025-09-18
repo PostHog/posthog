@@ -4,11 +4,12 @@ import { BindLogic, useActions, useValues } from 'kea'
 import React, { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconAIText, IconChat, IconCopy, IconGear, IconMessage, IconReceipt, IconSearch } from '@posthog/icons'
+import { IconAIText, IconChat, IconCopy, IconMessage, IconReceipt, IconSearch } from '@posthog/icons'
 import {
     LemonButton,
     LemonDivider,
     LemonInput,
+    LemonSelect,
     LemonTable,
     LemonTabs,
     LemonTag,
@@ -34,16 +35,16 @@ import { urls } from 'scenes/urls'
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { ConversationMessagesDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
-import { DisplayOptionsModal } from './ConversationDisplay/DisplayOptionsModal'
 import { MetadataHeader } from './ConversationDisplay/MetadataHeader'
 import { ParametersHeader } from './ConversationDisplay/ParametersHeader'
 import { LLMInputOutput } from './LLMInputOutput'
 import { SearchHighlight } from './SearchHighlight'
 import { FeedbackTag } from './components/FeedbackTag'
 import { MetricTag } from './components/MetricTag'
+import { SaveToDatasetButton } from './datasets/SaveToDatasetButton'
 import { llmAnalyticsPlaygroundLogic } from './llmAnalyticsPlaygroundLogic'
 import { EnrichedTraceTreeNode, llmAnalyticsTraceDataLogic } from './llmAnalyticsTraceDataLogic'
-import { llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
+import { DisplayOption, llmAnalyticsTraceLogic } from './llmAnalyticsTraceLogic'
 import { exportTraceToClipboard } from './traceExportUtils'
 import {
     formatLLMCost,
@@ -74,8 +75,17 @@ export function LLMAnalyticsTraceScene(): JSX.Element {
 
 function TraceSceneWrapper(): JSX.Element {
     const { eventId } = useValues(llmAnalyticsTraceLogic)
-    const { enrichedTree, trace, event, responseLoading, responseError, feedbackEvents, metricEvents, searchQuery } =
-        useValues(llmAnalyticsTraceDataLogic)
+    const {
+        enrichedTree,
+        trace,
+        event,
+        responseLoading,
+        responseError,
+        feedbackEvents,
+        metricEvents,
+        searchQuery,
+        eventMetadata,
+    } = useValues(llmAnalyticsTraceDataLogic)
 
     return (
         <>
@@ -94,13 +104,19 @@ function TraceSceneWrapper(): JSX.Element {
                             feedbackEvents={feedbackEvents as LLMTraceEvent[]}
                         />
                         <div className="flex gap-2">
+                            <DisplayOptionsSelect />
                             <CopyTraceButton trace={trace} tree={enrichedTree} />
-                            <DisplayOptionsButton />
                         </div>
                     </div>
                     <div className="flex flex-1 min-h-0 gap-4 flex-col md:flex-row">
                         <TraceSidebar trace={trace} eventId={eventId} tree={enrichedTree} />
-                        <EventContent event={event} tree={enrichedTree} searchQuery={searchQuery} />
+                        <EventContent
+                            trace={trace}
+                            event={event}
+                            tree={enrichedTree}
+                            searchQuery={searchQuery}
+                            eventMetadata={eventMetadata}
+                        />
                     </div>
                 </div>
             )}
@@ -499,13 +515,17 @@ function findNodeForEvent(tree: EnrichedTraceTreeNode[], eventId: string): Enric
 
 const EventContent = React.memo(
     ({
+        trace,
         event,
+        eventMetadata,
         tree,
         searchQuery,
     }: {
+        trace: LLMTrace
         event: LLMTrace | LLMTraceEvent | null
         tree: EnrichedTraceTreeNode[]
         searchQuery?: string
+        eventMetadata?: Record<string, unknown>
     }): JSX.Element => {
         const { setupPlaygroundFromEvent } = useActions(llmAnalyticsPlaygroundLogic)
         const { featureFlags } = useValues(featureFlagLogic)
@@ -519,6 +539,8 @@ const EventContent = React.memo(
             isLLMTraceEvent(event) &&
             event.event === '$ai_generation' &&
             featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_PLAYGROUND]
+
+        const showSaveToDatasetButton = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
 
         const handleTryInPlayground = (): void => {
             if (!event) {
@@ -592,7 +614,7 @@ const EventContent = React.memo(
                                     )}
                                 </div>
                             )}
-                            {(showPlaygroundButton || hasSessionID(event)) && (
+                            {(showPlaygroundButton || hasSessionID(event) || showSaveToDatasetButton) && (
                                 <div className="flex flex-row items-center gap-2">
                                     {showPlaygroundButton && (
                                         <LemonButton
@@ -604,6 +626,27 @@ const EventContent = React.memo(
                                         >
                                             Try in Playground
                                         </LemonButton>
+                                    )}
+                                    {showSaveToDatasetButton && (
+                                        <SaveToDatasetButton
+                                            traceId={trace.id}
+                                            timestamp={trace.createdAt}
+                                            sourceId={event.id}
+                                            input={
+                                                isLLMTraceEvent(event)
+                                                    ? (event.properties.$ai_input ?? event.properties.$ai_input_state)
+                                                    : event.inputState
+                                            }
+                                            output={
+                                                isLLMTraceEvent(event)
+                                                    ? (event.properties.$ai_output_choices ??
+                                                      event.properties.$ai_output ??
+                                                      event.properties.$ai_output_state ??
+                                                      event.properties.$ai_error)
+                                                    : event.outputState
+                                            }
+                                            metadata={eventMetadata}
+                                        />
                                     )}
                                     {hasSessionID(event) && (
                                         <ViewRecordingButton
@@ -683,7 +726,6 @@ const EventContent = React.memo(
                                 },
                             ]}
                         />
-                        <DisplayOptionsModal />
                     </>
                 )}
             </div>
@@ -728,29 +770,39 @@ function CopyTraceButton({ trace, tree }: { trace: LLMTrace; tree: EnrichedTrace
     return (
         <LemonButton
             type="secondary"
-            size="small"
+            size="xsmall"
             icon={<IconCopy />}
             onClick={handleCopyTrace}
             tooltip="Copy trace to clipboard"
         >
-            Copy Trace
+            Copy trace JSON
         </LemonButton>
     )
 }
 
-function DisplayOptionsButton(): JSX.Element {
-    const { showDisplayOptionsModal } = useActions(llmAnalyticsTraceLogic)
+function DisplayOptionsSelect(): JSX.Element {
+    const { displayOption } = useValues(llmAnalyticsTraceLogic)
+    const { setDisplayOption } = useActions(llmAnalyticsTraceLogic)
+
+    const displayOptions = [
+        {
+            value: DisplayOption.ExpandAll,
+            label: 'Expand all',
+        },
+        {
+            value: DisplayOption.CollapseExceptOutputAndLastInput,
+            label: 'Collapse except output and last input',
+        },
+    ]
 
     return (
-        <LemonButton
-            type="secondary"
-            size="small"
-            icon={<IconGear />}
-            onClick={showDisplayOptionsModal}
+        <LemonSelect
+            size="xsmall"
+            value={displayOption}
+            onChange={setDisplayOption}
+            options={displayOptions}
             tooltip="Configure how generation conversation messages are displayed"
-        >
-            Display Options
-        </LemonButton>
+        />
     )
 }
 

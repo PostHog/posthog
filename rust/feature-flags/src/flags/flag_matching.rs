@@ -5,6 +5,7 @@ use crate::api::types::{
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::cohorts::cohort_models::{Cohort, CohortId};
 use crate::cohorts::cohort_operations::{apply_cohort_membership_logic, evaluate_dynamic_cohorts};
+use crate::database::PostgresRouter;
 use crate::flags::flag_group_type_mapping::{GroupTypeIndex, GroupTypeMappingCache};
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
 use crate::flags::flag_matching_utils::{
@@ -28,7 +29,6 @@ use crate::utils::graph_utils::{
     log_dependency_graph_operation_error, DependencyGraph,
 };
 use anyhow::Result;
-use common_database::{PostgresReader, PostgresWriter};
 use common_metrics::{inc, timing_guard};
 use common_types::{PersonId, ProjectId, TeamId};
 use rayon::prelude::*;
@@ -159,10 +159,8 @@ pub struct FeatureFlagMatcher {
     pub team_id: TeamId,
     /// Project ID for scoping flag evaluations
     pub project_id: ProjectId,
-    /// Database connection for reading data
-    pub reader: PostgresReader,
-    /// Database connection for writing data (e.g. experience continuity overrides)
-    pub writer: PostgresWriter,
+    /// Router for database connections across persons/non-persons pools
+    pub router: PostgresRouter,
     /// Cache manager for cohort definitions and memberships
     pub cohort_cache: Arc<CohortCacheManager>,
     /// Cache for mapping between group types and their indices
@@ -180,13 +178,11 @@ pub struct FeatureFlagMatcher {
 }
 
 impl FeatureFlagMatcher {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         distinct_id: String,
         team_id: TeamId,
         project_id: ProjectId,
-        reader: PostgresReader,
-        writer: PostgresWriter,
+        router: PostgresRouter,
         cohort_cache: Arc<CohortCacheManager>,
         group_type_mapping_cache: Option<GroupTypeMappingCache>,
         groups: Option<HashMap<String, Value>>,
@@ -195,8 +191,7 @@ impl FeatureFlagMatcher {
             distinct_id,
             team_id,
             project_id,
-            reader: reader.clone(),
-            writer: writer.clone(),
+            router,
             cohort_cache,
             group_type_mapping_cache: group_type_mapping_cache
                 .unwrap_or_else(|| GroupTypeMappingCache::new(project_id)),
@@ -295,7 +290,7 @@ impl FeatureFlagMatcher {
         target_distinct_ids: Vec<String>,
     ) -> (Option<HashMap<String, String>>, bool) {
         let should_write = match should_write_hash_key_override(
-            self.reader.clone(),
+            &self.router,
             self.team_id,
             self.distinct_id.clone(),
             self.project_id,
@@ -323,8 +318,8 @@ impl FeatureFlagMatcher {
 
         if should_write {
             if let Err(e) = set_feature_flag_hash_key_overrides(
-                // NB: this is the only method that writes to the database, so it's the only one that should use the writer
-                self.writer.clone(),
+                // NB: this is the only method that writes to the database
+                &self.router,
                 self.team_id,
                 target_distinct_ids.clone(),
                 self.project_id,
@@ -357,9 +352,9 @@ impl FeatureFlagMatcher {
         // This is because we need to make sure the write is successful before we read it back
         // to avoid read-after-write consistency issues with database replication lag
         let database_for_reading = if writing_hash_key_override {
-            self.writer.clone()
+            self.router.get_persons_writer().clone()
         } else {
-            self.reader.clone()
+            self.router.get_persons_reader().clone()
         };
 
         match get_feature_flag_hash_key_overrides(
@@ -1325,7 +1320,7 @@ impl FeatureFlagMatcher {
         let db_fetch_timer = common_metrics::timing_guard(FLAG_DB_PROPERTIES_FETCH_TIME, &[]);
         match fetch_and_locally_cache_all_relevant_properties(
             &mut self.flag_evaluation_state,
-            self.reader.clone(),
+            self.router.get_persons_reader().clone(),
             self.distinct_id.clone(),
             self.team_id,
             &group_data.type_indexes,
@@ -1455,7 +1450,7 @@ impl FeatureFlagMatcher {
         }
     }
 
-    /// If experience continuity is enabled, we need to process the hash key override if it's provided.
+    /// If experience continuity is enabled, we need to process the hash key override.
     /// See [`FeatureFlagMatcher::process_hash_key_override`] for more details.
     async fn process_hash_key_override_if_needed(
         &self,
@@ -1463,7 +1458,6 @@ impl FeatureFlagMatcher {
         hash_key_override: Option<String>,
     ) -> (Option<HashMap<String, String>>, bool) {
         let hash_key_timer = common_metrics::timing_guard(FLAG_HASH_KEY_PROCESSING_TIME, &[]);
-        // If experience continuity is enabled, we need to process the hash key override if it's provided.
         let (hash_key_overrides, flag_hash_key_override_error) =
             if flags_have_experience_continuity_enabled {
                 match hash_key_override {
@@ -1472,9 +1466,29 @@ impl FeatureFlagMatcher {
                         self.process_hash_key_override(hash_key, target_distinct_ids)
                             .await
                     }
-                    // if a flag has experience continuity enabled but no hash key override is provided,
-                    // we don't need to write an override, we can just use the distinct_id
-                    None => (None, false),
+                    // If no hash key override is provided, we need to look up existing overrides.
+                    // Most of the time this is fine because our client side sdks usually include $anon_distinct_id in their requests,
+                    // but if a customer is using hash key overrides across a client sdk and a server sdk then the experience
+                    // will be inconsistent because server sdks won't include $anon_distinct_id in their requests.
+                    // In addition, this behavior is consistent with /decide.
+                    None => {
+                        match get_feature_flag_hash_key_overrides(
+                            self.router.get_persons_reader().clone(),
+                            self.team_id,
+                            vec![self.distinct_id.clone()],
+                        )
+                        .await
+                        {
+                            Ok(overrides) => (Some(overrides), false),
+                            Err(e) => {
+                                error!(
+                                    "Failed to get feature flag hash key overrides for team {} project {} distinct_id {}: {:?}",
+                                    self.team_id, self.project_id, self.distinct_id, e
+                                );
+                                (None, true)
+                            }
+                        }
+                    }
                 }
             } else {
                 // if experience continuity is not enabled, we don't need to worry about hash key overrides
@@ -1528,7 +1542,7 @@ impl FeatureFlagMatcher {
 
         if self
             .group_type_mapping_cache
-            .init(self.reader.clone())
+            .init(self.router.get_non_persons_reader().clone())
             .await
             .is_err()
         {

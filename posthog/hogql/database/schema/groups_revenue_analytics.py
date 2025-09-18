@@ -50,15 +50,17 @@ def select_from_groups_revenue_analytics_table(context: HogQLContext) -> ast.Sel
     if not context.database:
         return ast.SelectQuery.empty(columns=columns)
 
-    # Get all customer/revenue item pairs from the existing views
+    # Get all customer/revenue item pairs from the existing views making sure we ignore `all`
+    # since the `group` join is in the child view
     all_views: dict[str, dict[type[RevenueAnalyticsBaseView], RevenueAnalyticsBaseView]] = defaultdict(defaultdict)
     for view_name in context.database.get_views():
         view = context.database.get_table(view_name)
 
-        if isinstance(view, RevenueAnalyticsCustomerView):
-            all_views[view.prefix][RevenueAnalyticsCustomerView] = view
-        elif isinstance(view, RevenueAnalyticsRevenueItemView):
-            all_views[view.prefix][RevenueAnalyticsRevenueItemView] = view
+        if isinstance(view, RevenueAnalyticsBaseView) and not view.union_all:
+            if isinstance(view, RevenueAnalyticsCustomerView):
+                all_views[view.prefix][RevenueAnalyticsCustomerView] = view
+            elif isinstance(view, RevenueAnalyticsRevenueItemView):
+                all_views[view.prefix][RevenueAnalyticsRevenueItemView] = view
 
     # Iterate over all possible view pairs and figure out which queries we can add to the set
     queries = []

@@ -14,6 +14,7 @@ FunnelsSchemaGeneratorOutput = SchemaGeneratorOutput[AssistantFunnelsQuery]
 
 
 class FunnelGeneratorNode(SchemaGeneratorNode[AssistantFunnelsQuery]):
+    REASONING_MESSAGE = "Creating funnel query"
     INSIGHT_NAME = "Funnels"
     OUTPUT_MODEL = FunnelsSchemaGeneratorOutput
     OUTPUT_SCHEMA = FUNNEL_SCHEMA

@@ -10,7 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { getDefaultTreeProducts, iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { groupsModel } from '~/models/groupsModel'
-import { FileSystemImport } from '~/queries/schema/schema-general'
+import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { Group, InsightShortId, PersonType, SearchResponse, SearchableEntity } from '~/types'
 
 import { commandBarLogic } from './commandBarLogic'
@@ -57,7 +57,9 @@ function rankProductTreeItems(treeItems: FileSystemImport[], query: string): Tre
                 result_id: item.href || item.path,
                 extra_fields: {
                     ...item,
-                    icon: item.iconType ? iconForType(item.iconType) : iconForType(item.type),
+                    icon: item.iconType
+                        ? iconForType(item.iconType as FileSystemIconType)
+                        : iconForType(item.type as FileSystemIconType),
                     description: `Category: ${item.category}`,
                 },
                 rank,
@@ -308,20 +310,6 @@ export const searchBarLogic = kea<searchBarLogicType>([
                 activeTab,
                 featureFlags
             ) => {
-                if (
-                    !searchResponse &&
-                    !personsResponse &&
-                    !group0Response &&
-                    !group1Response &&
-                    !group2Response &&
-                    !group3Response &&
-                    !group4Response &&
-                    activeTab !== Tab.Products &&
-                    activeTab !== Tab.All
-                ) {
-                    return null
-                }
-
                 const results = []
 
                 // Add regular search results (not for Products tab)
@@ -372,6 +360,55 @@ export const searchBarLogic = kea<searchBarLogicType>([
             },
         ],
         combinedSearchLoading: [
+            (s) => [
+                s.rawSearchResponseLoading,
+                s.rawPersonsResponseLoading,
+                s.rawGroup0ResponseLoading,
+                s.rawGroup1ResponseLoading,
+                s.rawGroup2ResponseLoading,
+                s.rawGroup3ResponseLoading,
+                s.rawGroup4ResponseLoading,
+                s.activeTab,
+            ],
+            (
+                searchLoading: boolean,
+                personsLoading: boolean,
+                group0Loading: boolean,
+                group1Loading: boolean,
+                group2Loading: boolean,
+                group3Loading: boolean,
+                group4Loading: boolean,
+                activeTab: Tab
+            ) => {
+                // For individual tabs, only check the relevant loading state
+                if (activeTab === Tab.Person) {
+                    return personsLoading
+                }
+                if (activeTab === Tab.Group0) {
+                    return group0Loading
+                }
+                if (activeTab === Tab.Group1) {
+                    return group1Loading
+                }
+                if (activeTab === Tab.Group2) {
+                    return group2Loading
+                }
+                if (activeTab === Tab.Group3) {
+                    return group3Loading
+                }
+                if (activeTab === Tab.Group4) {
+                    return group4Loading
+                }
+                if (activeTab !== Tab.All && activeTab !== Tab.Products) {
+                    return searchLoading
+                }
+
+                // For "All" tab, only show loading if the primary search is loading
+                // This allows other results to show while slow group searches are still running
+                return searchLoading
+            },
+        ],
+        anySearchLoading: [
             (s) => [
                 s.rawSearchResponseLoading,
                 s.rawPersonsResponseLoading,
@@ -553,7 +590,11 @@ export const searchBarLogic = kea<searchBarLogicType>([
             actions.loadGroup4Response(_)
         },
         openResult: ({ index }) => {
-            const result = values.combinedSearchResults![index]
+            const results = values.combinedSearchResults
+            if (!results || !results[index]) {
+                return // Early exit if no valid result
+            }
+            const result = results[index]
             router.actions.push(urlForResult(result))
             actions.hideCommandBar()
             actions.reportCommandBarSearchResultOpened(result.type)

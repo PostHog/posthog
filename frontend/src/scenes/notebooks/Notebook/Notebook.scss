@@ -7,7 +7,7 @@
     .NotebookEditor {
         position: relative;
         flex: 1;
-        width: 100%;
+        min-width: 0; // So trends and other insight elements resize properly
         margin: 0 auto;
 
         .ProseMirror {
@@ -54,11 +54,7 @@
             }
 
             > .is-empty::before {
-                float: left;
-                height: 0;
                 color: rgb(0 0 0 / 20%);
-                pointer-events: none;
-                content: attr(data-placeholder);
 
                 [theme='dark'] & {
                     color: rgb(255 255 255 / 20%);

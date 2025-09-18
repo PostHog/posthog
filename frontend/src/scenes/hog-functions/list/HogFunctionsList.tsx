@@ -44,8 +44,9 @@ export function HogFunctionList({
     hideFeedback = false,
     ...props
 }: HogFunctionListLogicProps & { extraControls?: JSX.Element; hideFeedback?: boolean }): JSX.Element {
-    const { loading, filteredHogFunctions, filters, hogFunctions, canEnableHogFunction, hiddenHogFunctions } =
-        useValues(hogFunctionsListLogic(props))
+    const { loading, filteredHogFunctions, filters, hogFunctions, hiddenHogFunctions } = useValues(
+        hogFunctionsListLogic(props)
+    )
     const { loadHogFunctions, setFilters, resetFilters, toggleEnabled, deleteHogFunction, setReorderModalOpen } =
         useActions(hogFunctionsListLogic(props))
 
@@ -99,9 +100,30 @@ export function HogFunctionList({
                 title: 'Last 7 days',
                 width: 0,
                 render: (_, hogFunction) => {
+                    if (hogFunction.id.startsWith('batch-export-')) {
+                        // TODO: Make this less hacky, maybe with some extended type for managing these values
+                        const batchExportId = hogFunction.id.replace('batch-export-', '')
+                        return (
+                            <Link to={urlForHogFunction(hogFunction) + '?tab=metrics'}>
+                                <AppMetricsSparkline
+                                    logicKey={batchExportId}
+                                    forceParams={{
+                                        appSource: 'batch_export',
+                                        appSourceId: batchExportId,
+                                        metricKind: ['success', 'failure'],
+                                        breakdownBy: 'metric_kind',
+                                        interval: 'day',
+                                        dateFrom: '-7d',
+                                    }}
+                                />
+                            </Link>
+                        )
+                    }
+
                     if (isManualFunction(hogFunction) || hogFunction.type === 'site_app') {
                         return <>N/A</>
                     }
+
                     return (
                         <Link to={urlForHogFunction(hogFunction) + '?tab=metrics'}>
                             <AppMetricsSparkline
@@ -148,10 +170,6 @@ export function HogFunctionList({
                                                   {
                                                       label: hogFunction.enabled ? 'Pause' : 'Unpause',
                                                       onClick: () => toggleEnabled(hogFunction, !hogFunction.enabled),
-                                                      disabledReason:
-                                                          !canEnableHogFunction(hogFunction) && !hogFunction.enabled
-                                                              ? `Data pipelines add-on is required for enabling new ${humanizedType}`
-                                                              : undefined,
                                                   },
                                                   {
                                                       label: 'Delete',
@@ -190,7 +208,7 @@ export function HogFunctionList({
         }
 
         return columns
-    }, [props.type, canEnableHogFunction, humanizedType, toggleEnabled, deleteHogFunction, isManualFunction]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [props.type, humanizedType, toggleEnabled, deleteHogFunction, isManualFunction]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     return (
         <div className="flex flex-col gap-4">

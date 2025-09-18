@@ -1,8 +1,5 @@
 import { useValues } from 'kea'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { cn } from 'lib/utils/css-classes'
-
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { Query } from '~/queries/Query/Query'
 import { CurrencyCode } from '~/queries/schema/schema-general'
@@ -41,7 +38,6 @@ const queryContext: QueryContext = {
 
 export function RevenueExampleDataWarehouseTablesData(): JSX.Element | null {
     const { exampleDataWarehouseTablesQuery } = useValues(revenueAnalyticsSettingsLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     if (!exampleDataWarehouseTablesQuery) {
         return null
@@ -49,22 +45,14 @@ export function RevenueExampleDataWarehouseTablesData(): JSX.Element | null {
 
     return (
         <SceneSection
-            hideTitleAndDescription={!newSceneLayout}
-            className={cn(!newSceneLayout && 'gap-y-0')}
             title="Data warehouse tables revenue data"
             description="The following rows of data were imported from your data warehouse tables. This is helpful when you're trying to debug what your revenue data looks like."
         >
-            {!newSceneLayout && (
-                <>
-                    <h3>Data warehouse tables revenue data</h3>
-                    <p>
-                        The following rows of data were imported from your data warehouse tables. This is helpful when
-                        you're trying to debug what your revenue data looks like.
-                    </p>
-                </>
-            )}
-
-            <Query query={exampleDataWarehouseTablesQuery} context={queryContext} />
+            <Query
+                attachTo={revenueAnalyticsSettingsLogic}
+                query={exampleDataWarehouseTablesQuery}
+                context={queryContext}
+            />
         </SceneSection>
     )
 }

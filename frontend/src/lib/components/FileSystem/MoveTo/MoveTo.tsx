@@ -27,7 +27,7 @@ export function MoveToModal(): JSX.Element {
             description={
                 <>
                     You are moving {movingItems.length} item{movingItems.length === 1 ? '' : 's'} to{' '}
-                    <LemonSnack>{destinationFolder}</LemonSnack>`
+                    <LemonSnack>{destinationFolder}</LemonSnack>
                 </>
             }
             // This is a bit of a hack. Without it, the flow "insight" -> "add to dashboard button" ->

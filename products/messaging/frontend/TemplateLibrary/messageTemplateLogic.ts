@@ -33,11 +33,6 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             (id): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.Messaging,
-                        name: 'Messaging',
-                        path: urls.messaging(),
-                    },
-                    {
                         key: [Scene.Messaging, 'library'],
                         name: 'Library',
                         path: urls.messaging('library'),

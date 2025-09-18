@@ -17,7 +17,7 @@ import {
 } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { AccessControlledLemonButton } from 'lib/components/AccessControlledLemonButton'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -30,12 +30,12 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { IconErrorOutline, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber, humanizeBytes, inStorybook, inStorybookTestRunner } from 'lib/utils'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -177,6 +177,7 @@ export const LOADING_MESSAGES = [
     'Polishing graphs with tiny hedgehog paws…',
     'Rolling through data like a spiky ball of insights…',
     'Gathering nuts and numbers from the data forest…',
+    // eslint-disable-next-line react/jsx-key
     <>
         Reticulating <s>splines</s> spines…
     </>,
@@ -457,9 +458,8 @@ export function InsightLoadingState({
     renderEmptyStateAsSkeleton?: boolean
 }): JSX.Element {
     const { suggestedSamplingPercentage, samplingPercentage } = useValues(samplingFilterLogic(insightProps))
-    const { insightPollResponse, insightLoadingTimeSeconds, queryChanged, activeSceneId } = useValues(
-        insightDataLogic(insightProps)
-    )
+    const { insightPollResponse, insightLoadingTimeSeconds, queryChanged } = useValues(insightDataLogic(insightProps))
+    const { activeSceneId } = useValues(sceneLogic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -752,19 +752,19 @@ export function SavedInsightsEmptyState({
             {filters.tab !== SavedInsightsTabs.Favorites && (
                 <div className="flex justify-center">
                     <Link to={urls.insightNew()}>
-                        <AccessControlledLemonButton
-                            type="primary"
-                            data-attr="add-insight-button-empty-state"
-                            icon={<IconPlusSmall />}
-                            className="add-insight-button"
+                        <AccessControlAction
                             resourceType={AccessControlResourceType.Insight}
                             minAccessLevel={AccessControlLevel.Editor}
-                            userAccessLevel={
-                                getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight]
-                            }
                         >
-                            New insight
-                        </AccessControlledLemonButton>
+                            <LemonButton
+                                type="primary"
+                                data-attr="add-insight-button-empty-state"
+                                icon={<IconPlusSmall />}
+                                className="add-insight-button"
+                            >
+                                New insight
+                            </LemonButton>
+                        </AccessControlAction>
                     </Link>
                 </div>
             )}

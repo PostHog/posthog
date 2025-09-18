@@ -11,12 +11,22 @@ import {
     AssistantToolCallMessage,
     FailureMessage,
     HumanMessage,
+    MultiVisualizationMessage,
     NotebookUpdateMessage,
+    PlanningMessage,
     ReasoningMessage,
     RootAssistantMessage,
+    TaskExecutionMessage,
     VisualizationMessage,
 } from '~/queries/schema/schema-assistant-messages'
-import { FunnelsQuery, HogQLQuery, RetentionQuery, TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    DashboardFilter,
+    FunnelsQuery,
+    HogQLQuery,
+    HogQLVariable,
+    RetentionQuery,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isHogQLQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
 import { ActionType, DashboardType, EventDefinition, QueryBasedInsightModel, SidePanelTab } from '~/types'
 
@@ -31,6 +41,12 @@ export function isVisualizationMessage(
     message: RootAssistantMessage | undefined | null
 ): message is VisualizationMessage {
     return message?.type === AssistantMessageType.Visualization
+}
+
+export function isMultiVisualizationMessage(
+    message: RootAssistantMessage | undefined | null
+): message is MultiVisualizationMessage {
+    return message?.type === AssistantMessageType.MultiVisualization
 }
 
 export function isHumanMessage(message: RootAssistantMessage | undefined | null): message is HumanMessage {
@@ -57,8 +73,18 @@ export function isNotebookUpdateMessage(
     return message?.type === AssistantMessageType.Notebook
 }
 
+export function isPlanningMessage(message: RootAssistantMessage | undefined | null): message is PlanningMessage {
+    return message?.type === AssistantMessageType.Planning
+}
+
+export function isTaskExecutionMessage(
+    message: RootAssistantMessage | undefined | null
+): message is TaskExecutionMessage {
+    return message?.type === AssistantMessageType.TaskExecution
+}
+
 export function castAssistantQuery(
-    query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery
+    query: AnyAssistantGeneratedQuery | AnyAssistantSupportedQuery | null
 ): TrendsQuery | FunnelsQuery | RetentionQuery | HogQLQuery {
     if (isTrendsQuery(query)) {
         return query
@@ -69,7 +95,7 @@ export function castAssistantQuery(
     } else if (isHogQLQuery(query)) {
         return query
     }
-    throw new Error(`Unsupported query type: ${query.kind}`)
+    throw new Error(`Unsupported query type: ${query?.kind}`)
 }
 
 /**
@@ -161,7 +187,11 @@ export function generateBurstPoints(spikeCount: number, spikiness: number): stri
 }
 
 // Utility functions for transforming data to max context
-export const insightToMaxContext = (insight: Partial<QueryBasedInsightModel>): MaxInsightContext => {
+export const insightToMaxContext = (
+    insight: Partial<QueryBasedInsightModel>,
+    filtersOverride?: DashboardFilter,
+    variablesOverride?: Record<string, HogQLVariable>
+): MaxInsightContext => {
     const source = (insight.query as any)?.source
     return {
         type: MaxContextType.INSIGHT,
@@ -169,6 +199,8 @@ export const insightToMaxContext = (insight: Partial<QueryBasedInsightModel>): M
         name: insight.name || insight.derived_name,
         description: insight.description,
         query: source,
+        filtersOverride,
+        variablesOverride,
     }
 }
 

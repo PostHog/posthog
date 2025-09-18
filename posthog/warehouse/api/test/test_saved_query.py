@@ -1,6 +1,8 @@
 import uuid
+from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
+from unittest import mock
 from unittest.mock import patch
 
 from posthog.models import ActivityLog
@@ -63,6 +65,106 @@ class TestSavedQuery(APIBaseTest):
             },
         )
         self.assertEqual(response.status_code, 200)
+
+    def test_materialize_view(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+
+        assert response.status_code == 201
+        saved_query_id = response.data["id"]
+        assert saved_query_id is not None
+
+        with (
+            patch("posthog.warehouse.api.saved_query.sync_saved_query_workflow"),
+            patch("posthog.warehouse.api.saved_query.saved_query_workflow_exists", return_value=False),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}",
+                {
+                    "id": saved_query_id,
+                    "lifecycle": "update",
+                    "sync_frequency": "24hour",
+                },
+            )
+
+            assert response.status_code == 200
+            assert response.data["is_materialized"] is True
+
+            saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
+
+            assert saved_query.is_materialized is True
+
+    def test_materialize_view_no_sync_frequency(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+
+        assert response.status_code == 201
+        saved_query_id = response.data["id"]
+        assert saved_query_id is not None
+
+        with (
+            patch("posthog.warehouse.api.saved_query.pause_saved_query_schedule") as mock_pause_saved_query_schedule,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}",
+                {
+                    "id": saved_query_id,
+                    "lifecycle": "update",
+                    "sync_frequency": "never",
+                },
+            )
+
+            assert response.status_code == 200
+            assert response.data["is_materialized"] is True
+
+            saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
+
+            assert saved_query.is_materialized is True
+            assert saved_query.sync_frequency_interval is None
+
+            mock_pause_saved_query_schedule.assert_called()
+
+        with (
+            patch("posthog.warehouse.api.saved_query.sync_saved_query_workflow"),
+            patch("posthog.warehouse.api.saved_query.saved_query_workflow_exists", return_value=True),
+            patch(
+                "posthog.warehouse.api.saved_query.unpause_saved_query_schedule"
+            ) as mock_unpause_saved_query_schedule,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}",
+                {
+                    "id": saved_query_id,
+                    "lifecycle": "update",
+                    "sync_frequency": "24hour",
+                },
+            )
+
+            assert response.status_code == 200
+            assert response.data["is_materialized"] is True
+
+            saved_query = DataWarehouseSavedQuery.objects.get(id=saved_query_id)
+
+            assert saved_query.is_materialized is True
+            assert saved_query.sync_frequency_interval == timedelta(hours=24)
+
+            mock_unpause_saved_query_schedule.assert_called()
 
     def test_create_with_types(self):
         with patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns:
@@ -258,6 +360,9 @@ class TestSavedQuery(APIBaseTest):
         with (
             patch("posthog.warehouse.api.saved_query.sync_saved_query_workflow") as mock_sync_saved_query_workflow,
             patch("posthog.warehouse.api.saved_query.saved_query_workflow_exists") as mock_saved_query_workflow_exists,
+            patch(
+                "posthog.warehouse.api.saved_query.unpause_saved_query_schedule"
+            ) as mock_unpause_saved_query_schedule,
         ):
             mock_saved_query_workflow_exists.return_value = True
 
@@ -269,6 +374,7 @@ class TestSavedQuery(APIBaseTest):
             self.assertEqual(response.status_code, 200)
             mock_saved_query_workflow_exists.assert_called_once()
             mock_sync_saved_query_workflow.assert_called_once()
+            mock_unpause_saved_query_schedule.assert_called_once()
 
     def test_update_sync_frequency_to_never(self):
         response = self.client.post(
@@ -284,14 +390,14 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.status_code, 201)
         saved_query = response.json()
 
-        with patch("posthog.warehouse.api.saved_query.delete_saved_query_schedule") as mock_delete_saved_query_schedule:
+        with patch("posthog.warehouse.api.saved_query.pause_saved_query_schedule") as mock_pause_saved_query_schedule:
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
                 {"sync_frequency": "never"},
             )
 
             self.assertEqual(response.status_code, 200)
-            mock_delete_saved_query_schedule.assert_called_once_with(saved_query["id"])
+            mock_pause_saved_query_schedule.assert_called_once_with(saved_query["id"])
 
     def test_update_with_types(self):
         response = self.client.post(
@@ -851,6 +957,7 @@ class TestSavedQuery(APIBaseTest):
         db_saved_query.sync_frequency_interval = "24hours"
         db_saved_query.last_run_at = "2025-05-01T00:00:00Z"
         db_saved_query.status = DataWarehouseSavedQuery.Status.COMPLETED
+        db_saved_query.is_materialized = True
 
         mock_table = DataWarehouseTable.objects.create(
             team=self.team, name="materialized_event_view", format="Parquet", url_pattern="s3://bucket/path"
@@ -860,7 +967,10 @@ class TestSavedQuery(APIBaseTest):
 
         DataWarehouseModelPath.objects.create(team=self.team, path=[mock_table.id.hex, db_saved_query.id.hex])
 
-        with patch("posthog.warehouse.api.saved_query.delete_saved_query_schedule") as mock_delete_saved_query_schedule:
+        with (
+            patch("posthog.warehouse.data_load.saved_query_service.delete_schedule") as mock_delete_schedule,
+            patch("posthog.warehouse.data_load.saved_query_service.sync_connect"),
+        ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query_id}/revert_materialization",
             )
@@ -873,6 +983,7 @@ class TestSavedQuery(APIBaseTest):
             self.assertIsNone(db_saved_query.latest_error)
             self.assertIsNone(db_saved_query.status)
             self.assertIsNone(db_saved_query.table_id)
+            self.assertFalse(db_saved_query.is_materialized)
 
             # Check the table has been deleted
             mock_table.refresh_from_db()
@@ -885,7 +996,7 @@ class TestSavedQuery(APIBaseTest):
                 0,
             )
 
-            mock_delete_saved_query_schedule.assert_called_once_with(str(db_saved_query.id))
+            mock_delete_schedule.assert_called_once_with(mock.ANY, schedule_id=str(db_saved_query.id))
 
     def test_create_with_existing_name(self):
         DataWarehouseTable.objects.create(

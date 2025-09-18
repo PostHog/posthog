@@ -39,6 +39,8 @@ class MySQLSource(BaseSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabas
         return SourceConfig(
             name=SchemaExternalDataSourceType.MY_SQL,
             caption="Enter your MySQL/MariaDB credentials to automatically pull your MySQL data into the PostHog Data warehouse.",
+            iconPath="/static/services/mysql.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/mysql",
             fields=cast(
                 list[FieldType],
                 [
@@ -97,7 +99,7 @@ class MySQLSource(BaseSource[MySQLSourceConfig], SSHTunnelMixin, ValidateDatabas
             ),
         )
 
-    def get_schemas(self, config: MySQLSourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(self, config: MySQLSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         schemas = []
 
         with self.with_ssh_tunnel(config) as (host, port):

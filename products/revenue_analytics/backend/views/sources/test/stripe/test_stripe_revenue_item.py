@@ -88,17 +88,26 @@ class TestRevenueItemStripeBuilder(StripeSourceBaseTest):
             self.assertQueryMatchesSnapshot(query_sql, replace_all_numbers=True)
 
     def test_build_with_no_relevant_schemas(self):
-        """Test that build returns empty when no relevant schemas exist."""
+        """Test that build returns view even when no relevant schemas exist."""
         # Setup without any relevant schemas
         self.setup_stripe_external_data_source(schemas=[])
 
         queries = list(build(self.stripe_handle))
 
         # Should return no queries
-        self.assertEqual(len(queries), 0)
+        self.assertEqual(len(queries), 1)
+        revenue_query = queries[0]
+        self.assertQueryContainsFields(revenue_query.query, REVENUE_ITEM_SCHEMA)
+        self.assertBuiltQueryStructure(
+            revenue_query,
+            f"stripe.{self.external_data_source.prefix}.no_source",
+            f"stripe.{self.external_data_source.prefix}",
+        )
+        # Print and snapshot the generated HogQL query
+        self.assertQueryMatchesSnapshot(revenue_query.query.to_hogql(), replace_all_numbers=True)
 
     def test_build_with_no_source(self):
-        """Test that build returns empty when source is None."""
+        """Test that build returns none when source is None."""
         handle = self.create_stripe_handle_without_source()
 
         queries = list(build(handle))

@@ -3,6 +3,8 @@ use common_types::RawEvent;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
+use crate::utils::timestamp::parse_timestamp;
+
 /// Bincode-compatible version of RawEvent that stores JSON as strings
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SerializableRawEvent {
@@ -142,7 +144,7 @@ impl MetadataV1 {
             .timestamp
             .as_ref()
             .and_then(|t| t.parse::<u64>().ok())
-            .unwrap_or_else(|| chrono::Utc::now().timestamp() as u64);
+            .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() as u64);
 
         let mut seen_uuids = HashSet::new();
         if let Some(uuid) = original_event.uuid {
@@ -246,20 +248,22 @@ impl EventSimilarity {
         }
 
         // Compare timestamps - check if they parse to the same u64 value
+        // Use parse_timestamp which handles both numeric and ISO formats
         total_fields += 1;
-        let original_ts = original
-            .timestamp
-            .as_ref()
-            .and_then(|t| t.parse::<u64>().ok());
-        let new_ts = new.timestamp.as_ref().and_then(|t| t.parse::<u64>().ok());
+        let original_ts = original.timestamp.as_ref().and_then(|t| parse_timestamp(t));
+        let new_ts = new.timestamp.as_ref().and_then(|t| parse_timestamp(t));
 
         if original_ts == new_ts {
             matching_fields += 1;
         } else {
             different_fields.push((
                 "timestamp".to_string(),
-                format_opt(&original.timestamp),
-                format_opt(&new.timestamp),
+                original_ts
+                    .map(|ts| ts.to_string())
+                    .unwrap_or_else(|| "<invalid>".to_string()),
+                new_ts
+                    .map(|ts| ts.to_string())
+                    .unwrap_or_else(|| "<invalid>".to_string()),
             ));
         }
 
@@ -763,6 +767,50 @@ mod tests {
         let summary = metadata.get_metrics_summary();
         assert!(summary.contains("Duplicates: 2"));
         assert!(summary.contains("Unique UUIDs: 2"));
+    }
+
+    #[test]
+    fn test_non_ascii_timestamp_handling() {
+        // Test that non-ASCII timestamps don't cause panics when calculating similarity
+        let event1 = RawEvent {
+            uuid: Some(uuid::Uuid::new_v4()),
+            event: "test_event".to_string(),
+            distinct_id: Some(serde_json::json!("user123")),
+            token: Some("token1".to_string()),
+            // Czech timestamp with non-ASCII characters that previously caused panics
+            timestamp: Some("2025-09-02T14:45:58.462 září 12:46:52 +00:00".to_string()),
+            properties: HashMap::new(),
+            ..Default::default()
+        };
+
+        let event2 = RawEvent {
+            uuid: Some(uuid::Uuid::new_v4()),
+            event: "test_event".to_string(),
+            distinct_id: Some(serde_json::json!("user123")),
+            token: Some("token1".to_string()),
+            timestamp: Some("2025-09-02T14:45:58.462Z".to_string()),
+            properties: HashMap::new(),
+            ..Default::default()
+        };
+
+        // This should not panic even with non-ASCII timestamp
+        let similarity = EventSimilarity::calculate(&event1, &event2).unwrap();
+
+        // Timestamps are different (one invalid, one valid), so they should show as different
+        assert!(similarity
+            .different_fields
+            .iter()
+            .any(|(field, _, _)| field == "timestamp"));
+
+        // First timestamp is invalid (has non-ASCII), second is valid ISO
+        let timestamp_diff = similarity
+            .different_fields
+            .iter()
+            .find(|(field, _, _)| field == "timestamp")
+            .unwrap();
+        assert_eq!(timestamp_diff.1, "<invalid>"); // Czech timestamp can't be parsed
+                                                   // Second timestamp is valid ISO format, should show the milliseconds value
+        assert!(timestamp_diff.2 != "<invalid>");
     }
 
     #[test]

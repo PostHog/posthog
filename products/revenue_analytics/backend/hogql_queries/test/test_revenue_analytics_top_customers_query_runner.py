@@ -119,6 +119,8 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
                 STRIPE_CUSTOMER_COLUMNS,
                 CUSTOMER_TEST_BUCKET,
                 self.team,
+                credential=self.credential,
+                source=self.source,
             )
         )
 
@@ -130,6 +132,8 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
                 STRIPE_CHARGE_COLUMNS,
                 CHARGES_TEST_BUCKET,
                 self.team,
+                credential=self.credential,
+                source=self.source,
             )
         )
 
@@ -223,7 +227,7 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         results = self._run_revenue_analytics_top_customers_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="source",
+                    key="source_label",
                     operator=PropertyOperator.EXACT,
                     value=["non-existent-source"],
                 )
@@ -264,12 +268,12 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         self.assertEqual(
             results,
             [
-                ("John Doe", "cus_1", Decimal("529.8954508132"), "all"),
-                ("Jane Doe", "cus_2", Decimal("222.6060849997"), "all"),
-                ("John Smith", "cus_3", Decimal("1923.372205"), "all"),
-                ("Jane Smith", "cus_4", Decimal("170.9565"), "all"),
-                ("John Doe Jr", "cus_5", Decimal("1379.39181"), "all"),
-                ("John Doe Jr Jr", "cus_6", Decimal("1337.35006"), "all"),
+                ("cus_2", "Jane Doe", Decimal("222.6060849997"), "all"),
+                ("cus_4", "Jane Smith", Decimal("170.9565"), "all"),
+                ("cus_1", "John Doe", Decimal("520.9965118432"), "all"),
+                ("cus_5", "John Doe Jr", Decimal("1379.39181"), "all"),
+                ("cus_6", "John Doe Jr Jr", Decimal("1337.35006"), "all"),
+                ("cus_3", "John Smith", Decimal("1923.372205"), "all"),
             ],
         )
 
@@ -288,7 +292,7 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
             date_range=DateRange(date_from="2023-11-01", date_to="2024-01-31"),
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="source",
+                    key="source_label",
                     operator=PropertyOperator.EXACT,
                     value=["revenue_analytics.events.purchase"],
                 )
@@ -298,8 +302,8 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         self.assertEqual(
             results,
             [
-                ("p1", ANY, Decimal("33.2094"), datetime.date(2023, 12, 1)),
-                ("p2", ANY, Decimal("21.0237251204"), datetime.date(2024, 1, 1)),
+                (ANY, "p1", Decimal("33.2094"), datetime.date(2023, 12, 1)),
+                (ANY, "p2", Decimal("21.0237251204"), datetime.date(2024, 1, 1)),
             ],
         )
 
@@ -323,7 +327,7 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
             date_range=DateRange(date_from="2023-11-01", date_to="2024-01-31"),
             properties=[
                 RevenueAnalyticsPropertyFilter(
-                    key="source",
+                    key="source_label",
                     operator=PropertyOperator.EXACT,
                     value=["revenue_analytics.events.purchase"],
                 )
@@ -333,7 +337,7 @@ class TestRevenueAnalyticsTopCustomersQueryRunner(ClickhouseTestMixin, APIBaseTe
         self.assertEqual(
             results,
             [
-                ("p1", ANY, Decimal("33.2094"), datetime.date(2023, 12, 1)),
-                ("p2", ANY, Decimal("21.0237251204"), datetime.date(2024, 1, 1)),
+                (ANY, "p1", Decimal("33.2094"), datetime.date(2023, 12, 1)),
+                (ANY, "p2", Decimal("21.0237251204"), datetime.date(2024, 1, 1)),
             ],
         )

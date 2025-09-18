@@ -8,8 +8,10 @@ from rest_framework.response import Response
 from posthog.models.organization_integration import OrganizationIntegration
 
 from ee.api.authentication import VercelAuthentication
+from ee.api.vercel.utils import expect_vercel_user_claim
 from ee.api.vercel.vercel_error_mixin import VercelErrorResponseMixin
 from ee.api.vercel.vercel_permission import VercelPermission
+from ee.api.vercel.vercel_region_proxy_mixin import VercelRegionProxyMixin
 from ee.vercel.integration import VercelIntegration
 
 
@@ -49,10 +51,20 @@ class UpdateInstallationPayloadSerializer(serializers.Serializer):
     billingPlanId = serializers.CharField(help_text='Partner-provided billing plan. Example: "pro200"')
 
 
-INSTALLATION_ID_PATTERN = re.compile(r"^inst_[A-Za-z0-9]{9,}$")
+INSTALLATION_ID_PATTERN = re.compile(r"^icfg_[A-Za-z0-9]{24}$")
 
 
-class VercelInstallationViewSet(VercelErrorResponseMixin, viewsets.GenericViewSet):
+def validate_installation_id(installation_id: str | None) -> str:
+    if not installation_id:
+        raise exceptions.ValidationError({"installation_id": "Missing installation_id in URL."})
+
+    if not INSTALLATION_ID_PATTERN.match(installation_id):
+        raise exceptions.ValidationError({"installation_id": "Invalid installation_id format."})
+
+    return installation_id
+
+
+class VercelInstallationViewSet(VercelRegionProxyMixin, VercelErrorResponseMixin, viewsets.GenericViewSet):
     lookup_field = "installation_id"
     authentication_classes = [VercelAuthentication]
     permission_classes = [VercelPermission]
@@ -66,13 +78,7 @@ class VercelInstallationViewSet(VercelErrorResponseMixin, viewsets.GenericViewSe
     }
 
     def get_object(self):
-        installation_id = self.kwargs.get("installation_id")
-
-        if not installation_id:
-            raise exceptions.ValidationError({"installation_id": "Missing installation_id in URL."})
-
-        if not INSTALLATION_ID_PATTERN.match(installation_id):
-            raise exceptions.ValidationError({"installation_id": "Invalid installation_id format."})
+        installation_id = validate_installation_id(self.kwargs.get("installation_id"))
 
         try:
             installation = OrganizationIntegration.objects.get(
@@ -90,15 +96,19 @@ class VercelInstallationViewSet(VercelErrorResponseMixin, viewsets.GenericViewSe
         if not serializer.is_valid():
             raise exceptions.ValidationError(detail=serializer.errors)
 
-        VercelIntegration.upsert_installation(self.kwargs["installation_id"], serializer.validated_data)
+        installation_id = validate_installation_id(self.kwargs.get("installation_id"))
+        user_claim = expect_vercel_user_claim(request)
+        VercelIntegration.upsert_installation(installation_id, serializer.validated_data, user_claim)
+
+        # Update cache since installation now exists
+        self.set_installation_cache(installation_id, True)
         return Response(status=204)
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Implements: https://vercel.com/docs/integrations/create-integration/marketplace-api#get-installation
         """
-        installation_id = self.kwargs.get("installation_id", "")
-
+        installation_id = validate_installation_id(self.kwargs.get("installation_id"))
         response_data = VercelIntegration.get_installation_billing_plan(installation_id)
         return Response(response_data, status=200)
 
@@ -110,17 +120,21 @@ class VercelInstallationViewSet(VercelErrorResponseMixin, viewsets.GenericViewSe
         if not serializer.is_valid():
             raise exceptions.ValidationError(detail=serializer.errors)
 
-        installation_id = self.kwargs["installation_id"]
-
+        installation_id = validate_installation_id(self.kwargs.get("installation_id"))
         VercelIntegration.update_installation(installation_id, serializer.validated_data.get("billingPlanId"))
+
+        # Ensure cache reflects installation still exists
+        self.set_installation_cache(installation_id, True)
+
         return Response(status=204)
 
     def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Implements: https://vercel.com/docs/integrations/create-integration/marketplace-api#delete-installation
         """
-        installation_id = self.kwargs["installation_id"]
+        installation_id = validate_installation_id(self.kwargs.get("installation_id"))
         response_data = VercelIntegration.delete_installation(installation_id)
+
         return Response(response_data, status=200)
 
     @decorators.action(detail=True, methods=["get"])

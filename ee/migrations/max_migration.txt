@@ -1,1 +1,1 @@
-0027_add_single_session_summary_model
+0028_alter_conversation_type

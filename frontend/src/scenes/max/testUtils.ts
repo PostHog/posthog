@@ -6,7 +6,7 @@ import api from 'lib/api'
 
 import { Mocks } from '~/mocks/utils'
 import { AssistantEventType, AssistantMessage, AssistantMessageType } from '~/queries/schema/schema-assistant-messages'
-import { Conversation, ConversationStatus } from '~/types'
+import { Conversation, ConversationStatus, ConversationType } from '~/types'
 
 export const maxMocks: Mocks = {
     get: {
@@ -28,6 +28,7 @@ export const MOCK_CONVERSATION: Conversation = {
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
     user: MOCK_DEFAULT_BASIC_USER,
+    type: ConversationType.Assistant,
 }
 
 export const MOCK_IN_PROGRESS_CONVERSATION: Conversation = {
@@ -51,6 +52,7 @@ export function mockStream(): jest.SpyInstance {
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
                     user: MOCK_DEFAULT_BASIC_USER,
+                    type: ConversationType.Assistant,
                 }
                 enqueue({
                     event: AssistantEventType.Conversation,

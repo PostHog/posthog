@@ -2,7 +2,6 @@ import { Meta } from '@storybook/react'
 import { BindLogic, useActions } from 'kea'
 import { useEffect } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 
@@ -21,7 +20,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-01-28', // To stabilize relative dates
-        featureFlags: [FEATURE_FLAGS.REVENUE_ANALYTICS, FEATURE_FLAGS.MRR_BREAKDOWN_REVENUE_ANALYTICS],
     },
 }
 export default meta

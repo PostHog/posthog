@@ -40,17 +40,16 @@ from posthog.demo.legacy import demo_route
 from posthog.models import User
 from posthog.models.instance_setting import get_instance_setting
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
+from posthog.temporal.codec_server import decode_payloads
 
 from products.early_access_features.backend.api import early_access_features
 
 from .utils import opt_slash_path, render_template
 from .views import (
-    api_key_search_view,
     health,
     login_required,
     preferences_page,
     preflight_check,
-    redis_values_view,
     robots_txt,
     security_txt,
     stats,
@@ -161,8 +160,6 @@ urlpatterns = [
     opt_slash_path("_health", health),
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
-    re_path(r"^admin/redisvalues$", redis_values_view, name="redis_values"),
-    path(r"admin/apikeysearch", api_key_search_view, name="api_key_search"),
     # ee
     *ee_urlpatterns,
     # api
@@ -242,6 +239,8 @@ if settings.DEBUG:
     # external clients cannot see them. See the gunicorn setup for details on
     # what we do.
     urlpatterns.append(path("_metrics", ExportToDjangoView))
+    # Temporal codec server endpoint for UI decryption - locally only for now
+    urlpatterns.append(path("decode", decode_payloads, name="temporal_decode"))
 
 
 if settings.TEST:
@@ -255,6 +254,9 @@ if settings.TEST:
         return HttpResponse()
 
     urlpatterns.append(path("delete_events/", delete_events))
+    # Temporal codec server endpoint for UI decryption - needed for tests (if not added already in DEBUG)
+    if not settings.DEBUG:
+        urlpatterns.append(path("decode", decode_payloads, name="temporal_decode"))
 
 
 # Routes added individually to remove login requirement

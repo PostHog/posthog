@@ -26,6 +26,12 @@ const hogFunctionFilterDuration = new Histogram({
     labelNames: ['type'],
 })
 
+const hogFunctionFilterOutcomes = new Counter({
+    name: 'cdp_hog_function_filter_outcome',
+    help: 'Count of filter outcomes',
+    labelNames: ['result', 'result_type'],
+})
+
 const hogFunctionPreFilterCounter = new Counter({
     name: 'cdp_hog_function_prefilter_result',
     help: 'Count of pre-filter results',
@@ -113,6 +119,7 @@ export function convertClickhouseRawEventToFilterGlobals(event: RawClickHouseEve
     // Initialize response with basic structure
     const response: HogFunctionFilterGlobals = {
         event: event.event,
+        uuid: event.uuid,
         elements_chain: elementsChain,
         elements_chain_href: '',
         elements_chain_texts: [] as string[],
@@ -208,6 +215,7 @@ export function convertToHogFunctionFilterGlobal(
 
     const response: HogFunctionFilterGlobals = {
         event: globals.event.event,
+        uuid: globals.event.uuid,
         elements_chain: elementsChain,
         elements_chain_href: '',
         elements_chain_texts: [] as string[],
@@ -324,12 +332,8 @@ export async function filterFunctionInstrumented(options: {
     filterGlobals: HogFunctionFilterGlobals
     /** Optional filters to use instead of those on the function */
     filters: HogFunctionType['filters']
-    /** Whether to enable telemetry for this function at the hogvm level */
-    enabledTelemetry?: boolean
-    /** The event UUID to use for logging */
-    eventUuid?: string
 }): Promise<HogFilterResult> {
-    const { fn, filters, filterGlobals, enabledTelemetry, eventUuid } = options
+    const { fn, filters, filterGlobals } = options
     const type = 'type' in fn ? fn.type : 'hogflow'
     const fnKind = 'type' in fn ? 'HogFunction' : 'HogFlow'
     const logs: LogEntry[] = []
@@ -375,10 +379,7 @@ export async function filterFunctionInstrumented(options: {
             throw new Error('Filters were not compiled correctly and so could not be executed')
         }
 
-        const execHogOutcome = await execHog(filters.bytecode, {
-            globals: filterGlobals,
-            telemetry: enabledTelemetry,
-        })
+        const execHogOutcome = await execHog(filters.bytecode, { globals: filterGlobals })
 
         if (execHogOutcome) {
             hogFunctionFilterDuration.observe({ type }, execHogOutcome.durationMs)
@@ -390,7 +391,7 @@ export async function filterFunctionInstrumented(options: {
                 functionName: fn.name,
                 teamId: fn.team_id,
                 duration: execHogOutcome.durationMs,
-                eventId: options?.eventUuid,
+                eventId: filterGlobals.uuid,
             })
         }
 
@@ -399,6 +400,12 @@ export async function filterFunctionInstrumented(options: {
         if (!execHogOutcome.execResult || execHogOutcome.error || execHogOutcome.execResult.error) {
             throw execHogOutcome.error ?? execHogOutcome.execResult?.error ?? new Error('Unknown error')
         }
+
+        // Metric the actual result of the filter to investigate if we get anything other than booleans
+        hogFunctionFilterOutcomes.inc({
+            result: JSON.stringify(execHogOutcome.execResult.result),
+            result_type: typeof execHogOutcome.execResult.result,
+        })
 
         result.match = typeof execHogOutcome.execResult.result === 'boolean' && execHogOutcome.execResult.result
 
@@ -435,7 +442,7 @@ export async function filterFunctionInstrumented(options: {
             instance_id: new UUIDT().toString(),
             timestamp: DateTime.now(),
             level: 'error',
-            message: `Error filtering event ${eventUuid}: ${error.message}`,
+            message: `Error filtering event ${filterGlobals.uuid ?? ''}: ${error.message}`,
         })
         result.error = error.message
     }

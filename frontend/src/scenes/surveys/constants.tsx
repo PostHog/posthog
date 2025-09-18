@@ -624,6 +624,7 @@ export enum SURVEY_CREATED_SOURCE {
     MAX_AI = 'max_ai',
     SURVEY_FORM = 'survey_form',
     SURVEY_EMPTY_STATE = 'survey_empty_state',
+    EXPERIMENTS = 'experiments',
 }
 
 export enum SURVEY_EMPTY_STATE_EXPERIMENT_VARIANT {

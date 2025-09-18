@@ -1,101 +1,83 @@
 from ee.hogai.graph.root.prompts import MAX_PERSONALITY_PROMPT
 
-INITIALIZE_CORE_MEMORY_WITH_URL_PROMPT = """
-Your goal is to describe what the startup with the given URL does.
-""".strip()
+SCRAPING_SUCCESS_KEY_PHRASE = "Here's what I found on"  # We check for this being present for detecting results
+SCRAPING_TERMINATION_MESSAGE = "I couldn't find relevant information on the internet. I'll ask you a few questions to help me understand your project better."
 
-INITIALIZE_CORE_MEMORY_WITH_URL_USER_PROMPT = """
+INITIALIZE_CORE_MEMORY_SYSTEM_PROMPT = f"""
+Your goal is to describe the product and business associated with the given domains, or application bundle IDs.
+
 <sources>
-- Check the provided URL. If the URL has a subdomain, check the root domain first and then the subdomain. For example, if the URL is https://us.example.com, check https://example.com first and then https://us.example.com.
+- Check the provided domain. If the domain has a subdomain, check the root domain first and then the subdomain. For example, if the domain is us.example.com, check example.com first and then us.example.com.
+- If an app bundle ID was provided, check the app listings on App Store and Google Play. If a website URL is provided on such an app listing, check the website and retrieve information about the app.
 - Also search business sites like Crunchbase, G2, LinkedIn, Hacker News, etc. for information about the business associated with the provided URL.
 </sources>
 
-<instructions>
-- Describe the product itself and the market where the company operates.
-- Describe the target audience of the product.
-- Describe the company's business model.
-- List all the features of the product and describe each feature in as much detail as possible.
-</instructions>
-
 <format_instructions>
-Output your answer in paragraphs with two to three sentences. Separate new paragraphs with a new line.
-IMPORTANT: DO NOT OUTPUT Markdown or headers. It must be plain text.
+Start your answer with "__{SCRAPING_SUCCESS_KEY_PHRASE} <product_name/domain>:__"
 
-If the given website doesn't exist OR the URL is not a valid website OR the URL points to a local environment
-(e.g. localhost, 127.0.0.1, etc.) then answer a single sentence:
-"No data available."
-Do NOT make speculative or assumptive statements, just output that sentence when lacking data.
+Then, provide your summary in paragraphs, each with an h4 heading (####).
+After a brief high-level description (heading-less), write out the following sections for each where relevant data was found:
+- Product features (including their specific names, how they relate to other features, and subfeatures based on available documentation)
+- User/Customer segments
+- Business model (including pricing and monetization details)
+- Technical details (include key URL paths of the site and product)
+- Brief history (include dates, include founders only if it's a startup, don't specify investors)
+
+Each section should be concise and use bullet points for clarity. Do not repeat any information more than once.
+Spend the most time on product details.
+
+IMPORTANT: DO NOT INCLUDE CITATION TOKENS. CITATION LINKS ARE PROHIBITED.
+DO NOT OFFER THE USER ANY INSTRUCTIONS. AVOID FOLLOW-UP SUGGESTIONS AND PROPOSALS.
+
+If the given domain doesn't exist OR no relevant data was found, then answer a single sentence:
+"{SCRAPING_TERMINATION_MESSAGE}"
+Do NOT make speculative or assumptive statements, just output that sentence 1:1 when lacking data.
 </format_instructions>
-
-The provided URL is "{{{url}}}".
 """.strip()
 
-INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_PROMPT = """
-Your goal is to describe what the startup with the given application bundle IDs does.
+INITIALIZE_CORE_MEMORY_WITH_DOMAINS_USER_PROMPT = """
+Provide an analysis of my product based on the following domain(s): {{domains}}.
 """.strip()
 
 INITIALIZE_CORE_MEMORY_WITH_BUNDLE_IDS_USER_PROMPT = """
-<sources>
-- Retrieve information about the provided app identifiers from app listings of App Store and Google Play.
-- If a website URL is provided on the app listing, check the website and retrieve information about the app.
-- Also search business sites like Crunchbase, G2, LinkedIn, Hacker News, etc. for information about the business associated with the provided URL.
-</sources>
-
-<instructions>
-- Describe the product itself and the market where the company operates.
-- Describe the target audience of the product.
-- Describe the company's business model.
-- List all the features of the product and describe each feature in as much detail as possible.
-</instructions>
-
-<format_instructions>
-Output your answer in paragraphs with two to three sentences. Separate new paragraphs with a new line.
-IMPORTANT: DO NOT OUTPUT Markdown or headers. It must be plain text.
-
-If the given website doesn't exist OR the URL is not a valid website OR the URL points to a local environment
-(e.g. localhost, 127.0.0.1, etc.) then answer a single sentence:
-"No data available."
-Do NOT make speculative or assumptive statements, just output that sentence when lacking data.
-</format_instructions>
-
-The provided bundle ID{{#bundle_ids.length > 1}}s are{{/bundle_ids.length > 1}}{{^bundle_ids.length > 1}} is{{/bundle_ids.length > 1}} {{#bundle_ids}}"{{.}}"{{^last}}, {{/last}}{{/bundle_ids}}.
+Provide an analysis of my product based on the following app bundle ID(s): {{#bundle_ids}}{{.}}{{^last}}, {{/last}}{{/bundle_ids}}
 """.strip()
 
 
 SCRAPING_INITIAL_MESSAGE = (
-    "Let me now find and verify information about your product, to help me understand your project better…"
+    "Let me find information about your product to help me understand your project better. "
+    "Looking at your event data, **{domains_or_bundle_ids_formatted}** may be relevant. This may take a minute…"
 )
 
 ENQUIRY_INITIAL_MESSAGE = "Let me now ask you a few questions to help me understand your project better…"
 
-SCRAPING_SUCCESS_MESSAGE = "This is what I found about your project:\n\n"
-
-SCRAPING_VERIFICATION_MESSAGE = "Does this look like a good summary of what your project does?"
+SCRAPING_VERIFICATION_MESSAGE = "Does this look like a comprehensive description of your project?"
 
 SCRAPING_CONFIRMATION_MESSAGE = "Yes, save this"
 
 SCRAPING_REJECTION_MESSAGE = "No, not quite right"
-
-SCRAPING_TERMINATION_MESSAGE = "I couldn't find any information about your project. I'll ask you a few questions to help me understand your project better."
 
 SCRAPING_MEMORY_SAVED_MESSAGE = (
     "Thanks! I've updated my initial memory. Remember that you can always ask me to remember information!"
 )
 
 ONBOARDING_COMPRESSION_PROMPT = """
-Your goal is to shorten these questions and answers in a series of paragraphs, each with a single sentence, preserving the original meaning and maintaining the cohesiveness of the text. Remove linking words. Do not use markdown or any other text formatting.
-Example:
+Segment the provided information into a series of brief, independent paragraphs, preserving the original meaning of the text.
+Preserve all the contents, only changing the formatting from a document into a series of sentences.
+Keep every detail present in the input, including technical information. Avoid fluff and never repeat information.
 
+<example_input>
 Question: What is your business model?
 Answer: We sell products to engineers.
 
 Question: What is your product?
 Answer: We sell a mobile app.
+</example_input>
 
-Output:
-
+<example_output>
 The company sells products to engineers.
 The product is a mobile app.
+</example_output>
 """.strip()
 
 MEMORY_COLLECTOR_PROMPT = """
@@ -123,7 +105,7 @@ Your responsibilities include:
 Memory Types to Collect:
 1. Company-related information: structure, KPIs, plans, facts, business model, target audience, competitors, etc.
 2. Product-related information: metrics, features, product management practices, etc.
-3. Technical and implementation details: technology stack, feature location with path segments for web or app screens for mobile apps, etc.
+3. Technical and implementation specifics: technology stack, feature location with path segments for web or app screens for mobile apps, etc.
 4. Taxonomy-related details: relations of events and properties to features or specific product parts, taxonomy combinations used for specific metrics, events/properties description, etc.
 </memory_types>
 

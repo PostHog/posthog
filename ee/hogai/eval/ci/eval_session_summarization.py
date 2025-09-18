@@ -1,19 +1,20 @@
-from functools import partial
-
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from braintrust import EvalCase
+from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import AssistantMessage, AssistantToolCall, HumanMessage
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph import AssistantGraph
+from ee.hogai.graph.session_summaries.nodes import _SessionSearch
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantNodeName, AssistantState
+from ee.hogai.utils.yaml import load_yaml_from_raw_llm_content
 from ee.models.assistant import Conversation
 
 from ..base import MaxPublicEval
-from ..scorers import ToolRelevance
+from ..scorers import ExactMatch, SemanticSimilarity, ToolRelevance
 
 
 @pytest.fixture
@@ -26,6 +27,7 @@ def call_root_for_replay_sessions(demo_org_team_user):
                 "insights": AssistantNodeName.END,
                 "search_documentation": AssistantNodeName.END,
                 "session_summarization": AssistantNodeName.END,
+                "insights_search": AssistantNodeName.END,
                 "root": AssistantNodeName.END,
                 "end": AssistantNodeName.END,
             }
@@ -69,10 +71,13 @@ def call_root_for_replay_sessions(demo_org_team_user):
 async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_replay_sessions, pytestconfig):
     """Test routing between search_session_recordings (contextual) and session_summarization (root) with context."""
 
+    async def task_with_context(messages):
+        return await call_root_for_replay_sessions(messages, include_search_session_recordings_context=True)
+
     await MaxPublicEval(
         experiment_name="tool_routing_session_replay",
-        task=call_root_for_replay_sessions,
-        scores=[ToolRelevance(semantic_similarity_args={"change", "session_summarization_query"})],
+        task=task_with_context,
+        scores=[ToolRelevance(semantic_similarity_args={"change", "session_summarization_query", "summary_title"})],
         data=[
             # Cases where search_session_recordings should be used (filtering/searching)
             EvalCase(
@@ -109,6 +114,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                     args={
                         "session_summarization_query": "summarize sessions from yesterday",
                         "should_use_current_filters": False,  # Specific time frame differs from current filters
+                        "summary_title": "Sessions from yesterday",
                     },
                 ),
             ),
@@ -120,6 +126,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                     args={
                         "session_summarization_query": "watch sessions of the user 09081 in the last 30 days",
                         "should_use_current_filters": False,  # Specific user and timeframe
+                        "summary_title": "User 09081 sessions (last 30 days)",
                     },
                 ),
             ),
@@ -131,6 +138,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                     args={
                         "session_summarization_query": "analyze mobile user sessions from last week",
                         "should_use_current_filters": False,  # Specific device type and timeframe
+                        "summary_title": "Mobile user sessions (last week)",
                     },
                 ),
             ),
@@ -142,6 +150,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                     args={
                         "session_summarization_query": "summarize sessions from the last 30 days with test accounts included",
                         "should_use_current_filters": False,  # Different time frame/conditions
+                        "summary_title": "All sessions with test accounts (last 30 days)",
                     },
                 ),
             ),
@@ -154,6 +163,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                     args={
                         "session_summarization_query": "summarize these sessions",
                         "should_use_current_filters": True,  # "these" refers to current filters
+                        "summary_title": "All sessions (last 7 days)",
                     },
                 ),
             ),
@@ -165,6 +175,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                     args={
                         "session_summarization_query": "summarize all sessions",
                         "should_use_current_filters": True,  # "all" in context of filtered view
+                        "summary_title": "All sessions (last 7 days)",
                     },
                 ),
             ),
@@ -176,6 +187,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                     args={
                         "session_summarization_query": "summarize sessions from the last 7 days with test accounts filtered out",
                         "should_use_current_filters": True,  # Matches current filters exactly
+                        "summary_title": "All sessions, no test accounts (last 7 days)",
                     },
                 ),
             ),
@@ -188,6 +200,7 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
                     args={
                         "session_summarization_query": "show me what users did with our app",
                         "should_use_current_filters": True,  # Analyzing user behavior, use current context
+                        "summary_title": "All sessions (last 7 days)",
                     },
                 ),
             ),
@@ -209,13 +222,13 @@ async def eval_tool_routing_session_replay(patch_feature_enabled, call_root_for_
 async def eval_session_summarization_no_context(patch_feature_enabled, call_root_for_replay_sessions, pytestconfig):
     """Test session summarization without search_session_recordings context - should_use_current_filters should always be false."""
 
-    # Use partial to avoid adding session search context
-    task_without_context = partial(call_root_for_replay_sessions, include_search_session_recordings_context=False)
+    async def task_without_context(messages):
+        return await call_root_for_replay_sessions(messages, include_search_session_recordings_context=False)
 
     await MaxPublicEval(
         experiment_name="session_summarization_no_context",
         task=task_without_context,
-        scores=[ToolRelevance(semantic_similarity_args={"session_summarization_query"})],
+        scores=[ToolRelevance(semantic_similarity_args={"session_summarization_query", "summary_title"})],
         data=[
             # All cases should have should_use_current_filters=false when no context
             EvalCase(
@@ -226,6 +239,7 @@ async def eval_session_summarization_no_context(patch_feature_enabled, call_root
                     args={
                         "session_summarization_query": "summarize sessions from yesterday",
                         "should_use_current_filters": False,  # No context, always false
+                        "summary_title": "Sessions from yesterday",
                     },
                 ),
             ),
@@ -237,6 +251,7 @@ async def eval_session_summarization_no_context(patch_feature_enabled, call_root
                     args={
                         "session_summarization_query": "analyze the current recordings from today",
                         "should_use_current_filters": False,  # Even with "current", no context means false
+                        "summary_title": "Sessions from today",
                     },
                 ),
             ),
@@ -248,8 +263,123 @@ async def eval_session_summarization_no_context(patch_feature_enabled, call_root
                     args={
                         "session_summarization_query": "watch all session recordings",
                         "should_use_current_filters": False,  # Even with "all", no context means false
+                        "summary_title": "All session recordings",
                     },
                 ),
+            ),
+        ],
+        pytestconfig=pytestconfig,
+    )
+
+
+@pytest.fixture
+def filter_query_tester(demo_org_team_user):
+    """Simple fixture to test filter query generation."""
+
+    async def test(input_query: str) -> str:
+        # Minimal mock setup
+        mock_node = MagicMock()
+        mock_node._team = demo_org_team_user[1]
+        mock_node._user = demo_org_team_user[2]
+        search = _SessionSearch(mock_node)
+        return await search._generate_filter_query(input_query, RunnableConfig())
+
+    return test
+
+
+async def eval_filter_query_generation(filter_query_tester, pytestconfig):
+    """Test that filter query generation preserves search intent while removing fluff."""
+
+    await MaxPublicEval(
+        experiment_name="filter_query_generation",
+        task=filter_query_tester,
+        scores=[SemanticSimilarity()],
+        data=[
+            EvalCase(input="summarize sessions from yesterday", expected="sessions from yesterday"),
+            EvalCase(input="analyze mobile user sessions from last week", expected="mobile user sessions last week"),
+            EvalCase(
+                input="watch last 100 sessions, I want to understand what users did in checkout flow",
+                expected="last 100 sessions",
+            ),
+            EvalCase(
+                input="hey Max,show me sessions longer than 5 minutes from Chrome users",
+                expected="sessions longer than 5 minutes fromChrome users",
+            ),
+            EvalCase(
+                input="watch recordings of user ID 12345 from past week, I want to see the UX issues they are facing",
+                expected="recordings of user ID 12345 from past week",
+            ),
+            EvalCase(
+                input="summarize iOS sessions from California with purchase events over $100, do we have a lot of these?",
+                expected="iOS sessions from California with purchase events over $100",
+            ),
+            EvalCase(
+                input="Max, I need you to watch replays of German desktop Linux users from 21.03.2024 till 24.03.2024, and tell me what problems did they encounter",
+                expected="replays of German desktop Linux users from 21.03.2024 till 24.03.2024",
+            ),
+        ],
+        pytestconfig=pytestconfig,
+    )
+
+
+@pytest.fixture
+def yaml_fix_tester():
+    """Test that load_yaml_from_raw_llm_content fixes malformed YAML."""
+
+    def test(malformed_yaml: str) -> dict | list:
+        return load_yaml_from_raw_llm_content(malformed_yaml, final_validation=True)
+
+    return test
+
+
+async def eval_yaml_fixing(yaml_fix_tester, pytestconfig):
+    """Test that load_yaml_from_raw_llm_content can fix slightly malformed YAML."""
+
+    await MaxPublicEval(
+        experiment_name="yaml_fixing",
+        task=yaml_fix_tester,
+        scores=[ExactMatch()],
+        data=[
+            # Missing closing quote
+            EvalCase(
+                input='key: "value with missing quote',
+                expected={"key": "value with missing quote"},
+            ),
+            # Mixed symbols in list items with malformed quotes
+            EvalCase(
+                input="""
+- item: 'value's with apostrophe'
+  description: "unclosed quote here
+- item: "double quoted "value" inside"
+  description: "some text with ```backticks around it```, maybe code"
+""",
+                expected=[
+                    {"description": "unclosed quote here", "item": "value's with apostrophe"},
+                    {
+                        "description": "some text with ```backticks around it```, maybe code",
+                        "item": 'double quoted "value" inside',
+                    },
+                ],
+            ),
+            # Mixed indentation (tabs and spaces)
+            EvalCase(
+                input="parent:\n\tchild: value",
+                expected={"parent": {"child": "value"}},
+            ),
+            # Unquoted string with special chars that should be quoted
+            EvalCase(
+                input="url: http://example.com?param=value&other=test",
+                expected={"url": "http://example.com?param=value&other=test"},
+            ),
+            # Missing dash for list item
+            EvalCase(
+                input="- item1\nitem2",
+                expected=["item1", "item2"],
+            ),
+            # Inconsistent list/dict mixing
+            EvalCase(
+                input="- key: value\nother: data",
+                expected={"key": "value", "other": "data"},
             ),
         ],
         pytestconfig=pytestconfig,

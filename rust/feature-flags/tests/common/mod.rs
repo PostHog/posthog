@@ -135,11 +135,18 @@ impl ServerHandle {
                 redis_reader_client.clone(),
             ));
 
+            // Create DatabasePools for tests
+            let database_pools = Arc::new(feature_flags::database_pools::DatabasePools {
+                non_persons_reader: reader.clone(),
+                non_persons_writer: writer.clone(),
+                persons_reader: reader.clone(),
+                persons_writer: writer.clone(),
+            });
+
             let app = feature_flags::router::router(
                 redis_reader_client,
                 redis_writer_client,
-                reader,
-                writer,
+                database_pools,
                 cohort_cache,
                 geoip_service,
                 health,

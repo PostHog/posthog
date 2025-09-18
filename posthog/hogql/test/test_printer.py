@@ -1499,6 +1499,14 @@ class TestPrinter(BaseTest):
             f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(toTimeZone(events.timestamp, %(hogql_val_0)s))) OVER (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_1)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000",
         )
 
+        # No rows but order by exists
+        self.assertEqual(
+            self._select(
+                "SELECT distinct_id, lag(event) OVER (PARTITION BY distinct_id ORDER BY timestamp) FROM events"
+            ),
+            f"SELECT events.distinct_id AS distinct_id, lagInFrame(toNullable(events.event)) OVER (PARTITION BY events.distinct_id ORDER BY toTimeZone(events.timestamp, %(hogql_val_0)s) ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000",
+        )
+
     def test_window_functions_with_window(self):
         self.assertEqual(
             self._select(
@@ -2497,6 +2505,14 @@ class TestPrinter(BaseTest):
                 HogQLContext(team_id=self.team.pk, enable_select_queries=True),
                 dialect="clickhouse",
             )
+
+    def test_team_id_guarding_events(self):
+        sql = self._select(
+            "SELECT event FROM events",
+        )
+        assert (
+            sql == f"SELECT events.event AS event FROM events WHERE equals(events.team_id, {self.team.pk}) LIMIT 50000"
+        )
 
     @parameterized.expand([[True], [False]])
     @pytest.mark.usefixtures("unittest_snapshot")

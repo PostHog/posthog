@@ -2,7 +2,7 @@ import { actions, events, kea, key, listeners, path, props, reducers, selectors 
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
-import { errorTrackingActivityDescriber } from '@posthog/products-error-tracking/frontend/errorTrackingActivityDescriber'
+import { ActivityDescriber as errorTrackingActivityDescriber } from '@posthog/products-error-tracking/frontend/components/ActivityDescriber'
 
 import api, { ActivityLogPaginatedResponse } from 'lib/api'
 import { tagActivityDescriber } from 'lib/components/ActivityLog/activityDescriptions/tagActivityDescriber'
@@ -18,6 +18,7 @@ import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { alertConfigurationActivityDescriber } from 'scenes/alerts/activityDescriptions'
 import { annotationActivityDescriber } from 'scenes/annotations/activityDescriptions'
 import { cohortActivityDescriber } from 'scenes/cohorts/activityDescriptions'
+import { dashboardActivityDescriber } from 'scenes/dashboard/dashboardActivityDescriber'
 import { dataManagementActivityDescriber } from 'scenes/data-management/dataManagementDescribers'
 import { batchExportActivityDescriber } from 'scenes/data-pipelines/batch-exports/activityDescriptions'
 import { batchImportActivityDescriber } from 'scenes/data-pipelines/batch-imports/activityDescriptions'
@@ -29,7 +30,6 @@ import { groupActivityDescriber } from 'scenes/groups/activityDescriptions'
 import { hogFunctionActivityDescriber } from 'scenes/hog-functions/misc/activityDescriptions'
 import { notebookActivityDescriber } from 'scenes/notebooks/Notebook/notebookActivityDescriber'
 import { personActivityDescriber } from 'scenes/persons/activityDescriptions'
-import { pluginActivityDescriber } from 'scenes/pipeline/pipelinePluginActivityDescriptions'
 import { insightActivityDescriber } from 'scenes/saved-insights/activityDescriptions'
 import { replayActivityDescriber } from 'scenes/session-recordings/activityDescription'
 import { organizationActivityDescriber } from 'scenes/settings/organization/activityDescriptions'
@@ -37,7 +37,7 @@ import { surveyActivityDescriber } from 'scenes/surveys/surveyActivityDescriber'
 import { teamActivityDescriber } from 'scenes/team-activity/teamActivityDescriber'
 import { urls } from 'scenes/urls'
 
-import { ActivityScope, PipelineNodeTab, PipelineStage, PipelineTab } from '~/types'
+import { ActivityScope } from '~/types'
 
 import type { activityLogLogicType } from './activityLogLogicType'
 
@@ -107,17 +107,18 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return batchExportActivityDescriber
         case ActivityScope.BATCH_IMPORT:
             return batchImportActivityDescriber
+        case ActivityScope.DASHBOARD:
+            return dashboardActivityDescriber
         case ActivityScope.FEATURE_FLAG:
             return flagActivityDescriber
-        case ActivityScope.PLUGIN:
-        case ActivityScope.PLUGIN_CONFIG:
-            return pluginActivityDescriber
         case ActivityScope.HOG_FUNCTION:
             return hogFunctionActivityDescriber
         case ActivityScope.COHORT:
             return cohortActivityDescriber
         case ActivityScope.INSIGHT:
             return insightActivityDescriber
+        case ActivityScope.DASHBOARD:
+            return dashboardActivityDescriber
         case ActivityScope.PERSON:
             return personActivityDescriber
         case ActivityScope.GROUP:
@@ -262,12 +263,7 @@ export const activityLogLogic = kea<activityLogLogicType>([
                 onPageChange(searchParams, hashParams, ActivityScope.INSIGHT),
             [urls.featureFlag(':id')]: (_, searchParams, hashParams) =>
                 onPageChange(searchParams, hashParams, ActivityScope.FEATURE_FLAG, true),
-            [urls.pipelineNode(PipelineStage.Destination, ':id', PipelineNodeTab.History)]: (
-                _,
-                searchParams,
-                hashParams
-            ) => onPageChange(searchParams, hashParams, ActivityScope.HOG_FUNCTION),
-            [urls.pipeline(PipelineTab.History)]: (_, searchParams, hashParams) =>
+            [urls.dataPipelines('history')]: (_, searchParams, hashParams) =>
                 onPageChange(searchParams, hashParams, ActivityScope.PLUGIN),
         }
     }),

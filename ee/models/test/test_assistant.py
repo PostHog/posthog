@@ -93,4 +93,5 @@ class TestCoreMemory(BaseTest):
         # Test formatted text with long content
         long_text = "x" * 6000
         self.core_memory.set_core_memory(long_text)
-        self.assertEqual(len(self.core_memory.formatted_text), 5000)
+        self.assertEqual(len(self.core_memory.formatted_text), 5001)
+        self.assertEqual(self.core_memory.formatted_text, long_text[:2500] + "…" + long_text[-2500:])

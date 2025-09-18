@@ -1,46 +1,15 @@
 import { Node } from '@xyflow/react'
 import { useActions } from 'kea'
 
-import { IconHourglass } from '@posthog/icons'
 import { LemonLabel } from '@posthog/lemon-ui'
 
-import { HogFlowFilters } from '../filters/HogFlowFilters'
-import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
+import { campaignLogic } from '../../campaignLogic'
+import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { HogFlowAction } from '../types'
 import { HogFlowDuration } from './components/HogFlowDuration'
-import { StepView } from './components/StepView'
-import { HogFlowStep, HogFlowStepNodeProps } from './types'
+import { StepSchemaErrors } from './components/StepSchemaErrors'
 
-export const StepWaitUntilCondition: HogFlowStep<'wait_until_condition'> = {
-    type: 'wait_until_condition',
-    name: 'Wait for condition',
-    description: 'Wait until a condition is met or a duration has passed.',
-    icon: <IconHourglass className="text-[#ffaa00]" />,
-    color: '#ffaa00',
-    renderNode: (props) => <StepWaitUntilConditionNode {...props} />,
-    renderConfiguration: (node) => <StepWaitUntilConditionConfiguration node={node} />,
-    create: () => {
-        return {
-            action: {
-                name: 'Wait for condition',
-                description: '',
-                type: 'wait_until_condition',
-                on_error: 'continue',
-                config: {
-                    condition: { filters: null },
-                    max_wait_duration: '5m',
-                },
-            },
-            branchEdges: 1,
-        }
-    },
-}
-
-function StepWaitUntilConditionNode({ data }: HogFlowStepNodeProps): JSX.Element {
-    return <StepView action={data} />
-}
-
-function StepWaitUntilConditionConfiguration({
+export function StepWaitUntilConditionConfiguration({
     node,
 }: {
     node: Node<Extract<HogFlowAction, { type: 'wait_until_condition' }>>
@@ -48,25 +17,28 @@ function StepWaitUntilConditionConfiguration({
     const action = node.data
     const { condition, max_wait_duration } = action.config
 
-    const { setCampaignActionConfig } = useActions(hogFlowEditorLogic)
+    const { partialSetCampaignActionConfig } = useActions(campaignLogic)
 
     return (
         <>
+            <StepSchemaErrors />
+
             <div>
                 <LemonLabel>Wait time</LemonLabel>
                 <HogFlowDuration
                     value={max_wait_duration}
                     onChange={(value) => {
-                        setCampaignActionConfig(action.id, { max_wait_duration: value })
+                        partialSetCampaignActionConfig(action.id, { max_wait_duration: value })
                     }}
                 />
             </div>
 
             <div>
                 <LemonLabel>Conditions to wait for</LemonLabel>
-                <HogFlowFilters
+                <HogFlowPropertyFilters
+                    actionId={action.id}
                     filters={condition.filters ?? {}}
-                    setFilters={(filters) => setCampaignActionConfig(action.id, { condition: { filters } })}
+                    setFilters={(filters) => partialSetCampaignActionConfig(action.id, { condition: { filters } })}
                     typeKey="campaign-wait-until-condition"
                 />
             </div>

@@ -14,8 +14,8 @@ export const tabAwareActionToUrl = <L extends Logic = Logic>(
                 k,
                 (payload: Record<string, any>): any => {
                     if (v) {
-                        const response = v(payload)
                         if (sceneLogic.values.activeTabId === logic.props.tabId) {
+                            const response = v(payload)
                             return response
                         }
                         // If we want to change the URL, but we're inactive, just update the tab value

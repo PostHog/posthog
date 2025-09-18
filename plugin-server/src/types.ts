@@ -4,7 +4,6 @@ import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { VM } from 'vm2'
-import { z } from 'zod'
 
 import {
     Element,
@@ -20,9 +19,9 @@ import {
 
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 
-import { EncryptedFields } from './cdp/encryption-utils'
 import { IntegrationManagerService } from './cdp/services/managers/integration-manager.service'
 import { CyclotronJobQueueKind, CyclotronJobQueueSource } from './cdp/types'
+import { EncryptedFields } from './cdp/utils/encryption-utils'
 import { InternalCaptureService } from './common/services/internal-capture'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from './kafka/producer'
@@ -75,8 +74,6 @@ export enum PluginServerMode {
     ingestion_v2 = 'ingestion-v2',
     local_cdp = 'local-cdp',
     async_webhooks = 'async-webhooks',
-    recordings_blob_ingestion = 'recordings-blob-ingestion',
-    recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
     recordings_blob_ingestion_v2 = 'recordings-blob-ingestion-v2',
     recordings_blob_ingestion_v2_overflow = 'recordings-blob-ingestion-v2-overflow',
     cdp_processed_events = 'cdp-processed-events',
@@ -96,10 +93,65 @@ export const stringToPluginServerMode = Object.fromEntries(
     ])
 ) as Record<string, PluginServerMode>
 
+interface HealthCheckResultResponse {
+    service: string
+    status: 'ok' | 'error' | 'degraded'
+    message?: string
+    details?: Record<string, any>
+}
+
+export abstract class HealthCheckResult {
+    public status: 'ok' | 'error' | 'degraded'
+
+    constructor(status: 'ok' | 'error' | 'degraded') {
+        this.status = status
+    }
+
+    public abstract toResponse(serviceId: string): HealthCheckResultResponse
+
+    public isError(): boolean {
+        return this.status === 'error'
+    }
+}
+
+export class HealthCheckResultOk extends HealthCheckResult {
+    constructor() {
+        super('ok')
+    }
+    public toResponse(serviceId: string): HealthCheckResultResponse {
+        return { service: serviceId, status: this.status }
+    }
+}
+
+export class HealthCheckResultError extends HealthCheckResult {
+    constructor(
+        public message: string,
+        public details: Record<string, any>
+    ) {
+        super('error')
+    }
+
+    public toResponse(serviceId: string): HealthCheckResultResponse {
+        return { service: serviceId, status: this.status, message: this.message, details: this.details }
+    }
+}
+
+export class HealthCheckResultDegraded extends HealthCheckResult {
+    constructor(
+        public message: string,
+        public details: Record<string, any>
+    ) {
+        super('degraded')
+    }
+    public toResponse(serviceId: string): HealthCheckResultResponse {
+        return { service: serviceId, status: this.status, message: this.message, details: this.details }
+    }
+}
+
 export type PluginServerService = {
     id: string
     onShutdown: () => Promise<any>
-    healthcheck: () => boolean | Promise<boolean>
+    healthcheck: () => HealthCheckResult | Promise<HealthCheckResult>
 }
 
 export type CdpConfig = {
@@ -156,7 +208,6 @@ export type CdpConfig = {
 
     HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: string
     HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: string
-    HOG_FUNCTION_MONITORING_EVENTS_PRODUCED_TOPIC: string
 
     CDP_EMAIL_TRACKING_URL: string
 }
@@ -203,6 +254,12 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     PERSON_PROPERTIES_TRIM_TARGET_BYTES: number // target size in bytes we trim JSON to before writing (customer-facing 512kb)
     // Limit per merge for moving distinct IDs. 0 disables limiting.
     PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: number
+    // Topic for async person merge processing
+    PERSON_MERGE_ASYNC_TOPIC: string
+    // Enable async person merge processing
+    PERSON_MERGE_ASYNC_ENABLED: boolean
+    // Batch size for sync person merge processing (0 = unlimited)
+    PERSON_MERGE_SYNC_BATCH_SIZE: number
     GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: number // maximum number of concurrent updates to groups table per batch
     GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: number // maximum number of retries for optimistic update
     GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: number // starting interval for exponential backoff between retries for optimistic update
@@ -250,6 +307,8 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
 
     CONSUMER_BATCH_SIZE: number // Primarily for kafka consumers the batch size to use
     CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: number // Primarily for kafka consumers the max heartbeat interval to use after which it will be considered unhealthy
+    CONSUMER_LOOP_STALL_THRESHOLD_MS: number // Threshold in ms after which the consumer loop is considered stalled
+    CONSUMER_LOOP_BASED_HEALTH_CHECK: boolean // Use consumer loop monitoring for health checks instead of heartbeats
     CONSUMER_MAX_BACKGROUND_TASKS: number
     CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: boolean
     CONSUMER_AUTO_CREATE_TOPICS: boolean
@@ -362,6 +421,9 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     COOKIELESS_REDIS_HOST: string
     COOKIELESS_REDIS_PORT: number
 
+    // Timestamp comparison logging (0.0 = disabled, 1.0 = 100% sampling)
+    TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: number
+
     SESSION_RECORDING_MAX_BATCH_SIZE_KB: number
     SESSION_RECORDING_MAX_BATCH_AGE_MS: number
     SESSION_RECORDING_V2_S3_BUCKET: string
@@ -451,8 +513,6 @@ export interface PluginServerCapabilities {
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
     processAsyncWebhooksHandlers?: boolean
-    sessionRecordingBlobIngestion?: boolean
-    sessionRecordingBlobOverflowIngestion?: boolean
     sessionRecordingBlobIngestionV2?: boolean
     sessionRecordingBlobIngestionV2Overflow?: boolean
     cdpProcessedEvents?: boolean
@@ -794,22 +854,6 @@ export interface RawClickHouseEvent extends BaseEvent {
     group4_created_at?: ClickHouseTimestamp
     person_mode: PersonMode
 }
-
-export type KafkaConsumerBreadcrumb = {
-    topic: string
-    offset: string | number
-    partition: number
-    processed_at: string
-    consumer_id: string
-}
-
-export const KafkaConsumerBreadcrumbSchema = z.object({
-    topic: z.string(),
-    offset: z.union([z.string(), z.number()]),
-    partition: z.number(),
-    processed_at: z.string(),
-    consumer_id: z.string(),
-})
 
 export interface RawKafkaEvent extends RawClickHouseEvent {
     /**
@@ -1282,15 +1326,22 @@ export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
     token?: string
 }
 
+export interface EventHeaders {
+    token?: string
+    distinct_id?: string
+    timestamp?: string
+}
+
 export interface IncomingEvent {
-    message: Message
     event: PipelineEvent
+    headers?: EventHeaders
 }
 
 export interface IncomingEventWithTeam {
     message: Message
     event: PipelineEvent
     team: Team
+    headers: EventHeaders
 }
 
 export type RedisPool = GenericPool<Redis>

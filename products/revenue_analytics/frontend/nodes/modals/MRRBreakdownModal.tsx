@@ -2,9 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { LemonModal } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { MRRBreakdownChart } from './MRRBreakdownChart'
 import { mrrBreakdownModalLogic } from './mrrBreakdownModalLogic'
 
@@ -58,9 +55,8 @@ function MRRLegend(): JSX.Element {
 export function MRRBreakdownModal(): JSX.Element | null {
     const { isModalOpen } = useValues(mrrBreakdownModalLogic)
     const { closeModal } = useActions(mrrBreakdownModalLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
-    if (!isModalOpen || !featureFlags[FEATURE_FLAGS.MRR_BREAKDOWN_REVENUE_ANALYTICS]) {
+    if (!isModalOpen) {
         return null
     }
 

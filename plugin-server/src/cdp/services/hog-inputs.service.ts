@@ -1,16 +1,22 @@
 import { convertHogToJS } from '@posthog/hogvm'
 
 import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
+import { CyclotronInputType } from '~/schema/cyclotron'
 import { Hub } from '~/types'
 
 import { HogFunctionInvocationGlobals, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { execHog } from '../utils/hog-exec'
 import { LiquidRenderer } from '../utils/liquid'
+import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
 export class HogInputsService {
-    constructor(private hub: Hub) {}
+    private recipientTokensService: RecipientTokensService
+
+    constructor(private hub: Hub) {
+        this.recipientTokensService = new RecipientTokensService(hub)
+    }
 
     public async buildInputs(
         hogFunction: HogFunctionType,
@@ -34,6 +40,36 @@ export class HogInputsService {
             inputs: {},
         }
 
+        const _formatInput = async (input: CyclotronInputType, key: string): Promise<any> => {
+            const templating = input.templating ?? 'hog'
+
+            if (templating === 'liquid') {
+                return formatLiquidInput(input.value, newGlobals, key)
+            }
+            if (templating === 'hog' && input?.bytecode) {
+                return await formatHogInput(input.bytecode, newGlobals, key)
+            }
+
+            return input.value
+        }
+
+        // Add unsubscribe url if we have an email input here
+        const emailInputSchema = hogFunction.inputs_schema?.find((input) =>
+            ['native_email', 'email'].includes(input.type)
+        )
+        const emailInput = hogFunction.inputs?.[emailInputSchema?.key ?? '']
+
+        if (emailInputSchema && emailInput) {
+            // If we have an email value then we template it out to get the email address
+            const emailValue = await _formatInput(emailInput, emailInputSchema.key)
+            if (emailValue?.to?.email) {
+                newGlobals.unsubscribe_url = this.recipientTokensService.generatePreferencesUrl({
+                    team_id: hogFunction.team_id,
+                    identifier: emailValue.to.email,
+                })
+            }
+        }
+
         const orderedInputs = Object.entries(inputs ?? {}).sort(([_, input1], [__, input2]) => {
             return (input1?.order ?? -1) - (input2?.order ?? -1)
         })
@@ -43,15 +79,7 @@ export class HogInputsService {
                 continue
             }
 
-            newGlobals.inputs[key] = input.value
-
-            const templating = input.templating ?? 'hog'
-
-            if (templating === 'liquid') {
-                newGlobals.inputs[key] = formatLiquidInput(input.value, newGlobals, key)
-            } else if (templating === 'hog' && input?.bytecode) {
-                newGlobals.inputs[key] = await formatHogInput(input.bytecode, newGlobals, key)
-            }
+            newGlobals.inputs[key] = await _formatInput(input, key)
         }
 
         return newGlobals.inputs
@@ -68,7 +96,9 @@ export class HogInputsService {
         }
     }
 
-    public async loadIntegrationInputs(hogFunction: HogFunctionType): Promise<Record<string, any>> {
+    public async loadIntegrationInputs(
+        hogFunction: HogFunctionType
+    ): Promise<Record<string, { value: Record<string, any> | null }>> {
         const inputsToLoad: Record<string, number> = {}
 
         hogFunction.inputs_schema?.forEach((schema) => {
@@ -100,10 +130,11 @@ export class HogInputsService {
                     value: {
                         ...integration.config,
                         ...integration.sensitive_config,
-                        ...(key === 'oauth'
+                        ...(integration.sensitive_config.access_token || integration.config.access_token
                             ? {
                                   access_token: ACCESS_TOKEN_PLACEHOLDER + integration.id,
-                                  access_token_raw: integration.sensitive_config.access_token,
+                                  access_token_raw:
+                                      integration.sensitive_config.access_token ?? integration.config.access_token,
                               }
                             : {}),
                     },
@@ -169,7 +200,11 @@ export const formatHogInput = async (
     return bytecode
 }
 
-const formatLiquidInput = (value: unknown, globals: HogFunctionInvocationGlobalsWithInputs, key?: string): any => {
+export const formatLiquidInput = (
+    value: unknown,
+    globals: HogFunctionInvocationGlobalsWithInputs,
+    key?: string
+): any => {
     if (value === null || value === undefined) {
         return value
     }

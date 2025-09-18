@@ -328,6 +328,7 @@ class HttpBatchExportWorkflow(PostHogWorkflow):
             exclude_events=inputs.exclude_events,
             include_events=inputs.include_events,
             backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
+            check_billing=False,
         )
         run_id = await workflow.execute_activity(
             start_batch_export_run,

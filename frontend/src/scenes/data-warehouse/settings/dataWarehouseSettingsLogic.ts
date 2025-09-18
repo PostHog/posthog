@@ -5,12 +5,14 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 
 import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
-import { ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import { DataWarehouseViewLink, ExternalDataSchemaStatus, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
 
+import { dataWarehouseJoinsLogic } from '../external/dataWarehouseJoinsLogic'
 import type { dataWarehouseSettingsLogicType } from './dataWarehouseSettingsLogicType'
 
 const REFRESH_INTERVAL = 10000
@@ -27,8 +29,10 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         actions: [
             databaseTableListLogic,
             ['loadDatabase'],
+            dataWarehouseJoinsLogic,
+            ['loadJoins'],
             externalDataSourcesLogic,
-            ['loadSources', 'loadSourcesSuccess', 'updateSource'],
+            ['loadSources', 'loadSourcesSuccess', 'updateSource', 'updateSourceRevenueAnalyticsConfig'],
         ],
     })),
     actions({
@@ -39,6 +43,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
         deleteSelfManagedTable: (tableId: string) => ({ tableId }),
         refreshSelfManagedTableSchema: (tableId: string) => ({ tableId }),
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
+        deleteJoin: (join: DataWarehouseViewLink) => ({ join }),
     }),
     loaders(({ actions, values }) => ({
         schemas: [
@@ -201,6 +206,21 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
                     actions.loadSources(null)
                 }, REFRESH_INTERVAL)
             }
+        },
+        deleteJoin: ({ join }): void => {
+            void deleteWithUndo({
+                endpoint: api.dataWarehouseViewLinks.determineDeleteEndpoint(),
+                object: {
+                    id: join.id,
+                    name: `${join.field_name} on ${join.source_table_name}`,
+                },
+                callback: () => {
+                    actions.loadDatabase()
+                    actions.loadJoins()
+                },
+            }).catch((e) => {
+                lemonToast.error(`Failed to delete warehouse view link: ${e.detail}`)
+            })
         },
     })),
     afterMount(({ actions }) => {

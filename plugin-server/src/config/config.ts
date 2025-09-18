@@ -57,6 +57,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: false,
         CONSUMER_BATCH_SIZE: 500,
         CONSUMER_MAX_HEARTBEAT_INTERVAL_MS: 30_000,
+        CONSUMER_LOOP_STALL_THRESHOLD_MS: 60_000, // 1 minute - consider loop stalled after this
+        CONSUMER_LOOP_BASED_HEALTH_CHECK: false, // Use consumer loop monitoring for health checks instead of heartbeats
         CONSUMER_MAX_BACKGROUND_TASKS: 1,
         CONSUMER_WAIT_FOR_BACKGROUND_TASKS_ON_REBALANCE: false,
         CONSUMER_AUTO_CREATE_TOPICS: true,
@@ -132,7 +134,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         HOG_HOOK_URL: '',
         CAPTURE_CONFIG_REDIS_HOST: null,
         LAZY_LOADER_DEFAULT_BUFFER_MS: 10,
-        CAPTURE_INTERNAL_URL: isDevEnv() ? 'http://localhost:8010/capture' : '',
+        CAPTURE_INTERNAL_URL: isProdEnv()
+            ? 'http://capture.posthog.svc.cluster.local:3000/capture'
+            : 'http://localhost:8010/capture',
 
         // posthog
         POSTHOG_API_KEY: '',
@@ -179,8 +183,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         CDP_WATCHER_SEND_EVENTS: isProdEnv() ? false : true,
         CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS: 500,
         CDP_WATCHER_OBSERVE_RESULTS_BUFFER_MAX_RESULTS: 500,
-        CDP_RATE_LIMITER_BUCKET_SIZE: 10000,
-        CDP_RATE_LIMITER_REFILL_RATE: 10, // per second request rate limit
+        CDP_RATE_LIMITER_BUCKET_SIZE: 100,
+        CDP_RATE_LIMITER_REFILL_RATE: 1, // per second request rate limit
         CDP_RATE_LIMITER_TTL: 60 * 60 * 24, // This is really long as it is essentially only important to make sure the key is eventually deleted
         CDP_HOG_FILTERS_TELEMETRY_TEAMS: '',
         CDP_REDIS_PASSWORD: '',
@@ -214,7 +218,6 @@ export function getDefaultConfig(): PluginsServerConfig {
 
         HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
         HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: KAFKA_LOG_ENTRIES,
-        HOG_FUNCTION_MONITORING_EVENTS_PRODUCED_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
 
         // Destination Migration Diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,
@@ -278,6 +281,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         COOKIELESS_REDIS_HOST: '',
         COOKIELESS_REDIS_PORT: 6379,
 
+        // Timestamp comparison logging (0.0 = disabled, 1.0 = 100% sampling)
+        TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: isDevEnv() || isTestEnv() ? 1.0 : 0.0,
+
         PERSON_BATCH_WRITING_DB_WRITE_MODE: 'NO_ASSERT',
         PERSON_BATCH_WRITING_OPTIMISTIC_UPDATES_ENABLED: false,
         PERSON_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
@@ -290,6 +296,13 @@ export function getDefaultConfig(): PluginsServerConfig {
         PERSON_PROPERTIES_TRIM_TARGET_BYTES: 512 * 1024,
         // Limit per merge for moving distinct IDs. 0 disables limiting (move all)
         PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: 0,
+        // Topic for async person merge processing
+        PERSON_MERGE_ASYNC_TOPIC: '',
+        // Enable async person merge processing
+        PERSON_MERGE_ASYNC_ENABLED: false,
+        // Batch size for sync person merge processing (0 = unlimited, process all distinct IDs in one query)
+        PERSON_MERGE_SYNC_BATCH_SIZE: 0,
+
         GROUP_BATCH_WRITING_MAX_CONCURRENT_UPDATES: 10,
         GROUP_BATCH_WRITING_OPTIMISTIC_UPDATE_RETRY_INTERVAL_MS: 50,
         GROUP_BATCH_WRITING_MAX_OPTIMISTIC_UPDATE_RETRIES: 5,

@@ -1,0 +1,176 @@
+# serializer version: 1
+# name: TestSessionSummarizationNodeFilterGeneration.test_generate_filters_last_10_days
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count,
+         greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2025-09-03 11:55:00.000000', 6, 'UTC')) AS ongoing,
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-08-13 12:00:00.000000', 6, 'UTC')), greaterOrEquals(addDays(dateTrunc('DAY', toTimeZone(s.min_first_timestamp, 'UTC')), 1), minus(toDateTime64('2025-09-03 12:00:00.000000', 6, 'UTC'), toIntervalDay(coalesce(s.retention_period_days, 365)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-08-24 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-09-03 23:59:59.000000', 6, 'UTC')))
+  GROUP BY s.session_id
+  HAVING ifNull(greater(active_seconds, 8.0), 0)
+  ORDER BY start_time DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionSummarizationNodeFilterGeneration.test_get_session_ids_respects_limit
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count,
+         greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2025-09-03 11:55:00.000000', 6, 'UTC')) AS ongoing,
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-08-13 12:00:00.000000', 6, 'UTC')), greaterOrEquals(addDays(dateTrunc('DAY', toTimeZone(s.min_first_timestamp, 'UTC')), 1), minus(toDateTime64('2025-09-03 12:00:00.000000', 6, 'UTC'), toIntervalDay(coalesce(s.retention_period_days, 365)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-08-27 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-08-31 23:59:59.000000', 6, 'UTC')))
+  GROUP BY s.session_id
+  HAVING 1
+  ORDER BY start_time DESC
+  LIMIT 2
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionSummarizationNodeFilterGeneration.test_use_current_filters_with_date_range
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count,
+         greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('2025-09-03 11:55:00.000000', 6, 'UTC')) AS ongoing,
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-08-13 12:00:00.000000', 6, 'UTC')), greaterOrEquals(addDays(dateTrunc('DAY', toTimeZone(s.min_first_timestamp, 'UTC')), 1), minus(toDateTime64('2025-09-03 12:00:00.000000', 6, 'UTC'), toIntervalDay(coalesce(s.retention_period_days, 365)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-08-27 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('2025-08-31 23:59:59.000000', 6, 'UTC')))
+  GROUP BY s.session_id
+  HAVING ifNull(greater(active_seconds, 7.0), 0)
+  ORDER BY start_time DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestSessionSummarizationNodeFilterGeneration.test_use_current_filters_with_os_and_events
+  '''
+  SELECT s.session_id AS session_id,
+         any(s.team_id) AS `any(s.team_id)`,
+         any(s.distinct_id) AS `any(s.distinct_id)`,
+         min(toTimeZone(s.min_first_timestamp, 'UTC')) AS start_time,
+         max(toTimeZone(s.max_last_timestamp, 'UTC')) AS end_time,
+         dateDiff('SECOND', start_time, end_time) AS duration,
+         argMinMerge(s.first_url) AS first_url,
+         sum(s.click_count) AS click_count,
+         sum(s.keypress_count) AS keypress_count,
+         sum(s.mouse_activity_count) AS mouse_activity_count,
+         divide(sum(s.active_milliseconds), 1000) AS active_seconds,
+         minus(duration, active_seconds) AS inactive_seconds,
+         sum(s.console_log_count) AS console_log_count,
+         sum(s.console_warn_count) AS console_warn_count,
+         sum(s.console_error_count) AS console_error_count,
+         greaterOrEquals(max(toTimeZone(s._timestamp, 'UTC')), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')) AS ongoing,
+         round(multiply(divide(plus(plus(plus(divide(sum(s.active_milliseconds), 1000), sum(s.click_count)), sum(s.keypress_count)), sum(s.console_error_count)), plus(plus(plus(plus(sum(s.mouse_activity_count), dateDiff('SECOND', start_time, end_time)), sum(s.console_error_count)), sum(s.console_log_count)), sum(s.console_warn_count))), 100), 2) AS activity_score
+  FROM session_replay_events AS s
+  WHERE and(equals(s.team_id, 99999), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), greaterOrEquals(addDays(dateTrunc('DAY', toTimeZone(s.min_first_timestamp, 'UTC')), 1), minus(toDateTime64('explicit_redacted_timestamp', 6, 'UTC'), toIntervalDay(coalesce(s.retention_period_days, 365)))), greaterOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(s.min_first_timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), and(globalIn(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       FROM events
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), equals(events.event, '$ai_generation'), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       HAVING 1
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC)), globalIn(s.session_id,
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            (SELECT events.`$session_id` AS session_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             FROM events
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             LEFT OUTER JOIN
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id, person_distinct_id_overrides.distinct_id AS distinct_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                FROM person_distinct_id_overrides
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                WHERE equals(person_distinct_id_overrides.team_id, 99999)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                GROUP BY person_distinct_id_overrides.distinct_id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             LEFT JOIN
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               (SELECT person.id AS id, replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, '$os'), ''), 'null'), '^"|"$', '') AS `properties___$os`
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                FROM person
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                WHERE and(equals(person.team_id, 99999), in(tuple(person.id, person.version),
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              (SELECT person.id AS id, max(person.version) AS version
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               FROM person
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               WHERE equals(person.team_id, 99999)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               GROUP BY person.id
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))), 0))))) SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id)
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             WHERE and(equals(events.team_id, 99999), notEmpty(events.`$session_id`), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), now64(6, 'UTC')), ifNull(equals(events__person.`properties___$os`, 'Mac OS X'), 0), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')), lessOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('explicit_redacted_timestamp', 6, 'UTC')))
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             GROUP BY events.`$session_id`
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             HAVING 1
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             ORDER BY min(toTimeZone(events.timestamp, 'UTC')) DESC))))
+  GROUP BY s.session_id
+  HAVING ifNull(greater(active_seconds, 6.0), 0)
+  ORDER BY start_time DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    format_csv_allow_double_quotes=0,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1
+  '''
+# ---

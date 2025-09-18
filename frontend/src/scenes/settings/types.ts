@@ -95,6 +95,7 @@ export type SettingId =
     | 'integration-webhooks'
     | 'integration-slack'
     | 'integration-error-tracking'
+    | 'integration-github'
     | 'integration-other'
     | 'integration-ip-allowlist'
     | 'environment-access-control'
@@ -157,6 +158,7 @@ export type Setting = {
     title: JSX.Element | string
     description?: JSX.Element | string
     component: JSX.Element
+    searchTerm?: string
     /**
      * Feature flag to gate the setting being shown.
      * If prefixed with !, the condition is inverted - the setting will only be shown if the is flag false.
@@ -179,4 +181,5 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
     level: SettingLevelId
     settings: Setting[]
     minimumAccessLevel?: EitherMembershipLevel
+    searchValue?: string
 }

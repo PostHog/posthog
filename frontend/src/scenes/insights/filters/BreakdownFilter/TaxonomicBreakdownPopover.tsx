@@ -15,7 +15,7 @@ type TaxonomicBreakdownPopoverProps = {
     open: boolean
     setOpen: (open: boolean) => void
     children: React.ReactElement
-    taxanomicType?: TaxonomicFilterGroupType
+    taxonomicType?: TaxonomicFilterGroupType
     breakdownType?: string
     breakdownValue?: string | number | null
 }
@@ -24,7 +24,7 @@ export const TaxonomicBreakdownPopover = ({
     open,
     setOpen,
     children,
-    taxanomicType,
+    taxonomicType,
     breakdownType,
     breakdownValue,
 }: TaxonomicBreakdownPopoverProps): JSX.Element => {
@@ -63,7 +63,7 @@ export const TaxonomicBreakdownPopover = ({
             style={{ minHeight: '200px' }}
             overlay={
                 <TaxonomicFilter
-                    groupType={taxanomicType}
+                    groupType={taxonomicType}
                     value={breakdownValue}
                     onChange={(taxonomicGroup, value) => {
                         if (breakdownValue && breakdownType) {

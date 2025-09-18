@@ -222,8 +222,10 @@ pub async fn evaluate_for_request(
         project_id,
         distinct_id,
         feature_flags: filtered_flags,
-        reader: state.reader.clone(),
-        writer: state.writer.clone(),
+        persons_reader: state.database_pools.persons_reader.clone(),
+        persons_writer: state.database_pools.persons_writer.clone(),
+        non_persons_reader: state.database_pools.non_persons_reader.clone(),
+        non_persons_writer: state.database_pools.non_persons_writer.clone(),
         cohort_cache: state.cohort_cache_manager.clone(),
         person_property_overrides,
         group_property_overrides,
@@ -522,7 +524,7 @@ mod tests {
         ];
 
         // Client runtime should only get client and all flags
-        let filtered = filter_flags_by_runtime(flags.clone(), Some(EvaluationRuntime::Client));
+        let filtered = filter_flags_by_runtime(flags, Some(EvaluationRuntime::Client));
         assert_eq!(filtered.len(), 2);
         assert!(filtered.iter().any(|f| f.key == "client-flag"));
         assert!(filtered.iter().any(|f| f.key == "all-flag"));
@@ -547,19 +549,19 @@ mod tests {
 
         // Simulate a client runtime
         let client_runtime = Some(EvaluationRuntime::Client);
-        let filtered = filter_flags_by_runtime(all_flags.clone(), client_runtime);
+        let client_filtered = filter_flags_by_runtime(all_flags.clone(), client_runtime);
 
         // Client should get: client-only-flag, all-flag, no-runtime-flag
         // But NOT server-only-flag
-        assert_eq!(filtered.len(), 3);
-        assert!(filtered.iter().any(|f| f.key == "client-only-flag"));
-        assert!(filtered.iter().any(|f| f.key == "all-flag"));
-        assert!(filtered.iter().any(|f| f.key == "no-runtime-flag"));
-        assert!(!filtered.iter().any(|f| f.key == "server-only-flag"));
+        assert_eq!(client_filtered.len(), 3);
+        assert!(client_filtered.iter().any(|f| f.key == "client-only-flag"));
+        assert!(client_filtered.iter().any(|f| f.key == "all-flag"));
+        assert!(client_filtered.iter().any(|f| f.key == "no-runtime-flag"));
+        assert!(!client_filtered.iter().any(|f| f.key == "server-only-flag"));
 
         // Simulate a server runtime
         let server_runtime = Some(EvaluationRuntime::Server);
-        let filtered = filter_flags_by_runtime(all_flags.clone(), server_runtime);
+        let filtered = filter_flags_by_runtime(all_flags, server_runtime);
 
         // Server should get: server-only-flag, all-flag, no-runtime-flag
         // But NOT client-only-flag

@@ -103,7 +103,11 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         receiveExampleGlobals: (globals: CyclotronJobInvocationGlobals | null) => ({ globals }),
         setJsonError: (error: string | null) => ({ error }),
         validateJson: (value: string, editor: editor.IStandaloneCodeEditor, decorations: string[]) =>
-            ({ value, editor, decorations }) as CodeEditorValidation,
+            ({
+                value,
+                editor,
+                decorations,
+            }) as CodeEditorValidation,
         setDecorationIds: (decorationIds: string[]) => ({ decorationIds }),
         cancelSampleGlobalsLoading: true,
     }),
@@ -291,7 +295,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 if (values.configurationHasErrors) {
                     // Get the configuration logic instance
                     const configLogic = hogFunctionConfigurationLogic(props)
-                    const inputErrors = configLogic.values.inputFormErrors?.inputs || {}
+                    const inputErrors = configLogic.values.inputFormErrors || {}
 
                     // Create a simple list of errors
                     const errorMessages = Object.entries(inputErrors).map(([key, error]) => {

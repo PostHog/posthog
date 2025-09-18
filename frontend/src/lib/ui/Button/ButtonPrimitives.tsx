@@ -121,7 +121,9 @@ ButtonGroupPrimitive.displayName = 'ButtonGroupPrimitive'
 /*                              Button Base Component                         */
 /* -------------------------------------------------------------------------- */
 
-export interface ButtonPrimitiveProps extends ButtonBaseProps, React.ButtonHTMLAttributes<HTMLButtonElement> {}
+export interface ButtonPrimitiveProps extends ButtonBaseProps, React.ButtonHTMLAttributes<HTMLButtonElement> {
+    'data-attr'?: string
+}
 
 export const buttonPrimitiveVariants = cva({
     base: 'button-primitive group/button-primitive',

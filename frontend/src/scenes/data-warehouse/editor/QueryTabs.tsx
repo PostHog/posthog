@@ -11,7 +11,7 @@ import { NEW_QUERY, QueryTab, multitabEditorLogic } from './multitabEditorLogic'
 interface QueryTabsProps {
     models: QueryTab[]
     onClick: (model: QueryTab) => void
-    onClear: (model: QueryTab) => void
+    onClear: (model: QueryTab, options?: { force?: boolean }) => void
     onRename: (model: QueryTab, newName: string) => void
     onAdd: () => void
     activeModelUri: QueryTab | null
@@ -64,7 +64,7 @@ export function QueryTabs({ models, onClear, onClick, onAdd, onRename, activeMod
 interface QueryTabProps {
     model: QueryTab
     onClick: (model: QueryTab) => void
-    onClear?: (model: QueryTab) => void
+    onClear?: (model: QueryTab, options?: { force?: boolean }) => void
     active: boolean
     onRename: (model: QueryTab, newName: string) => void
 }
@@ -125,7 +125,8 @@ function QueryTabComponent({ model, active, onClear, onClick, onRename }: QueryT
                 <LemonButton
                     onClick={(e) => {
                         e.stopPropagation()
-                        onClear(model)
+
+                        onClear(model, { force: !!e.shiftKey })
                     }}
                     size="xsmall"
                     icon={<IconX />}

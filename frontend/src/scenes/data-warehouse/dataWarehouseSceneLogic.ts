@@ -183,7 +183,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             (s) => [s.views, s.dataWarehouseSavedQueryMapById],
             (views: any[], dataWarehouseSavedQueryMapById: any) => {
                 return views
-                    .filter((view: any) => dataWarehouseSavedQueryMapById[view.id]?.status)
+                    .filter((view: any) => dataWarehouseSavedQueryMapById[view.id]?.is_materialized)
                     .map((view: any) => ({
                         ...view,
                         type: 'materialized_view',

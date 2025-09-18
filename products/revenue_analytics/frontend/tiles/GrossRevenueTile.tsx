@@ -19,11 +19,22 @@ const INSIGHT_PROPS: InsightLogicProps<InsightVizNode> = {
     dataNodeCollectionId: REVENUE_ANALYTICS_DATA_COLLECTION_NODE_ID,
 }
 
+const EMPTY_STATE_HEADING = 'No gross revenue data available'
+const EMPTY_STATE_DETAIL =
+    'Please try adjusting your query or filters. Also, make sure your revenue events are properly configured in the settings.'
+
 export const GrossRevenueTile = (): JSX.Element => {
     const { queries } = useValues(revenueAnalyticsLogic)
 
     const query = queries[QUERY_ID]
-    const context = useMemo(() => ({ insightProps: { ...INSIGHT_PROPS, query } }), [query])
+    const context = useMemo(
+        () => ({
+            insightProps: { ...INSIGHT_PROPS, query },
+            emptyStateHeading: EMPTY_STATE_HEADING,
+            emptyStateDetail: EMPTY_STATE_DETAIL,
+        }),
+        [query]
+    )
 
-    return <Query query={query} readOnly context={context} />
+    return <Query attachTo={revenueAnalyticsLogic} query={query} readOnly context={context} />
 }

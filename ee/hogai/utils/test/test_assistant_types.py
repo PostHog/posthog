@@ -1,3 +1,5 @@
+from typing import cast
+
 from posthog.test.base import BaseTest
 
 from langchain_core.messages import AIMessage
@@ -26,7 +28,7 @@ class TestAssistantTypes(BaseTest):
         # Verify that the message from the right list replaces the one in the left list
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0].id, message_id)
-        self.assertEqual(result[0].content, "Right message content")
+        self.assertEqual(cast(AssistantMessage, result[0]).content, "Right message content")
 
     def test_merge_messages_with_same_content_no_id(self):
         """Test that messages with the same content but no ID are not merged."""
@@ -41,8 +43,8 @@ class TestAssistantTypes(BaseTest):
 
         # Verify that both messages are in the result with different IDs
         self.assertEqual(len(result), 2)
-        self.assertEqual(result[0].content, "Same content")
-        self.assertEqual(result[1].content, "Same content")
+        self.assertEqual(cast(AssistantMessage, result[0]).content, "Same content")
+        self.assertEqual(cast(AssistantMessage, result[1]).content, "Same content")
         self.assertIsNotNone(result[0].id)
         self.assertIsNotNone(result[1].id)
         self.assertNotEqual(result[0].id, result[1].id)

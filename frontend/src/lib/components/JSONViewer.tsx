@@ -3,6 +3,11 @@ import { useValues } from 'kea'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
+export enum JSONViewerTheme {
+    DARK = 'railscasts',
+    LIGHT = 'rjv-default',
+}
+
 export function JSONViewer({
     name = null, // Don't label the root node as "root" by default
     displayDataTypes = false, // Reduce visual clutter

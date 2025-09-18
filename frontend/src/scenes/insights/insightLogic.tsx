@@ -61,7 +61,7 @@ export const createEmptyInsight = (
 
 export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType>([
     props({ filtersOverride: null, variablesOverride: null } as InsightLogicProps),
-    key(keyForInsightLogicProps('new')),
+    key((props) => keyForInsightLogicProps('new')(props)),
     path((key) => ['scenes', 'insights', 'insightLogic', key]),
     connect(() => ({
         values: [
@@ -191,7 +191,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
 
                     const beforeUpdates: Record<string, any> = {}
                     for (const key of Object.keys(metadataUpdate)) {
-                        beforeUpdates[key] = values.savedInsight[key]
+                        beforeUpdates[key] = values.savedInsight[key as keyof QueryBasedInsightModel]
                     }
 
                     const response = await insightsApi.update(values.insight.id as number, metadataUpdate)
@@ -333,11 +333,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         ],
     })),
     selectors({
+        insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         query: [
             (s) => [(state) => insightDataLogic.findMounted(s.insightProps(state))?.values.query || null],
             (node): Node | null => node,
         ],
-        insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
         isInDashboardContext: [() => [(_, props) => props], ({ dashboardId }) => !!dashboardId],
         hasDashboardItemId: [
             () => [(_, props) => props],
@@ -361,15 +361,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
         insightId: [(s) => [s.insight], (insight) => insight?.id || null],
         canEditInsight: [
-            (s) => [s.insight, s.hasOverrides],
-            (insight, hasOverrides) => {
-                if (hasOverrides) {
-                    return false
-                }
-                return insight.user_access_level
+            (s) => [s.insight],
+            (insight) =>
+                insight.user_access_level
                     ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, 'editor')
-                    : true
-            },
+                    : true,
         ],
         insightChanged: [
             (s) => [s.insight, s.savedInsight],
@@ -413,7 +409,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             (hasOverrides) => (hasOverrides ? 'Discard overrides to edit the insight.' : null),
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         saveInsight: async ({ redirectToViewMode, folder }) => {
             const insightNumericId =
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
@@ -454,7 +450,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             // and so we shouldn't copy the result from `values.insight` as it might be stale
             const result = savedInsight.result || (values.query ? values.insight.result : null)
             actions.setInsight({ ...savedInsight, result: result }, { fromPersistentApi: true, overrideQuery: true })
-            eventUsageLogic.actions.reportInsightSaved(values.query, insightNumericId === undefined)
+            eventUsageLogic.actions.reportInsightSaved(savedInsight, values.query, insightNumericId === undefined)
             lemonToast.success(`Insight saved${dashboards?.length === 1 ? ' & added to dashboard' : ''}`, {
                 button: {
                     label: 'View Insights list',
@@ -473,13 +469,18 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     ?.actions.loadDashboard({ action: DashboardLoadAction.Update })
             )
 
-            const mountedInsightSceneLogic = insightSceneLogic.findMounted()
             if (redirectToViewMode) {
                 if (!insightNumericId && dashboards?.length === 1) {
                     // redirect new insights added to dashboard to the dashboard
                     router.actions.push(urls.dashboard(dashboards[0], savedInsight.short_id))
                 } else if (insightNumericId) {
-                    mountedInsightSceneLogic?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
+                    if (props.tabId) {
+                        const mountedInsightSceneLogic = insightSceneLogic.findMounted({ tabId: props.tabId })
+                        mountedInsightSceneLogic?.actions.setInsightMode(
+                            ItemMode.View,
+                            InsightEventSource.InsightHeader
+                        )
+                    }
                 } else {
                     router.actions.push(urls.insightView(savedInsight.short_id))
                 }

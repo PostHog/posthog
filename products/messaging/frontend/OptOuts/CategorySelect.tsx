@@ -15,6 +15,8 @@ export const CategorySelect = ({
 
     return (
         <LemonSelect
+            size="small"
+            type="tertiary"
             onChange={onChange}
             value={value}
             loading={categoriesLoading}

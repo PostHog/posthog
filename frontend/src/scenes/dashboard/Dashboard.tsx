@@ -7,7 +7,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { cn } from 'lib/utils/css-classes'
@@ -22,6 +21,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
 import { AddInsightToDashboardModal } from './AddInsightToDashboardModal'
@@ -70,8 +70,6 @@ function DashboardScene(): JSX.Element {
     } = useValues(dashboardLogic)
     const { setDashboardMode, reportDashboardViewed, abortAnyRunningQuery } = useActions(dashboardLogic)
 
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
-
     useOnMountEffect(() => {
         reportDashboardViewed()
 
@@ -117,7 +115,7 @@ function DashboardScene(): JSX.Element {
     }
 
     return (
-        <SceneContent className={cn('dashboard', !newSceneLayout && 'space-y-0')}>
+        <SceneContent className={cn('dashboard')}>
             {placement == DashboardPlacement.Dashboard && <DashboardHeader />}
             {canEditDashboard && <AddInsightToDashboardModal />}
 
@@ -129,7 +127,7 @@ function DashboardScene(): JSX.Element {
                 <div>
                     <DashboardOverridesBanner />
 
-                    <div className={cn('Dashboard_filters', newSceneLayout && '-mt-2')}>
+                    <SceneStickyBar showBorderBottom={false}>
                         <div className="flex gap-2 justify-between">
                             {![
                                 DashboardPlacement.Public,
@@ -166,7 +164,7 @@ function DashboardScene(): JSX.Element {
                                 </div>
                             )}
                         </div>
-                    </div>
+                    </SceneStickyBar>
 
                     <DashboardItems />
                 </div>

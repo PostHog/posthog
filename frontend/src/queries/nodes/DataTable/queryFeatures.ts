@@ -6,7 +6,6 @@ import {
     isHogQLQuery,
     isMarketingAnalyticsTableQuery,
     isPersonsNode,
-    isRevenueAnalyticsGrowthRateQuery,
     isRevenueAnalyticsTopCustomersQuery,
     isRevenueExampleDataWarehouseTablesQuery,
     isRevenueExampleEventsQuery,
@@ -26,6 +25,7 @@ export enum QueryFeature {
     eventPropertyFilters,
     personPropertyFilters,
     groupPropertyFilters,
+    linkDataButton,
     personsSearch,
     groupsSearch,
     savedEventsQueries,
@@ -87,6 +87,7 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         features.add(QueryFeature.columnsInResponse)
         features.add(QueryFeature.resultIsArrayOfArrays)
         features.add(QueryFeature.columnConfigurator)
+        features.add(QueryFeature.linkDataButton)
     }
 
     if (
@@ -94,7 +95,6 @@ export function getQueryFeatures(query: Node): Set<QueryFeature> {
         isWebExternalClicksQuery(query) ||
         isWebStatsTableQuery(query) ||
         isWebGoalsQuery(query) ||
-        isRevenueAnalyticsGrowthRateQuery(query) ||
         isRevenueAnalyticsTopCustomersQuery(query)
     ) {
         features.add(QueryFeature.columnsInResponse)

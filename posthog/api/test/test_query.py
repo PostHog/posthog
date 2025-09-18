@@ -833,12 +833,12 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     },
                 },
             )
-            query = HogQLQuery(query="select * from event_view")
+            query = HogQLQuery(query="select event, distinct_id, key from event_view")
             api_response = self.client.post(f"/api/environments/{self.team.id}/query/", {"query": query.dict()})
             response = CachedHogQLQueryResponse.model_validate(api_response.json())
 
             self.assertEqual(api_response.status_code, 200)
-            self.assertEqual(response.results and len(response.results), 4)
+            self.assertEqual(len(response.results), 4)
             self.assertEqual(
                 response.results,
                 [

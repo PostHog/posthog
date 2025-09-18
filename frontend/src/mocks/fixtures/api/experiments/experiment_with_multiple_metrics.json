@@ -108,11 +108,29 @@
             ],
             "metric_type": "funnel",
             "uuid": "f10233ac-56d9-42d7-b686-78502dd909c9"
+        },
+        {
+            "goal": "increase",
+            "kind": "ExperimentMetric",
+            "uuid": "d70371c9-c078-4234-a4b3-aaa19316d602",
+            "numerator": {
+                "kind": "EventsNode",
+                "math": "dau",
+                "name": "$pageview",
+                "event": "$pageview"
+            },
+            "denominator": {
+                "kind": "EventsNode",
+                "math": "total",
+                "name": "$pageview",
+                "event": "$pageview"
+            },
+            "metric_type": "ratio"
         }
     ],
     "metrics_secondary": [],
-    "primary_metrics_ordered_uuids": ["09a40e22-8190-49f0-9f9c-8f70458b58da", "f10233ac-56d9-42d7-b686-78502dd909c9"],
-    "secondary_metrics_ordered_uuids": [],
+    "primary_metrics_ordered_uuids": null,
+    "secondary_metrics_ordered_uuids": null,
     "conclusion": null,
     "conclusion_comment": null
 }

@@ -46,6 +46,8 @@ class PostgresSource(BaseSource[PostgresSourceConfig], SSHTunnelMixin, ValidateD
         return SourceConfig(
             name=SchemaExternalDataSourceType.POSTGRES,
             caption="Enter your Postgres credentials to automatically pull your Postgres data into the PostHog Data warehouse",
+            iconPath="/static/services/postgres.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/postgres",
             fields=cast(
                 list[FieldType],
                 [
@@ -103,7 +105,7 @@ class PostgresSource(BaseSource[PostgresSourceConfig], SSHTunnelMixin, ValidateD
             ),
         )
 
-    def get_schemas(self, config: PostgresSourceConfig, team_id: int) -> list[SourceSchema]:
+    def get_schemas(self, config: PostgresSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
         schemas = []
 
         with self.with_ssh_tunnel(config) as (host, port):
@@ -116,14 +118,17 @@ class PostgresSource(BaseSource[PostgresSourceConfig], SSHTunnelMixin, ValidateD
                 schema=config.schema,
             )
 
-            row_counts = get_postgres_row_count(
-                host=host,
-                port=port,
-                user=config.user,
-                password=config.password,
-                database=config.database,
-                schema=config.schema,
-            )
+            if with_counts:
+                row_counts = get_postgres_row_count(
+                    host=host,
+                    port=port,
+                    user=config.user,
+                    password=config.password,
+                    database=config.database,
+                    schema=config.schema,
+                )
+            else:
+                row_counts = {}
 
         for table_name, columns in db_schemas.items():
             column_info = [(col_name, col_type) for col_name, col_type in columns]

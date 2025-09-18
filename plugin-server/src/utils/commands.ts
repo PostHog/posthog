@@ -1,6 +1,6 @@
 import express from 'ultimate-express'
 
-import { Hub, PluginServerService } from '../types'
+import { HealthCheckResultOk, Hub, PluginServerService } from '../types'
 import { reloadPlugins } from '../worker/tasks'
 import { populatePluginCapabilities } from '../worker/vm/lazy'
 import { logger } from './logger'
@@ -25,7 +25,7 @@ export class ServerCommands {
         return {
             id: 'server-commands',
             onShutdown: async () => {},
-            healthcheck: () => true,
+            healthcheck: () => new HealthCheckResultOk(),
         }
     }
 

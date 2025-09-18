@@ -2,15 +2,17 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { HogTransformerService } from '../../../cdp/hog-transformations/hog-transformer.service'
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
-import { Hub, KafkaConsumerBreadcrumb, PipelineEvent, Team } from '../../../types'
+import { EventHeaders, Hub, PipelineEvent, Team } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { normalizeProcessPerson } from '../../../utils/event'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { GroupStoreForBatch } from '../groups/group-store-for-batch.interface'
-import { PersonMergeLimitExceededError } from '../persons/person-merge-service'
+import { PersonMergeLimitExceededError } from '../persons/person-merge-types'
+import { MergeMode, determineMergeMode } from '../persons/person-merge-types'
 import { PersonsStoreForBatch } from '../persons/persons-store-for-batch'
+import { redirectEventToTopic, sendEventToDLQ } from '../pipeline-helpers'
 import { EventsProcessor } from '../process-event'
 import { captureIngestionWarning, generateEventDeadLetterQueueMessage } from '../utils'
 import { createEventStep } from './createEventStep'
@@ -27,6 +29,7 @@ import {
     pipelineStepThrowCounter,
 } from './metrics'
 import { normalizeEventStep } from './normalizeEventStep'
+import { isDlqResult, isDropResult, isRedirectResult, isSuccessResult } from './pipeline-step-result'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
 import { transformEventStep } from './transformEventStep'
@@ -57,25 +60,27 @@ export class EventPipelineRunner {
     originalEvent: PipelineEvent
     eventsProcessor: EventsProcessor
     hogTransformer: HogTransformerService | null
-    breadcrumbs: KafkaConsumerBreadcrumb[]
     personsStoreForBatch: PersonsStoreForBatch
     groupStoreForBatch: GroupStoreForBatch
+    mergeMode: MergeMode
+    headers?: EventHeaders
 
     constructor(
         hub: Hub,
         event: PipelineEvent,
         hogTransformer: HogTransformerService | null = null,
-        breadcrumbs: KafkaConsumerBreadcrumb[] = [],
         personsStoreForBatch: PersonsStoreForBatch,
-        groupStoreForBatch: GroupStoreForBatch
+        groupStoreForBatch: GroupStoreForBatch,
+        headers?: EventHeaders
     ) {
         this.hub = hub
         this.originalEvent = event
         this.eventsProcessor = new EventsProcessor(hub)
         this.hogTransformer = hogTransformer
-        this.breadcrumbs = breadcrumbs
         this.personsStoreForBatch = personsStoreForBatch
         this.groupStoreForBatch = groupStoreForBatch
+        this.mergeMode = determineMergeMode(hub)
+        this.headers = headers
     }
 
     isEventDisallowed(event: PipelineEvent): boolean {
@@ -299,15 +304,39 @@ export class EventPipelineRunner {
 
         const [normalizedEvent, timestamp] = await this.runStep(
             normalizeEventStep,
-            [transformedEvent, processPerson],
+            [transformedEvent, processPerson, this.headers, this.hub.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE],
             event.team_id
         )
 
-        const [postPersonEvent, person, personKafkaAck] = await this.runStep(
+        const personStepResult = await this.runStep(
             processPersonsStep,
             [this, normalizedEvent, team, timestamp, processPerson, this.personsStoreForBatch],
             event.team_id
         )
+
+        if (!isSuccessResult(personStepResult)) {
+            // Handle DLQ/drop/redirect cases - return early from pipeline
+            if (isDlqResult(personStepResult)) {
+                await this.sendToDLQ(event, personStepResult.error, 'processPersonsStep')
+            } else if (isDropResult(personStepResult)) {
+                logger.info('Event dropped during person processing', {
+                    team_id: event.team_id,
+                    distinct_id: event.distinct_id,
+                    reason: personStepResult.reason,
+                })
+            } else if (isRedirectResult(personStepResult)) {
+                logger.info('Event redirected during person processing', {
+                    team_id: event.team_id,
+                    distinct_id: event.distinct_id,
+                    reason: personStepResult.reason,
+                    topic: personStepResult.topic,
+                })
+                await this.redirectToTopic(event, personStepResult.topic)
+            }
+            return this.registerLastStep('processPersonsStep', [], kafkaAcks)
+        }
+
+        const [postPersonEvent, person, personKafkaAck] = personStepResult.value
         kafkaAcks.push(personKafkaAck)
 
         const preparedEvent = await this.runStep(
@@ -347,6 +376,14 @@ export class EventPipelineRunner {
             lastStep: stepName,
             args,
         }
+    }
+
+    private async sendToDLQ(event: PluginEvent, error: any, stepName: string): Promise<void> {
+        await sendEventToDLQ(this.hub.db.kafkaProducer, this.originalEvent, error, stepName, event.team_id)
+    }
+
+    private async redirectToTopic(event: PluginEvent, topic: string): Promise<void> {
+        await redirectEventToTopic(this.hub.db.kafkaProducer, this.originalEvent, topic, 'redirectToTopic')
     }
 
     private reportStalled(stepName: string) {

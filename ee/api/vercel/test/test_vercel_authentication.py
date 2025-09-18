@@ -23,7 +23,7 @@ from ee.api.vercel.types import VercelUser
 class TestVercelAuthentication(SimpleTestCase):
     def setUp(self):
         super().setUp()
-        self.installation_id = "inst_123456789"
+        self.installation_id = "icfg_9bceb8ccT32d3U417ezb5c8p"
         self.account_id = "acc987654321"
         self.user_id = "111222333abc"
 
@@ -113,8 +113,8 @@ class TestVercelAuthentication(SimpleTestCase):
         assert result is not None
         user, auth_data = result
         assert isinstance(user, VercelUser)
-        assert user.claims["account_id"] == self.account_id
-        assert user.claims["installation_id"] == self.installation_id
+        assert user.claims.account_id == self.account_id
+        assert user.claims.installation_id == self.installation_id
 
     def test_system_auth_valid_token(self, mock_get_jwks):
         mock_get_jwks.return_value = self.mock_jwks
@@ -126,8 +126,8 @@ class TestVercelAuthentication(SimpleTestCase):
         assert result is not None
         user, auth_data = result
         assert isinstance(user, VercelUser)
-        assert user.claims["account_id"] == self.account_id
-        assert user.claims["installation_id"] == self.installation_id
+        assert user.claims.account_id == self.account_id
+        assert user.claims.installation_id == self.installation_id
 
     def test_missing_authorization_header(self, mock_get_jwks):
         request = self.factory.get("/", HTTP_X_VERCEL_AUTH="user")

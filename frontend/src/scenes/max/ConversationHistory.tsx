@@ -2,12 +2,12 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconChevronLeft, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { userLogic } from 'scenes/userLogic'
 
-import { Conversation, ConversationStatus, ProductKey } from '~/types'
+import { Conversation, ConversationStatus, ConversationType, ProductKey } from '~/types'
 
 import { maxLogic } from './maxLogic'
 import { formatConversationDate, getConversationUrl } from './utils'
@@ -71,7 +71,7 @@ export function ConversationHistory({ sidePanel = false }: ConversationHistoryPr
                                 type="primary"
                                 icon={<IconPlus />}
                                 onClick={() => {
-                                    updateHasSeenProductIntroFor(ProductKey.MAX, true)
+                                    updateHasSeenProductIntroFor(ProductKey.MAX)
                                     toggleConversationHistory()
                                 }}
                             >
@@ -98,10 +98,13 @@ function ConversationCard({
 }): JSX.Element {
     return (
         <Link
-            className="p-4 flex flex-row bg-surface-primary rounded-lg gap-2 w-full min-h-14 items-center"
+            className="p-4 flex flex-row bg-surface-primary rounded-lg gap-2 w-full min-h-14 items-center justify-between"
             to={getConversationUrl({ pathname, search, conversationId: conversation.id, includeHash })}
         >
-            <span className="flex-1 line-clamp-1">{conversation.title}</span>
+            <div className="flex items-center gap-2">
+                <span className="flex-1 line-clamp-1">{conversation.title}</span>
+                {conversation.type === ConversationType.DeepResearch && <LemonTag>Deep research</LemonTag>}
+            </div>
             {conversation.status === ConversationStatus.InProgress ? (
                 <Spinner className="h-4 w-4" />
             ) : (

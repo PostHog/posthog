@@ -80,7 +80,11 @@ class TestVercelInstallationAPI(VercelTestBase):
         response = self._request("put", data=self.upsert_payload)
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
-        mock_upsert.assert_called_once_with(self.installation_id, self.upsert_payload)
+        assert mock_upsert.call_count == 1
+        call_args = mock_upsert.call_args[0]
+        assert call_args[0] == self.installation_id
+        assert call_args[1] == self.upsert_payload
+        assert hasattr(call_args[2], "user_id")
 
     @patch("ee.vercel.integration.VercelIntegration.delete_installation")
     def test_destroy_calls_delete_installation(self, mock_delete):
@@ -93,4 +97,4 @@ class TestVercelInstallationAPI(VercelTestBase):
     def test_invalid_installation_id_format(self):
         url = "/api/vercel/v1/installations/invalid-id/"
         response = self._request("get", url=url, auth_type="system")
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
