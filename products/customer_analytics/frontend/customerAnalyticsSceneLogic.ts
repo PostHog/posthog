@@ -1,8 +1,6 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
-
-import { IconPlusSmall } from '@posthog/icons'
 
 import api from 'lib/api'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
@@ -73,28 +71,6 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             },
         ],
     }),
-    selectors(() => ({
-        dashboardOptions: [
-            (s) => [s.availableDashboards],
-            (availableDashboards) => {
-                return [
-                    ...availableDashboards.map((dashboard) => ({
-                        value: dashboard.id,
-                        label: dashboard.name,
-                    })),
-                    {
-                        value: 'create_new' as const,
-                        label: (
-                            <div className="flex items-center gap-2">
-                                <IconPlusSmall />
-                                Create new dashboard
-                            </div>
-                        ),
-                    },
-                ]
-            },
-        ],
-    })),
     listeners(({ actions, values }) => ({
         loadCustomerDashboardsSuccess: ({ availableDashboards }) => {
             if (availableDashboards.length > 0 && !values.selectedDashboardId) {

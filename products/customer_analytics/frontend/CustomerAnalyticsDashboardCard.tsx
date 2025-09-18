@@ -10,7 +10,7 @@ import { DashboardPlacement } from '~/types'
 import { customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'
 
 export function CustomerAnalyticsDashboardCard(): JSX.Element {
-    const { availableDashboards, availableDashboardsLoading, dashboardOptions, selectedDashboardId } =
+    const { availableDashboards, availableDashboardsLoading, selectedDashboardId } =
         useValues(customerAnalyticsSceneLogic)
     const { onChangeDashboard, createNewDashboard } = useActions(customerAnalyticsSceneLogic)
 
@@ -28,6 +28,22 @@ export function CustomerAnalyticsDashboardCard(): JSX.Element {
             </div>
         )
     }
+
+    const dashboardOptions = [
+        ...availableDashboards.map((dashboard) => ({
+            value: dashboard.id,
+            label: dashboard.name,
+        })),
+        {
+            value: 'create_new' as const,
+            label: (
+                <div className="flex items-center gap-2">
+                    <IconPlusSmall />
+                    Create new dashboard
+                </div>
+            ),
+        },
+    ]
 
     return (
         <div className="flex flex-col gap-4">
