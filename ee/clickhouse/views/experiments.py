@@ -737,27 +737,41 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
 
         # Aggregate daily results into timeseries format
         timeseries = {}
-        overall_status = "completed"
+        errors = {}
+        completed_count = 0
+        failed_count = 0
+        pending_count = 0
         latest_computed_at = None
-        error_messages = []
 
         for daily_result in daily_results:
             # Convert date to string format (ISO date)
             date_key = daily_result.date.isoformat()
-            timeseries[date_key] = daily_result.result
-
-            # Track overall status - if any day failed, mark as failed
-            if daily_result.status == "failed":
-                overall_status = "failed"
+            
+            if daily_result.status == "completed":
+                timeseries[date_key] = daily_result.result
+                completed_count += 1
+            elif daily_result.status == "failed":
                 if daily_result.error_message:
-                    error_messages.append(f"{date_key}: {daily_result.error_message}")
-            elif daily_result.status == "pending" and overall_status != "failed":
-                overall_status = "pending"
+                    errors[date_key] = daily_result.error_message
+                failed_count += 1
+            elif daily_result.status == "pending":
+                pending_count += 1
 
             # Track latest computed_at
             if daily_result.computed_at:
                 if latest_computed_at is None or daily_result.computed_at > latest_computed_at:
                     latest_computed_at = daily_result.computed_at
+
+        # Determine overall status based on results
+        total_count = completed_count + failed_count + pending_count
+        if pending_count > 0:
+            overall_status = "pending"
+        elif failed_count == total_count:
+            overall_status = "failed"
+        elif failed_count > 0:
+            overall_status = "partial"
+        else:
+            overall_status = "completed"
 
         # Format response to match frontend expectations
         first_result = daily_results.first()
@@ -767,14 +781,13 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
             "metric_uuid": metric_uuid,
             "status": overall_status,
             "timeseries": timeseries if timeseries else None,
+            "errors": errors if errors else None,
             "computed_at": latest_computed_at.isoformat() if latest_computed_at else None,
-            "error_message": "; ".join(error_messages) if error_messages else None,
             "created_at": first_result.created_at.isoformat() if first_result else None,
             "updated_at": last_result.updated_at.isoformat() if last_result else None,
         }
 
         return Response(response_data)
-
 
 @receiver(model_activity_signal, sender=Experiment)
 def handle_experiment_change(

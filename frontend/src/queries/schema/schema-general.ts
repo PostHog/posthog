@@ -2694,18 +2694,23 @@ export interface ExperimentExposureQueryResponse {
     date_range: DateRange
 }
 
-export interface ExperimentTimeseriesDataPoint {
-    date: string
-    baseline?: ExperimentStatsBaseValidated
-    variant_results?: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
-    error?: string
-}
 
 export type CachedExperimentQueryResponse = CachedQueryResponse<ExperimentQueryResponse>
 export type CachedLegacyExperimentQueryResponse = CachedQueryResponse<LegacyExperimentQueryResponse>
 export type CachedNewExperimentQueryResponse = CachedQueryResponse<NewExperimentQueryResponse>
 
 export type CachedExperimentExposureQueryResponse = CachedQueryResponse<ExperimentExposureQueryResponse>
+
+export interface ExperimentMetricTimeseries {
+    experiment_id: number
+    metric_uuid: string
+    status: 'pending' | 'completed' | 'partial' | 'failed'
+    timeseries: { [date: string]: ExperimentQueryResponse } | null
+    errors: { [date: string]: string } | null
+    computed_at: string | null
+    created_at: string
+    updated_at: string
+}
 
 /**
  * @discriminator kind

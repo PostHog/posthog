@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
@@ -27,7 +27,7 @@ export function TimeseriesModal({
 }: TimeseriesModalProps): JSX.Element {
     const logic = experimentTimeseriesLogic({ experimentId: experiment.id })
     const { loadTimeseries, clearTimeseries } = useActions(logic)
-    const { timeseries, chartData } = useValues(logic)
+    const { timeseries, chartData, errorSummary } = useValues(logic)
 
     useEffect(() => {
         if (isOpen && metric.uuid) {
@@ -58,7 +58,12 @@ export function TimeseriesModal({
             <div style={{ padding: '16px' }}>
                 {timeseries ? (
                     <div>
-                        {timeseries.status === 'completed' && timeseries.timeseries ? (
+                        {errorSummary && (
+                            <LemonBanner type="warning" style={{ marginBottom: '16px' }}>
+                                {errorSummary.message}
+                            </LemonBanner>
+                        )}
+                        {(timeseries.status === 'completed' || timeseries.status === 'partial') && timeseries.timeseries ? (
                             <>
                                 {processedChartData ? (
                                     <VariantTimeseriesChart chartData={processedChartData} />
@@ -76,7 +81,7 @@ export function TimeseriesModal({
                             </>
                         ) : timeseries.status === 'failed' ? (
                             <div style={{ color: 'red', marginTop: '10px' }}>
-                                Error: {timeseries.error_message || 'Failed to compute timeseries'}
+                                Error: Failed to compute timeseries for all days
                             </div>
                         ) : (
                             <div style={{ marginTop: '10px' }}>Timeseries computation is pending...</div>
