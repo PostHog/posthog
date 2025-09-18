@@ -57,6 +57,12 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         FAILED = "Failed"
         RUNNING = "Running"
 
+    class Type(models.TextChoices):
+        """Possible types of this SavedQuery."""
+
+        SNAPSHOT = "Snapshot"
+        VIEW = "View"
+
     name = models.CharField(max_length=128, validators=[validate_saved_query_name])
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     latest_error = models.TextField(default=None, null=True, blank=True)
@@ -82,8 +88,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     deleted_name = models.CharField(max_length=128, default=None, null=True, blank=True)
     is_materialized = models.BooleanField(default=False, blank=True, null=True)
 
-    # Whether this saved query is a snapshot
-    is_snapshot = models.BooleanField(default=False, help_text="Whether this saved query is a snapshot")
+    # Whether this saved query is a snapshot or a view
+    type = models.CharField(max_length=128, choices=Type.choices, default=Type.VIEW)
 
     # If this is query itself is a snapshot, these fields will be unused
     snapshot_enabled = models.BooleanField(default=False)

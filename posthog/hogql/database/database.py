@@ -580,7 +580,7 @@ def create_hogql_database(
 
         for saved_query in saved_queries:
             with timings.measure(f"saved_query_{saved_query.name}"):
-                if saved_query.is_snapshot:
+                if saved_query.type == DataWarehouseSavedQuery.Type.SNAPSHOT:
                     table_chain = [SNAPSHOTS_TABLE_GROUP_NAME]
                     table_chain.append(saved_query.name)
                     s3_table = saved_query.hogql_definition(modifiers)
@@ -632,7 +632,7 @@ def create_hogql_database(
         for table in tables:
             # Skip adding data warehouse tables that are materialized from views
             # We can detect that because they have the exact same name as the view
-            if views.get(table.name, None) is not None and not table.is_snapshot:
+            if views.get(table.name, None) is not None and not table.type == DataWarehouseTable.Type.SNAPSHOT:
                 continue
 
             with timings.measure(f"table_{table.name}"):
@@ -646,7 +646,7 @@ def create_hogql_database(
 
                 if table.external_data_source:
                     warehouse_tables[table.name] = s3_table
-                elif not table.is_snapshot:
+                elif not table.type == DataWarehouseTable.Type.SNAPSHOT:
                     self_managed_warehouse_tables[table.name] = s3_table
 
                 # Add warehouse table using dot notation
@@ -671,7 +671,7 @@ def create_hogql_database(
                     s3_table.name = joined_table_chain
                     warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
 
-                if table.is_snapshot:
+                if table.type == DataWarehouseTable.Type.SNAPSHOT:
                     table_chain: list[str] = [SNAPSHOTS_TABLE_GROUP_NAME]
                     table_chain.append(table.name)
                     create_nested_table_group(table_chain, warehouse_tables, s3_table)
