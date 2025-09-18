@@ -120,8 +120,6 @@ const createGitHubIssueForm = (
     const posthogUrl = window.location.origin + window.location.pathname
     const body = issue.description + '\n<br/>\n<br/>\n' + `**PostHog issue:** ${posthogUrl}`
 
-    let isSubmitting = false
-
     LemonDialog.openForm({
         title: 'Create GitHub issue',
         shouldAwaitSubmit: true,
@@ -147,16 +145,8 @@ const createGitHubIssueForm = (
             repositories: (repositories) =>
                 repositories && repositories.length === 0 ? 'You must choose a repository' : undefined,
         },
-        onSubmit: async ({ title, body, repositories }) => {
-            if (isSubmitting) {
-                return // Prevent duplicate submissions
-            }
-            isSubmitting = true
-            try {
-                await onSubmit(integration.id, { repository: repositories[0], title, body })
-            } finally {
-                isSubmitting = false
-            }
+        onSubmit: ({ title, body, repositories }) => {
+            onSubmit(integration.id, { repository: repositories[0], title, body })
         },
     })
 }
@@ -166,11 +156,9 @@ const createLinearIssueForm = (
     integration: IntegrationType,
     onSubmit: onSubmitFormType
 ): void => {
-    let isSubmitting = false
-
     LemonDialog.openForm({
         title: 'Create Linear issue',
-        shouldAwaitSubmit: true, // Add loading state
+        shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
             description: issue.description,
@@ -192,16 +180,8 @@ const createLinearIssueForm = (
             title: (title) => (!title ? 'You must enter a title' : undefined),
             teamIds: (teamIds) => (teamIds && teamIds.length === 0 ? 'You must choose a team' : undefined),
         },
-        onSubmit: async ({ title, description, teamIds }) => {
-            if (isSubmitting) {
-                return // Prevent duplicate submissions
-            }
-            isSubmitting = true
-            try {
-                await onSubmit(integration.id, { team_id: teamIds[0], title, description })
-            } finally {
-                isSubmitting = false
-            }
+        onSubmit: ({ title, description, teamIds }) => {
+            onSubmit(integration.id, { team_id: teamIds[0], title, description })
         },
     })
 }
