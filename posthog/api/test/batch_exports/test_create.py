@@ -625,3 +625,40 @@ def test_create_batch_export_with_invalid_config(
 
     assert response.status_code == status.HTTP_400_BAD_REQUEST
     assert expected_error_message in response.json()["detail"]
+
+
+def test_cannot_create_a_batch_export_for_databricks_if_not_enabled(
+    client: HttpClient, temporal, organization, team, user
+):
+    """A temporary test to ensure that we cannot create a BatchExport for Databricks if the feature flag is not enabled.
+
+    For now, we don't actually need a feature flag, since Databricks is not a valid choice for a destination.
+    """
+
+    destination_data = {
+        "type": "Databricks",
+        "config": {
+            "server_hostname": "my-server-hostname",
+            "http_path": "my-http-path",
+            "client_id": "my-client-id",
+            "client_secret": "my-client-secret",
+            "catalog": "my-catalog",
+            "schema": "my-schema",
+            "table_name": "my-table-name",
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-databricks-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+    response = create_batch_export(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert '"Databricks" is not a valid choice.' in response.json()["detail"]
