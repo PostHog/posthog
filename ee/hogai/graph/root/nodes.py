@@ -1,6 +1,7 @@
 import re
 import json
 import math
+import asyncio
 from typing import Any, Literal, Optional, TypeVar, cast
 from uuid import uuid4
 
@@ -40,6 +41,7 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_variables_to_dict,
 )
 from posthog.models.organization import OrganizationMembership
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
@@ -105,7 +107,7 @@ T = TypeVar("T", RootMessageUnion, BaseMessage)
 class RootNodeUIContextMixin(AssistantNode):
     """Mixin that provides UI context formatting capabilities for root nodes."""
 
-    def _format_ui_context(self, ui_context: MaxUIContext | None, config: RunnableConfig) -> str:
+    async def _format_ui_context(self, ui_context: MaxUIContext | None, config: RunnableConfig) -> str:
         """
         Format UI context into template variables for the prompt.
 
@@ -136,7 +138,7 @@ class RootNodeUIContextMixin(AssistantNode):
                             if hasattr(dashboard, "filters") and dashboard.filters
                             else None
                         )
-                        formatted_insight = self._run_and_format_insight(
+                        formatted_insight = await self._arun_and_format_insight(
                             config,
                             insight,
                             query_runner,
@@ -174,7 +176,7 @@ class RootNodeUIContextMixin(AssistantNode):
         if ui_context.insights:
             insights_results = []
             for insight in ui_context.insights:
-                result = self._run_and_format_insight(config, insight, query_runner, None, heading="##")
+                result = await self._arun_and_format_insight(config, insight, query_runner, None, heading="##")
                 if result:
                     insights_results.append(result)
 
@@ -197,7 +199,7 @@ class RootNodeUIContextMixin(AssistantNode):
             )
         return ""
 
-    def _run_and_format_insight(
+    async def _arun_and_format_insight(
         self,
         config: RunnableConfig,
         insight: MaxInsightContext,
@@ -240,7 +242,7 @@ class RootNodeUIContextMixin(AssistantNode):
                 QueryModel = MAX_SUPPORTED_QUERY_KIND_TO_MODEL[query_kind]
                 query_obj = QueryModel.model_validate(query_dict)
 
-            raw_results, _ = query_runner.run_and_format_query(query_obj)
+            raw_results, _ = await query_runner.arun_and_format_query(query_obj)
 
             result = (
                 PromptTemplate.from_template(ROOT_INSIGHT_CONTEXT_PROMPT, template_format="mustache")
@@ -322,10 +324,10 @@ class RootNode(RootNodeUIContextMixin):
     Determines the thinking configuration for the model.
     """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         from ee.hogai.tool import get_contextual_tool_class
 
-        history, new_window_id = self._construct_and_update_messages_window(state, config)
+        history, new_window_id = await self._construct_and_update_messages_window(state, config)
         # Build system prompt with conditional session summarization and insight search sections
         system_prompt_template = ROOT_SYSTEM_PROMPT
         # Check if session summarization is enabled for the user
@@ -351,8 +353,12 @@ class RootNode(RootNodeUIContextMixin):
                 flags=re.DOTALL,
             )
 
-        ui_context = self._format_ui_context(self._get_ui_context(state), config)
-        should_add_billing_tool, billing_context_prompt = self._get_billing_info(config)
+        ui_context, billing_context, core_memory = await asyncio.gather(
+            self._format_ui_context(self._get_ui_context(state), config),
+            self._get_billing_info(config),
+            self._aget_core_memory_text(),
+        )
+        should_add_billing_tool, billing_context_prompt = billing_context
 
         system_prompts = ChatPromptTemplate.from_messages(
             [
@@ -378,15 +384,20 @@ class RootNode(RootNodeUIContextMixin):
             template_format="mustache",
         ).format_messages(
             personality_prompt=MAX_PERSONALITY_PROMPT,
-            core_memory=self.core_memory_text,
+            core_memory=core_memory,
             ui_context=ui_context,
             billing_context=billing_context_prompt,
         )
         add_cache_control(system_prompts[-1])
 
         message = self._get_model(
-            state, config, extra_tools=["retrieve_billing_information"] if should_add_billing_tool else []
-        ).invoke(system_prompts + history, config)
+            state,
+            config,
+            extra_tools=["retrieve_billing_information"] if should_add_billing_tool else [],
+        ).invoke(
+            system_prompts + history,
+            config,
+        )
 
         return PartialAssistantState(
             root_conversation_start_id=new_window_id,
@@ -427,6 +438,7 @@ class RootNode(RootNodeUIContextMixin):
             send_feature_flag_events=False,
         )
 
+    @database_sync_to_async
     def _get_billing_info(self, config: RunnableConfig) -> tuple[bool, str]:
         """Get billing information including wheter to include the billing tool and the prompt.
         Returns:
@@ -590,7 +602,7 @@ class RootNode(RootNodeUIContextMixin):
 
         return history
 
-    def _construct_and_update_messages_window(
+    async def _construct_and_update_messages_window(
         self, state: AssistantState, config: RunnableConfig
     ) -> tuple[list[BaseMessage], str | None]:
         """
@@ -600,7 +612,7 @@ class RootNode(RootNodeUIContextMixin):
         history = self._construct_messages(state)
 
         # Find a new window id and trim the history to it.
-        new_window_id = self._find_new_window_id(state, config, history)
+        new_window_id = await self._find_new_window_id(state, config, history)
         if new_window_id is not None:
             history = self._get_conversation_window(history, new_window_id)
 
@@ -613,7 +625,7 @@ class RootNode(RootNodeUIContextMixin):
     def _is_hard_limit_reached(self, state: AssistantState) -> bool:
         return state.root_tool_calls_count is not None and state.root_tool_calls_count >= self.MAX_TOOL_CALLS
 
-    def _find_new_window_id(
+    async def _find_new_window_id(
         self, state: AssistantState, config: RunnableConfig, window: list[BaseMessage]
     ) -> str | None:
         """
@@ -629,7 +641,11 @@ class RootNode(RootNodeUIContextMixin):
             return None
 
         # Contains an async method in get_num_tokens_from_messages
-        if model.get_num_tokens_from_messages(window, thinking=self.THINKING_CONFIG) > self.CONVERSATION_WINDOW_SIZE:
+        token_count = await database_sync_to_async(model.get_num_tokens_from_messages, thread_sensitive=False)(
+            window, thinking=self.THINKING_CONFIG
+        )
+
+        if token_count > self.CONVERSATION_WINDOW_SIZE:
             trimmed_window: list[BaseMessage] = trim_messages(
                 window,
                 token_counter=model,
