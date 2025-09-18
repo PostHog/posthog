@@ -24,7 +24,6 @@ from dags.web_preaggregated_utils import (
     WEB_PRE_AGGREGATED_CLICKHOUSE_SETTINGS,
     check_for_concurrent_runs,
     clear_all_staging_partitions,
-    drop_partitions_for_date_range,
     merge_clickhouse_settings,
     recreate_staging_table,
     swap_partitions_from_staging,
@@ -86,12 +85,7 @@ def pre_aggregate_web_analytics_data(
         context.log.info(insert_query)
         sync_execute(insert_query)
 
-        # 3. Drop partitions from destination table for the date range
-        # This is hopefully temporary as we're facing a problem on the v2 that some days are getting a high % difference on the data accuracy.
-        context.log.info(f"Dropping partitions from destination table {table_name} for {date_start} to {date_end}")
-        drop_partitions_for_date_range(context, cluster, table_name, date_start, date_end)
-
-        # 4. Atomically swap partitions from staging to target
+        # 3. Atomically swap partitions from staging to target
         context.log.info(f"Swapping partitions from {staging_table_name} to {table_name}")
         swap_partitions_from_staging(context, cluster, table_name, staging_table_name)
 
