@@ -42,21 +42,6 @@ impl From<TopicPartitionListElem<'_>> for Partition {
     }
 }
 
-impl From<TopicPartitionListElem<'_>> for PartitionAssignment {
-    fn from(elem: TopicPartitionListElem<'_>) -> Self {
-        let partition = Partition::new(elem.topic().to_string(), elem.partition());
-        let offset = match elem.offset() {
-            rdkafka::Offset::Beginning => None,
-            rdkafka::Offset::End => None,
-            rdkafka::Offset::Stored => None,
-            rdkafka::Offset::Invalid => None,
-            rdkafka::Offset::Offset(off) => Some(off),
-            rdkafka::Offset::OffsetTail(_) => None,
-        };
-        Self::new(partition, offset)
-    }
-}
-
 impl PartitionOffset {
     pub fn new(partition: Partition, offset: i64) -> Self {
         Self { partition, offset }

@@ -1,4 +1,4 @@
-use rdkafka::consumer::{BaseConsumer, ConsumerContext, Rebalance};
+use rdkafka::consumer::{BaseConsumer, Consumer, ConsumerContext, Rebalance};
 use rdkafka::{ClientContext, TopicPartitionList};
 use std::sync::Arc;
 use tokio::runtime::Handle;
@@ -171,7 +171,7 @@ impl ConsumerContext for StatefulConsumerContext {
         }
     }
 
-    fn post_rebalance(&self, _base_consumer: &BaseConsumer<Self>, rebalance: &Rebalance) {
+    fn post_rebalance(&self, base_consumer: &BaseConsumer<Self>, rebalance: &Rebalance) {
         info!("Post-rebalance event: {:?}", rebalance);
 
         // Handle partition assignment if applicable
@@ -179,14 +179,52 @@ impl ConsumerContext for StatefulConsumerContext {
             Rebalance::Assign(partitions) => {
                 info!("Assigned {} partitions", partitions.count());
 
-                // Extract partition info
-                let partition_assignments: Vec<PartitionAssignment> = partitions
-                    .elements()
-                    .into_iter()
-                    .map(PartitionAssignment::from)
-                    .collect();
+                // Get the position for all assigned partitions
+                // position() returns the next offset to be fetched
+                let positions = match base_consumer.position() {
+                    Ok(pos) => pos,
+                    Err(e) => {
+                        error!("Failed to get consumer position after assignment: {}", e);
+                        TopicPartitionList::new()
+                    }
+                };
 
-                info!("📋 Total partitions assigned: {:?}", partition_assignments);
+                // Build partition assignments with actual positions
+                let mut partition_assignments = Vec::new();
+                for elem in partitions.elements() {
+                    let topic = elem.topic();
+                    let partition_num = elem.partition();
+
+                    // Find the position for this partition
+                    let offset = positions
+                        .elements()
+                        .into_iter()
+                        .find(|e| e.topic() == topic && e.partition() == partition_num)
+                        .and_then(|e| match e.offset() {
+                            rdkafka::Offset::Offset(off) => {
+                                info!(
+                                    "Partition {}-{}: starting from position {}",
+                                    topic, partition_num, off
+                                );
+                                Some(off)
+                            }
+                            other => {
+                                warn!(
+                                    "Partition {}-{}: unexpected position type: {:?}",
+                                    topic, partition_num, other
+                                );
+                                None
+                            }
+                        });
+
+                    let partition = Partition::new(topic.to_string(), partition_num);
+                    partition_assignments.push(PartitionAssignment::new(partition, offset));
+                }
+
+                info!(
+                    "📋 Total partitions assigned with positions: {:?}",
+                    partition_assignments
+                );
 
                 // Send assignment event to async worker
                 if let Err(e) = self
