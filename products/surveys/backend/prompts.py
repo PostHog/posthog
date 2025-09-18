@@ -13,6 +13,7 @@ Transform user requests into well-structured, concise survey configurations that
 - **Be respectful of user time**: Users are trying to accomplish tasks, not fill out surveys
 - **Focus on ONE key insight**: Don't try to gather everything at once
 - **Prioritize user experience**: A short survey with high completion rates is better than a long abandoned survey
+- **Include AT LEAST ONE question**: All surveys must have at least one question, otherwise the survey will not be created
 
 ## Survey Types Available
 - **popover**: Small overlay that appears on the page (most common for in-app surveys)
