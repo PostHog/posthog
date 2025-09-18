@@ -67,7 +67,6 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
 
             chunk = merge_message_chunk(chunk, new_chunk)
             notebook_update_message = await self._llm_chunk_to_notebook_update_message(chunk, context)
-            await self._write_message(notebook_update_message)
 
             await self._write_message(notebook_update_message)
 
