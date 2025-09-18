@@ -141,7 +141,7 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
 
         except Exception as e:
             capture_exception(e)
-            raise ValidationError(f"Failed to create named query {e}")
+            raise ValidationError("Failed to create named query.")
 
     @extend_schema(
         request=NamedQueryRequest,
@@ -183,7 +183,7 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
 
         except Exception as e:
             capture_exception(e)
-            raise ValidationError(f"Failed to update named query: {e}")
+            raise ValidationError("Failed to update named query.")
 
     def destroy(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Delete a named query."""
