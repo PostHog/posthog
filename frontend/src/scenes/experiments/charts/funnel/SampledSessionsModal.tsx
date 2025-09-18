@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+
 import { LemonButton, LemonModal, LemonTable, LemonTabs } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -60,13 +61,19 @@ export function SampledSessionsModal({
         )
     )
 
-    // Create a stable string key for the dependency array
-    const sessionIdsKey = allSessionIds.join(',')
-
     // Check recording availability for all sessions
     useEffect(() => {
+        // Calculate session IDs inside the effect to avoid dependency issues
+        const sessionIds = Array.from(
+            new Set(
+                Array.from(sessionsByStep.values())
+                    .flat()
+                    .map((s) => s.sessionId)
+            )
+        )
+
         const checkRecordingAvailability = async (): Promise<void> => {
-            if (!isOpen || allSessionIds.length === 0) {
+            if (!isOpen || sessionIds.length === 0) {
                 return
             }
 
@@ -74,8 +81,8 @@ export function SampledSessionsModal({
             try {
                 const response = await api.recordings.list({
                     kind: NodeKind.RecordingsQuery,
-                    session_ids: allSessionIds,
-                    limit: allSessionIds.length,
+                    session_ids: sessionIds,
+                    limit: sessionIds.length,
                 })
 
                 const availabilityMap = new Map<string, boolean>()
@@ -92,7 +99,7 @@ export function SampledSessionsModal({
         }
 
         void checkRecordingAvailability()
-    }, [isOpen, sessionIdsKey, allSessionIds.length, allSessionIds])
+    }, [isOpen, sessionsByStep])
 
     const openSessionRecording = (sessionId: string, eventUuid: string): void => {
         sessionPlayerModalLogic.actions.openSessionPlayer({
@@ -149,7 +156,7 @@ export function SampledSessionsModal({
     // Create tabs for each step
     const tabs = stepNames.map((stepName, index) => {
         const sessions = sessionsByStep.get(index) || []
-        const recordingsCount = sessions.filter(s => recordingAvailability.get(s.sessionId)).length
+        const recordingsCount = sessions.filter((s) => recordingAvailability.get(s.sessionId)).length
 
         return {
             key: String(index),
@@ -158,7 +165,9 @@ export function SampledSessionsModal({
                     <div className="font-semibold">{stepName || `Step ${index + 1}`}</div>
                     <div className="text-xs text-muted">
                         {sessions.length} session{sessions.length !== 1 ? 's' : ''}
-                        {!loading && recordingsCount > 0 && ` (${recordingsCount} with recording${recordingsCount !== 1 ? 's' : ''})`}
+                        {!loading &&
+                            recordingsCount > 0 &&
+                            ` (${recordingsCount} with recording${recordingsCount !== 1 ? 's' : ''})`}
                     </div>
                 </div>
             ),
@@ -173,9 +182,7 @@ export function SampledSessionsModal({
                             loading={loading}
                         />
                     ) : (
-                        <div className="text-muted text-center py-8">
-                            No users reached this step
-                        </div>
+                        <div className="text-muted text-center py-8">No users reached this step</div>
                     )}
                 </div>
             ),
@@ -185,16 +192,20 @@ export function SampledSessionsModal({
     // Add a special tab for users who didn't enter the funnel (step -1)
     if (stepsEventData.length > stepNames.length) {
         const droppedOffSessions = sessionsByStep.get(stepsEventData.length - 1) || []
-        const droppedOffRecordingsCount = droppedOffSessions.filter(s => recordingAvailability.get(s.sessionId)).length
+        const droppedOffRecordingsCount = droppedOffSessions.filter((s) =>
+            recordingAvailability.get(s.sessionId)
+        ).length
 
         tabs.unshift({
             key: 'dropped',
             label: (
                 <div className="flex flex-col items-start">
-                    <div className="font-semibold">Didn't enter funnel</div>
+                    <div className="font-semibold">Dropped off</div>
                     <div className="text-xs text-muted">
                         {droppedOffSessions.length} session{droppedOffSessions.length !== 1 ? 's' : ''}
-                        {!loading && droppedOffRecordingsCount > 0 && ` (${droppedOffRecordingsCount} with recording${droppedOffRecordingsCount !== 1 ? 's' : ''})`}
+                        {!loading &&
+                            droppedOffRecordingsCount > 0 &&
+                            ` (${droppedOffRecordingsCount} with recording${droppedOffRecordingsCount !== 1 ? 's' : ''})`}
                     </div>
                 </div>
             ),
@@ -221,37 +232,31 @@ export function SampledSessionsModal({
     const totalRecordingsAvailable = Array.from(recordingAvailability.values()).filter(Boolean).length
 
     return (
-        <LemonModal
-            isOpen={isOpen}
-            onClose={onClose}
-            title={`Sampled Sessions - ${variant}`}
-            width={720}
-        >
+        <LemonModal isOpen={isOpen} onClose={onClose} title={`Sampled Sessions - ${variant}`} width={720}>
             <div className="space-y-4">
                 {/* Summary */}
                 <div className="bg-bg-3000 rounded p-3 text-sm">
                     <div className="flex justify-between items-center">
                         <div>
-                            <strong>{allSessionIds.length}</strong> unique session{allSessionIds.length !== 1 ? 's' : ''} sampled
+                            <strong>{allSessionIds.length}</strong> unique session
+                            {allSessionIds.length !== 1 ? 's' : ''} sampled
                         </div>
                         {!loading && totalRecordingsAvailable > 0 && (
                             <div className="text-muted">
-                                <strong>{totalRecordingsAvailable}</strong> with recording{totalRecordingsAvailable !== 1 ? 's' : ''} available
+                                <strong>{totalRecordingsAvailable}</strong> with recording
+                                {totalRecordingsAvailable !== 1 ? 's' : ''} available
                             </div>
                         )}
                     </div>
                 </div>
 
                 {/* Tabs for each funnel step */}
-                <LemonTabs
-                    activeKey={activeTab}
-                    onChange={setActiveTab}
-                    tabs={tabs}
-                />
+                <LemonTabs activeKey={activeTab} onChange={setActiveTab} tabs={tabs} />
 
                 {/* Note about sampling */}
                 <div className="text-xs text-muted border-t pt-2">
-                    <strong>Note:</strong> This shows a sample of up to 100 sessions per step. Session recordings are only available for sessions that have been captured and not deleted.
+                    <strong>Note:</strong> This shows a sample of up to 100 sessions per step. Session recordings are
+                    only available for sessions that have been captured and not deleted.
                 </div>
             </div>
         </LemonModal>
