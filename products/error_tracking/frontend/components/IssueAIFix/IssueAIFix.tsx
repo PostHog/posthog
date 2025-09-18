@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 
 import { IconExternal, IconGitRepository, IconMagicWand } from '@posthog/icons'
@@ -10,6 +10,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 import { releasePreviewLogic } from '../ExceptionAttributesPreview/ReleasesPreview/releasePreviewLogic'
+import { fixWithAiLogic } from './fixWithAiLogic'
 
 export type FixWithAIStatus = 'idle' | 'in_progress' | 'done'
 
@@ -24,11 +25,10 @@ export function IssueAIFix(): JSX.Element {
     const [status, setStatus] = useState<FixWithAIStatus>('idle')
     const [showRepositoryPopover, setShowRepositoryPopover] = useState(false)
     const [showPRsPopover, setShowPRsPopover] = useState(false)
-    const { release } = useValues(releasePreviewLogic)
+
     const { getIntegrationsByKind } = useValues(integrationsLogic)
-    const githubIntegrations = getIntegrationsByKind(['github'])
-    const [integrationId, setIntegrationId] = useState<number | undefined>(undefined)
-    const [repository, setRepository] = useState<string>('')
+
+    const { integrationId, repository } = useValues(fixWithAiLogic)
 
     // Mock pull requests - replace with actual data when available
     const pullRequests: PullRequest[] = useMemo(
@@ -49,26 +49,9 @@ export function IssueAIFix(): JSX.Element {
         []
     )
 
-    useEffect(() => {
-        if (!integrationId && githubIntegrations.length === 1) {
-            setIntegrationId(githubIntegrations[0].id as number)
-        }
-    }, [githubIntegrations, integrationId])
-
-    useEffect(() => {
-        // Auto-detect repository from release metadata
-        if (release?.metadata?.git?.repo_name && !repository) {
-            setRepository(release.metadata.git.repo_name)
-        }
-    }, [release, repository])
-
     const handleStartFix = (): void => {
-        if (!integrationId || !repository) {
-            return
-        }
         setStatus('in_progress')
-        // TODO: Implement actual AI fix logic here
-        setTimeout(() => setStatus('done'), 3000) // Mock progress
+        setTimeout(() => setStatus('done'), 3000)
     }
 
     const isInProgress = status === 'in_progress'
@@ -77,14 +60,7 @@ export function IssueAIFix(): JSX.Element {
     return (
         <div className="space-y-3">
             <div className="flex gap-2 items-stretch">
-                <RepositorySelector
-                    repository={repository}
-                    integrationId={integrationId}
-                    showPopover={showRepositoryPopover}
-                    onShowPopover={setShowRepositoryPopover}
-                    onRepositoryChange={setRepository}
-                    onIntegrationChange={setIntegrationId}
-                />
+                <RepositorySelector showPopover={showRepositoryPopover} onShowPopover={setShowRepositoryPopover} />
                 <LemonButton
                     type="primary"
                     icon={<IconMagicWand />}
@@ -173,43 +149,23 @@ export function IssueAIFix(): JSX.Element {
     )
 }
 
-interface RepositorySelectorProps {
-    repository: string
-    integrationId: number | undefined
-    showPopover: boolean
-    onShowPopover: (show: boolean) => void
-    onRepositoryChange: (repository: string) => void
-    onIntegrationChange: (integrationId: number | undefined) => void
-}
+function RepositorySelector(): JSX.Element {
+    const { repository } = useValues(fixWithAiLogic)
+    const { repositoryPopoverVisible } = useValues(fixWithAiLogic)
+    const { setRepositoryPopoverVisible } = useActions(fixWithAiLogic)
 
-function RepositorySelector({
-    repository,
-    integrationId,
-    showPopover,
-    onShowPopover,
-    onRepositoryChange,
-    onIntegrationChange,
-}: RepositorySelectorProps): JSX.Element {
     return (
         <Popover
-            visible={showPopover}
-            onClickOutside={() => onShowPopover(false)}
-            overlay={
-                <RepositoryPickerPopover
-                    repository={repository}
-                    integrationId={integrationId}
-                    onRepositoryChange={onRepositoryChange}
-                    onIntegrationChange={onIntegrationChange}
-                    onClose={() => onShowPopover(false)}
-                />
-            }
+            visible={repositoryPopoverVisible}
+            onClickOutside={() => setRepositoryPopoverVisible(false)}
+            overlay={<RepositoryPickerPopover onClose={() => setRepositoryPopoverVisible(false)} />}
             placement="bottom-start"
             showArrow
         >
             <ButtonPrimitive
                 variant="outline"
                 size="fit"
-                onClick={() => onShowPopover(true)}
+                onClick={() => setRepositoryPopoverVisible(true)}
                 className="px-3 min-w-0 flex-1"
                 tooltip="Click to select repository"
             >
@@ -222,32 +178,20 @@ function RepositorySelector({
     )
 }
 
-interface RepositoryPickerPopoverProps {
-    repository: string
-    integrationId: number | undefined
-    onRepositoryChange: (repository: string) => void
-    onIntegrationChange: (integrationId: number | undefined) => void
-    onClose: () => void
-}
-
-function RepositoryPickerPopover({
-    repository,
-    integrationId,
-    onRepositoryChange,
-    onIntegrationChange,
-    onClose,
-}: RepositoryPickerPopoverProps): JSX.Element {
+function RepositoryPickerPopover(): JSX.Element {
     const { getIntegrationsByKind } = useValues(integrationsLogic)
     const githubIntegrations = getIntegrationsByKind(['github'])
 
-    const handleRepositorySelect = (repo: string): void => {
-        onRepositoryChange(repo)
-        onClose()
-    }
+    const { integrationId } = useValues(fixWithAiLogic)
+    const { setRepository, setIntegrationId } = useActions(fixWithAiLogic)
 
     const handleIntegrationChange = (id: number | undefined): void => {
-        onIntegrationChange(id)
-        onRepositoryChange('') // Reset repository when integration changes
+        if (!id) {
+            return
+        }
+
+        setIntegrationId(id)
+        setRepository('')
     }
 
     return (
@@ -270,11 +214,7 @@ function RepositoryPickerPopover({
                 {integrationId && (
                     <div>
                         <label className="block text-sm font-medium mb-1">Repository</label>
-                        <RepositoryPicker
-                            integrationId={integrationId}
-                            value={repository}
-                            onSelect={handleRepositorySelect}
-                        />
+                        <RepositoryPicker integrationId={integrationId} />
                     </div>
                 )}
             </div>
@@ -284,30 +224,32 @@ function RepositoryPickerPopover({
 
 interface RepositoryPickerProps {
     integrationId: number
-    value: string
-    onSelect: (repository: string) => void
 }
 
-function RepositoryPicker({ integrationId, value, onSelect }: RepositoryPickerProps): JSX.Element {
+function RepositoryPicker({ integrationId }: RepositoryPickerProps): JSX.Element {
     const { release } = useValues(releasePreviewLogic)
     const { options } = useRepositories(integrationId)
+
+    const { repository } = useValues(fixWithAiLogic)
+    const { setRepository, setRepositoryPopoverVisible } = useActions(fixWithAiLogic)
 
     useEffect(() => {
         if (
             release &&
             release.metadata?.git?.repo_name &&
             options.some((option) => option.key === release.metadata?.git?.repo_name) &&
-            !value
+            !repository
         ) {
-            onSelect(release.metadata.git.repo_name)
+            setRepository(release.metadata.git.repo_name)
+            setRepositoryPopoverVisible(false)
         }
-    }, [options, release, value, onSelect])
+    }, [options, release, repository, setRepository, setRepositoryPopoverVisible])
 
     return (
         <GitHubRepositoryPicker
             integrationId={integrationId}
-            value={value}
-            onChange={onSelect}
+            value={repository ?? ''}
+            onChange={setRepository}
             keepParentPopoverOpenOnClick
         />
     )
