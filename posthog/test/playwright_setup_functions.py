@@ -3,13 +3,15 @@
 import secrets
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
+
 from pydantic import BaseModel
 
+from posthog.schema import PlaywrightWorkspaceSetupData, PlaywrightWorkspaceSetupResult
+
+from posthog.management.commands.generate_demo_data import Command as GenerateDemoDataCommand
 from posthog.models import PersonalAPIKey, User
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import mask_key_value
-from posthog.schema import PlaywrightWorkspaceSetupData, PlaywrightWorkspaceSetupResult
-from posthog.management.commands.generate_demo_data import Command as GenerateDemoDataCommand
 
 
 @runtime_checkable

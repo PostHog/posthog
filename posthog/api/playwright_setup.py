@@ -1,12 +1,13 @@
 """Test setup API endpoint for Playwright tests."""
 
 from django.conf import settings
+
+from pydantic import BaseModel
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
-from pydantic import BaseModel
 
 from posthog.test.playwright_setup_functions import PLAYWRIGHT_SETUP_FUNCTIONS
 
