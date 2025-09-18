@@ -29,6 +29,11 @@ except ImportError:
     pass
 
 
+class UserAccessControlError(Exception):
+    def __init__(self):
+        super().__init__("Access control failure")
+
+
 class AccessSource(Enum):
     """Enum for how a user got access to a resource"""
 
