@@ -315,8 +315,6 @@ export function CodeEditor({
                 })
                 monacoDisposables.current.push(disposable)
             }
-
-            // Keep onMount signature consistent with single-editor: pass the modified editor
             onMount?.(modifiedEditor, monaco)
         }
 
