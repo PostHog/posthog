@@ -204,10 +204,6 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         return NamingConvention().normalize_identifier(self.name)
 
     @property
-    def snapshot_normalized_name(self):
-        return NamingConvention().normalize_identifier(self.name) + "_snapshot"
-
-    @property
     def url_pattern(self):
         if settings.USE_LOCAL_SETUP:
             parsed = urlparse(settings.BUCKET_URL)

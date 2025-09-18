@@ -23,15 +23,90 @@ from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
 from posthog.temporal.data_snapshots.delta_snapshot import DeltaSnapshot, calculate_partition_settings
 from posthog.warehouse.models.credential import get_or_create_datawarehouse_credential
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery, aget_saved_query_by_id
+from posthog.warehouse.models.snapshot_job import DataWarehouseSnapshotJob
 from posthog.warehouse.models.table import DataWarehouseTable
 
 LOGGER = get_logger(__name__)
 
 
 @dataclasses.dataclass
-class CreateTableInputs:
+class CreateSnapshotJobInputs:
     team_id: int
     saved_query_id: str
+
+
+@temporalio.activity.defn
+async def create_snapshot_job_activity(inputs: CreateSnapshotJobInputs) -> str:
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
+
+    await logger.adebug(f"Creating DataWarehouseSnapshotJob for {inputs.saved_query_id}")
+    team = await database_sync_to_async(Team.objects.get)(id=inputs.team_id)
+    workflow_id = temporalio.activity.info().workflow_id
+    workflow_run_id = temporalio.activity.info().workflow_run_id
+    saved_query = await aget_saved_query_by_id(saved_query_id=inputs.saved_query_id, team_id=inputs.team_id)
+    job = await start_job_snapshot_run(team, workflow_id, workflow_run_id, saved_query)
+    return str(job.id)
+
+
+async def start_job_snapshot_run(
+    team: Team, workflow_id: str, workflow_run_id: str, saved_query: DataWarehouseSavedQuery
+) -> DataWarehouseSnapshotJob:
+    """Create a DataWarehouseSnapshotJob record in an async-safe way."""
+    job_create = database_sync_to_async(DataWarehouseSnapshotJob.objects.create)
+    return await job_create(
+        team=team,
+        config=saved_query.datawarehousesnapshotconfig,
+        status=DataWarehouseSnapshotJob.Status.RUNNING,
+        workflow_id=workflow_id,
+        workflow_run_id=workflow_run_id,
+        created_by_id=saved_query.created_by_id,
+    )
+
+
+@dataclasses.dataclass
+class FinishSnapshotJobInputs:
+    team_id: int
+    job_id: str
+    error: Exception | None
+    snapshot_ts: str
+    snapshot_table_id: str
+
+
+def format_snapshot_name(snapshot_ts: str) -> str:
+    return snapshot_ts.replace(" ", "_").replace(":", "_").replace(".", "_").replace("-", "_")
+
+
+@temporalio.activity.defn
+async def finish_snapshot_job_activity(inputs: FinishSnapshotJobInputs) -> None:
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
+
+    await logger.adebug(f"Finishing DataWarehouseSnapshotJob for {inputs.job_id}")
+    job = await database_sync_to_async(DataWarehouseSnapshotJob.objects.get)(id=inputs.job_id)
+    snapshot_table = await database_sync_to_async(DataWarehouseTable.objects.get)(id=inputs.snapshot_table_id)
+
+    saved_query = DataWarehouseSavedQuery(
+        team_id=inputs.team_id,
+        created_by_id=job.created_by_id,
+        name=f"{snapshot_table.name}_{format_snapshot_name(inputs.snapshot_ts)}",
+        query={
+            "kind": "HogQLQuery",
+            "query": f"""SELECT * FROM snapshots.{snapshot_table.name} WHERE snapshot_ts <= toDateTime('{inputs.snapshot_ts}', 'UTC') AND (valid_until > toDateTime('{inputs.snapshot_ts}', 'UTC') OR valid_until IS NULL)""",
+        },
+        is_snapshot=True,
+        snapshot_table_id=inputs.snapshot_table_id,
+    )
+
+    saved_query.columns = await database_sync_to_async(saved_query.get_columns)()
+    await database_sync_to_async(saved_query.save)()
+
+    job.table = saved_query
+    job.status = (
+        DataWarehouseSnapshotJob.Status.COMPLETED if inputs.error is None else DataWarehouseSnapshotJob.Status.FAILED
+    )
+    job.error = str(inputs.error) if inputs.error is not None else None
+    await database_sync_to_async(job.save)()
 
 
 @dataclasses.dataclass
@@ -55,7 +130,7 @@ class RunSnapshotActivityInputs:
 
 
 @temporalio.activity.defn
-async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> None:
+async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> tuple[str, str]:
     """A Temporal activity to run a snapshot."""
     from posthog.temporal.data_modeling.run_workflow import (
         _transform_date_and_datetimes,
@@ -86,6 +161,8 @@ async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> None:
     if merge_key is None:
         raise Exception("Merge key is required for snapshot")
 
+    snapshot_ts = dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
+
     async for _, res in asyncstdlib.enumerate(
         hogql_table(
             f"""
@@ -93,7 +170,7 @@ async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> None:
             *,
             {merge_key} AS merge_key,
             toString(cityHash64(concatWithSeparator('_', {', '.join(stringified_hashed_columns)}))) AS row_hash,
-            now() AS snapshot_ts
+            toDateTime('{snapshot_ts}', 'UTC') AS snapshot_ts
         FROM ({hogql_query})
     """,
             team,
@@ -124,14 +201,16 @@ async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> None:
         snapshot_table_uri = delta_snapshot.get_delta_table()
         file_uris = snapshot_table_uri.file_uris()
 
-        prepare_s3_files_for_querying(saved_query.snapshot_folder_path, saved_query.normalized_name, file_uris)
+    prepare_s3_files_for_querying(saved_query.snapshot_folder_path, saved_query.normalized_name, file_uris)
 
-    await database_sync_to_async(validate_snapshot_schema)(
+    snapshot_table_id = await database_sync_to_async(validate_snapshot_schema)(
         inputs.team_id,
         saved_query,
         logger,
         delta_snapshot.schema.to_hogql_types(),
     )
+
+    return snapshot_ts, snapshot_table_id
 
 
 @dataclasses.dataclass
@@ -160,16 +239,52 @@ class RunWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: RunWorkflowInputs) -> None:
         """Run the workflow."""
-        await temporalio.workflow.execute_activity(
-            run_snapshot_activity,
-            RunSnapshotActivityInputs(team_id=inputs.team_id, saved_query_id=inputs.saved_query_id),
-            start_to_close_timeout=dt.timedelta(hours=1),
-            heartbeat_timeout=dt.timedelta(minutes=1),
+
+        job_id = await temporalio.workflow.execute_activity(
+            create_snapshot_job_activity,
+            CreateSnapshotJobInputs(team_id=inputs.team_id, saved_query_id=inputs.saved_query_id),
+            start_to_close_timeout=dt.timedelta(minutes=5),
             retry_policy=temporalio.common.RetryPolicy(
                 maximum_attempts=1,
             ),
-            cancellation_type=temporalio.workflow.ActivityCancellationType.TRY_CANCEL,
         )
+
+        try:
+            snapshot_ts, snapshot_table_id = await temporalio.workflow.execute_activity(
+                run_snapshot_activity,
+                RunSnapshotActivityInputs(team_id=inputs.team_id, saved_query_id=inputs.saved_query_id),
+                start_to_close_timeout=dt.timedelta(hours=1),
+                heartbeat_timeout=dt.timedelta(minutes=1),
+                retry_policy=temporalio.common.RetryPolicy(
+                    maximum_attempts=1,
+                ),
+                cancellation_type=temporalio.workflow.ActivityCancellationType.TRY_CANCEL,
+            )
+        except Exception as e:
+            await temporalio.workflow.execute_activity(
+                finish_snapshot_job_activity,
+                FinishSnapshotJobInputs(
+                    team_id=inputs.team_id,
+                    job_id=job_id,
+                    error=e,
+                    snapshot_ts=snapshot_ts,
+                    snapshot_table_id=snapshot_table_id,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+            )
+            raise
+        finally:
+            await temporalio.workflow.execute_activity(
+                finish_snapshot_job_activity,
+                FinishSnapshotJobInputs(
+                    team_id=inputs.team_id,
+                    job_id=job_id,
+                    error=None,
+                    snapshot_ts=snapshot_ts,
+                    snapshot_table_id=snapshot_table_id,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+            )
 
 
 def validate_snapshot_schema(
@@ -177,7 +292,7 @@ def validate_snapshot_schema(
     saved_query: DataWarehouseSavedQuery,
     logger: FilteringBoundLogger,
     table_schema_dict: typing.Optional[dict[str, str]] = None,
-) -> None:
+) -> str:
     """
 
     Validates the schemas of data that has been synced from saved query snapshot.
@@ -200,7 +315,7 @@ def validate_snapshot_schema(
         with transaction.atomic():
             table_params = {
                 "credential": credential,
-                "name": saved_query.snapshot_normalized_name,
+                "name": saved_query.normalized_name,
                 "format": DataWarehouseTable.TableFormat.DeltaS3Wrapper,
                 "url_pattern": new_url_pattern,
                 "team_id": team_id,
@@ -210,7 +325,7 @@ def validate_snapshot_schema(
 
             # Check if we already have an orphaned table that we can repurpose
             existing_tables = DataWarehouseTable.objects.filter(
-                team_id=team_id, name=saved_query.snapshot_normalized_name, deleted=False, is_snapshot=True
+                team_id=team_id, name=saved_query.normalized_name, deleted=False, is_snapshot=True
             )
             existing_tables_count = existing_tables.count()
             table_created = None
@@ -246,7 +361,7 @@ def validate_snapshot_schema(
     except ServerException as err:
         if err.code == 636:
             logger.exception(
-                f"Data Warehouse: No data for schema {saved_query.snapshot_normalized_name} for saved query {saved_query.pk}",
+                f"Data Warehouse: No data for schema snapshot of {saved_query.normalized_name} for saved query {saved_query.pk}",
                 exc_info=err,
             )
         else:
@@ -261,3 +376,5 @@ def validate_snapshot_schema(
             exc_info=e,
         )
         raise
+
+    return str(table_created.id) if table_created is not None else None

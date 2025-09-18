@@ -74,7 +74,7 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
-                    "saved_query",
+                    "config",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE, to="posthog.datawarehousesnapshotconfig"
                     ),
@@ -82,7 +82,10 @@ class Migration(migrations.Migration):
                 (
                     "table",
                     models.ForeignKey(
-                        on_delete=django.db.models.deletion.CASCADE, to="posthog.datawarehousesavedquery"
+                        blank=True,
+                        null=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="posthog.datawarehousesavedquery",
                     ),
                 ),
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
