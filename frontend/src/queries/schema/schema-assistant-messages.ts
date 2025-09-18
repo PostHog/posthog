@@ -65,6 +65,7 @@ export interface AssistantForm {
 
 export interface AssistantMessageMetadata {
     form?: AssistantForm
+    thinking?: Record<string, unknown>[]
 }
 
 export interface AssistantToolCall {
