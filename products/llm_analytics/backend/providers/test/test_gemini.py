@@ -1,4 +1,5 @@
 import json
+from typing import cast
 
 import pytest
 from posthog.test.base import BaseTest
@@ -6,6 +7,7 @@ from unittest.mock import MagicMock, PropertyMock, patch
 
 from django.test import override_settings
 
+from anthropic.types import MessageParam
 from google.genai.errors import APIError
 from parameterized import parameterized
 
@@ -55,7 +57,7 @@ class TestGeminiProvider(BaseTest):
     @override_settings(GEMINI_API_KEY="test-api-key")
     @patch("products.llm_analytics.backend.providers.gemini.genai.Client")
     @patch("posthoganalytics.default_client")
-    def test_invalid_model_raises_error(self, mock_posthog_client):
+    def test_invalid_model_raises_error(self, mock_posthog_client, mock_genai_client):
         mock_posthog_client.return_value = MagicMock()
 
         with pytest.raises(ValueError, match="Model invalid-model is not supported"):
@@ -67,7 +69,7 @@ class TestGeminiStreamResponse(BaseTest):
         super().setUp()
         self.mock_posthog_client = MagicMock()
         self.mock_genai_client = MagicMock()
-        self.messages = [{"role": "user", "content": "Test message"}]
+        self.messages = cast(list[MessageParam], [{"role": "user", "content": "Test message"}])
 
     @override_settings(GEMINI_API_KEY="test-api-key")
     @patch("products.llm_analytics.backend.providers.gemini.genai.Client")
@@ -338,7 +340,7 @@ class TestGeminiErrorHandling(BaseTest):
         super().setUp()
         self.mock_posthog_client = MagicMock()
         self.mock_genai_client = MagicMock()
-        self.messages = [{"role": "user", "content": "Test message"}]
+        self.messages = cast(list[MessageParam], [{"role": "user", "content": "Test message"}])
 
     @override_settings(GEMINI_API_KEY="test-api-key")
     @patch("products.llm_analytics.backend.providers.gemini.genai.Client")
@@ -453,7 +455,10 @@ class TestGeminiIntegration(BaseTest):
 
         provider = GeminiProvider("gemini-2.0-flash")
         response = provider.stream_response(
-            system="Be helpful", messages=[{"role": "user", "content": "Test"}], distinct_id="test-user", trace_id=None
+            system="Be helpful",
+            messages=cast(list[MessageParam], [{"role": "user", "content": "Test"}]),
+            distinct_id="test-user",
+            trace_id=None,
         )
 
         list(response)
@@ -480,7 +485,7 @@ class TestGeminiIntegration(BaseTest):
         provider = GeminiProvider("gemini-2.0-flash")
         response = provider.stream_response(
             system="Be helpful",
-            messages=[{"role": "user", "content": "Test"}],
+            messages=cast(list[MessageParam], [{"role": "user", "content": "Test"}]),
             distinct_id="test-user",
             properties={"custom": "property"},
         )
@@ -519,7 +524,7 @@ class TestGeminiIntegration(BaseTest):
         provider = GeminiProvider("gemini-2.0-flash")
         response = provider.stream_response(
             system="Be helpful",
-            messages=[{"role": "user", "content": "Test"}],
+            messages=cast(list[MessageParam], [{"role": "user", "content": "Test"}]),
             distinct_id="test-user",
             temperature=input_temp,
             max_tokens=input_max_tokens,
