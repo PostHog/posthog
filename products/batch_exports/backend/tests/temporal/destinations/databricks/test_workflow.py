@@ -75,7 +75,7 @@ class DatabricksDestinationTest(BaseDestinationTest):
         return insert_into_databricks_activity_from_stage
 
     @property
-    def batch_export_inputs_class(self) -> type:
+    def batch_export_inputs_class(self) -> type[BaseBatchExportInputs]:
         return DatabricksBatchExportInputs
 
     @property
