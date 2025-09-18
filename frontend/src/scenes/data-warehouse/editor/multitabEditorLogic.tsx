@@ -607,8 +607,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
         setQueryInput: ({ queryInput }) => {
             // Keep suggestion payload active - let user make edits and then decide to approve/reject
-            // Don't auto-hide the approve/reject buttons when user edits
-
             // if editing a view, track latest history id changes are based on
             if (values.activeTab?.view && values.activeTab?.view.query?.query) {
                 if (queryInput === values.activeTab.view?.query.query) {
