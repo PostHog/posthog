@@ -2521,12 +2521,19 @@
       entry_gclid AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       entry_gad_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       entry_fbclid AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-      -- for lower-tier ad ids, just put them in a map
-      entry_ad_ids_map AggregateFunction(argMin, Map(String, Nullable(String)), DateTime64(6, 'UTC')),
+  
+      -- for channel type calculation, it's enough to know if these were present
+      entry_has_gclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
+      entry_has_fbclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
+  
+      -- for lower-tier ad ids, just put them in a map, and set of the ones present
+      entry_ad_ids_map AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC')),
+      entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
       -- Use uniq instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
       -- events being inserted multiple times to be deduped later, but that can trigger multiple rows here.
+      -- Additionally, idempotency is useful for backfilling, as we can just reinsert the same events without worrying.
       pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
       autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
@@ -2683,9 +2690,14 @@
       initializeAggregation('argMinState', gclid, timestamp) as entry_gclid,
       initializeAggregation('argMinState', gad_source, timestamp) as entry_gad_source,
       initializeAggregation('argMinState', fbclid, timestamp) as entry_fbclid,
+  
+      -- has gclid/fbclid for reading fewer bytes when calculating channel type
+      initializeAggregation('argMinState', gclid IS NOT NULL, timestamp) as entry_has_gclid,
+      initializeAggregation('argMinState', fbclid IS NOT NULL, timestamp) as entry_has_fbclid,
+  
       -- other ad ids
       initializeAggregation('argMinState', (
-  map(
+  CAST(mapFilter((k, v) -> v IS NOT NULL, map(
       'gclsrc', gclsrc,
       'dclid', dclid,
       'gbraid', gbraid,
@@ -2701,8 +2713,27 @@
       'sccid', sccid,
       '_kx', _kx,
       'irclid', irclid
-  )
+  )) AS Map(String, String))
   ), timestamp) as entry_ad_ids_map,
+      initializeAggregation('argMinState', (
+  CAST(arrayFilter(x -> x IS NOT NULL, [
+      if(gclsrc IS NOT NULL, 'gclsrc', NULL),
+      if(dclid IS NOT NULL, 'dclid', NULL),
+      if(gbraid IS NOT NULL, 'gbraid', NULL),
+      if(wbraid IS NOT NULL, 'wbraid', NULL),
+      if(msclkid IS NOT NULL, 'msclkid', NULL),
+      if(twclid IS NOT NULL, 'twclid', NULL),
+      if(li_fat_id IS NOT NULL, 'li_fat_id', NULL),
+      if(mc_cid IS NOT NULL, 'mc_cid', NULL),
+      if(igshid IS NOT NULL, 'igshid', NULL),
+      if(ttclid IS NOT NULL, 'ttclid', NULL),
+      if(epik IS NOT NULL, 'epik', NULL),
+      if(qclid IS NOT NULL, 'qclid', NULL),
+      if(sccid IS NOT NULL, 'sccid', NULL),
+      if(_kx IS NOT NULL, '_kx', NULL),
+      if(irclid IS NOT NULL, 'irclid', NULL)
+  ]) AS Array(String))
+  ), timestamp) as entry_ad_ids_set,
   
       -- counts
       initializeAggregation('uniqState', if(event='$pageview', uuid, NULL)) as pageview_uniq,
@@ -3503,12 +3534,19 @@
       entry_gclid AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       entry_gad_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       entry_fbclid AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-      -- for lower-tier ad ids, just put them in a map
-      entry_ad_ids_map AggregateFunction(argMin, Map(String, Nullable(String)), DateTime64(6, 'UTC')),
+  
+      -- for channel type calculation, it's enough to know if these were present
+      entry_has_gclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
+      entry_has_fbclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
+  
+      -- for lower-tier ad ids, just put them in a map, and set of the ones present
+      entry_ad_ids_map AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC')),
+      entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
       -- Use uniq instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
       -- events being inserted multiple times to be deduped later, but that can trigger multiple rows here.
+      -- Additionally, idempotency is useful for backfilling, as we can just reinsert the same events without worrying.
       pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
       autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
@@ -4356,12 +4394,19 @@
       entry_gclid AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       entry_gad_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       entry_fbclid AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-      -- for lower-tier ad ids, just put them in a map
-      entry_ad_ids_map AggregateFunction(argMin, Map(String, Nullable(String)), DateTime64(6, 'UTC')),
+  
+      -- for channel type calculation, it's enough to know if these were present
+      entry_has_gclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
+      entry_has_fbclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
+  
+      -- for lower-tier ad ids, just put them in a map, and set of the ones present
+      entry_ad_ids_map AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC')),
+      entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
       -- Use uniq instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
       -- events being inserted multiple times to be deduped later, but that can trigger multiple rows here.
+      -- Additionally, idempotency is useful for backfilling, as we can just reinsert the same events without worrying.
       pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
       autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
@@ -5559,12 +5604,19 @@
       entry_gclid AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       entry_gad_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
       entry_fbclid AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-      -- for lower-tier ad ids, just put them in a map
-      entry_ad_ids_map AggregateFunction(argMin, Map(String, Nullable(String)), DateTime64(6, 'UTC')),
+  
+      -- for channel type calculation, it's enough to know if these were present
+      entry_has_gclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
+      entry_has_fbclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
+  
+      -- for lower-tier ad ids, just put them in a map, and set of the ones present
+      entry_ad_ids_map AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC')),
+      entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
       -- Use uniq instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
       -- events being inserted multiple times to be deduped later, but that can trigger multiple rows here.
+      -- Additionally, idempotency is useful for backfilling, as we can just reinsert the same events without worrying.
       pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
       autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
       screen_uniq AggregateFunction(uniq, Nullable(UUID)),
