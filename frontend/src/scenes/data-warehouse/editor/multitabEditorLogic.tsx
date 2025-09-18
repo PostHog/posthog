@@ -522,13 +522,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             } else if (view) {
                 actions.setQueryInput(view.query.query)
             } else if (insight) {
-                const queryString =
-                    insight.query && 'source' in insight.query && 'query' in insight.query.source
-                        ? insight.query?.source?.query
-                        : insight.query && 'query' in insight.query
-                          ? insight.query?.query
-                          : ''
-                actions.setQueryInput(queryString || '')
+                const queryObject = (insight.query as DataVisualizationNode | null)?.source || insight.query
+                if (queryObject && 'query' in queryObject) {
+                    actions.setQueryInput(queryObject.query || '')
+                }
             }
         },
         setSourceQuery: ({ sourceQuery }) => {
