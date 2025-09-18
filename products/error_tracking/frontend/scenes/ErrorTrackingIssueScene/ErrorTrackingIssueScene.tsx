@@ -39,7 +39,6 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const { selectEvent } = useActions(errorTrackingIssueSceneLogic)
     const tagRenderer = useErrorTagRenderer()
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     return (
         <ErrorTrackingSetupPrompt>
             {hasIssueSplitting && (
@@ -69,11 +68,9 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     }
                 />
             )}
-            {newSceneLayout && (
-                <div className="mb-2 -ml-[var(--button-padding-x-lg)]">
-                    <SceneBreadcrumbBackButton />
-                </div>
-            )}
+            <div className="mb-2 -ml-[var(--button-padding-x-lg)]">
+                <SceneBreadcrumbBackButton />
+            </div>
 
             <div className="ErrorTrackingIssue grid grid-cols-4 gap-4">
                 <div className="space-y-2 col-span-3">

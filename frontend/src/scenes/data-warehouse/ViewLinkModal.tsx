@@ -6,6 +6,7 @@ import { useState } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
 import {
+    LemonBanner,
     LemonButton,
     LemonButtonProps,
     LemonCard,
@@ -411,16 +412,20 @@ export function ViewLinkFormWithPreview({ mode }: ViewLinkModalProps): JSX.Eleme
         joiningTablePreviewData,
         sourceTablePreviewLoading,
         joiningTablePreviewLoading,
+        isJoinValidating,
+        isJoinValid,
+        validationError,
+        validationWarning,
     } = useValues(viewLinkLogic)
     const {
         selectJoiningTable,
-        toggleJoinTableModal,
         selectSourceTable,
         setFieldName,
         selectSourceKey,
         selectJoiningKey,
         setExperimentsOptimized,
         selectExperimentsTimestampKey,
+        validateJoin,
     } = useActions(viewLinkLogic)
     const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
@@ -666,14 +671,56 @@ export function ViewLinkFormWithPreview({ mode }: ViewLinkModalProps): JSX.Eleme
                     </div>
                 )}
             </div>
+            {validationError && (
+                <LemonBanner
+                    className="mt-2"
+                    type="error"
+                    children={
+                        <div className="flex flex-row items-center justify-between">
+                            <div>
+                                Validation error:
+                                <br />
+                                {validationError}
+                            </div>
+                            <LemonButton
+                                children="Get help"
+                                type="secondary"
+                                onClick={() => {
+                                    window.open(
+                                        'https://posthog.com/support?utm_medium=in-product&utm_campaign=join-modal-validation-error',
+                                        '_blank'
+                                    )
+                                }}
+                            />
+                        </div>
+                    }
+                />
+            )}
+            {validationWarning && <LemonBanner className="mt-2" type="warning" children={validationWarning} />}
             <LemonDivider className="mt-4 mb-4" />
-            <div className="flex flex-row justify-end w-full">
-                <LemonButton className="mr-3" type="secondary" onClick={toggleJoinTableModal}>
-                    Close
-                </LemonButton>
-                <LemonButton type="primary" htmlType="submit" loading={isViewLinkSubmitting}>
-                    Save
-                </LemonButton>
+            <div className="flex flex-row gap-2 justify-end w-full">
+                {isJoinValid ? (
+                    <>
+                        <LemonButton disabledReason="Join is valid">Join is valid</LemonButton>
+                        <LemonButton type="primary" htmlType="submit" loading={isViewLinkSubmitting}>
+                            Save join
+                        </LemonButton>
+                    </>
+                ) : (
+                    <>
+                        <LemonButton htmlType="submit" loading={isViewLinkSubmitting} disabledReason={validationError}>
+                            Save join without validating
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            onClick={validateJoin}
+                            loading={isJoinValidating}
+                            disabledReason={validationError || validationWarning}
+                        >
+                            Validate join
+                        </LemonButton>
+                    </>
+                )}
             </div>
         </Form>
     )

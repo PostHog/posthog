@@ -1,5 +1,3 @@
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -38,8 +36,6 @@ export function ExperimentMetricFunnelOrderSelector({
     metric: ExperimentFunnelMetric
     handleSetMetric: (newMetric: ExperimentMetric) => void
 }): JSX.Element {
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
-
     const handleFunnelOrderTypeChange = (funnelOrderType: StepOrderValue): void => {
         handleSetMetric({
             ...metric,
@@ -48,13 +44,7 @@ export function ExperimentMetricFunnelOrderSelector({
     }
 
     return (
-        <SceneSection
-            title="Step order"
-            titleHelper={<StepOrderInfo />}
-            hideTitleAndDescription={!newSceneLayout}
-            className="max-w-prose"
-        >
-            {!newSceneLayout && <LemonLabel info={<StepOrderInfo />}>Step order</LemonLabel>}
+        <SceneSection title="Step order" titleHelper={<StepOrderInfo />} className="max-w-prose">
             <LemonSelect
                 data-attr="experiment-funnel-order-selector"
                 value={metric.funnel_order_type || StepOrderValue.ORDERED}

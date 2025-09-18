@@ -3,11 +3,10 @@ import posthog from 'posthog-js'
 import { useCallback, useEffect } from 'react'
 
 import { IconBell, IconCheck } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTable, LemonTag, Link, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTable, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -190,7 +189,6 @@ function FirstStep({ disableConnectedSources, allowedSources }: NewSourcesWizard
     const { selectConnector, toggleManualLinkFormVisible, onNext, setManualLinkingProvider } =
         useActions(sourceWizardLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const onClick = (sourceConfig: SourceConfig): void => {
         selectConnector(sourceConfig)
@@ -221,18 +219,7 @@ function FirstStep({ disableConnectedSources, allowedSources }: NewSourcesWizard
         <SceneSection
             title="Managed data warehouse sources"
             description="Data will be synced to PostHog and regularly refreshed."
-            hideTitleAndDescription={!newSceneLayout}
         >
-            {!newSceneLayout && (
-                <>
-                    <h2 className="mt-4">Managed data warehouse sources</h2>
-                    <p>
-                        Data will be synced to PostHog and regularly refreshed.{' '}
-                        <Link to="https://posthog.com/docs/cdp/sources">Learn more</Link>
-                    </p>
-                </>
-            )}
-
             <LemonTable
                 dataSource={filteredConnectors}
                 loading={false}
@@ -328,17 +315,7 @@ function FirstStep({ disableConnectedSources, allowedSources }: NewSourcesWizard
             <SceneSection
                 title="Self-managed data warehouse sources"
                 description="Data will be queried directly from your data source that you manage."
-                hideTitleAndDescription={!newSceneLayout}
             >
-                {!newSceneLayout && (
-                    <>
-                        <h2 className="mt-4">Self-managed data warehouse sources</h2>
-                        <p>
-                            Data will be queried directly from your data source that you manage.{' '}
-                            <Link to="https://posthog.com/docs/cdp/sources">Learn more</Link>
-                        </p>
-                    </>
-                )}
                 <LemonTable
                     dataSource={manualConnectors}
                     loading={false}

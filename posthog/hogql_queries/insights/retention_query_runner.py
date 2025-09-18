@@ -718,13 +718,64 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         )
 
         if self.breakdowns_in_query:
-            # Step 1: Calculate total cohort size for each breakdown value (size at intervals_from_base = 0)
+            is_cohort_breakdown = (
+                self.query.breakdownFilter is not None
+                and self.query.breakdownFilter.breakdowns is not None
+                and any(b.type == "cohort" for b in self.query.breakdownFilter.breakdowns)
+            )
+
             breakdown_totals: dict[str, int] = {}
             original_results = response.results or []
-            for row in original_results:
-                start_interval, intervals_from_base, breakdown_value, count = row
-                if intervals_from_base == 0:
-                    breakdown_totals[breakdown_value] = breakdown_totals.get(breakdown_value, 0) + count
+
+            if is_cohort_breakdown:
+                # For cohort breakdowns, we rank by the total number of people in the first-day cohorts.
+                for row in original_results:
+                    _start_interval, intervals_from_base, breakdown_value, count = row
+                    if intervals_from_base == 0:
+                        breakdown_totals[breakdown_value] = breakdown_totals.get(breakdown_value, 0) + count
+            else:
+                # For property breakdowns, we rank by the total number of unique actors, ensuring each actor is
+                # associated with their single most recent breakdown value.
+                actor_query_for_breakdowns = self.actor_query()
+
+                # Add max_timestamp to the actor query to find the latest event for each actor-breakdown pair
+                select_queries = [actor_query_for_breakdowns]
+                for q in select_queries:
+                    q.select.append(ast.Alias(alias="max_timestamp", expr=parse_expr("max(events.timestamp)")))
+
+                # Consolidate actors to one breakdown value each, picking the one with the latest timestamp.
+                consolidated_actors_query = parse_select(
+                    """
+                    SELECT
+                        actor_id,
+                        argMax(breakdown_value, max_timestamp) as canonical_breakdown
+                    FROM {actor_query}
+                    GROUP BY actor_id
+                    """,
+                    placeholders={"actor_query": actor_query_for_breakdowns},
+                )
+
+                # Now, count the unique actors for each canonical breakdown value.
+                breakdown_totals_query = parse_select(
+                    """
+                    SELECT
+                        canonical_breakdown,
+                        COUNT(DISTINCT actor_id) as total_count
+                    FROM {consolidated_actors_query}
+                    GROUP BY canonical_breakdown
+                    """,
+                    placeholders={"consolidated_actors_query": consolidated_actors_query},
+                )
+
+                breakdown_totals_response = execute_hogql_query(
+                    query_type="RetentionBreakdownTotalsQuery",
+                    query=breakdown_totals_query,
+                    team=self.team,
+                    timings=self.timings,
+                    modifiers=self.modifiers,
+                    limit_context=self.limit_context,
+                )
+                breakdown_totals = {row[0]: row[1] for row in breakdown_totals_response.results or []}
 
             # Step 2: Rank breakdowns and determine top N and 'Other'
             breakdown_limit = (
@@ -733,7 +784,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 else get_breakdown_limit_for_context(self.limit_context)
             )
             # Sort by count descending, then by breakdown value ascending for stability
-            sorted_breakdowns = sorted(breakdown_totals.items(), key=lambda item: (-item[1], item[0]), reverse=False)
+            sorted_breakdowns = sorted(breakdown_totals.items(), key=lambda item: (-item[1], item[0]))
             other_values = {item[0] for item in sorted_breakdowns[breakdown_limit:]}
 
             # Step 3: Aggregate results, grouping less frequent breakdowns into 'Other'

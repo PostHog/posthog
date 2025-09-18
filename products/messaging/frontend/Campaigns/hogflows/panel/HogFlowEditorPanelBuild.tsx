@@ -49,7 +49,6 @@ export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
         type: 'wait_until_time_window',
         name: 'Wait until window',
         description: 'Wait until a specified time window.',
-        branchEdges: 1,
         config: {
             timezone: null,
             day: 'any',
@@ -97,9 +96,6 @@ export const LOGIC_NODES_TO_SHOW: CreateActionType[] = [
         branchEdges: 1,
         config: {
             cohorts: [
-                {
-                    percentage: 50,
-                },
                 {
                     percentage: 50,
                 },

@@ -93,10 +93,7 @@ function HomeDashboard({ dashboardLogicProps }: { dashboardLogicProps: Dashboard
     return (
         <>
             {featureFlags[FEATURE_FLAGS.POSTHOG_STORIES] && <PosthogStoriesContainer />}
-            <div
-                className="ProjectHomepage__dashboardheader"
-                style={featureFlags[FEATURE_FLAGS.SCENE_TABS] ? { marginTop: 0 } : {}}
-            >
+            <div className="ProjectHomepage__dashboardheader mt-0">
                 <div className="ProjectHomepage__dashboardheader__title">
                     {!dashboard && <LemonSkeleton className="w-20 h-4" />}
                     {dashboard?.name && (
@@ -108,7 +105,7 @@ function HomeDashboard({ dashboardLogicProps }: { dashboardLogicProps: Dashboard
                         </>
                     )}
                 </div>
-                {featureFlags[FEATURE_FLAGS.SCENE_TABS] ? <SceneActions /> : null}
+                <SceneActions />
             </div>
             <LemonDivider className="mt-3 mb-4" />
             <Dashboard id={dashboardLogicProps.id.toString()} placement={DashboardPlacement.ProjectHomepage} />

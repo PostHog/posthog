@@ -131,6 +131,7 @@ def build_function_call(
 
 
 class S3Table(FunctionCallTable):
+    requires_args: bool = False
     url: str
     format: str = "CSVWithNames"
     access_key: Optional[str] = None

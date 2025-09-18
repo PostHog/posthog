@@ -15,7 +15,6 @@ import { VersionCheckerBanner } from 'lib/components/VersionChecker/VersionCheck
 import { FilmCameraHog, WarningHog } from 'lib/components/hedgehogs'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -212,7 +211,7 @@ function MainPanel(): JSX.Element {
     const { tab } = useValues(sessionReplaySceneLogic)
 
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             <Warnings />
 
             {!tab ? (
@@ -258,18 +257,17 @@ const ReplayPageTabs: ReplayTab[] = [
 
 function PageTabs(): JSX.Element {
     const { tab, shouldShowNewBadge } = useValues(sessionReplaySceneLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     return (
         // TRICKY @adamleithp: since session replay doesn't want a scene title section, we need to add our SceneActions to the top of the page
         <div className="flex flex-col gap-2">
             <LemonTabs
                 activeKey={tab}
-                className={cn('flex', newSceneLayout && '-mt-4')}
+                className={cn('flex -mt-4')}
                 // TRICKY @adamleithp: we need to add a right padding to the tabs bar to account for the SceneActions
                 barClassName="mb-0 pr-48"
                 onChange={(t) => router.actions.push(urls.replay(t as ReplayTabs))}
-                sceneInset={newSceneLayout}
+                sceneInset
                 tabs={ReplayPageTabs.map((replayTab): LemonTab<string> => {
                     return {
                         label: (
@@ -296,7 +294,7 @@ function PageTabs(): JSX.Element {
 }
 export function SessionsRecordings(): JSX.Element {
     return (
-        <SceneContent forceNewSpacing className="h-full">
+        <SceneContent className="h-full">
             <Header />
             <PageTabs />
             <MainPanel />
