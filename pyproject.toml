@@ -34,7 +34,7 @@ dependencies = [
     "django-axes~=6.4.0",
     "django-cors-headers~=4.8.0",
     "django-deprecate-fields==0.1.1",
-    "django-extensions==3.1.2",
+    "django-extensions~=4.1.0",
     "django-filter==2.4.0",
     "django-loginas==0.3.11",
     "django-picklefield==3.0.1",
