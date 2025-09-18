@@ -30,6 +30,7 @@ import products.early_access_features.backend.api as early_access_feature
 import products.data_warehouse.backend.api.fix_hogql as fix_hogql
 from products.llm_analytics.backend.api import DatasetItemViewSet, DatasetViewSet, LLMProxyViewSet
 from products.messaging.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
+from products.messaging.backend.api.message_attachments import MessageAttachmentsViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 
 from ee.api.vercel import vercel_installation, vercel_product, vercel_resource
@@ -793,6 +794,13 @@ register_grandfathered_environment_nested_viewset(
 )
 
 environments_router.register(r"lineage", LineageViewSet, "environment_lineage", ["team_id"])
+
+environments_router.register(
+    r"messaging_attachments",
+    MessageAttachmentsViewSet,
+    "environment_messaging_attachments",
+    ["team_id"],
+)
 
 environments_router.register(
     r"messaging_templates",
