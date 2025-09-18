@@ -161,11 +161,12 @@ impl CheckpointWorker {
         // full path exists ahead of the checkpoint attempt. Here, we only
         // create the directories above the final timestamp-based dir that
         // will house the checkpoint files
-        let base_path = self.paths.local_path.parent().unwrap();
-        if let Err(e) = tokio::fs::create_dir_all(base_path)
-            .await
-            .context("Checkpoint worker: failed to create local directory")
-        {
+        let base_path = self
+            .paths
+            .local_path
+            .parent()
+            .context("Checkpoint worker: failed to get parent directory")?;
+        if let Err(e) = tokio::fs::create_dir_all(base_path).await {
             let tags = [
                 ("mode", self.mode.as_str()),
                 ("result", "error"),
@@ -700,7 +701,7 @@ impl CheckpointManager {
                     if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
                         // these will be parent directories of the checkpoints; drill down and process each
                         if name.starts_with(CHECKPOINT_TOPIC_PREFIX)
-                            && name.starts_with(CHECKPOINT_PARTITION_PREFIX)
+                            || name.starts_with(CHECKPOINT_PARTITION_PREFIX)
                         {
                             stack.push(path);
                         } else if name.chars().filter(|c| c.is_ascii_digit()).count() == name.len()
@@ -745,6 +746,7 @@ impl CheckpointManager {
             remaining_dirs
                 .into_iter()
                 .fold(HashMap::new(), |mut acc, path| {
+                    // due to known structure of the input paths, this shouldn't ever fail
                     let parent = path.parent().unwrap().to_string_lossy().to_string();
                     acc.entry(parent).or_default().push(path);
                     acc
@@ -852,7 +854,7 @@ impl Drop for CheckpointManager {
             }
         }
 
-        // Stop local checkpoint directorycleanup loop
+        // Stop local checkpoint directory cleanup loop
         if let Some(task) = self.cleanup_task.take() {
             debug!("Checkpoint manager dropped: cleanup task will terminate");
             task.abort();

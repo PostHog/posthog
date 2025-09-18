@@ -297,17 +297,10 @@ async fn test_manual_checkpoint_export_incremental() {
         config.clone(),
         uploader.clone(),
     )));
-    let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
-        path: tmp_store_dir.path().to_path_buf(),
-        max_capacity: 1_000_000,
-    }));
 
     let partition = Partition::new(test_topic.to_string(), test_partition);
     let paths =
         CheckpointPath::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
-    store_manager
-        .stores()
-        .insert(partition.clone(), store.clone());
 
     let worker = CheckpointWorker::new(
         1,
@@ -398,17 +391,9 @@ async fn test_checkpoint_manual_export_full() {
         uploader.clone(),
     )));
 
-    let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
-        path: tmp_store_dir.path().to_path_buf(),
-        max_capacity: 1_000_000,
-    }));
-
     let partition = Partition::new(test_topic.to_string(), test_partition);
     let paths =
         CheckpointPath::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
-    store_manager
-        .stores()
-        .insert(partition.clone(), store.clone());
 
     let worker = CheckpointWorker::new(
         1,
@@ -567,17 +552,10 @@ async fn test_unavailable_uploader() {
         config.clone(),
         uploader.clone(),
     )));
-    let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
-        path: tmp_store_dir.path().to_path_buf(),
-        max_capacity: 1_000_000,
-    }));
 
     let partition = Partition::new("test_topic".to_string(), 0);
     let paths =
         CheckpointPath::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
-    store_manager
-        .stores()
-        .insert(partition.clone(), store.clone());
 
     let worker = CheckpointWorker::new(
         1,
@@ -629,17 +607,9 @@ async fn test_unpopulated_exporter() {
         ..Default::default()
     };
 
-    let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
-        path: tmp_store_dir.path().to_path_buf(),
-        max_capacity: 1_000_000,
-    }));
-
     let partition = Partition::new("test_topic".to_string(), 0);
     let paths =
         CheckpointPath::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
-    store_manager
-        .stores()
-        .insert(partition.clone(), store.clone());
 
     // without an exporter supplied to the worker, the checkpoint will
     // succeed and be created locally but never uploaded to remote storage
