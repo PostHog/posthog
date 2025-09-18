@@ -11,6 +11,8 @@ import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
@@ -42,6 +44,7 @@ export const QueryDatabase = (): JSX.Element => {
         renameDraft,
         openUnsavedQuery,
     } = useActions(queryDatabaseLogic)
+    const { activeTabId, activeSceneId } = useValues(sceneLogic)
     const { deleteDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
     const { deleteJoin } = useActions(dataWarehouseSettingsLogic)
 
@@ -154,10 +157,10 @@ export const QueryDatabase = (): JSX.Element => {
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
-                                    if (router.values.location.pathname.endsWith(urls.sqlEditor())) {
-                                        multitabEditorLogic({
-                                            key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                                        }).actions.createTab(`SELECT * FROM ${item.name}`)
+                                    if (activeSceneId === Scene.SQLEditor && activeTabId) {
+                                        multitabEditorLogic({ tabId: activeTabId }).actions.createTab(
+                                            `SELECT * FROM ${item.name}`
+                                        )
                                     } else {
                                         router.actions.push(urls.sqlEditor(`SELECT * FROM ${item.name}`))
                                     }
@@ -205,10 +208,11 @@ export const QueryDatabase = (): JSX.Element => {
                                         asChild
                                         onClick={(e) => {
                                             e.stopPropagation()
-                                            if (router.values.location.pathname.endsWith(urls.sqlEditor())) {
-                                                multitabEditorLogic({
-                                                    key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                                                }).actions.editView(item.record?.view.query.query, item.record?.view)
+                                            if (activeSceneId === Scene.SQLEditor && activeTabId) {
+                                                multitabEditorLogic({ tabId: activeTabId }).actions.editView(
+                                                    item.record?.view.query.query,
+                                                    item.record?.view
+                                                )
                                             } else {
                                                 router.actions.push(urls.sqlEditor(undefined, item.record?.view.id))
                                             }

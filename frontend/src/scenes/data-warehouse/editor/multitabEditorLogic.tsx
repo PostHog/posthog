@@ -1,7 +1,7 @@
 import { Monaco } from '@monaco-editor/react'
-import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import isEqual from 'lodash.isequal'
 import { Uri, editor } from 'monaco-editor'
@@ -11,6 +11,8 @@ import { LemonDialog, LemonInput, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { initModel } from 'lib/monaco/CodeEditor'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { removeUndefinedAndNull } from 'lib/utils'
@@ -54,7 +56,7 @@ import {
 } from './suggestions/aiSuggestion'
 
 export interface MultitabEditorLogicProps {
-    key: string
+    tabId: string
     monaco?: Monaco | null
     editor?: editor.IStandaloneCodeEditor | null
 }
@@ -105,7 +107,7 @@ export type UpdateViewPayload = Partial<DatabaseSchemaViewTable> & {
 export const multitabEditorLogic = kea<multitabEditorLogicType>([
     path(['data-warehouse', 'editor', 'multitabEditorLogic']),
     props({} as MultitabEditorLogicProps),
-    key((props) => props.key),
+    tabAwareScene(),
     connect(() => ({
         values: [
             dataWarehouseViewsLogic,
@@ -295,7 +297,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 setMetadata: (_, { metadata }) => metadata,
             },
         ],
-        editorKey: [props.key],
+        editorKey: [`hogql-editor-${props.tabId}`, {}],
         suggestionPayload: [
             null as SuggestionPayload | null,
             {
@@ -443,7 +445,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     initModel(
                         newModel,
                         codeEditorLogic({
-                            key: `hogql-editor-TABID`,
+                            key: `hogql-editor-${props.tabId}`,
                             query: values.suggestedQueryInput,
                             language: 'hogQL',
                         })
@@ -467,7 +469,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     initModel(
                         newModel,
                         codeEditorLogic({
-                            key: `hogql-editor-TABID`,
+                            key: `hogql-editor-${props.tabId}`,
                             query: values.queryInput,
                             language: 'hogQL',
                         })
@@ -499,7 +501,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     initModel(
                         model,
                         codeEditorLogic({
-                            key: `hogql-editor-TABID`,
+                            key: `hogql-editor-${props.tabId}`,
                             query: values.sourceQuery?.source.query ?? '',
                             language: 'hogQL',
                         })
@@ -969,7 +971,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         isDraft: [(s) => [s.activeTab], (activeTab) => (activeTab ? !!activeTab.draft?.id : false)],
         currentDraft: [(s) => [s.activeTab], (activeTab) => (activeTab ? activeTab.draft : null)],
     }),
-    urlToAction(({ actions, values, props }) => ({
+    tabAwareUrlToAction(({ actions, values, props }) => ({
         [urls.sqlEditor()]: async (_, searchParams) => {
             if (
                 !searchParams.open_query &&
