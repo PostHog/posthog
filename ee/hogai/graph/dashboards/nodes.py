@@ -1,43 +1,28 @@
-import uuid
-from typing import Any, Literal, Union
+from typing import Literal, cast
 from uuid import uuid4
 
 from django.db import transaction
 
 import structlog
-from langchain_core.messages import AIMessageChunk
 from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
-from langgraph.config import get_stream_writer
-from langgraph.graph.state import CompiledStateGraph
-from langgraph.types import StreamWriter
 from pydantic import BaseModel
 
-from posthog.schema import (
-    AssistantHogQLQuery,
-    AssistantToolCallMessage,
-    TaskExecutionItem,
-    TaskExecutionMessage,
-    TaskExecutionStatus,
-)
+from posthog.schema import AssistantHogQLQuery, AssistantToolCallMessage, TaskExecutionItem, TaskExecutionStatus
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Dashboard, DashboardTile, Insight, Team, User
+from posthog.models import Dashboard, DashboardTile, Insight
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.base import AssistantNode
-from ee.hogai.graph.dashboards.types import (
-    DashboardInsightCreationTaskExecutionState,
-    DashboardInsightSearchTaskExecutionState,
-    PartialDashboardInsightCreationTaskExecutionState,
-    PartialDashboardInsightSearchTaskExecutionState,
+from ee.hogai.graph.parallel_task_execution.mixins import (
+    WithInsightCreationTaskExecution,
+    WithInsightSearchTaskExecution,
 )
-from ee.hogai.graph.insights.nodes import InsightSearchNode
-from ee.hogai.graph.task_executor.base import GenericTaskExecutorNode, TaskExecutorTool
-from ee.hogai.graph.task_executor.tools import NodeTaskExecutorTool, SubgraphTaskExecutorTool
+from ee.hogai.graph.parallel_task_execution.nodes import BaseTaskExecutorNode, TaskExecutionInputTuple
 from ee.hogai.utils.helpers import build_dashboard_url, build_insight_url, cast_assistant_query
-from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import InsightCreationTaskExecutionResult, InsightQuery, InsightSearchTaskExecutionResult
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import BaseStateWithTasks, InsightArtifact, InsightQuery, TaskResult
 
 from .prompts import (
     DASHBOARD_CREATION_ERROR_MESSAGE,
@@ -58,158 +43,34 @@ class QueryMetadata(BaseModel):
     query: InsightQuery
 
 
-class DashboardInsightSearchTaskExecutorNode(
-    GenericTaskExecutorNode[
-        DashboardInsightSearchTaskExecutionState,
-        PartialDashboardInsightSearchTaskExecutionState,
-        InsightSearchTaskExecutionResult,
-    ]
+class DashboardCreationExecutorNode(
+    BaseTaskExecutorNode[
+        BaseStateWithTasks,
+        BaseStateWithTasks,
+    ],
+    WithInsightSearchTaskExecution,
+    WithInsightCreationTaskExecution,
 ):
     """
     Task executor node specifically for insight search operations.
     """
 
-    def __init__(self, team: Team, user: User, executor: AssistantNode):
-        super().__init__(team, user, executor)
-
-    def _create_task_executor_tool(
-        self, executor: Union[CompiledStateGraph, AssistantNode]
-    ) -> TaskExecutorTool[InsightSearchTaskExecutionResult]:
-        """Create the appropriate task executor tool based on executor type."""
-        if isinstance(executor, CompiledStateGraph):
-            raise ValueError("SubgraphTaskExecutorTool only works with InsightCreationTaskExecutionResult")
-        else:
-            return NodeTaskExecutorTool(executor)
-
-    def _get_node_name(self) -> AssistantNodeName:
-        """Get the node name for this executor."""
-        return AssistantNodeName.DASHBOARD_CREATION
-
-    def _create_final_response(
-        self,
-        task_results: list[InsightSearchTaskExecutionResult],
-        tool_call_id: str,
-        task_execution_message_id: str,
-        tasks: list[Any],
-    ) -> PartialDashboardInsightSearchTaskExecutionState:
-        """Create the final response after task execution."""
-        final_completed_message = TaskExecutionMessage(id=task_execution_message_id, tasks=tasks.copy())
-
-        return PartialDashboardInsightSearchTaskExecutionState(
-            messages=[
-                final_completed_message,
-                AssistantToolCallMessage(
-                    content=f"Completed {len(task_results)} insight search tasks successfully.",
-                    id=str(uuid.uuid4()),
-                    tool_call_id=tool_call_id,
-                ),
-            ],
-            task_results=task_results,
-            tasks=None,  # Reset tasks
-        )
-
-    def _create_empty_response(self, tool_call_id: str) -> PartialDashboardInsightSearchTaskExecutionState:
-        """Create an empty response when no tasks are provided."""
-        return PartialDashboardInsightSearchTaskExecutionState(
-            messages=[AssistantToolCallMessage(content="No tasks to execute", tool_call_id=tool_call_id)]
-        )
-
-
-class DashboardInsightCreationTaskExecutorNode(
-    GenericTaskExecutorNode[
-        DashboardInsightCreationTaskExecutionState,
-        PartialDashboardInsightCreationTaskExecutionState,
-        InsightCreationTaskExecutionResult,
-    ]
-):
-    """
-    Task executor node specifically for insight creation operations.
-    """
-
-    def __init__(self, team: Team, user: User, executor: CompiledStateGraph):
-        super().__init__(team, user, executor)
-
-    def _create_task_executor_tool(
-        self, executor: Union[CompiledStateGraph, AssistantNode]
-    ) -> TaskExecutorTool[InsightCreationTaskExecutionResult]:
-        """Create the appropriate task executor tool based on executor type."""
-        if isinstance(executor, CompiledStateGraph):
-            return SubgraphTaskExecutorTool(executor)
-        else:
-            raise ValueError("NodeTaskExecutorTool only works with InsightCreationArtifact")
-
-    def _get_node_name(self) -> AssistantNodeName:
-        """Get the node name for this executor."""
-        return AssistantNodeName.DASHBOARD_CREATION
-
-    def _create_final_response(
-        self,
-        task_results: list[InsightCreationTaskExecutionResult],
-        tool_call_id: str,
-        task_execution_message_id: str,
-        tasks: list[Any],
-    ) -> PartialDashboardInsightCreationTaskExecutionState:
-        """Create the final response after task execution."""
-        final_completed_message = TaskExecutionMessage(id=task_execution_message_id, tasks=tasks.copy())
-
-        return PartialDashboardInsightCreationTaskExecutionState(
-            messages=[
-                final_completed_message,
-                AssistantToolCallMessage(
-                    content=f"Completed {len(task_results)} insight creation tasks successfully.",
-                    id=str(uuid.uuid4()),
-                    tool_call_id=tool_call_id,
-                ),
-            ],
-            task_results=task_results,
-            tasks=None,  # Reset tasks
-        )
-
-    def _create_empty_response(self, tool_call_id: str) -> PartialDashboardInsightCreationTaskExecutionState:
-        """Create an empty response when no tasks are provided."""
-        return PartialDashboardInsightCreationTaskExecutionState(
-            messages=[AssistantToolCallMessage(content="No tasks to execute", tool_call_id=tool_call_id)]
-        )
+    async def _aget_input_tuples(self, state: BaseStateWithTasks) -> list[TaskExecutionInputTuple]:
+        if not state.tasks:
+            raise ValueError("No tasks to execute")
+        input_tuples: list[TaskExecutionInputTuple] = []
+        for task in state.tasks:
+            if task.task_type == "search_insights":
+                input_tuples.append((task, [], self._execute_search_insights))
+            elif task.task_type == "create_insight":
+                input_tuples.append((task, [], self._execute_create_insight))
+            else:
+                raise ValueError(f"Unsupported task type: {task.task_type}")
+        return input_tuples
 
 
 class DashboardCreationNode(AssistantNode):
     REASONING_MESSAGE = "Creating dashboard"
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._stream_writer = None
-
-    def _get_stream_writer(self) -> StreamWriter | None:
-        if self._stream_writer is None:
-            try:
-                self._stream_writer = get_stream_writer()
-            except Exception:
-                self._stream_writer = None
-        return self._stream_writer
-
-    def _stream_reasoning(
-        self, progress_message: str, substeps: list[str] | None = None, writer: StreamWriter | None = None
-    ) -> None:
-        if not writer:
-            logger.warning("Cannot stream reasoning message!")
-            return
-
-        try:
-            display_content = progress_message
-            if substeps:
-                display_content += "\n" + "\n".join(f"• {step}" for step in substeps)
-
-            message_chunk = AIMessageChunk(
-                content="",
-                additional_kwargs={"reasoning": {"summary": [{"text": f"**{display_content}**"}]}},
-            )
-            message = (message_chunk, {"langgraph_node": AssistantNodeName.DASHBOARD_CREATION})
-
-            writer(("dashboard_creation_node", "messages", message))
-
-        except Exception as e:
-            capture_exception(e)
-            logger.exception("Failed to stream reasoning message", error=str(e), content=progress_message)
 
     def _get_found_insight_count(self, queries_metadata: dict[str, QueryMetadata]) -> int:
         return sum(len(query.found_insight_ids) for query in queries_metadata.values())
@@ -235,28 +96,20 @@ class DashboardCreationNode(AssistantNode):
                 for i, query in enumerate(state.search_insights_queries)
             }
 
-            self._stream_reasoning(
-                progress_message=f"Searching for {len(state.search_insights_queries)} insights",
-                writer=self._get_stream_writer(),
-            )
+            await self._stream_reasoning(content=f"Searching for {len(state.search_insights_queries)} insights")
 
-            result = await self._search_insights(result, state, config)
+            result = await self._search_insights(result, config)
 
-            self._stream_reasoning(
-                progress_message=f"Found {self._get_found_insight_count(result)} insights",
-                writer=self._get_stream_writer(),
-            )
+            await self._stream_reasoning(content=f"Found {self._get_found_insight_count(result)} insights")
 
             left_to_create = {
                 query_id: result[query_id].query for query_id in result.keys() if not result[query_id].found_insight_ids
             }
 
             if left_to_create:
-                self._stream_reasoning(
-                    progress_message=f"Will create {len(left_to_create)} insights", writer=self._get_stream_writer()
-                )
+                await self._stream_reasoning(content=f"Will create {len(left_to_create)} insights")
 
-                result = await self._create_insights(left_to_create, result, state, config)
+                result = await self._create_insights(left_to_create, result, config)
 
             all_insight_ids = set()
             messages = []
@@ -293,16 +146,9 @@ class DashboardCreationNode(AssistantNode):
         self,
         left_to_create: dict[str, InsightQuery],
         query_metadata: dict[str, QueryMetadata],
-        state: AssistantState,
         config: RunnableConfig,
     ) -> dict[str, QueryMetadata]:
-        from ee.hogai.graph.graph import InsightsAssistantGraph
-
-        compiled_insights_subgraph = InsightsAssistantGraph(self._team, self._user).compile_full_graph()
-        executor_node = DashboardInsightCreationTaskExecutorNode(self._team, self._user, compiled_insights_subgraph)
-        task_executor_state = DashboardInsightCreationTaskExecutionState(
-            messages=state.messages,
-            root_tool_call_id=state.root_tool_call_id,
+        task_executor_state = BaseStateWithTasks(
             tasks=[
                 TaskExecutionItem(
                     id=query_id,
@@ -310,29 +156,23 @@ class DashboardCreationNode(AssistantNode):
                     status=TaskExecutionStatus.PENDING,
                     description=f"Creating insight `{query_metadata[query_id].query.name}`",
                     progress_text="Creating insight...",
+                    task_type="create_insight",
                 )
                 for query_id in left_to_create.keys()
             ],
         )
 
-        result = await executor_node.arun(task_executor_state, config)
-        final_task_executor_state = PartialDashboardInsightCreationTaskExecutionState.model_validate(result)
+        result = await DashboardCreationExecutorNode(self._team, self._user).arun(task_executor_state, config)
 
-        query_metadata = await self._process_insight_creation_results(
-            final_task_executor_state.task_results, query_metadata
-        )
+        query_metadata = await self._process_insight_creation_results(result.task_results, query_metadata)
 
         return query_metadata
 
     async def _search_insights(
         self,
         queries_metadata: dict[str, QueryMetadata],
-        state: AssistantState,
         config: RunnableConfig,
     ) -> dict[str, QueryMetadata]:
-        insight_search_node = InsightSearchNode(self._team, self._user)
-        executor_node = DashboardInsightSearchTaskExecutorNode(self._team, self._user, insight_search_node)
-
         tasks = [
             TaskExecutionItem(
                 id=query_id,
@@ -340,26 +180,25 @@ class DashboardCreationNode(AssistantNode):
                 status=TaskExecutionStatus.PENDING,
                 description=f"Searching for insight `{query_metadata.query.name}`",
                 progress_text="Searching for existing insights...",
+                task_type="search_insights",
             )
             for query_id, query_metadata in queries_metadata.items()
         ]
 
-        task_executor_state = DashboardInsightSearchTaskExecutionState(
-            messages=state.messages,
-            root_tool_call_id=state.root_tool_call_id,
+        task_executor_state = BaseStateWithTasks(
             tasks=tasks,
         )
 
-        result = await executor_node.arun(task_executor_state, config)
-        final_task_executor_state = PartialDashboardInsightSearchTaskExecutionState.model_validate(result)
+        result = await DashboardCreationExecutorNode(self._team, self._user).arun(task_executor_state, config)
+        final_task_executor_state = BaseStateWithTasks.model_validate(result)
 
         for task_result in final_task_executor_state.task_results:
             if task_result.status == TaskExecutionStatus.COMPLETED:
                 for artifact in task_result.artifacts:
-                    if artifact.insight_ids:
-                        queries_metadata[task_result.id].found_insight_ids.update(artifact.insight_ids)
+                    if artifact.id:
+                        queries_metadata[task_result.id].found_insight_ids.add(cast(int, artifact.id))
                         queries_metadata[task_result.id].found_insight_messages.append(
-                            f"\n -{queries_metadata[task_result.id].query.name}: Found insights for the query and the reason for selection is **{artifact.selection_reason}**"
+                            f"\n -{queries_metadata[task_result.id].query.name}: Found insights for the query and the reason for selection is **{artifact.content}**"
                         )
                     else:
                         queries_metadata[task_result.id].found_insight_messages.append(
@@ -373,7 +212,7 @@ class DashboardCreationNode(AssistantNode):
 
     @database_sync_to_async
     def _process_insight_creation_results(
-        self, task_results: list[InsightCreationTaskExecutionResult], query_metadata: dict[str, QueryMetadata]
+        self, task_results: list[TaskResult], query_metadata: dict[str, QueryMetadata]
     ) -> dict[str, QueryMetadata]:
         insights_to_create = []
         insight_metadata = []
@@ -386,6 +225,8 @@ class DashboardCreationNode(AssistantNode):
                 continue
 
             for artifact in task_result.artifacts:
+                if not isinstance(artifact, InsightArtifact):
+                    continue
                 insight_name = query_metadata[task_result.id].query.name[:400]  # Max 400 chars
                 insight_description = query_metadata[task_result.id].query.description[:400]  # Max 400 chars
 
@@ -419,7 +260,7 @@ class DashboardCreationNode(AssistantNode):
         self, dashboard_name: str, insights: set[int]
     ) -> tuple[Dashboard, list[Insight]]:
         """Create a dashboard and add the insights to it."""
-        self._stream_reasoning(progress_message="Saving your dashboard", writer=self._get_stream_writer())
+        await self._stream_reasoning(content="Saving your dashboard")
 
         @database_sync_to_async
         @transaction.atomic

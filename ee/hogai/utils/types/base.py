@@ -1,7 +1,7 @@
 import uuid
 from collections.abc import Sequence
 from enum import StrEnum
-from typing import Annotated, Any, Generic, Literal, Optional, Self, TypeVar, Union
+from typing import Annotated, Any, Literal, Optional, Self, TypeVar, Union
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import BaseMessage as LangchainBaseMessage
@@ -144,6 +144,36 @@ StateType = TypeVar("StateType", bound=BaseModel)
 PartialStateType = TypeVar("PartialStateType", bound=BaseModel)
 
 
+class TaskArtifact(BaseModel):
+    """
+    Base artifact created by a task.
+    """
+
+    id: str | int | None = None  # The id of the object referenced by the artifact
+    task_id: str  # The id of the task that created the artifact
+    content: str  # A string content attached to the artifact
+
+
+class InsightArtifact(TaskArtifact):
+    """
+    An insight artifact created by a task.
+    """
+
+    query: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
+
+
+class TaskResult(BaseModel):
+    """
+    The result of an individual task.
+    """
+
+    id: str
+    description: str
+    result: str
+    artifacts: Sequence[TaskArtifact] = Field(default=[])
+    status: TaskExecutionStatus
+
+
 class InsightQuery(BaseModel):
     """
     A single insight query to be included in a dashboard.
@@ -179,6 +209,17 @@ class BaseStateWithMessages(BaseState):
     messages: Sequence[AssistantMessageUnion] = Field(default=[])
     """
     Messages exposed to the user.
+    """
+
+
+class BaseStateWithTasks(BaseState):
+    tasks: Annotated[Optional[list[TaskExecutionItem]], replace] = Field(default=None)
+    """
+    The current tasks.
+    """
+    task_results: Annotated[list[TaskResult], append] = Field(default=[])  # pyright: ignore[reportUndefinedVariable]
+    """
+    Results of tasks executed by assistants.
     """
 
 
@@ -338,63 +379,3 @@ class WithCommentary(BaseModel):
     commentary: str = Field(
         description="A commentary on what you are doing, using the first person: 'I am doing this because...'"
     )
-
-
-class InsightArtifact(BaseModel):
-    """
-    An artifact created by a task.
-    """
-
-    id: str
-    description: str
-
-
-class InsightCreationArtifact(InsightArtifact):
-    """
-    An artifact created by an insight creation task.
-    """
-
-    query: Union[AssistantTrendsQuery, AssistantFunnelsQuery, AssistantRetentionQuery, AssistantHogQLQuery]
-
-
-class InsightSearchArtifact(InsightArtifact):
-    """
-    An artifact created by an insight search task.
-    """
-
-    insight_ids: list[int]
-    selection_reason: str
-
-
-ArtifactType = TypeVar("ArtifactType", bound=InsightArtifact)
-
-
-class TaskExecutionResult(BaseModel, Generic[ArtifactType]):
-    """
-    Generic result of task execution that can be used across different graph types.
-    """
-
-    id: str
-    description: str
-    result: str
-    artifacts: list[ArtifactType] = Field(default=[])
-    status: TaskExecutionStatus
-
-
-InsightCreationTaskExecutionResult = TaskExecutionResult[InsightCreationArtifact]
-InsightSearchTaskExecutionResult = TaskExecutionResult[InsightSearchArtifact]
-
-
-class BaseTaskExecutionState(BaseStateWithMessages, Generic[ArtifactType]):
-    """
-    Base state for task execution across different graph types.
-    """
-
-    tasks: Annotated[Optional[list[TaskExecutionItem]], replace] = Field(default=None)
-    """
-    The current tasks to execute.
-    """
-    task_results: Annotated[list[TaskExecutionResult[ArtifactType]], append] = Field(default=[])
-    """
-    Results of executed tasks.
-    """

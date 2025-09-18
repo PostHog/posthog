@@ -173,7 +173,7 @@ async def eval_tool_routing_dashboard_creation(call_root_for_dashboard_creation,
 
 
 @pytest.mark.django_db
-@patch("ee.hogai.graph.task_executor.base.get_stream_writer", return_value=MagicMock())
+@patch("ee.hogai.graph.base.get_stream_writer", return_value=MagicMock())
 async def eval_tool_call_dashboard_creation(patch_get_stream_writer, pytestconfig, demo_org_team_user):
     conversation = await Conversation.objects.acreate(team=demo_org_team_user[1], user=demo_org_team_user[2])
     dashboard_creation_node = DashboardCreationNode(demo_org_team_user[1], demo_org_team_user[2])

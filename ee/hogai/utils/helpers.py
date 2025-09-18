@@ -1,6 +1,6 @@
 import xml.etree.ElementTree as ET
 from collections.abc import Sequence
-from typing import Optional, TypeVar, Union
+from typing import Any, Optional, TypeVar, Union
 
 from jsonref import replace_refs
 from langchain_core.messages import (
@@ -242,8 +242,6 @@ def cast_assistant_query(
         return RetentionQuery(**query.model_dump())
     elif query.kind == "HogQLQuery":
         return HogQLQuery(**query.model_dump())
-    else:
-        raise ValueError(f"Unsupported query type: {query.kind}")
 
 
 def build_insight_url(team: Team, id: str) -> str:
@@ -254,3 +252,13 @@ def build_insight_url(team: Team, id: str) -> str:
 def build_dashboard_url(team: Team, id: int) -> str:
     """Build the URL for a dashboard."""
     return f"/project/{team.id}/dashboard/{id}"
+
+
+def extract_stream_update(update: Any) -> Any:
+    if update[1] == "custom":
+        # Custom streams come from a tool call
+        # If it's a LangGraph-based chunk, we remove the first two elements, which are "custom" and the parent graph namespace
+        update = update[2]
+
+    update = update[1:]  # we remove the first element, which is the node/subgraph node name
+    return update

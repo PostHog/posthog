@@ -24247,9 +24247,12 @@
                 },
                 "status": {
                     "$ref": "#/definitions/TaskExecutionStatus"
+                },
+                "task_type": {
+                    "type": "string"
                 }
             },
-            "required": ["id", "description", "prompt", "status"],
+            "required": ["id", "description", "prompt", "status", "task_type"],
             "type": "object"
         },
         "TaskExecutionMessage": {

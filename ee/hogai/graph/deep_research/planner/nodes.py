@@ -42,13 +42,14 @@ from ee.hogai.graph.deep_research.planner.prompts import (
 from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,
     DeepResearchState,
+    DeepResearchTask,
     DeepResearchTodo,
     PartialDeepResearchState,
 )
 from ee.hogai.notebook.notebook_serializer import NotebookSerializer
 from ee.hogai.utils.helpers import extract_content_from_ai_message
 from ee.hogai.utils.types import WithCommentary
-from ee.hogai.utils.types.base import BaseState, BaseStateWithMessages, InsightCreationArtifact, TaskExecutionItem
+from ee.hogai.utils.types.base import BaseState, BaseStateWithMessages, InsightArtifact, TaskArtifact
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +59,7 @@ class execute_tasks(WithCommentary):
     Execute a batch of work, assigning tasks to assistants. Returns the aggregated results of the tasks.
     """
 
-    tasks: list[TaskExecutionItem] = Field(description="The tasks to execute")
+    tasks: list[DeepResearchTask] = Field(description="The tasks to execute")
 
 
 class todo_write(WithCommentary):
@@ -335,16 +336,13 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
     async def _handle_artifacts_read(self, tool_call, state: DeepResearchState) -> PartialDeepResearchState:
         """Read artifacts generated from completed tasks."""
         # Collect all artifacts from task results
-        artifacts: list[InsightCreationArtifact] = []
+        artifacts: list[TaskArtifact] = []
         for single_task_result in state.task_results:
-            creation_artifacts = [
-                artifact for artifact in single_task_result.artifacts if isinstance(artifact, InsightCreationArtifact)
-            ]
-            artifacts.extend(creation_artifacts)
+            artifacts.extend(single_task_result.artifacts)
 
         # Format artifacts for display
         if artifacts:
-            formatted_artifacts = "\n".join([f"- {artifact.id}: {artifact.description}" for artifact in artifacts])
+            formatted_artifacts = "\n".join([f"- {artifact.task_id}: {artifact.content}" for artifact in artifacts])
         else:
             formatted_artifacts = ARTIFACTS_READ_FAILED_TOOL_RESULT
 
@@ -382,15 +380,12 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
             )
 
         # Collect all available artifacts
-        artifacts: list[InsightCreationArtifact] = []
+        artifacts: list[TaskArtifact] = []
         for single_task_result in state.task_results:
-            creation_artifacts = [
-                artifact for artifact in single_task_result.artifacts if isinstance(artifact, InsightCreationArtifact)
-            ]
-            artifacts.extend(creation_artifacts)
+            artifacts.extend(single_task_result.artifacts)
 
         # Validate artifact IDs referenced in the result
-        existing_ids = {artifact.id for artifact in artifacts}
+        existing_ids = {artifact.task_id for artifact in artifacts}
         invalid_ids = set(intermediate_result.artifact_ids) - existing_ids
 
         if invalid_ids:
@@ -405,12 +400,14 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
             )
 
         # Create visualization messages from selected artifacts
-        selected_artifacts = [artifact for artifact in artifacts if artifact.id in intermediate_result.artifact_ids]
+        selected_artifacts = [
+            artifact for artifact in artifacts if artifact.task_id in intermediate_result.artifact_ids
+        ]
 
         visualization_messages = [
-            VisualizationItem(query=artifact.description, answer=artifact.query)
+            VisualizationItem(query=artifact.content, answer=artifact.query)
             for artifact in selected_artifacts
-            if artifact.query
+            if isinstance(artifact, InsightArtifact)
         ]
 
         return PartialDeepResearchState(
