@@ -1,5 +1,5 @@
 import { Monaco } from '@monaco-editor/react'
-import { actions, connect, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, beforeUnmount, connect, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
@@ -24,7 +24,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { queryExportContext } from '~/queries/query'
 import {
     DataVisualizationNode,
@@ -44,7 +43,6 @@ import {
 } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../saved_queries/dataWarehouseViewsLogic'
-import { DATAWAREHOUSE_EDITOR_ITEM_ID } from '../utils'
 import { ViewEmptyState } from './ViewLoadingState'
 import { draftsLogic } from './draftsLogic'
 import { editorSceneLogic } from './editorSceneLogic'
@@ -380,7 +378,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             },
         ],
     })),
-    listeners(({ values, props, actions, asyncActions }) => ({
+    listeners(({ values, props, actions, asyncActions, cache }) => ({
         fixErrorsSuccess: ({ response }) => {
             actions.setSuggestedQueryInput(response.query, 'hogql_fixer')
 
@@ -613,11 +611,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 ...values.sourceQuery,
                 source: newSource,
             })
-            dataNodeLogic({
-                key: values.dataLogicKey,
-                query: newSource,
-            }).mount()
-
+            if (!cache.umountDataNode) {
+                cache.umountDataNode = dataNodeLogic({
+                    key: values.dataLogicKey,
+                    query: newSource,
+                }).mount()
+            }
             dataNodeLogic({
                 key: values.dataLogicKey,
                 query: newSource,
@@ -972,20 +971,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 return queryInput.indexOf('{filters}') !== -1 || queryInput.indexOf('{filters.') !== -1
             },
         ],
-        dataLogicKey: [
-            (s) => [s.editingInsight],
-            (editingInsight) => {
-                if (editingInsight) {
-                    return `InsightViz.${editingInsight.short_id ?? 'new'}`
-                }
-
-                return insightVizDataNodeKey({
-                    dashboardItemId: DATAWAREHOUSE_EDITOR_ITEM_ID,
-                    cachedInsight: null,
-                    doNotLoad: true,
-                })
-            },
-        ],
+        dataLogicKey: [(_, p) => [p.tabId], (tabId) => `data-warehouse-editor-data-node-${tabId}`],
         isDraft: [(s) => [s.activeTab], (activeTab) => (activeTab ? !!activeTab.draft?.id : false)],
         currentDraft: [(s) => [s.activeTab], (activeTab) => (activeTab ? activeTab.draft : null)],
         breadcrumbs: [
@@ -1189,4 +1175,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             })
         },
     })),
+    beforeUnmount(({ cache }) => {
+        cache.umountDataNode?.()
+    }),
 ])
