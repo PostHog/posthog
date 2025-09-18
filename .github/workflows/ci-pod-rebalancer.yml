@@ -1,4 +1,6 @@
 name: Pod Rebalancer CI
+permissions:
+    contents: read
 
 on:
     push:
