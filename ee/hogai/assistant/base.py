@@ -221,7 +221,7 @@ class BaseAssistant(ABC):
                 async for update in generator:
                     if messages := await self._process_update(update):
                         for message in messages:
-                            if hasattr(message, "id"):
+                            if hasattr(message, "id") and message.id is not None:
                                 if update[1] == "custom":
                                     # Custom updates come from tool calls, we want to deduplicate the messages sent to the client.
                                     self._custom_update_ids.add(message.id)
@@ -425,6 +425,7 @@ class BaseAssistant(ABC):
 
         # Extract and process content
         message_content = extract_content_from_ai_message(self._chunks)
+
         if not message_content:
             return None
 

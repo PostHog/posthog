@@ -215,13 +215,13 @@ def extract_content_from_ai_message(response: BaseMessage) -> str:
     Extracts the content from a BaseMessage, supporting both reasoning and non-reasoning responses.
     """
     if isinstance(response.content, list):
-        text_parts = []
+        text_parts: list[str] = []
         for content_item in response.content:
-            if isinstance(content_item, dict) and "text" in content_item:
+            if isinstance(content_item, dict) and "type" in content_item and content_item["type"] == "text":
                 text_parts.append(content_item["text"])
             elif isinstance(content_item, str):
                 text_parts.append(content_item)
-        return "".join(text_parts)
+        return "\n".join(text_parts)
     return str(response.content)
 
 
