@@ -6,19 +6,20 @@ use std::sync::{
 };
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result};
-use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
-use tokio::task::JoinHandle;
-use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, warn};
-
 use crate::checkpoint::{
     CheckpointConfig, CheckpointExporter, CheckpointMode, CheckpointTarget, CheckpointWorker,
     CHECKPOINT_PARTITION_PREFIX, CHECKPOINT_TOPIC_PREFIX,
 };
 use crate::kafka::types::Partition;
+use crate::metrics_const::{CHECKPOINT_CLEANER_DELETE_ATTEMPTS, CHECKPOINT_CLEANER_DIRS_FOUND};
 use crate::store::DeduplicationStore;
 use crate::store_manager::StoreManager;
+
+use anyhow::{Context, Result};
+use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
+use tokio::task::JoinHandle;
+use tokio_util::sync::CancellationToken;
+use tracing::{debug, error, info, warn};
 
 /// Manages checkpointing and periodic flushing for all deduplication stores
 pub struct CheckpointManager {
@@ -257,7 +258,7 @@ impl CheckpointManager {
             let mut interval = tokio::time::interval(cleanup_config.cleanup_interval);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-            // Skip first tick to avoid immediate flush
+            // Skip first tick to avoid immediate cleaning pass
             interval.tick().await;
 
             loop {
@@ -378,6 +379,25 @@ impl CheckpointManager {
         false
     }
 
+    async fn cleanup_local_checkpoints(config: &CheckpointConfig) -> Result<()> {
+        let checkpoint_base_dir = PathBuf::from(config.local_checkpoint_dir.clone());
+        if !checkpoint_base_dir.exists() {
+            return Ok(());
+        }
+
+        // find all eligible checkpoint directories of form /base_dir/topic/partition/timestamp
+        let candidate_dirs = Self::find_checkpoint_dirs(&checkpoint_base_dir)
+            .await
+            .context("Checkpoint cleaner: failed loading local checkpoint directories")?;
+
+        // first eliminate all dirs that are older than max retention period
+        let remaining_dirs = Self::remove_stale_checkpoint_dirs(config, candidate_dirs).await?;
+
+        // next, group remaining checkpoints dirs by parent /topic/partition
+        // and eliminate the oldest N past the configured retention count
+        Self::remove_checkpoint_dirs_past_partition_retention(config, remaining_dirs).await
+    }
+
     async fn find_checkpoint_dirs(current_dir: &Path) -> Result<Vec<PathBuf>> {
         let mut checkpoint_dirs = Vec::new();
         let mut stack = vec![current_dir.to_path_buf()];
@@ -404,26 +424,9 @@ impl CheckpointManager {
             }
         }
 
+        metrics::counter!(CHECKPOINT_CLEANER_DIRS_FOUND).increment(checkpoint_dirs.len() as u64);
+
         Ok(checkpoint_dirs)
-    }
-
-    async fn cleanup_local_checkpoints(config: &CheckpointConfig) -> Result<()> {
-        let checkpoint_base_dir = PathBuf::from(config.local_checkpoint_dir.clone());
-        if !checkpoint_base_dir.exists() {
-            return Ok(());
-        }
-
-        // find all eligible checkpoint directories of form /base_dir/topic/partition/timestamp
-        let candidate_dirs = Self::find_checkpoint_dirs(&checkpoint_base_dir)
-            .await
-            .context("Checkpoint cleaner: failed loading local checkpoint directories")?;
-
-        // first eliminate all dirs that are older than max retention period
-        let remaining_dirs = Self::remove_stale_checkpoint_dirs(config, candidate_dirs).await?;
-
-        // next, group remaining checkpoints dirs by parent /topic/partition
-        // and eliminate the oldest N past the configured retention count
-        Self::remove_checkpoint_dirs_past_partition_retention(config, remaining_dirs).await
     }
 
     async fn remove_checkpoint_dirs_past_partition_retention(
@@ -453,11 +456,15 @@ impl CheckpointManager {
                     let checkpoint_path = checkpoint_dir.to_string_lossy().to_string();
 
                     if let Err(e) = tokio::fs::remove_dir_all(checkpoint_dir).await {
+                        let tags = [("result", "error"), ("scan_type", "partition_limit")];
+                        metrics::counter!(CHECKPOINT_CLEANER_DELETE_ATTEMPTS, &tags).increment(1);
                         warn!(
                             checkpoint_path = checkpoint_path,
                             "Checkpoint cleaner: failed to remove checkpoint past partition retention limit: {}", e
                         );
                     } else {
+                        let tags = [("result", "success"), ("scan_type", "partition_limit")];
+                        metrics::counter!(CHECKPOINT_CLEANER_DELETE_ATTEMPTS, &tags).increment(1);
                         info!(
                             checkpoint_path = checkpoint_path,
                             "Checkpoint cleaner: removed checkpoint past partition retention limit"
@@ -493,12 +500,16 @@ impl CheckpointManager {
                     if checkpoint_dir_created_at > threshold_time {
                         remaining_dirs.push(candidate_dir);
                     } else if let Err(e) = tokio::fs::remove_dir_all(&candidate_dir).await {
+                        let tags = [("result", "error"), ("scan_type", "retention_time")];
+                        metrics::counter!(CHECKPOINT_CLEANER_DELETE_ATTEMPTS, &tags).increment(1);
                         warn!(
                             checkpoint_path = checkpoint_path,
                             "Checkpoint cleaner: failed to remove stale checkpoint: {}", e
                         );
                         remaining_dirs.push(candidate_dir);
                     } else {
+                        let tags = [("result", "success"), ("scan_type", "retention_time")];
+                        metrics::counter!(CHECKPOINT_CLEANER_DELETE_ATTEMPTS, &tags).increment(1);
                         info!(
                             checkpoint_path = checkpoint_path,
                             "Checkpoint cleaner: removed stale checkpoint"
@@ -507,6 +518,8 @@ impl CheckpointManager {
                 }
 
                 Err(e) => {
+                    let tags = [("result", "error"), ("scan_type", "invalid_timestamp")];
+                    metrics::counter!(CHECKPOINT_CLEANER_DELETE_ATTEMPTS, &tags).increment(1);
                     warn!(
                         checkpoint_path = checkpoint_path,
                         "Checkpoint cleaner: failed to parse checkpoint dir name as timestamp: {}",

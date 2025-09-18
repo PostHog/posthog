@@ -4,16 +4,15 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use super::CheckpointExporter;
 use crate::kafka::types::Partition;
+use crate::metrics_const::{
+    CHECKPOINT_DURATION_HISTOGRAM, CHECKPOINT_FILE_COUNT_HISTOGRAM, CHECKPOINT_SIZE_HISTOGRAM,
+    CHECKPOINT_WORKER_STATUS_COUNTER,
+};
 use crate::store::DeduplicationStore;
 
 use anyhow::{Context, Result};
 use metrics;
 use tracing::{error, info, warn};
-
-const CHECKPOINT_SIZE_HISTOGRAM: &str = "checkpoint_size_bytes";
-const CHECKPOINT_FILE_COUNT_HISTOGRAM: &str = "checkpoint_file_count";
-const CHECKPOINT_DURATION_HISTOGRAM: &str = "checkpoint_duration_seconds";
-const CHECKPOINT_WORKER_STATUS_COUNTER: &str = "checkpoint_worker_status";
 
 pub const CHECKPOINT_TOPIC_PREFIX: &str = "topic_";
 pub const CHECKPOINT_PARTITION_PREFIX: &str = "part_";
