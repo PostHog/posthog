@@ -1,3 +1,5 @@
+from typing import Any
+
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from rest_framework import status
@@ -211,7 +213,7 @@ class TestNamedQuery(ClickhouseTestMixin, APIBaseTest):
     def test_missing_required_fields(self):
         """Test validation when required fields are missing."""
         # Missing name
-        data = {"query": self.sample_query}
+        data: dict[str, Any] = {"query": self.sample_query}
 
         response = self.client.post(f"/api/environments/{self.team.id}/named_query/", data, format="json")
 

@@ -1,4 +1,5 @@
 import re
+import typing
 
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
@@ -9,7 +10,7 @@ from rest_framework.exceptions import Throttled, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.schema import NamedQueryRequest, NamedQueryRunRequest, QueryRequest
+from posthog.schema import HogQLQuery, NamedQueryRequest, NamedQueryRunRequest, QueryRequest
 
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 
@@ -25,6 +26,7 @@ from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES
+from posthog.models import User
 from posthog.models.named_query import NamedQuery
 from posthog.rate_limit import APIQueriesBurstThrottle, APIQueriesSustainedThrottle
 from posthog.schema_migrations.upgrade import upgrade
@@ -80,13 +82,14 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
 
         return Response({"results": results})
 
-    def validate_request(self, data: QueryRequest, strict: bool = True) -> None:
-        if strict and not data.query:
+    def validate_request(self, data: NamedQueryRequest, strict: bool = True) -> None:
+        query = data.query
+        if query:
+            if query.kind != "HogQLQuery":
+                raise ValidationError("Only HogQLQuery query kind is supported (speak to us)")
+        elif strict:
             raise ValidationError("Must specify query")
-        kind = data.query.kind
-        if kind != "HogQLQuery":
-            capture_exception(f"unsupported query kind: {kind}")
-            raise ValidationError("Only HogQLQuery query kind is supported (speak to us)")
+
         name = data.name
         if not name:
             if name is not None or strict:
@@ -106,16 +109,16 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
         """Create a new named query."""
         upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, NamedQueryRequest)
-        self.validate_request(data)
+        self.validate_request(data, strict=True)
 
         try:
             named_query = NamedQuery.objects.create(
-                name=data.name,
                 team=self.team,
-                query=data.query.model_dump(),
+                created_by=typing.cast(User, request.user),
+                name=typing.cast(str, data.name),  # verified in validate_request
+                query=typing.cast(HogQLQuery, data.query).model_dump(),
                 description=data.description or "",
                 is_active=data.is_active if data.is_active is not None else True,
-                created_by=request.user,
             )
 
             return Response(
@@ -197,24 +200,24 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
         data = self.get_model(request.data, NamedQueryRunRequest)
         data.variables_values = data.variables_values or {}
 
-        query_variables = named_query.query.get("variables", {})
-        for code_name, value in data.variables_values.items():
-            for variable in query_variables.values():
-                if variable.get("code_name", "") == code_name:
-                    variable["value"] = value
-
-        # Build QueryRequest
-        query_request_data = {
-            **request.data,  # Allow overriding QueryRequest fields like refresh, client_query_id
-            "query": named_query.query,
-            "name": named_query.name,
-        }
-
         try:
-            data = self.get_model(query_request_data, QueryRequest)
+            query_variables = named_query.query.get("variables", {})
+            for code_name, value in data.variables_values.items():
+                for variable in query_variables.values():
+                    if variable.get("code_name", "") == code_name:
+                        variable["value"] = value
+
+            # Build QueryRequest
+            query_request_data = {
+                **request.data,  # Allow overriding QueryRequest fields like refresh, client_query_id
+                "query": named_query.query,
+                "name": named_query.name,
+            }
+
+            merged_data = self.get_model(query_request_data, QueryRequest)
 
             query, client_query_id, execution_mode = _process_query_request(
-                data, self.team, data.client_query_id, request.user
+                merged_data, self.team, data.client_query_id, request.user
             )
             self._tag_client_query_id(client_query_id)
 
@@ -226,7 +229,7 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
                 query,
                 execution_mode=execution_mode,
                 query_id=client_query_id,
-                user=request.user,
+                user=typing.cast(User, request.user),
                 is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
             )
 
