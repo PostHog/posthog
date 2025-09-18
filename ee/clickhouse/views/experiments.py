@@ -31,23 +31,6 @@ from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
 
-class ExperimentDailyResultSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ExperimentDailyResult
-        fields = [
-            "experiment_id",
-            "metric_uuid",
-            "date",
-            "status",
-            "result",
-            "computed_at",
-            "error_message",
-            "created_at",
-            "updated_at",
-        ]
-        read_only_fields = fields
-
-
 class ExperimentSerializer(serializers.ModelSerializer):
     feature_flag_key = serializers.CharField(source="get_feature_flag_key")
     created_by = UserBasicSerializer(read_only=True)
@@ -725,36 +708,31 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
         if not metric_exists:
             raise ValidationError(f"Metric with UUID {metric_uuid} not found in experiment")
 
-        # Calculate complete experiment date range
         start_date = experiment.start_date.date() if experiment.start_date else experiment.created_at.date()
         end_date = experiment.end_date.date() if experiment.end_date else date.today()
 
-        # Generate all dates in the experiment range
         experiment_dates = []
         current_date = start_date
         while current_date <= end_date:
             experiment_dates.append(current_date)
             current_date += timedelta(days=1)
 
-        # Pre-populate timeline with null values for all experiment dates
+        # Pre-populate timeline with null values so frontend gets complete date range
         timeseries: dict[str, Any | None] = {}
         errors: dict[str, str] = {}
         for experiment_date in experiment_dates:
             timeseries[experiment_date.isoformat()] = None
 
-        # Query all daily results for this experiment-metric combination
         daily_results = ExperimentDailyResult.objects.filter(
             experiment_id=experiment.id, metric_uuid=metric_uuid
         ).order_by("date")
 
-        # Overlay actual data from daily results
         completed_count = 0
         failed_count = 0
         pending_count = 0
         no_record_count = 0
         latest_computed_at = None
 
-        # Create a mapping of existing daily results by date
         daily_results_by_date = {result.date: result for result in daily_results}
 
         for experiment_date in experiment_dates:
@@ -773,45 +751,34 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
                 elif daily_result.status == "pending":
                     pending_count += 1
 
-                # Track latest computed_at
                 if daily_result.computed_at:
                     if latest_computed_at is None or daily_result.computed_at > latest_computed_at:
                         latest_computed_at = daily_result.computed_at
             else:
-                # No record exists for this date
                 no_record_count += 1
 
-        # Determine overall status based on results
         total_experiment_days = len(experiment_dates)
         calculated_days = completed_count + failed_count + pending_count
 
         if pending_count > 0 or no_record_count > 0:
-            # Any days still pending or not yet processed
             overall_status = "pending"
         elif calculated_days == 0:
-            # No days have been calculated yet
             overall_status = "pending"
         elif completed_count == 0 and failed_count > 0:
-            # All calculated days have failed
             overall_status = "failed"
         elif completed_count > 0 and failed_count > 0:
-            # Some days succeeded, some failed
             overall_status = "partial"
         elif completed_count == total_experiment_days:
-            # All days in the experiment range have been successfully calculated
             overall_status = "completed"
         else:
-            # Fallback - should not happen with the logic above
             overall_status = "partial"
-
-        # Format response to match frontend expectations
         first_result = daily_results.first()
         last_result = daily_results.last()
         response_data = {
             "experiment_id": experiment.id,
             "metric_uuid": metric_uuid,
             "status": overall_status,
-            "timeseries": timeseries,  # Always return the complete timeline
+            "timeseries": timeseries,
             "errors": errors if errors else None,
             "computed_at": latest_computed_at.isoformat() if latest_computed_at else None,
             "created_at": first_result.created_at.isoformat() if first_result else experiment.created_at.isoformat(),
