@@ -144,6 +144,9 @@ export function SampledSessionsModal({
         },
     ]
 
+    // Parse which numeric tab is active (could be 'dropped' or a number string)
+    const activeStepIndex = activeTab === 'dropped' ? -1 : parseInt(activeTab)
+
     // Create tabs for each step
     const tabs = stepNames.map((stepName, index) => {
         const sessions = sessionsByStep.get(index) || []
@@ -180,14 +183,14 @@ export function SampledSessionsModal({
         }
     })
 
-    // Add a special tab for users who didn't enter the funnel (step -1)
-    if (stepsEventData.length > stepNames.length) {
-        const droppedOffSessions = sessionsByStep.get(stepsEventData.length - 1) || []
+    // Add a "Dropped off" tab that shows sessions from the previous step
+    if (activeStepIndex >= 0) {
+        const droppedOffSessions = activeStepIndex > 0 ? sessionsByStep.get(activeStepIndex - 1) || [] : []
         const droppedOffRecordingsCount = droppedOffSessions.filter((s) =>
             recordingAvailability.get(s.sessionId)
         ).length
 
-        tabs.unshift({
+        tabs.push({
             key: 'dropped',
             label: (
                 <div className="flex flex-col items-start">
@@ -202,7 +205,9 @@ export function SampledSessionsModal({
             ),
             content: (
                 <div className="mt-2">
-                    {droppedOffSessions.length > 0 ? (
+                    {activeStepIndex === 0 ? (
+                        <div className="text-muted text-center py-8">No previous step to show drop-offs from</div>
+                    ) : droppedOffSessions.length > 0 ? (
                         <LemonTable
                             columns={columns}
                             dataSource={droppedOffSessions}
@@ -211,9 +216,7 @@ export function SampledSessionsModal({
                             loading={loading}
                         />
                     ) : (
-                        <div className="text-muted text-center py-8">
-                            No sessions sampled for users who didn't enter the funnel
-                        </div>
+                        <div className="text-muted text-center py-8">No sessions from Step {activeStepIndex}</div>
                     )}
                 </div>
             ),
