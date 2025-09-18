@@ -72,6 +72,16 @@ const NEW_CAMPAIGN: HogFlow = {
     updated_at: '',
 }
 
+function getTemplatingError(value: string, templating: 'liquid' | 'hog'): string | undefined {
+    if (templating === 'liquid' && typeof value === 'string') {
+        try {
+            LiquidRenderer.parse(value)
+        } catch (e: any) {
+            return `Liquid template error: ${e.message}`
+        }
+    }
+}
+
 export const campaignLogic = kea<campaignLogicType>([
     path(['products', 'messaging', 'frontend', 'Campaigns', 'campaignLogic']),
     props({ id: 'new' } as CampaignLogicProps),
@@ -199,25 +209,19 @@ export const campaignLogic = kea<campaignLogicType>([
                             // TODO: modify email/native_email input type to flatten email inputs so we don't need this special case
                             const emailValue = action.config.inputs?.email?.value
 
-                            const getTemplatingError = (value: string): string | undefined => {
-                                if (emailValue?.templating === 'liquid' && typeof value === 'string') {
-                                    try {
-                                        LiquidRenderer.parse(value)
-                                    } catch (e: any) {
-                                        return `Liquid template error: ${e.message}`
-                                    }
-                                }
-                            }
-
                             const emailTemplateErrors: Partial<EmailTemplate> = {
-                                html: !emailValue.html ? 'HTML is required' : getTemplatingError(emailValue.html),
+                                html: !emailValue.html
+                                    ? 'HTML is required'
+                                    : getTemplatingError(emailValue.html, emailValue.templating),
                                 subject: !emailValue.subject
                                     ? 'Subject is required'
-                                    : getTemplatingError(emailValue.subject),
+                                    : getTemplatingError(emailValue.subject, emailValue.templating),
                                 from: !emailValue.from.email
                                     ? 'From is required'
-                                    : getTemplatingError(emailValue.from.email),
-                                to: !emailValue.to.email ? 'To is required' : getTemplatingError(emailValue.to.email),
+                                    : getTemplatingError(emailValue.from.email, emailValue.templating),
+                                to: !emailValue.to.email
+                                    ? 'To is required'
+                                    : getTemplatingError(emailValue.to.email, emailValue.templating),
                             }
 
                             const combinedErrors = Object.values(emailTemplateErrors)
