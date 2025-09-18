@@ -289,6 +289,10 @@ When implementing access controls, audit all places where users can interact wit
 - Export/import functionality
 - Sharing and collaboration features
 
+#### 4.7 Update Storybook mocks
+
+Make sure you've added your new resource to [`common/storybook/.storybook/app-context.ts`](common/storybook/.storybook/app-context.ts) to guarantee snapshots won't flake/will assume you have access to everything.
+
 ### 5. Add Field-Level Access Controls (if needed)
 
 For products that need field-level access controls on related models:
