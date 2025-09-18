@@ -285,6 +285,7 @@ class Database(BaseModel):
 
         return (
             self._table_names
+            + self.get_system_tables()
             + warehouse_table_names
             + self._warehouse_self_managed_table_names
             + self._view_table_names
@@ -973,7 +974,7 @@ def serialize_database(
     posthog_tables = context.database.get_posthog_tables()
     for table_key in posthog_tables:
         field_input: dict[str, Any] = {}
-        table = getattr(context.database, table_key, None)
+        table = context.database.get_table(table_key)
         if isinstance(table, FunctionCallTable):
             field_input = table.get_asterisk()
         elif isinstance(table, Table):
@@ -987,7 +988,7 @@ def serialize_database(
     system_tables = context.database.get_system_tables()
     for table_key in system_tables:
         system_field_input: dict[str, Any] = {}
-        table = getattr(context.database, table_key, None)
+        table = context.database.get_table(table_key)
         if isinstance(table, FunctionCallTable):
             system_field_input = table.get_asterisk()
         elif isinstance(table, Table):
