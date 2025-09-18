@@ -253,6 +253,13 @@ def split_into_batches(items: list[Any], batch_count: int) -> list[list[Any]]:
 class BehavioralCohortsWorkflow(PostHogWorkflow):
     """Temporal workflow for parallel behavioral cohorts analysis."""
 
+    @staticmethod
+    def parse_inputs(inputs: list[str]) -> BehavioralCohortsWorkflowInputs:
+        """Parse inputs from the management command CLI."""
+        # For now, just return default inputs since this workflow
+        # is called programmatically from the management command
+        return BehavioralCohortsWorkflowInputs()
+
     @temporalio.workflow.run
     async def run(self, inputs: BehavioralCohortsWorkflowInputs) -> dict[str, Any]:
         """Run the behavioral cohorts analysis workflow with fan-out pattern."""
