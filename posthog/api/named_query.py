@@ -4,6 +4,7 @@ import typing
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 
+from django_filters.rest_framework import DjangoFilterBackend
 from pydantic import BaseModel
 from rest_framework import status, viewsets
 from rest_framework.exceptions import Throttled, ValidationError
@@ -42,6 +43,8 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
     scope_object_write_actions: list[str] = []
     lookup_field = "name"
     queryset = NamedQuery.objects.all()
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ["is_active", "created_by"]
 
     def get_serializer_class(self):
         return None  # We use Pydantic models instead
@@ -62,7 +65,7 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
 
     def list(self, request: Request, *args, **kwargs) -> Response:
         """List all named queries for the team."""
-        queryset = self.get_queryset()
+        queryset = self.filter_queryset(self.get_queryset())
 
         results = []
         for named_query in queryset:

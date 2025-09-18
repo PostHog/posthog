@@ -29,51 +29,6 @@ class TestNamedQuery(ClickhouseTestMixin, APIBaseTest):
             "version": None,
         }
 
-    def test_list_named_queries(self):
-        """Test listing all named queries for a team."""
-        # Create multiple named queries
-        NamedQuery.objects.create(
-            name="query_one",
-            team=self.team,
-            query={"kind": "HogQLQuery", "query": "SELECT 1"},
-            description="First query",
-            created_by=self.user,
-            is_active=True,
-        )
-        NamedQuery.objects.create(
-            name="query_two",
-            team=self.team,
-            query={"kind": "HogQLQuery", "query": "SELECT 2"},
-            description="Second query",
-            created_by=self.user,
-            is_active=False,
-        )
-
-        response = self.client.get(f"/api/environments/{self.team.id}/named_query/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        response_data = response.json()
-
-        # Should return a list with results
-        self.assertIn("results", response_data)
-        self.assertEqual(len(response_data["results"]), 2)
-
-        # Verify query data
-        query_names = [q["name"] for q in response_data["results"]]
-        self.assertIn("query_one", query_names)
-        self.assertIn("query_two", query_names)
-
-        # Verify structure of returned queries
-        for query in response_data["results"]:
-            self.assertIn("id", query)
-            self.assertIn("name", query)
-            self.assertIn("query", query)
-            self.assertIn("description", query)
-            self.assertIn("is_active", query)
-            self.assertIn("endpoint_path", query)
-            self.assertIn("created_at", query)
-            self.assertIn("updated_at", query)
-
     def test_create_named_query(self):
         """Test creating a named query successfully."""
         data = {
@@ -320,3 +275,134 @@ class TestNamedQuery(ClickhouseTestMixin, APIBaseTest):
         response_data = response.json()
         self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
         self.assertIn("results", response_data)
+
+    def test_list_filter_by_is_active(self):
+        """Test filtering named queries by is_active status."""
+        # Create active and inactive queries
+        NamedQuery.objects.create(
+            name="active_query",
+            team=self.team,
+            query=self.sample_query,
+            created_by=self.user,
+            is_active=True,
+        )
+        NamedQuery.objects.create(
+            name="inactive_query",
+            team=self.team,
+            query=self.sample_query,
+            created_by=self.user,
+            is_active=False,
+        )
+
+        # Test filtering for active queries
+        response = self.client.get(f"/api/environments/{self.team.id}/named_query/?is_active=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data["results"]), 1)
+        self.assertEqual(response_data["results"][0]["name"], "active_query")
+        self.assertTrue(response_data["results"][0]["is_active"])
+
+        # Test filtering for inactive queries
+        response = self.client.get(f"/api/environments/{self.team.id}/named_query/?is_active=false")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data["results"]), 1)
+        self.assertEqual(response_data["results"][0]["name"], "inactive_query")
+        self.assertFalse(response_data["results"][0]["is_active"])
+
+    def test_list_filter_by_created_by(self):
+        """Test filtering named queries by created_by user."""
+        # Create another user
+        other_user = User.objects.create_and_join(self.organization, "other@test.com", None)
+
+        # Create queries by different users
+        NamedQuery.objects.create(
+            name="query_by_user1",
+            team=self.team,
+            query=self.sample_query,
+            created_by=self.user,
+        )
+        NamedQuery.objects.create(
+            name="query_by_user2",
+            team=self.team,
+            query=self.sample_query,
+            created_by=other_user,
+        )
+
+        # Test filtering by first user
+        response = self.client.get(f"/api/environments/{self.team.id}/named_query/?created_by={self.user.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data["results"]), 1)
+        self.assertEqual(response_data["results"][0]["name"], "query_by_user1")
+
+        # Test filtering by second user
+        response = self.client.get(f"/api/environments/{self.team.id}/named_query/?created_by={other_user.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data["results"]), 1)
+        self.assertEqual(response_data["results"][0]["name"], "query_by_user2")
+
+    def test_list_filter_combined(self):
+        """Test filtering named queries by both is_active and created_by."""
+        # Create another user
+        other_user = User.objects.create_and_join(self.organization, "other@test.com", None)
+
+        # Create queries with different combinations
+        NamedQuery.objects.create(
+            name="active_query_user1",
+            team=self.team,
+            query=self.sample_query,
+            created_by=self.user,
+            is_active=True,
+        )
+        NamedQuery.objects.create(
+            name="inactive_query_user1",
+            team=self.team,
+            query=self.sample_query,
+            created_by=self.user,
+            is_active=False,
+        )
+        NamedQuery.objects.create(
+            name="active_query_user2",
+            team=self.team,
+            query=self.sample_query,
+            created_by=other_user,
+            is_active=True,
+        )
+
+        # Test combined filtering
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/named_query/?is_active=true&created_by={self.user.id}"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data["results"]), 1)
+        self.assertEqual(response_data["results"][0]["name"], "active_query_user1")
+        self.assertTrue(response_data["results"][0]["is_active"])
+
+    def test_list_no_filters(self):
+        """Test listing all named queries without filters."""
+        # Create multiple queries
+        NamedQuery.objects.create(
+            name="query1",
+            team=self.team,
+            query=self.sample_query,
+            created_by=self.user,
+            is_active=True,
+        )
+        NamedQuery.objects.create(
+            name="query2",
+            team=self.team,
+            query=self.sample_query,
+            created_by=self.user,
+            is_active=False,
+        )
+
+        # Test without any filters - should return all queries
+        response = self.client.get(f"/api/environments/{self.team.id}/named_query/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data["results"]), 2)
+        query_names = {q["name"] for q in response_data["results"]}
+        self.assertEqual(query_names, {"query1", "query2"})
