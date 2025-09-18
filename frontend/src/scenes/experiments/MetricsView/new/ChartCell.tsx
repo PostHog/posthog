@@ -32,6 +32,7 @@ interface ChartCellProps {
     isAlternatingRow?: boolean
     isLastRow?: boolean
     isSecondary?: boolean
+    onTimeseriesClick?: () => void
 }
 
 export function ChartCell({
@@ -43,6 +44,7 @@ export function ChartCell({
     isAlternatingRow = false,
     isLastRow = false,
     isSecondary = false,
+    onTimeseriesClick,
 }: ChartCellProps): JSX.Element {
     const colors = useChartColors()
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
@@ -111,6 +113,8 @@ export function ChartCell({
                                         variantResult.key
                                     })`}
                                     opacity={CHART_BAR_OPACITY}
+                                    style={{ cursor: onTimeseriesClick ? 'pointer' : 'default' }}
+                                    onClick={onTimeseriesClick}
                                 />
                             ) : (
                                 <rect
@@ -124,6 +128,8 @@ export function ChartCell({
                                     opacity={CHART_BAR_OPACITY}
                                     rx={3}
                                     ry={3}
+                                    style={{ cursor: onTimeseriesClick ? 'pointer' : 'default' }}
+                                    onClick={onTimeseriesClick}
                                 />
                             )}
 

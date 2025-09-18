@@ -8,14 +8,14 @@ This module defines:
 """
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Union
 
 import dagster
 
-from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric
+from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQuery, ExperimentRatioMetric
 
-from posthog.hogql_queries.experiments.experiment_timeseries import ExperimentTimeseries
-from posthog.models.experiment import Experiment
+from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
+from posthog.models.experiment import Experiment, ExperimentDailyResult
 
 from dags.common import JobOwners
 
@@ -93,7 +93,7 @@ def experiment_timeseries(context: dagster.AssetExecutionContext) -> dict[str, A
 
     This is a single asset with dynamic partitions - one partition per experiment-metric
     combination. Each partition computes timeseries analysis for one metric from one
-    experiment (currently a placeholder - will be replaced with actual statistical analysis).
+    experiment using ExperimentQueryRunner.
 
     Returns:
         Dictionary containing experiment metadata, metric definition, and timeseries results.
@@ -118,39 +118,82 @@ def experiment_timeseries(context: dagster.AssetExecutionContext) -> dict[str, A
         raise dagster.Failure(f"Experiment {experiment_id} not found or deleted")
 
     metric_type = metric.get("metric_type")
+    metric_obj: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
     if metric_type == "mean":
         metric_obj = ExperimentMeanMetric(**metric)
     elif metric_type == "funnel":
         metric_obj = ExperimentFunnelMetric(**metric)
+    elif metric_type == "ratio":
+        metric_obj = ExperimentRatioMetric(**metric)
     else:
         raise dagster.Failure(f"Unknown metric type: {metric_type}")
 
-    timeseries_calculator = ExperimentTimeseries(experiment, metric_obj)
-    timeseries_results = timeseries_calculator.get_result()
+    try:
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment_id,
+            metric=metric_obj,
+        )
 
-    # Add metadata for Dagster UI display
-    context.add_output_metadata(
-        metadata={
+        query_runner = ExperimentQueryRunner(query=experiment_query, team=experiment.team)
+        result = query_runner._calculate()
+
+        computed_at = datetime.now(UTC)
+        today = computed_at.date()
+
+        ExperimentDailyResult.objects.update_or_create(
+            experiment_id=experiment_id,
+            metric_uuid=metric_uuid,
+            date=today,
+            defaults={
+                "status": ExperimentDailyResult.Status.COMPLETED,
+                "result": result.model_dump(),
+                "computed_at": computed_at,
+                "error_message": None,
+            },
+        )
+
+        # Add metadata for Dagster UI display
+        context.add_output_metadata(
+            metadata={
+                "experiment_id": experiment_id,
+                "metric_uuid": metric_uuid,
+                "metric_type": metric_type,
+                "metric_name": metric.get("name", f"Metric {metric_uuid}"),
+                "experiment_name": experiment.name,
+                "metric_definition": str(metric),
+                "computed_at": computed_at.isoformat(),
+                "date": today.isoformat(),
+                "results_status": "success",
+            }
+        )
+
+        return {
             "experiment_id": experiment_id,
             "metric_uuid": metric_uuid,
-            "metric_type": metric_type,
-            "metric_name": metric.get("name", f"Metric {metric_uuid}"),
-            "experiment_name": experiment.name,
-            "metric_definition": str(metric),
-            "computed_at": datetime.now(UTC).isoformat(),
-            "results_status": "success",
-            "results_count": len(timeseries_results),
-            "timeseries": timeseries_results,
+            "metric_definition": metric,
+            "date": today.isoformat(),
+            "result": result.model_dump(),
+            "computed_at": computed_at.isoformat(),
         }
-    )
 
-    return {
-        "experiment_id": experiment_id,
-        "metric_uuid": metric_uuid,
-        "metric_definition": metric,
-        "timeseries": timeseries_results,
-        "computed_at": datetime.now(UTC).isoformat(),
-    }
+    except Exception as e:
+        computed_at = datetime.now(UTC)
+        today = computed_at.date()
+
+        ExperimentDailyResult.objects.update_or_create(
+            experiment_id=experiment_id,
+            metric_uuid=metric_uuid,
+            date=today,
+            defaults={
+                "status": ExperimentDailyResult.Status.FAILED,
+                "result": None,
+                "computed_at": None,
+                "error_message": str(e),
+            },
+        )
+
+        # Re-raise the exception for Dagster to handle
+        raise dagster.Failure(f"Failed to compute timeseries: {e}")
 
 
 # =============================================================================

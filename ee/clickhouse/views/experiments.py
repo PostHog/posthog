@@ -1,3 +1,4 @@
+from datetime import date, timedelta
 from enum import Enum
 from typing import Any, Literal
 
@@ -19,7 +20,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
+from posthog.models.experiment import Experiment, ExperimentDailyResult, ExperimentHoldout, ExperimentSavedMetric
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import model_activity_signal
@@ -683,6 +684,108 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
         experiment.exposure_cohort = cohort
         experiment.save(update_fields=["exposure_cohort"])
         return Response({"cohort": cohort_serializer.data}, status=201)
+
+    @action(methods=["GET"], detail=True, required_scopes=["experiment:read"])
+    def timeseries_results(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """
+        Retrieve timeseries results for a specific experiment-metric combination.
+        Aggregates daily results into a timeseries format for frontend compatibility.
+
+        Query parameters:
+        - metric_uuid (required): The UUID of the metric to retrieve results for
+        """
+        experiment = self.get_object()
+        metric_uuid = request.query_params.get("metric_uuid")
+
+        if not metric_uuid:
+            raise ValidationError("metric_uuid query parameter is required")
+
+        metrics = experiment.metrics or []
+        metrics_secondary = experiment.metrics_secondary or []
+        all_metrics = metrics + metrics_secondary
+
+        metric_exists = any(m.get("uuid") == metric_uuid for m in all_metrics)
+        if not metric_exists:
+            raise ValidationError(f"Metric with UUID {metric_uuid} not found in experiment")
+
+        start_date = experiment.start_date.date() if experiment.start_date else experiment.created_at.date()
+        end_date = experiment.end_date.date() if experiment.end_date else date.today()
+
+        experiment_dates = []
+        current_date = start_date
+        while current_date <= end_date:
+            experiment_dates.append(current_date)
+            current_date += timedelta(days=1)
+
+        # Pre-populate timeline with null values so frontend gets complete date range
+        timeseries: dict[str, Any | None] = {}
+        errors: dict[str, str] = {}
+        for experiment_date in experiment_dates:
+            timeseries[experiment_date.isoformat()] = None
+
+        daily_results = ExperimentDailyResult.objects.filter(
+            experiment_id=experiment.id, metric_uuid=metric_uuid
+        ).order_by("date")
+
+        completed_count = 0
+        failed_count = 0
+        pending_count = 0
+        no_record_count = 0
+        latest_computed_at = None
+
+        daily_results_by_date = {result.date: result for result in daily_results}
+
+        for experiment_date in experiment_dates:
+            date_key = experiment_date.isoformat()
+
+            if experiment_date in daily_results_by_date:
+                daily_result = daily_results_by_date[experiment_date]
+
+                if daily_result.status == "completed":
+                    timeseries[date_key] = daily_result.result
+                    completed_count += 1
+                elif daily_result.status == "failed":
+                    if daily_result.error_message:
+                        errors[date_key] = daily_result.error_message
+                    failed_count += 1
+                elif daily_result.status == "pending":
+                    pending_count += 1
+
+                if daily_result.computed_at:
+                    if latest_computed_at is None or daily_result.computed_at > latest_computed_at:
+                        latest_computed_at = daily_result.computed_at
+            else:
+                no_record_count += 1
+
+        total_experiment_days = len(experiment_dates)
+        calculated_days = completed_count + failed_count + pending_count
+
+        if pending_count > 0 or no_record_count > 0:
+            overall_status = "pending"
+        elif calculated_days == 0:
+            overall_status = "pending"
+        elif completed_count == 0 and failed_count > 0:
+            overall_status = "failed"
+        elif completed_count > 0 and failed_count > 0:
+            overall_status = "partial"
+        elif completed_count == total_experiment_days:
+            overall_status = "completed"
+        else:
+            overall_status = "partial"
+        first_result = daily_results.first()
+        last_result = daily_results.last()
+        response_data = {
+            "experiment_id": experiment.id,
+            "metric_uuid": metric_uuid,
+            "status": overall_status,
+            "timeseries": timeseries,
+            "errors": errors if errors else None,
+            "computed_at": latest_computed_at.isoformat() if latest_computed_at else None,
+            "created_at": first_result.created_at.isoformat() if first_result else experiment.created_at.isoformat(),
+            "updated_at": last_result.updated_at.isoformat() if last_result else experiment.updated_at.isoformat(),
+        }
+
+        return Response(response_data)
 
 
 @receiver(model_activity_signal, sender=Experiment)
