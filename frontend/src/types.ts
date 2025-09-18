@@ -499,7 +499,6 @@ export interface OrganizationMemberScopedApiKeysResponse {
     }[]
 }
 
-
 /**
  * This interface is only used in the frontend for fusing organization member data.
  */
