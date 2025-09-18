@@ -2,6 +2,7 @@
 
 import secrets
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel
@@ -30,9 +31,12 @@ def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> Playwri
     # Use the working generate_demo_data command to create workspace with demo data
     command = GenerateDemoDataCommand()
 
+    # Use fixed time for consistent test data: November 3, 2024 at noon UTC
+    fixed_now = datetime(2024, 11, 3, 12, 0, 0)
+
     options = {
         "seed": f"playwright_test",  # constant seed
-        "now": None,  # Use current time (which will be frozen by global freezer)
+        "now": fixed_now,  # Fixed time for consistent data generation
         "days_past": 30,
         "days_future": 0,
         "n_clusters": 10,
