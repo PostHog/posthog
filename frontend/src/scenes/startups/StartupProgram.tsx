@@ -196,6 +196,7 @@ export function StartupProgram(): JSX.Element {
                             <div>
                                 <h4 className="font-semibold">
                                     $50,000 in PostHog credit
+                                    {isYC && <span className="text-[0.66em] align-super text-muted"> 1</span>}
                                 </h4>
                                 <p className="text-muted text-sm">Valid for 1 year to use across all products</p>
                             </div>
@@ -205,6 +206,7 @@ export function StartupProgram(): JSX.Element {
                             <div>
                                 <h4 className="font-semibold">
                                     Exclusive founder merch
+                                    {isYC && <span className="text-[0.66em] align-super text-muted"> 2</span>}
                                 </h4>
                                 <p className="text-muted text-sm">
                                     Who wouldn't want free laptop stickers, hats, or t-shirts?
@@ -228,9 +230,7 @@ export function StartupProgram(): JSX.Element {
                         <div className="flex items-start">
                             <IconCheck className="text-success shrink-0 mt-1 mr-2" />
                             <div>
-                                <h4 className="font-semibold">
-                                    $5,000 in Chroma credit
-                                </h4>
+                                <h4 className="font-semibold">$5,000 in Chroma credit</h4>
                                 <p className="text-muted text-sm">Great for building better AI agents</p>
                             </div>
                         </div>
