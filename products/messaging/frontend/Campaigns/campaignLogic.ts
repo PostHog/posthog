@@ -28,7 +28,7 @@ export type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
 
 const NEW_CAMPAIGN: HogFlow = {
     id: 'new',
-    name: '',
+    name: 'My messaging campaign',
     actions: [
         {
             id: TRIGGER_NODE_ID,
