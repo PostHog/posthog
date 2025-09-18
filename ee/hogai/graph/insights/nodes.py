@@ -192,11 +192,11 @@ class InsightSearchNode(AssistantNode):
             )
 
             if selected_insights:
-                await self._stream_reasoning(
+                await self._write_reasoning(
                     content=f"Evaluating {len(selected_insights)} insights to find the best match"
                 )
             else:
-                await self._stream_reasoning(content="No existing insights found, creating a new one")
+                await self._write_reasoning(content="No existing insights found, creating a new one")
 
             evaluation_result = await self._evaluate_insights_with_tools(
                 selected_insights, search_query or "", max_selections=1
@@ -421,7 +421,7 @@ class InsightSearchNode(AssistantNode):
         """Perform the iterative search with the LLM."""
         selected_insights = []
 
-        await self._stream_reasoning(
+        await self._write_reasoning(
             content=f"Searching through existing insights",
             substeps=[f"Analyzing {await self._get_total_insights_count()} available insights"],
         )
@@ -447,7 +447,7 @@ class InsightSearchNode(AssistantNode):
                             logger.warning(
                                 f"{TIMING_LOG_PREFIX} STALL POINT(?): Streamed 'Finding the most relevant insights' - about to fetch page content"
                             )
-                            await self._stream_reasoning(content=page_message)
+                            await self._write_reasoning(content=page_message)
 
                             logger.warning(f"{TIMING_LOG_PREFIX} Fetching page content for page {page_num}")
                             tool_response = await self._get_page_content_for_tool(page_num)
@@ -467,16 +467,16 @@ class InsightSearchNode(AssistantNode):
                 selected_insights = self._parse_insight_ids(content)
                 if selected_insights:
                     final_message = f"Found {len(selected_insights)} relevant insights"
-                    await self._stream_reasoning(content=final_message)
+                    await self._write_reasoning(content=final_message)
                 else:
                     no_results_message = "No matching insights found"
-                    await self._stream_reasoning(content=no_results_message)
+                    await self._write_reasoning(content=no_results_message)
                 break
 
             except Exception as e:
                 capture_exception(e)
                 error_message = f"Error during search"
-                await self._stream_reasoning(content=error_message)
+                await self._write_reasoning(content=error_message)
                 break
 
         return selected_insights
@@ -694,7 +694,7 @@ class InsightSearchNode(AssistantNode):
     async def _create_visualization_message_for_insight(self, insight: InsightDict) -> VisualizationMessage | None:
         """Create a VisualizationMessage to render the insight UI."""
         try:
-            await self._stream_reasoning(
+            await self._write_reasoning(
                 content=f"Executing insight query...",
                 substeps=["Processing query parameters", "Running data analysis"],
             )
@@ -790,7 +790,7 @@ class InsightSearchNode(AssistantNode):
     @timing_logger("InsightSearchNode._run_evaluation_loop")
     async def _run_evaluation_loop(self, user_query: str, insights_summary: list[str], max_selections: int) -> None:
         """Run the evaluation loop with LLM."""
-        await self._stream_reasoning(
+        await self._write_reasoning(
             content="Analyzing insights to match your request",
             substeps=[
                 "Comparing insights for best fit",
@@ -809,7 +809,7 @@ class InsightSearchNode(AssistantNode):
             if getattr(response, "tool_calls", None):
                 # Only stream on first iteration to avoid noise
                 if iteration == 0:
-                    await self._stream_reasoning(content="Making evaluation decisions")
+                    await self._write_reasoning(content="Making evaluation decisions")
                 self._process_evaluation_tool_calls(response, messages, tools)
             else:
                 break
@@ -850,7 +850,7 @@ class InsightSearchNode(AssistantNode):
         num_insights = len(self._evaluation_selections)
         insight_word = "insight" if num_insights == 1 else "insights"
 
-        await self._stream_reasoning(
+        await self._write_reasoning(
             content=f"Perfect! Found {num_insights} suitable {insight_word}",
         )
 
@@ -882,7 +882,7 @@ class InsightSearchNode(AssistantNode):
 
     async def _create_rejection_result(self) -> dict:
         """Create result for when all insights are rejected."""
-        await self._stream_reasoning(
+        await self._write_reasoning(
             content="No perfect match found in existing insights",
             substeps=["Will create a custom insight tailored to your request"],
         )

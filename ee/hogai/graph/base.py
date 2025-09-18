@@ -1,5 +1,5 @@
 from abc import ABC
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any, Generic, Literal, Union, cast
 from uuid import UUID
 
@@ -69,7 +69,7 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
         raise NotImplementedError
 
     @property
-    def _writer(self) -> StreamWriter | None:
+    def _writer(self) -> StreamWriter | Callable[[Any], None]:
         if self.writer:
             return self.writer
         try:
