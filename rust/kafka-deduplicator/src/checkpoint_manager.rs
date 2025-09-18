@@ -663,6 +663,14 @@ impl CheckpointManager {
         config: &CheckpointConfig,
     ) -> CheckpointMode {
         // Determine if this should be a full upload or incremental
+
+        // if config.full_upload_interval is 0, then we should always do full uploads
+        if config.full_upload_interval == 0 {
+            return CheckpointMode::Full;
+        }
+
+        // otherwise, use the atomic counter for this partition
+        // and decide based on the configured interval
         let counter_for_partition: u32;
         {
             let counter_guard = checkpoint_counters.lock().await;

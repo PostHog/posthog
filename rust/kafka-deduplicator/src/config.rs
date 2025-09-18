@@ -106,7 +106,9 @@ pub struct Config {
     #[envconfig(default = "deduplication-checkpoints")]
     pub s3_key_prefix: String,
 
-    #[envconfig(default = "10")]
+    // how often to perform a full checkpoint vs. incremental
+    // if 0, then we will always do full uploads
+    #[envconfig(default = "0")]
     pub full_upload_interval: u32,
 
     #[envconfig(default = "us-east-1")]
