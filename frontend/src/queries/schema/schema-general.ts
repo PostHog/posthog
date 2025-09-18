@@ -2694,7 +2694,6 @@ export interface ExperimentExposureQueryResponse {
     date_range: DateRange
 }
 
-
 export type CachedExperimentQueryResponse = CachedQueryResponse<ExperimentQueryResponse>
 export type CachedLegacyExperimentQueryResponse = CachedQueryResponse<LegacyExperimentQueryResponse>
 export type CachedNewExperimentQueryResponse = CachedQueryResponse<NewExperimentQueryResponse>
