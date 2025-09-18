@@ -8,6 +8,7 @@ operations = [
     run_sql_with_exceptions("DROP TABLE IF EXISTS sharded_session_replay_events_v2_test"),
     run_sql_with_exceptions("DROP TABLE IF EXISTS writable_session_replay_events_v2_test"),
     run_sql_with_exceptions(
-        "DROP TABLE IF EXISTS session_replay_events_v2_test", node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
+        "DROP TABLE IF EXISTS session_replay_events_v2_test SETTINGS max_table_size_to_drop = 0",
+        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
     ),
 ]
