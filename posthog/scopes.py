@@ -39,6 +39,7 @@ APIScopeObject = Literal[
     "project",
     "property_definition",
     "query",  # Covers query and events endpoints
+    "revenue_analytics",
     "session_recording",
     "session_recording_playlist",
     "sharing_configuration",
