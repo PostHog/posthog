@@ -30,25 +30,25 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element {
 
     // Get sampled sessions from the experiment result
     // Find the variant result that matches this series
-    let stepsEventData: Array<[string, string]> | undefined
-    let prevStepsEventData: Array<[string, string]> | undefined
+    let stepsEventData: Array<[string, string, string]> | undefined
+    let prevStepsEventData: Array<[string, string, string]> | undefined
     if (experimentResult) {
         const variantKey = step.breakdown_value
         if (variantKey === 'control') {
             stepsEventData = experimentResult.baseline.steps_event_data[stepIndex] as
-                | Array<[string, string]>
+                | Array<[string, string, string]>
                 | undefined
             if (stepIndex > 0) {
                 prevStepsEventData = experimentResult.baseline?.steps_event_data[stepIndex - 1] as
-                    | Array<[string, string]>
+                    | Array<[string, string, string]>
                     | undefined
             }
         } else {
             const variantResult = experimentResult.variant_results?.find((v: any) => v.key === variantKey)
-            stepsEventData = variantResult.steps_event_data[stepIndex] as Array<[string, string]> | undefined
+            stepsEventData = variantResult.steps_event_data[stepIndex] as Array<[string, string, string]> | undefined
             if (stepIndex > 0) {
                 prevStepsEventData = variantResult.steps_event_data[stepIndex - 1] as
-                    | Array<[string, string]>
+                    | Array<[string, string, string]>
                     | undefined
             }
         }

@@ -396,7 +396,10 @@ class ExperimentQueryRunner(QueryRunner):
                 # in the funnel (-1), we return the event uuid for the exposure event.
                 event_uuids_expr = f"""
                     groupArraySampleIf(100)(
-                        if(metric_events.value.2 != '', tuple(uuid_to_session[metric_events.value.2], metric_events.value.2), tuple(toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))),
+                        if(
+                            metric_events.value.2 != '',
+                            tuple(toString(metric_events.entity_id), uuid_to_session[metric_events.value.2], metric_events.value.2),
+                            tuple(toString(metric_events.entity_id), toString(metric_events.exposure_session_id), toString(metric_events.exposure_event_uuid))),
                         metric_events.value.1 = {i} - 1
                     )
                 """
