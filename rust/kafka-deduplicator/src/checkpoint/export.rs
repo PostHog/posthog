@@ -1,9 +1,8 @@
 use std::path::Path;
 use std::time::Instant;
 
-use super::{CheckpointConfig, CheckpointUploader};
+use super::{CheckpointConfig, CheckpointMode, CheckpointUploader};
 
-use crate::checkpoint_manager::CheckpointMode;
 use anyhow::Result;
 use metrics;
 use tracing::{error, info, warn};

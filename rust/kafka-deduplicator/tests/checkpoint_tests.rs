@@ -5,11 +5,11 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use kafka_deduplicator::checkpoint::{CheckpointConfig, CheckpointExporter, CheckpointUploader};
-use kafka_deduplicator::checkpoint_manager::{
-    CheckpointManager, CheckpointMode, CheckpointPath, CheckpointWorker,
-    CHECKPOINT_PARTITION_PREFIX, CHECKPOINT_TOPIC_PREFIX,
+use kafka_deduplicator::checkpoint::{
+    CheckpointConfig, CheckpointExporter, CheckpointMode, CheckpointPath, CheckpointUploader,
+    CheckpointWorker, CHECKPOINT_PARTITION_PREFIX, CHECKPOINT_TOPIC_PREFIX,
 };
+use kafka_deduplicator::checkpoint_manager::CheckpointManager;
 use kafka_deduplicator::kafka::types::Partition;
 use kafka_deduplicator::store::{DeduplicationStore, DeduplicationStoreConfig};
 use kafka_deduplicator::store_manager::StoreManager;
