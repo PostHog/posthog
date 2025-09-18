@@ -98,7 +98,6 @@ export function createCohortFormData(cohort: CohortType): FormData {
         ...(cohort.csv ? { csv: cohort.csv } : {}),
         ...(cohort.is_static ? { is_static: cohort.is_static } : {}),
         ...(typeof cohort._create_in_folder === 'string' ? { _create_in_folder: cohort._create_in_folder } : {}),
-        ...(cohort._create_static_person_ids ? { _create_static_person_ids: cohort._create_static_person_ids } : {}),
         filters: JSON.stringify(
             cohort.is_static
                 ? {
@@ -136,6 +135,12 @@ export function createCohortFormData(cohort: CohortType): FormData {
     const cohortFormData = new FormData()
     for (const [itemKey, value] of Object.entries(rawCohort)) {
         cohortFormData.append(itemKey, value as string | Blob)
+    }
+
+    if (cohort._create_static_person_ids != null) {
+        cohort._create_static_person_ids.forEach((personId) => {
+            cohortFormData.append('_create_static_person_ids', personId)
+        })
     }
     return cohortFormData
 }
