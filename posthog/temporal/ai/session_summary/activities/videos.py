@@ -1,10 +1,11 @@
+import json
+from dataclasses import asdict
 from math import ceil
 from typing import cast
 
 import temporalio
 from temporalio.exceptions import ApplicationError
 
-from ee.hogai.session_summaries.session.summarize_session import generate_video_validation_prompt
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
@@ -15,6 +16,7 @@ from ee.hogai.session_summaries.constants import (
     VALIDATION_VIDEO_DURATION,
 )
 from ee.hogai.session_summaries.session.output_data import EnrichedKeyActionSerializer, SessionSummarySerializer
+from ee.hogai.session_summaries.session.summarize_session import generate_video_validation_prompt
 from ee.hogai.videos.session_moments import SessionMomentInput, SessionMomentsLLMAnalyzer
 from ee.models.session_summaries import SingleSessionSummary
 
@@ -117,8 +119,12 @@ async def validate_llm_single_session_summary_with_videos_activity(
     moments_input = [
         moment
         for prompt, event in events_to_validate
-        if (moment := _prepare_moment_input_from_summary_event(prompt=prompt, event=event, session_id=inputs.session_id))
+        if (
+            moment := _prepare_moment_input_from_summary_event(prompt=prompt, event=event, session_id=inputs.session_id)
+        )
     ]
+    with open(f"moments_input_{inputs.session_id}.json", "w") as f:
+        json.dump([asdict(x) for x in moments_input], f, indent=4)
     if not moments_input:
         raise ApplicationError(
             f"No moments input found for session {inputs.session_id} when validating session summary with videos: {events_to_validate}",
@@ -127,5 +133,5 @@ async def validate_llm_single_session_summary_with_videos_activity(
         )
     # Generate videos and validate them with LLM
     validation_results = await moments_analyzer.analyze(moments_input=moments_input)
-    print(validation_results)
-    print("")
+    with open(f"validation_results_{inputs.session_id}.json", "w") as f:
+        json.dump(validation_results, f, indent=4)
