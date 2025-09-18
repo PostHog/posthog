@@ -1,19 +1,18 @@
 import uuid
 import asyncio
 from collections.abc import AsyncIterator, Callable, Coroutine
-from typing import Any
+from typing import Any, Generic, TypeVar, cast
 
 import structlog
 from langchain_core.runnables import RunnableConfig
 
-from posthog.schema import ReasoningMessage, TaskExecutionItem, TaskExecutionMessage, TaskExecutionStatus
+from posthog.schema import TaskExecutionItem, TaskExecutionMessage, TaskExecutionStatus
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 
 from ee.hogai.graph.base import BaseAssistantNode
-from ee.hogai.utils.types.base import PartialStateType, StateType, TaskArtifact, TaskResult
-from ee.hogai.utils.types.composed import MaxNodeName
+from ee.hogai.utils.types.base import BaseStateWithTasks, TaskArtifact, TaskResult
 
 logger = structlog.get_logger(__name__)
 
@@ -27,7 +26,12 @@ TaskExecutionCoroutineCallable = Callable[[dict], Coroutine[Any, Any, TaskResult
 TaskExecutionInputTuple = tuple[TaskExecutionItem, list[TaskArtifact], TaskExecutionCoroutineCallable]
 
 
-class BaseTaskExecutorNode(BaseAssistantNode[StateType, PartialStateType]):
+# Type variables for generic state types
+StateT = TypeVar("StateT", bound=BaseStateWithTasks)
+PartialStateT = TypeVar("PartialStateT", bound=BaseStateWithTasks)
+
+
+class BaseTaskExecutorNode(BaseAssistantNode[StateT, PartialStateT], Generic[StateT, PartialStateT]):
     """
     Abstract base class for task execution nodes that handles parallel task execution.
 
@@ -41,10 +45,12 @@ class BaseTaskExecutorNode(BaseAssistantNode[StateType, PartialStateType]):
     - Artifact tracking and dependency management between tasks
 
     Subclasses must implement:
-    - arun(): Entry point for task execution
     - _aget_input_tuples(): Convert state into executable task tuples
     - _aget_final_state(): Aggregate results into final state
-    - node_name: Property defining the node's identifier
+
+    Subclasses can override:
+    - arun(): Entry point for task execution
+    - _aget_final_state(): Aggregate results into final state
 
     Attributes:
         _task_execution_message_id: Unique ID for tracking task execution messages
@@ -61,7 +67,7 @@ class BaseTaskExecutorNode(BaseAssistantNode[StateType, PartialStateType]):
         # Generate a unique ID for this execution session
         self._task_execution_message_id = str(uuid.uuid4())
 
-    async def arun(self, state: StateType, config: RunnableConfig) -> PartialStateType:
+    async def arun(self, state: StateT, config: RunnableConfig) -> PartialStateT:
         """
         Main entry point for task execution. Must be implemented by subclasses.
         Must call self._arun.
@@ -73,9 +79,9 @@ class BaseTaskExecutorNode(BaseAssistantNode[StateType, PartialStateType]):
         Returns:
             Partial state with execution results
         """
-        raise NotImplementedError
+        return await self._arun(state, config)
 
-    async def _aget_input_tuples(self, state: StateType) -> list[TaskExecutionInputTuple]:
+    async def _aget_input_tuples(self, state: StateT) -> list[TaskExecutionInputTuple]:
         """
         Convert the current state into executable task tuples.
         Must be implemented by subclasses.
@@ -88,9 +94,7 @@ class BaseTaskExecutorNode(BaseAssistantNode[StateType, PartialStateType]):
         """
         raise NotImplementedError
 
-    async def _aget_final_state(
-        self, tasks: list[TaskExecutionItem], task_results: list[TaskResult]
-    ) -> PartialStateType:
+    async def _aget_final_state(self, tasks: list[TaskExecutionItem], task_results: list[TaskResult]) -> PartialStateT:
         """
         Aggregate task results into the final state output.
         Must be implemented by subclasses.
@@ -102,17 +106,17 @@ class BaseTaskExecutorNode(BaseAssistantNode[StateType, PartialStateType]):
         Returns:
             Partial state containing aggregated results and messages
         """
-        raise NotImplementedError
+        await self._asend_task_execution_message(tasks)
+        # Cast to PartialStateT since we know subclasses will use compatible types
+        return cast(
+            PartialStateT,
+            BaseStateWithTasks(
+                task_results=task_results,
+                tasks=tasks,
+            ),
+        )
 
-    @property
-    def node_name(self) -> MaxNodeName:
-        """
-        The identifier for this node in the graph.
-        Must be implemented by subclasses.
-        """
-        raise NotImplementedError
-
-    async def _arun(self, state: StateType, config: RunnableConfig) -> PartialStateType:
+    async def _arun(self, state: StateT, config: RunnableConfig) -> PartialStateT:
         """
         Core execution logic that orchestrates parallel task execution.
 
@@ -158,7 +162,7 @@ class BaseTaskExecutorNode(BaseAssistantNode[StateType, PartialStateType]):
                     continue
                 task.status = task_result.status
                 if task_result.artifacts:
-                    task.artifact_ids = [artifact.id for artifact in task_result.artifacts]
+                    task.artifact_ids = [artifact.task_id for artifact in task_result.artifacts]
                 # Send status update after each task completes
                 await self._asend_task_execution_message(tasks)
                 break
@@ -195,7 +199,7 @@ class BaseTaskExecutorNode(BaseAssistantNode[StateType, PartialStateType]):
                         await self._asend_task_execution_message(tasks)
                     elif progress_text:
                         # For single task, send detailed reasoning message
-                        await self._write_message(ReasoningMessage(content=progress_text), self.node_name)
+                        await self._stream_reasoning(content=progress_text)
                     break
 
         self._reasoning_callback = callback
@@ -294,4 +298,10 @@ class BaseTaskExecutorNode(BaseAssistantNode[StateType, PartialStateType]):
         # Create a message containing all tasks with their current status
         # Use copy() to avoid mutations affecting the message
         task_execution_message = TaskExecutionMessage(id=self._task_execution_message_id, tasks=tasks.copy())
-        await self._write_message(task_execution_message, self.node_name)
+        await self._write_message(task_execution_message)
+
+    async def _failed_result(self, task: TaskExecutionItem) -> TaskResult:
+        await self._reasoning_callback(task.id, None)
+        return TaskResult(
+            id=task.id, description=task.description, result="", artifacts=[], status=TaskExecutionStatus.FAILED
+        )

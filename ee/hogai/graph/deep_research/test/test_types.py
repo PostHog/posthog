@@ -6,7 +6,14 @@ from unittest.mock import Mock
 from parameterized import parameterized
 from pydantic import ValidationError
 
-from posthog.schema import AssistantMessage, AssistantTrendsQuery, HumanMessage, PlanningStepStatus, TaskExecutionItem
+from posthog.schema import (
+    AssistantMessage,
+    AssistantTrendsQuery,
+    HumanMessage,
+    PlanningStepStatus,
+    TaskExecutionItem,
+    TaskExecutionStatus,
+)
 
 from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,
@@ -102,14 +109,18 @@ class TestTaskResult(BaseTest):
     def test_task_result_with_artifacts(self):
         """Should create task result with artifacts."""
         mock_query = Mock(spec=AssistantTrendsQuery)
-        artifact = InsightArtifact(id="artifact-1", query=mock_query, description="Test artifact")
+        artifact = InsightArtifact(id=None, task_id="artifact-1", query=mock_query, content="Test artifact")
 
         result = TaskResult(
-            id="task-1", description="Test task", result="Task completed", status="completed", artifacts=[artifact]
+            id="task-1",
+            description="Test task",
+            result="Task completed",
+            status=TaskExecutionStatus.COMPLETED,
+            artifacts=[artifact],
         )
 
         self.assertEqual(len(result.artifacts), 1)
-        self.assertEqual(result.artifacts[0].id, "artifact-1")
+        self.assertEqual(result.artifacts[0].task_id, "artifact-1")
 
     @parameterized.expand(
         [

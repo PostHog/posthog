@@ -11,18 +11,17 @@ from pydantic import ConfigDict
 from posthog.schema import ReasoningMessage, TaskExecutionItem, TaskExecutionMessage, TaskExecutionStatus
 
 from ee.hogai.graph.parallel_task_execution.nodes import BaseTaskExecutorNode, TaskExecutionInputTuple
-from ee.hogai.utils.types.base import BaseStateWithMessages, TaskArtifact, TaskResult
-from ee.hogai.utils.types.composed import MaxNodeName
+from ee.hogai.utils.types.base import BaseStateWithTasks, TaskArtifact, TaskResult
 
 
-class MockTestState(BaseStateWithMessages):
+class MockTestState(BaseStateWithTasks):
     """Mock state for testing the base class."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
     test_input_tuples: list[TaskExecutionInputTuple] = []
 
 
-class MockPartialTestState(BaseStateWithMessages):
+class MockPartialTestState(BaseStateWithTasks):
     """Mock partial test state for testing the base class."""
 
     pass
@@ -50,10 +49,6 @@ class TaskExecutorNodeImplementation(BaseTaskExecutorNode[MockTestState, MockPar
     ) -> MockPartialTestState:
         self.final_state_called = True
         return MockPartialTestState(messages=[])
-
-    @property
-    def node_name(self) -> MaxNodeName:
-        return "test_node"  # type: ignore
 
 
 class TestBaseTaskExecutorNode(TestCase):
@@ -314,7 +309,7 @@ class TestArtifactHandling(TestBaseTaskExecutorNode):
         """Test that artifacts are properly added to task items."""
         task = self._create_task("task1")
 
-        artifact = TaskArtifact(id="artifact1", description="Test artifact")
+        artifact = TaskArtifact(id=None, task_id="artifact1", content="Test artifact")
 
         async def task_coroutine(input_dict):
             result = self._create_task_result("task1")
@@ -334,7 +329,7 @@ class TestArtifactHandling(TestBaseTaskExecutorNode):
     async def test_passes_artifacts_to_coroutines(self, mock_write_message):
         """Test that artifacts are passed correctly to task coroutines."""
         task = self._create_task("task1")
-        input_artifact = TaskArtifact(id="input_artifact", description="Input artifact")
+        input_artifact = TaskArtifact(id=None, task_id="input_artifact", content="Input artifact")
 
         received_artifacts = None
 
@@ -343,7 +338,7 @@ class TestArtifactHandling(TestBaseTaskExecutorNode):
             received_artifacts = input_dict.get("artifacts")
             return self._create_task_result("task1")
 
-        state = MockTestState(messages=[])
+        state = MockTestState()
         state.test_input_tuples = [(task, [input_artifact], task_coroutine)]
         config = RunnableConfig()
 
@@ -361,7 +356,7 @@ class TestMessageFlow(TestBaseTaskExecutorNode):
         async def task_coroutine(_: Any):
             return self._create_task_result("task1")
 
-        state = MockTestState(messages=[])
+        state = MockTestState()
         state.test_input_tuples = [(task, [], task_coroutine)]
         config = RunnableConfig()
 
@@ -382,7 +377,7 @@ class TestMessageFlow(TestBaseTaskExecutorNode):
             task_id = input_dict["task"].id
             return self._create_task_result(task_id)
 
-        state = MockTestState(messages=[])
+        state = MockTestState()
         state.test_input_tuples = [
             (task1, [], task_coroutine),
             (task2, [], task_coroutine),
@@ -407,7 +402,7 @@ class TestEdgeCases(TestBaseTaskExecutorNode):
     @patch("ee.hogai.graph.parallel_task_execution.nodes.BaseTaskExecutorNode._write_message")
     async def test_empty_input_tuples_raises_error(self, mock_write_message):
         """Test that empty input tuples raises ValueError."""
-        state = MockTestState(messages=[])
+        state = MockTestState()
         state.test_input_tuples = []
         config = RunnableConfig()
 
@@ -426,7 +421,7 @@ class TestEdgeCases(TestBaseTaskExecutorNode):
         async def task_coroutine(input_dict):
             return None  # Return None instead of TaskResult
 
-        state = MockTestState(messages=[])
+        state = MockTestState()
         state.test_input_tuples = [(task, [], task_coroutine)]
         config = RunnableConfig()
 

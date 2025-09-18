@@ -36,10 +36,10 @@ from ee.hogai.utils.types import InsightArtifact
 from ee.hogai.utils.types.base import TaskResult
 
 
-def _create_test_artifact(id: str, description: str, sql_query: str = "SELECT 1"):
+def _create_test_artifact(task_id: str, description: str, sql_query: str = "SELECT 1"):
     """Helper to create InsightArtifact for testing"""
     hogql_query = AssistantHogQLQuery(query=sql_query)
-    return InsightArtifact(id=id, description=description, query=hogql_query)
+    return InsightArtifact(id=None, task_id=task_id, content=description, query=hogql_query)
 
 
 @override_settings(IN_UNIT_TESTING=True)

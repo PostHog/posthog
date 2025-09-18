@@ -28,7 +28,6 @@ from posthog.models import Team, User
 from ee.hogai.graph.deep_research.report.nodes import DeepResearchReportNode, FormattedInsight
 from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,
-    DeepResearchNodeName,
     DeepResearchState,
     PartialDeepResearchState,
 )
@@ -47,7 +46,7 @@ class TestDeepResearchReportNode:
         self.node = DeepResearchReportNode(self.team, self.user)
         self.config = RunnableConfig(configurable={"thread_id": str(uuid4())})
 
-    def create_sample_artifact(self, artifact_id: str = "artifact_1", query_type: str = "trends") -> InsightArtifact:
+    def create_sample_artifact(self, task_id: str = "artifact_1", query_type: str = "trends") -> InsightArtifact:
         """Sample artifacts for testing."""
         query: AssistantTrendsQuery | AssistantFunnelsQuery | AssistantRetentionQuery | AssistantHogQLQuery
         if query_type == "trends":
@@ -67,7 +66,7 @@ class TestDeepResearchReportNode:
         else:
             query = AssistantTrendsQuery(series=[AssistantTrendsEventsNode()])
 
-        return InsightArtifact(id=artifact_id, query=query, description=f"Sample {query_type} insight")
+        return InsightArtifact(id=None, task_id=task_id, query=query, content=f"Sample {query_type} insight")
 
     def create_sample_state(
         self,
@@ -82,7 +81,8 @@ class TestDeepResearchReportNode:
         if intermediate_results is None:
             intermediate_results = [
                 DeepResearchIntermediateResult(
-                    content="Analysis shows user engagement trends", artifact_ids=[artifacts[0].id] if artifacts else []
+                    content="Analysis shows user engagement trends",
+                    artifact_ids=[artifacts[0].task_id] if artifacts else [],
                 )
             ]
 
@@ -125,8 +125,8 @@ class TestDeepResearchReportNode:
         artifacts = self.node._collect_all_artifacts(state)
 
         assert len(artifacts) == 2
-        assert artifacts[0].id == "artifact_1"
-        assert artifacts[1].id == "artifact_2"
+        assert artifacts[0].task_id == "artifact_1"
+        assert artifacts[1].task_id == "artifact_2"
 
     def test_collect_all_artifacts_filters_invalid_ids(self):
         """Test that artifacts with invalid IDs are filtered out."""
@@ -154,7 +154,7 @@ class TestDeepResearchReportNode:
         artifacts = self.node._collect_all_artifacts(state)
 
         assert len(artifacts) == 1
-        assert artifacts[0].id == "artifact_1"
+        assert artifacts[0].task_id == "artifact_1"
 
     def test_collect_all_artifacts_empty_results(self):
         """Test that empty task results return empty artifact list."""
@@ -462,7 +462,6 @@ class TestDeepResearchReportNode:
 
         call_args = mock_astream_notebook.call_args
         assert call_args[0][1] == self.config
-        assert call_args[0][2] == DeepResearchNodeName.REPORT
 
         stream_params = call_args[1]["stream_parameters"]
         assert "intermediate_results" in stream_params
@@ -504,7 +503,7 @@ class TestDeepResearchReportNode:
         artifacts = self.node._collect_all_artifacts(state)
 
         assert len(artifacts) == 3
-        artifact_ids = [artifact.id for artifact in artifacts]
+        artifact_ids = [artifact.task_id for artifact in artifacts]
         assert "artifact_1" in artifact_ids
         assert "artifact_2" in artifact_ids
         assert "artifact_3" in artifact_ids
@@ -571,7 +570,6 @@ class TestDeepResearchReportNode:
 
         call_args = mock_astream_notebook.call_args
         assert call_args[0][1] == self.config
-        assert call_args[0][2] == DeepResearchNodeName.REPORT
 
         stream_params = call_args[1]["stream_parameters"]
         assert "intermediate_results" in stream_params

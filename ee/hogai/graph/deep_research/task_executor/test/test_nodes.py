@@ -61,8 +61,9 @@ class TestTaskExecutorNode(TestCase):
         query: str = "Test query",
     ) -> InsightArtifact:
         return InsightArtifact(
-            id=artifact_id or str(uuid.uuid4()),
-            description=description,
+            task_id=artifact_id or str(uuid.uuid4()),
+            id=None,
+            content=description,
             query=query,
         )
 
@@ -105,7 +106,6 @@ class TestTaskExecutorNodeInitialization(TestTaskExecutorNode):
         self.assertEqual(self.node._team, self.mock_team)
         self.assertEqual(self.node._user, self.mock_user)
         self.assertIsNotNone(self.node._task_execution_message_id)
-        self.assertEqual(self.node.node_name, "task_executor")
 
 
 class TestTaskExecutorNodeArun(TestTaskExecutorNode):
@@ -220,7 +220,7 @@ class TestTaskExecutorInsightsExecution(TestTaskExecutorNode):
         # Execute the task
         input_dict = {"task_id": task.id, "task": task, "artifacts": [], "config": RunnableConfig()}
 
-        result = await self.node._execute_task_with_insights(input_dict)
+        result = await self.node._execute_create_insight(input_dict)
 
         self.assertIsInstance(result, TaskResult)
         self.assertIsNotNone(result)  # Ensure result is not None for mypy
@@ -257,7 +257,7 @@ class TestTaskExecutorInsightsExecution(TestTaskExecutorNode):
         # Execute the task
         input_dict = {"task_id": task.id, "task": task, "artifacts": [], "config": RunnableConfig()}
 
-        result = await self.node._execute_task_with_insights(input_dict)
+        result = await self.node._execute_create_insight(input_dict)
 
         self.assertIsInstance(result, TaskResult)
         self.assertIsNotNone(result)  # Ensure result is not None for mypy
@@ -288,7 +288,7 @@ class TestTaskExecutorInsightsExecution(TestTaskExecutorNode):
         input_dict = {"task_id": task.id, "task": task, "artifacts": [], "config": RunnableConfig()}
 
         with self.assertRaises(Exception) as cm:
-            await self.node._execute_task_with_insights(input_dict)
+            await self.node._execute_create_insight(input_dict)
 
         self.assertEqual(str(cm.exception), "Insights generation failed")
         mock_capture.assert_called_once_with(test_exception)
@@ -464,8 +464,8 @@ class TestArtifactExtraction(TestTaskExecutorNode):
         artifacts = self.node._extract_artifacts(messages, task)
 
         self.assertEqual(len(artifacts), 1)
-        self.assertEqual(artifacts[0].id, "task_1")
-        self.assertEqual(artifacts[0].description, "Generate trends analysis")
+        self.assertEqual(artifacts[0].task_id, "task_1")
+        self.assertEqual(artifacts[0].content, "Generate trends analysis")
         self.assertEqual(artifacts[0].query.kind, "TrendsQuery")
 
     def test_extract_artifacts_handles_no_visualizations(self):

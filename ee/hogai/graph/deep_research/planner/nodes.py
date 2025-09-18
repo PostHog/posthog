@@ -342,7 +342,7 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
 
         # Format artifacts for display
         if artifacts:
-            formatted_artifacts = "\n".join([f"- {artifact.id}: {artifact.description}" for artifact in artifacts])
+            formatted_artifacts = "\n".join([f"- {artifact.task_id}: {artifact.content}" for artifact in artifacts])
         else:
             formatted_artifacts = ARTIFACTS_READ_FAILED_TOOL_RESULT
 
@@ -385,7 +385,7 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
             artifacts.extend(single_task_result.artifacts)
 
         # Validate artifact IDs referenced in the result
-        existing_ids = {artifact.id for artifact in artifacts}
+        existing_ids = {artifact.task_id for artifact in artifacts}
         invalid_ids = set(intermediate_result.artifact_ids) - existing_ids
 
         if invalid_ids:
@@ -400,10 +400,12 @@ class DeepResearchPlannerToolsNode(DeepResearchNode):
             )
 
         # Create visualization messages from selected artifacts
-        selected_artifacts = [artifact for artifact in artifacts if artifact.id in intermediate_result.artifact_ids]
+        selected_artifacts = [
+            artifact for artifact in artifacts if artifact.task_id in intermediate_result.artifact_ids
+        ]
 
         visualization_messages = [
-            VisualizationItem(query=artifact.description, answer=artifact.query)
+            VisualizationItem(query=artifact.content, answer=artifact.query)
             for artifact in selected_artifacts
             if isinstance(artifact, InsightArtifact)
         ]
