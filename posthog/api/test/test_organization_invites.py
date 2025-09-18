@@ -16,7 +16,6 @@ from posthog.models.organization_invite import OrganizationInvite
 from posthog.models.team.team import Team
 
 from ee.models import Role, RoleMembership
-from ee.models.explicit_team_membership import ExplicitTeamMembership
 from ee.models.rbac.access_control import AccessControl
 
 NAME_SEEDS = ["John", "Jane", "Alice", "Bob", ""]
@@ -211,15 +210,13 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             {
                 "target_email": email,
                 "level": OrganizationMembership.Level.MEMBER,
-                "private_project_access": [{"id": private_team.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+                "private_project_access": [{"id": private_team.id, "level": "admin"}],
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         obj = OrganizationInvite.objects.get(id=response.json()["id"])
         self.assertEqual(obj.level, OrganizationMembership.Level.MEMBER)
-        self.assertEqual(
-            obj.private_project_access, [{"id": private_team.id, "level": ExplicitTeamMembership.Level.ADMIN}]
-        )
+        self.assertEqual(obj.private_project_access, [{"id": private_team.id, "level": "admin"}])
         self.assertEqual(OrganizationInvite.objects.count(), count + 1)
 
         # if member of org but admin of team, should be able to invite new project admins to private project
@@ -233,15 +230,13 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             {
                 "target_email": email,
                 "level": OrganizationMembership.Level.MEMBER,
-                "private_project_access": [{"id": private_team.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+                "private_project_access": [{"id": private_team.id, "level": "admin"}],
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         obj = OrganizationInvite.objects.get(id=response.json()["id"])
         self.assertEqual(obj.level, OrganizationMembership.Level.MEMBER)
-        self.assertEqual(
-            obj.private_project_access, [{"id": private_team.id, "level": ExplicitTeamMembership.Level.ADMIN}]
-        )
+        self.assertEqual(obj.private_project_access, [{"id": private_team.id, "level": "admin"}])
         self.assertEqual(OrganizationInvite.objects.count(), count + 1)
 
     def test_can_invite_to_private_project_if_user_has_implicit_access_to_team(self):
@@ -269,16 +264,14 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             {
                 "target_email": email,
                 "level": OrganizationMembership.Level.MEMBER,
-                "private_project_access": [{"id": private_team.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+                "private_project_access": [{"id": private_team.id, "level": "admin"}],
             },
         )
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         obj = OrganizationInvite.objects.get(id=response.json()["id"])
         self.assertEqual(obj.level, OrganizationMembership.Level.MEMBER)
-        self.assertEqual(
-            obj.private_project_access, [{"id": private_team.id, "level": ExplicitTeamMembership.Level.ADMIN}]
-        )
+        self.assertEqual(obj.private_project_access, [{"id": private_team.id, "level": "admin"}])
         self.assertEqual(OrganizationInvite.objects.count(), count + 1)
         # reset the org membership level in case it's used in other tests
         org_membership.level = OrganizationMembership.Level.MEMBER
@@ -302,7 +295,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             {
                 "target_email": email,
                 "level": OrganizationMembership.Level.MEMBER,
-                "private_project_access": [{"id": team_in_other_org.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+                "private_project_access": [{"id": team_in_other_org.id, "level": "admin"}],
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -335,7 +328,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             {
                 "target_email": email,
                 "level": OrganizationMembership.Level.MEMBER,
-                "private_project_access": [{"id": private_team.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+                "private_project_access": [{"id": private_team.id, "level": "admin"}],
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -379,7 +372,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             {
                 "target_email": email,
                 "level": OrganizationMembership.Level.MEMBER,
-                "private_project_access": [{"id": private_team.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+                "private_project_access": [{"id": private_team.id, "level": "admin"}],
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -617,7 +610,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             {
                 "target_email": email,
                 "level": OrganizationMembership.Level.MEMBER,
-                "private_project_access": [{"id": private_team_1.id, "level": ExplicitTeamMembership.Level.MEMBER}],
+                "private_project_access": [{"id": private_team_1.id, "level": "member"}],
             },
         ).json()
 
@@ -627,7 +620,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             {
                 "target_email": email,
                 "level": OrganizationMembership.Level.ADMIN,
-                "private_project_access": [{"id": private_team_2.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+                "private_project_access": [{"id": private_team_2.id, "level": "admin"}],
             },
         ).json()
 
@@ -637,7 +630,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             {
                 "target_email": email,
                 "level": OrganizationMembership.Level.MEMBER,
-                "private_project_access": [{"id": private_team_1.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+                "private_project_access": [{"id": private_team_1.id, "level": "admin"}],
                 "combine_pending_invites": True,
             },
         )
@@ -654,8 +647,8 @@ class TestOrganizationInvitesAPI(APIBaseTest):
 
         # Check that private project access is combined with highest levels
         expected_access = [
-            {"id": private_team_1.id, "level": ExplicitTeamMembership.Level.ADMIN},
-            {"id": private_team_2.id, "level": ExplicitTeamMembership.Level.ADMIN},
+            {"id": private_team_1.id, "level": "admin"},
+            {"id": private_team_2.id, "level": "admin"},
         ]
         self.assertEqual(len(combined_invite["private_project_access"]), 2)
         for access in expected_access:
@@ -1085,7 +1078,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             f"/api/organizations/{self.organization.id}/invites/",
             {
                 "target_email": "test@posthog.com",
-                "private_project_access": [{"id": team.id, "level": OrganizationMembership.Level.MEMBER}],
+                "private_project_access": [{"id": team.id, "level": "member"}],
             },
         )
 
@@ -1096,7 +1089,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         invite = OrganizationInvite.objects.get(target_email="test@posthog.com")
         self.assertEqual(len(invite.private_project_access), 1)
         self.assertEqual(invite.private_project_access[0]["id"], team.id)
-        self.assertEqual(invite.private_project_access[0]["level"], OrganizationMembership.Level.MEMBER)
+        self.assertEqual(invite.private_project_access[0]["level"], "member")
 
     def test_can_invite_with_new_access_control_as_org_member_to_non_private_team(self):
         """
@@ -1116,7 +1109,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             f"/api/organizations/{self.organization.id}/invites/",
             {
                 "target_email": "test@posthog.com",
-                "private_project_access": [{"id": team.id, "level": OrganizationMembership.Level.MEMBER}],
+                "private_project_access": [{"id": team.id, "level": "member"}],
             },
         )
 
@@ -1127,7 +1120,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         invite = OrganizationInvite.objects.get(target_email="test@posthog.com")
         self.assertEqual(len(invite.private_project_access), 1)
         self.assertEqual(invite.private_project_access[0]["id"], team.id)
-        self.assertEqual(invite.private_project_access[0]["level"], OrganizationMembership.Level.MEMBER)
+        self.assertEqual(invite.private_project_access[0]["level"], "member")
 
     def test_cannot_invite_with_new_access_control_as_org_member_to_private_team(self):
         """
@@ -1150,7 +1143,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             f"/api/organizations/{self.organization.id}/invites/",
             {
                 "target_email": "test@posthog.com",
-                "private_project_access": [{"id": team.id, "level": OrganizationMembership.Level.MEMBER}],
+                "private_project_access": [{"id": team.id, "level": "member"}],
             },
         )
 
@@ -1192,7 +1185,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
             f"/api/organizations/{self.organization.id}/invites/",
             {
                 "target_email": "test@posthog.com",
-                "private_project_access": [{"id": team.id, "level": OrganizationMembership.Level.MEMBER}],
+                "private_project_access": [{"id": team.id, "level": "member"}],
             },
         )
 
@@ -1203,7 +1196,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         invite = OrganizationInvite.objects.get(target_email="test@posthog.com")
         self.assertEqual(len(invite.private_project_access), 1)
         self.assertEqual(invite.private_project_access[0]["id"], team.id)
-        self.assertEqual(invite.private_project_access[0]["level"], OrganizationMembership.Level.MEMBER)
+        self.assertEqual(invite.private_project_access[0]["level"], "member")
 
     @patch("posthoganalytics.capture")
     def test_add_organization_invite_case_insensitive_email_normalization(self, mock_capture):

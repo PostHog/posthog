@@ -25,7 +25,6 @@ from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_invite import OrganizationInvite
 from posthog.utils import get_instance_realm
 
-from ee.models.explicit_team_membership import ExplicitTeamMembership
 from ee.models.rbac.access_control import AccessControl
 
 MOCK_GITLAB_SSO_RESPONSE = {
@@ -770,10 +769,15 @@ class TestSignupAPI(APIBaseTest):
             # make sure user has access to the private project specified in the invite
             self.assertTrue(teams.filter(pk=private_project.pk).exists())
             org_membership = OrganizationMembership.objects.get(organization=new_org, user=user)
-            explicit_team_membership = ExplicitTeamMembership.objects.get(
-                team=private_project, parent_membership=org_membership
-            )
-            assert explicit_team_membership.level == ExplicitTeamMembership.Level.ADMIN
+            # Check access control instead of explicit team membership
+            access_control_exists = AccessControl.objects.filter(
+                team=private_project,
+                resource="project",
+                resource_id=str(private_project.id),
+                organization_member=org_membership,
+                access_level="admin",
+            ).exists()
+            assert access_control_exists
 
         if expired_invite:
             # Check that the user was still created and added to the organization
@@ -1385,10 +1389,13 @@ class TestInviteSignupAPI(APIBaseTest):
         # user should have access to the private project
         self.assertTrue(teams.filter(pk=private_project.pk).exists())
         org_membership = OrganizationMembership.objects.get(organization=self.organization, user=user)
-        explicit_team_membership = ExplicitTeamMembership.objects.get(
-            team=private_project, parent_membership=org_membership
+        access_control = AccessControl.objects.get(
+            team=private_project,
+            resource="project",
+            resource_id=str(private_project.id),
+            organization_member=org_membership,
         )
-        assert explicit_team_membership.level == ExplicitTeamMembership.Level.ADMIN
+        assert access_control.access_level == "admin"
         self.assertEqual(teams.count(), 2)
 
     def test_api_invite_signup_private_project_access_team_no_longer_exists(self):
