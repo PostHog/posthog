@@ -200,6 +200,57 @@ const EVENT_TYPES = [
     'logout'
 ];
 
+// Group-specific test data
+const SCENARIO_GROUPS = {
+    SINGLE_GROUP: {
+        'company': [
+            'acme-corp',
+            'tech-startup-xyz',
+            'enterprise-solutions-inc',
+            'global-ventures-ltd'
+        ]
+    },
+    MULTIPLE_GROUPS: {
+        'company': ['acme-corp', 'tech-startup-xyz'],
+        'team': ['engineering', 'product', 'marketing', 'sales'],
+        'department': ['backend', 'frontend', 'mobile', 'data']
+    },
+    EDGE_CASE_GROUPS: {
+        'company': ['unicode-公司', 'special-chars@#$', 'very-long-' + 'x'.repeat(30)],
+        'team': ['spaced team name', 'UPPERCASE_TEAM', 'kebab-case-team']
+    }
+};
+
+const SCENARIO_GROUP_PROPERTIES = {
+    RICH_PROPERTIES: {
+        company_name: 'Acme Corporation',
+        industry: 'Technology',
+        size: 250,
+        founded: 2010,
+        location: 'San Francisco, CA',
+        plan: 'enterprise',
+        mrr: 50000,
+        is_public: false
+    },
+    MINIMAL_PROPERTIES: {
+        name: 'Tech Startup XYZ',
+        size: 15
+    },
+    TEAM_PROPERTIES: {
+        team_name: 'Engineering Team',
+        team_lead: 'Sarah Johnson',
+        team_size: 12,
+        budget: 500000,
+        tech_stack: ['React', 'Node.js', 'PostgreSQL']
+    },
+    DEPARTMENT_PROPERTIES: {
+        department_name: 'Backend Engineering',
+        head_count: 8,
+        primary_language: 'Rust',
+        deployment_frequency: 'daily'
+    }
+};
+
 // Helper functions
 function randomChoice(array) {
     return array[Math.floor(Math.random() * array.length)];
@@ -229,7 +280,7 @@ class AmplitudeTestGenerator {
         console.log(`⏱️  Duration: ${Math.round(this.totalDuration / (1000 * 60 * 60))} hours\n`);
     }
 
-    addEvent(eventType, userId, deviceId, properties = {}, offsetMinutes = 0) {
+    addEvent(eventType, userId, deviceId, properties = {}, offsetMinutes = 0, groups = null, groupProperties = null) {
         let timestamp = generateTimestamp(this.currentTime, offsetMinutes);
 
         // Ensure timestamp stays within bounds
@@ -264,6 +315,49 @@ class AmplitudeTestGenerator {
                 test_scenario: true,
                 generated_at: new Date().toISOString()
             }
+        };
+
+        // Add groups if provided (Amplitude format)
+        if (groups) {
+            event.groups = groups;
+        }
+
+        // Add group_properties if provided (Amplitude format)
+        if (groupProperties) {
+            event.group_properties = groupProperties;
+        }
+
+        this.events.push(event);
+        return event;
+    }
+
+    addGroupIdentifyEvent(groupType, groupKey, properties = {}, offsetMinutes = 0) {
+        let timestamp = generateTimestamp(this.currentTime, offsetMinutes);
+
+        // Ensure timestamp stays within bounds
+        if (timestamp.getTime() > this.endTime.getTime()) {
+            timestamp = this.endTime;
+        }
+        if (timestamp.getTime() < this.baseTime.getTime()) {
+            timestamp = this.baseTime;
+        }
+
+        // Ensure strictly increasing timestamps
+        if (timestamp.getTime() <= this.currentTime.getTime()) {
+            const originalTime = timestamp.toISOString();
+            timestamp = new Date(this.currentTime.getTime() + 1000); // Add 1 second
+            console.log(`⏰ Adjusted timestamp from ${originalTime} to ${timestamp.toISOString()} for strict ordering`);
+        }
+
+        // Update current time to this timestamp + 1 second
+        this.currentTime = new Date(timestamp.getTime() + 1000);
+
+        const event = {
+            event_type: '$groupidentify',
+            group_type: groupType,
+            group_key: groupKey,
+            time: timestamp.getTime(),
+            group_properties: properties
         };
 
         this.events.push(event);
@@ -476,14 +570,303 @@ class AmplitudeTestGenerator {
         });
     }
 
+    // Scenario 8: Single group events
+    generateSingleGroupEvents() {
+        console.log('=== SCENARIO 8: Single group events ===');
+        console.log('Events with a single group (company only)\n');
+
+        const companies = SCENARIO_GROUPS.SINGLE_GROUP.company;
+
+        for (let i = 0; i < companies.length; i++) {
+            const user = `single_group_user_${i + 1}`;
+            const device = `single_group_device_${i + 1}`;
+            const company = companies[i];
+            const eventType = randomChoice(EVENT_TYPES);
+
+            // Use rich properties for first two, minimal for others
+            const groupProperties = i < 2 ?
+                { ...SCENARIO_GROUP_PROPERTIES.RICH_PROPERTIES, company_id: company } :
+                { ...SCENARIO_GROUP_PROPERTIES.MINIMAL_PROPERTIES, company_id: company };
+
+            // Add the group identify event first
+            const groupIdentifyEvent = this.addGroupIdentifyEvent('company', company, groupProperties, i * 5);
+            log('GROUP-IDENTIFY', `Company "${company}" identified`, groupIdentifyEvent);
+
+            // Then add regular event with group association (no group_properties)
+            const event = this.addEvent(eventType, user, device, {
+                scenario: 'single_group',
+                company_id: company,
+                event_sequence: 1,
+                expected_group_identify: true
+            }, i * 5 + 1, { company }); // Note: no groupProperties parameter
+
+            log('SINGLE-GROUP', `${user} in company "${company}"`, event);
+        }
+    }
+
+    // Scenario 9: Multiple groups events
+    generateMultipleGroupsEvents() {
+        console.log('=== SCENARIO 9: Multiple groups events ===');
+        console.log('Events with multiple groups (company + team + department)\n');
+
+        const companies = SCENARIO_GROUPS.MULTIPLE_GROUPS.company;
+        const teams = SCENARIO_GROUPS.MULTIPLE_GROUPS.team;
+        const departments = SCENARIO_GROUPS.MULTIPLE_GROUPS.department;
+
+        for (let i = 0; i < 4; i++) {
+            const user = `multi_group_user_${i + 1}`;
+            const device = `multi_group_device_${i + 1}`;
+            const company = companies[i % companies.length];
+            const team = teams[i % teams.length];
+            const department = departments[i % departments.length];
+            const eventType = randomChoice(EVENT_TYPES);
+
+            // Add group identify events first
+            const companyGroupIdentify = this.addGroupIdentifyEvent('company', company, {
+                ...SCENARIO_GROUP_PROPERTIES.RICH_PROPERTIES,
+                company_id: company
+            }, i * 8);
+
+            const teamGroupIdentify = this.addGroupIdentifyEvent('team', team, {
+                ...SCENARIO_GROUP_PROPERTIES.TEAM_PROPERTIES,
+                team_id: team
+            }, i * 8 + 1);
+
+            const departmentGroupIdentify = this.addGroupIdentifyEvent('department', department, {
+                ...SCENARIO_GROUP_PROPERTIES.DEPARTMENT_PROPERTIES,
+                department_id: department
+            }, i * 8 + 2);
+
+            log('GROUP-IDENTIFY', `Company "${company}" identified`, companyGroupIdentify);
+            log('GROUP-IDENTIFY', `Team "${team}" identified`, teamGroupIdentify);
+            log('GROUP-IDENTIFY', `Department "${department}" identified`, departmentGroupIdentify);
+
+            // Then add regular event with group associations
+            const event = this.addEvent(eventType, user, device, {
+                scenario: 'multiple_groups',
+                company_id: company,
+                team_id: team,
+                department_id: department,
+                expected_group_identify: 3 // Should generate 3 group identify events
+            }, i * 8 + 3, { company, team, department });
+
+            log('MULTI-GROUP', `${user} in company "${company}", team "${team}", department "${department}"`, event);
+        }
+    }
+
+    // Scenario 10: Groups without group_properties
+    generateGroupsWithoutProperties() {
+        console.log('=== SCENARIO 10: Groups without group_properties ===');
+        console.log('Events with groups but no group_properties field\n');
+
+        for (let i = 0; i < 3; i++) {
+            const user = `no_props_user_${i + 1}`;
+            const device = `no_props_device_${i + 1}`;
+            const company = `no-props-company-${i + 1}`;
+            const eventType = randomChoice(EVENT_TYPES);
+
+            // Add group identify event with empty properties
+            const groupIdentifyEvent = this.addGroupIdentifyEvent('company', company, {}, i * 4);
+            log('GROUP-IDENTIFY', `Company "${company}" identified (empty properties)`, groupIdentifyEvent);
+
+            // Then add regular event with group association
+            const event = this.addEvent(eventType, user, device, {
+                scenario: 'groups_without_properties',
+                company_id: company,
+                expected_group_identify: true,
+                expected_group_properties: 'empty' // Should use empty properties
+            }, i * 4 + 1, { company });
+
+            log('NO-PROPS', `${user} in company "${company}" (no group properties)`, event);
+        }
+    }
+
+    // Scenario 11: Mixed events (some with groups, some without)
+    generateMixedGroupEvents() {
+        console.log('=== SCENARIO 11: Mixed events (some with groups, some without) ===');
+        console.log('Alternating between events with and without groups\n');
+
+        const baseUser = 'mixed_events_user';
+        const baseDevice = 'mixed_events_device';
+
+        for (let i = 0; i < 6; i++) {
+            const eventType = randomChoice(EVENT_TYPES);
+            const hasGroups = i % 2 === 0; // Alternate: even indices have groups
+
+            if (hasGroups) {
+                const company = `mixed-company-${Math.floor(i / 2) + 1}`;
+
+                // Add group identify event first
+                const groupIdentifyEvent = this.addGroupIdentifyEvent('company', company,
+                    SCENARIO_GROUP_PROPERTIES.MINIMAL_PROPERTIES, i * 3);
+                log('GROUP-IDENTIFY', `Company "${company}" identified`, groupIdentifyEvent);
+
+                // Then add regular event with group association
+                const event = this.addEvent(eventType, baseUser, baseDevice, {
+                    scenario: 'mixed_events_with_groups',
+                    sequence: i + 1,
+                    has_groups: true,
+                    expected_group_identify: true
+                }, i * 3 + 1, { company });
+
+                log('MIXED-WITH', `Event ${i + 1}: ${eventType} with groups (company: ${company})`, event);
+            } else {
+                const event = this.addEvent(eventType, baseUser, baseDevice, {
+                    scenario: 'mixed_events_without_groups',
+                    sequence: i + 1,
+                    has_groups: false,
+                    expected_group_identify: false
+                }, i * 3);
+
+                log('MIXED-WITHOUT', `Event ${i + 1}: ${eventType} without groups`, event);
+            }
+        }
+    }
+
+    // Scenario 12: Edge cases with special characters in group names
+    generateGroupEdgeCases() {
+        console.log('=== SCENARIO 12: Group edge cases ===');
+        console.log('Groups with special characters, unicode, long names, etc.\n');
+
+        const edgeCases = [
+            { company: SCENARIO_GROUPS.EDGE_CASE_GROUPS.company[0], team: SCENARIO_GROUPS.EDGE_CASE_GROUPS.team[0], name: 'Unicode group names' },
+            { company: SCENARIO_GROUPS.EDGE_CASE_GROUPS.company[1], team: SCENARIO_GROUPS.EDGE_CASE_GROUPS.team[1], name: 'Special characters in groups' },
+            { company: SCENARIO_GROUPS.EDGE_CASE_GROUPS.company[2], team: SCENARIO_GROUPS.EDGE_CASE_GROUPS.team[2], name: 'Very long group names' }
+        ];
+
+        edgeCases.forEach((testCase, i) => {
+            const user = `edge_group_user_${i + 1}`;
+            const device = `edge_group_device_${i + 1}`;
+            const eventType = randomChoice(EVENT_TYPES);
+
+            // Add group identify events first
+            const companyGroupIdentify = this.addGroupIdentifyEvent('company', testCase.company, {
+                ...SCENARIO_GROUP_PROPERTIES.MINIMAL_PROPERTIES,
+                edge_case_test: true,
+                company_name: testCase.company
+            }, i * 5);
+
+            const teamGroupIdentify = this.addGroupIdentifyEvent('team', testCase.team, {
+                ...SCENARIO_GROUP_PROPERTIES.TEAM_PROPERTIES,
+                edge_case_test: true,
+                team_name: testCase.team
+            }, i * 5 + 1);
+
+            log('GROUP-IDENTIFY', `Company "${testCase.company}" identified (${testCase.name})`, companyGroupIdentify);
+            log('GROUP-IDENTIFY', `Team "${testCase.team}" identified (${testCase.name})`, teamGroupIdentify);
+
+            // Then add regular event with group associations
+            const event = this.addEvent(eventType, user, device, {
+                scenario: 'group_edge_cases',
+                test_case: testCase.name,
+                case_number: i + 1,
+                expected_group_identify: 2 // company + team
+            }, i * 5 + 2, { company: testCase.company, team: testCase.team });
+
+            log('GROUP-EDGE', `${testCase.name} (case ${i + 1}/3)`, event);
+        });
+    }
+
+    // Scenario 13: User events with groups imported BEFORE group identify
+    generateUserEventsBeforeGroupIdentify() {
+        console.log('=== SCENARIO 13: User events with groups BEFORE group identify ===');
+        console.log('Common real-world scenario: user events reference groups before group identify events\n');
+
+        const company = 'early-reference-company';
+        const team = 'early-reference-team';
+        const user = 'early_reference_user';
+        const device = 'early_reference_device';
+
+        // Step 1: User events that reference groups but group identify events haven't been sent yet
+        // This simulates the common case where user events reference groups before
+        // the groups are "officially" defined via group identify events
+        for (let i = 0; i < 3; i++) {
+            const eventType = randomChoice(EVENT_TYPES);
+            const event = this.addEvent(eventType, user, device, {
+                scenario: 'user_events_before_group_identify',
+                sequence: i + 1,
+                phase: 'user_events_first',
+                expected_group_identify: false, // No group identify yet
+                note: 'Groups referenced but not yet identified'
+            }, i * 2, { company, team }); // Groups but no group_properties
+
+            log('BEFORE-GROUP', `User event ${i + 1}: ${eventType} referencing groups (no group identify yet)`, event);
+        }
+
+        // Step 2: Later, group identify events with full properties
+        // This simulates when group properties are finally provided
+        const companyGroupIdentify = this.addGroupIdentifyEvent('company', company, {
+            ...SCENARIO_GROUP_PROPERTIES.RICH_PROPERTIES,
+            company_id: company,
+            setup_phase: 'delayed_group_identification'
+        }, 10);
+
+        const teamGroupIdentify = this.addGroupIdentifyEvent('team', team, {
+            ...SCENARIO_GROUP_PROPERTIES.TEAM_PROPERTIES,
+            team_id: team,
+            setup_phase: 'delayed_group_identification'
+        }, 11);
+
+        log('AFTER-GROUP', `Company "${company}" group identify (after user events)`, companyGroupIdentify);
+        log('AFTER-GROUP', `Team "${team}" group identify (after user events)`, teamGroupIdentify);
+
+        // Step 3: More user events after group identification
+        for (let i = 0; i < 2; i++) {
+            const eventType = randomChoice(EVENT_TYPES);
+            const event = this.addEvent(eventType, user, device, {
+                scenario: 'user_events_after_group_identify',
+                sequence: i + 1,
+                phase: 'user_events_after',
+                expected_group_identify: false, // Groups already identified
+                note: 'User events after groups are identified'
+            }, 12 + i * 2, { company, team });
+
+            log('AFTER-USER', `User event after group identify ${i + 1}: ${eventType}`, event);
+        }
+    }
+
+    // Scenario 14: Events with groups but NO group identify events
+    generateEventsWithGroupsNoIdentify() {
+        console.log('=== SCENARIO 14: Events with groups but NO group identify events ===');
+        console.log('Events that reference groups but no group identify events are ever sent\n');
+
+        const scenarios = [
+            { user: 'orphan_group_user_1', device: 'orphan_group_device_1', company: 'orphaned-company-1', team: 'orphaned-team-1' },
+            { user: 'orphan_group_user_2', device: 'orphan_group_device_2', company: 'orphaned-company-2' },
+            { user: 'orphan_group_user_3', device: 'orphan_group_device_3', company: 'never-identified-corp', team: 'mystery-team', department: 'unknown-dept' }
+        ];
+
+        scenarios.forEach((scenario, i) => {
+            const eventType = randomChoice(EVENT_TYPES);
+            const groups = {};
+
+            // Build groups object based on what's available in the scenario
+            if (scenario.company) groups.company = scenario.company;
+            if (scenario.team) groups.team = scenario.team;
+            if (scenario.department) groups.department = scenario.department;
+
+            // Add regular event with group associations (but NO group identify events)
+            const event = this.addEvent(eventType, scenario.user, scenario.device, {
+                scenario: 'events_with_groups_no_identify',
+                case_number: i + 1,
+                expected_group_identify: false, // No group identify events
+                note: 'Groups referenced but never identified'
+            }, i * 3, groups); // Groups but no corresponding group identify events
+
+            const groupList = Object.entries(groups).map(([type, value]) => `${type}: "${value}"`).join(', ');
+            log('ORPHAN-GROUP', `${scenario.user} event with orphaned groups (${groupList})`, event);
+        });
+    }
+
     // Generate all scenarios
     async generateAllScenarios() {
         console.log('🚀 Starting Amplitude Test Data Generation\n');
         console.log(`Using API Key: ${AMPLITUDE_API_KEY}`);
         console.log(`Using Cluster: ${AMPLITUDE_CLUSTER.toUpperCase()}\n`);
-        console.log('This will generate comprehensive test data for identify event logic.\n');
+        console.log('This will generate comprehensive test data for identify event logic AND group events.\n');
         console.log('=' .repeat(70) + '\n');
 
+        // Original identify scenarios
         this.generateFirstTimeCombinations();
         this.generateDuplicateCombinations();
         this.generateMultiDeviceUsers();
@@ -492,8 +875,17 @@ class AmplitudeTestGenerator {
         this.generateAnonymousToIdentified();
         this.generateCrossSessionJourneys();
 
+        // New group scenarios
+        this.generateSingleGroupEvents();
+        this.generateMultipleGroupsEvents();
+        this.generateGroupsWithoutProperties();
+        this.generateMixedGroupEvents();
+        this.generateGroupEdgeCases();
+        this.generateUserEventsBeforeGroupIdentify();
+        this.generateEventsWithGroupsNoIdentify();
+
         console.log('=' .repeat(70));
-        console.log(`✅ Generated ${this.events.length} total events across 7 scenarios\n`);
+        console.log(`✅ Generated ${this.events.length} total events across 14 scenarios\n`);
 
         // Verify strict timestamp ordering
         this.verifyStrictOrdering();
@@ -544,13 +936,30 @@ class AmplitudeTestGenerator {
 
             try {
                 const promises = batch.map(event => {
-                    // Use Amplitude analytics-node API
-                    return amplitude.track(event.event_type, event.event_properties, {
-                        user_id: event.user_id,
-                        device_id: event.device_id,
-                        time: event.time,
-                        user_properties: event.user_properties
-                    });
+                    if (event.event_type === '$groupidentify') {
+                        // Send group identify event
+                        const groupIdentify = new amplitude.Identify();
+
+                        // Add all group properties
+                        for (const [key, value] of Object.entries(event.group_properties || {})) {
+                            groupIdentify.set(key, value);
+                        }
+
+                        return amplitude.groupIdentify(
+                            event.group_type,
+                            event.group_key,
+                            groupIdentify
+                        );
+                    } else {
+                        // Send regular event with groups (but NO group_properties)
+                        return amplitude.track(event.event_type, event.event_properties, {
+                            user_id: event.user_id,
+                            device_id: event.device_id,
+                            time: event.time,
+                            user_properties: event.user_properties,
+                            groups: event.groups // Include groups in regular events
+                        });
+                    }
                 });
 
                 await Promise.all(promises);
@@ -575,8 +984,8 @@ class AmplitudeTestGenerator {
             console.error('❌ Error during flush:', error.message);
         }
 
-        console.log(`\n📊 Summary:`);
-        console.log(`   ✅ Successfully sent: ${successCount} events`);
+        console.log(`\n📊 Regular Events Summary:`);
+        console.log(`   ✅ Successfully sent: ${successCount} regular events`);
         console.log(`   ❌ Failed to send: ${errorCount} events`);
         console.log(`   📝 Total generated: ${this.events.length} events\n`);
 
@@ -593,13 +1002,33 @@ class AmplitudeTestGenerator {
                 total_events: this.events.length,
                 api_key: AMPLITUDE_API_KEY,
                 scenarios: [
+                    // Original identify scenarios
                     'first_time_combinations',
                     'duplicate_combinations',
                     'multi_device_users',
                     'multi_user_devices',
                     'edge_cases',
                     'anonymous_to_identified',
-                    'cross_session_journeys'
+                    'cross_session_journeys',
+                    // New group scenarios
+                    'single_group_events',
+                    'multiple_groups_events',
+                    'groups_without_properties',
+                    'mixed_group_events',
+                    'group_edge_cases',
+                    'user_events_before_group_identify',
+                    'events_with_groups_no_identify'
+                ],
+                expected_identify_events: 30,
+                expected_group_identify_events: 30,
+                group_test_cases: [
+                    'rich_vs_minimal_group_properties',
+                    'multiple_groups_per_event',
+                    'groups_without_group_properties_field',
+                    'mixed_events_with_and_without_groups',
+                    'unicode_and_special_characters_in_groups',
+                    'user_events_before_group_identification',
+                    'events_with_groups_but_no_group_identify'
                 ]
             },
             events: this.events
@@ -666,12 +1095,35 @@ async function main() {
         console.log('   ✅ Scenario 6 (Anonymous→ID): 3 identify events');
         console.log('   ✅ Scenario 7 (Journey): 3 identify events (new devices only)');
         console.log('   📈 TOTAL EXPECTED: 30 identify events\n');
+
+        console.log('🏢 Expected Group Identify Events Summary:');
+        console.log('   ✅ Scenario 8 (Single groups): 4 group identify events');
+        console.log('   ✅ Scenario 9 (Multiple groups): 12 group identify events (4 events × 3 groups each)');
+        console.log('   ✅ Scenario 10 (No group props): 3 group identify events');
+        console.log('   ✅ Scenario 11 (Mixed events): 3 group identify events');
+        console.log('   ✅ Scenario 12 (Group edge cases): 6 group identify events (3 events × 2 groups each)');
+        console.log('   ✅ Scenario 13 (Events before group identify): 2 group identify events');
+        console.log('   ❌ Scenario 14 (Groups without identify): 0 group identify events');
+        console.log('   🏢 TOTAL EXPECTED: 30 group identify events\n');
+
+        console.log('📋 Key Test Cases:');
+        console.log('   🔹 Groups with rich properties vs minimal properties');
+        console.log('   🔹 Multiple groups per event (company + team + department)');
+        console.log('   🔹 Groups without group_properties field');
+        console.log('   🔹 Mixed events (some with groups, some without)');
+        console.log('   🔹 Unicode and special characters in group names');
+        console.log('   🔹 User events referencing groups BEFORE group identify events');
+        console.log('   🔹 Events with groups but NO corresponding group identify events');
+        console.log('   🔹 Events with $groups property should be preserved\n');
+
         console.log('Next steps:');
         console.log('1. Review the generated data in amplitude-test-data.json');
-        console.log('2. Export this data from Amplitude using their export API');
-        console.log('3. Run PostHog batch import with generate_identify_events=true');
-        console.log('4. Verify exactly 30 identify events are created');
-        console.log('5. Check user-device combinations match expected scenarios\n');
+        console.log('2. The script automatically sends both regular events AND group identify events to Amplitude');
+        console.log('3. Export this data from Amplitude using their export API');
+        console.log('4. Run PostHog batch import with generate_identify_events=true and generate_group_identify_events=true');
+        console.log('5. Verify exactly 30 identify events + 30 group identify events are created');
+        console.log('6. Check that regular events have $groups property with correct group references');
+        console.log('7. Verify group properties are correctly mapped to PostHog $group_set\n');
 
     } catch (error) {
         console.error('❌ Error during test data generation:', error);
