@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 use kafka_deduplicator::checkpoint::{CheckpointConfig, CheckpointExporter, CheckpointUploader};
 use kafka_deduplicator::checkpoint_manager::{
     CheckpointManager, CheckpointMode, CheckpointPath, CheckpointWorker,
-    CHECKPOINT_PARTITION_PREFIX, CHECKPOINT_TOPIC_PREFIX,
 };
 use kafka_deduplicator::kafka::types::Partition;
 use kafka_deduplicator::store::{DeduplicationStore, DeduplicationStoreConfig};
@@ -17,6 +16,7 @@ use kafka_deduplicator::store_manager::StoreManager;
 use common_types::RawEvent;
 
 use anyhow::Result;
+use regex::Regex;
 use tempfile::TempDir;
 use tracing::info;
 
@@ -217,35 +217,6 @@ fn create_test_raw_event(distinct_id: &str, token: &str, event_name: &str) -> Ra
     }
 }
 
-fn find_local_checkpoint_files(base_dir: &Path) -> Result<Vec<PathBuf>> {
-    let mut checkpoint_files = Vec::new();
-    let mut stack = vec![base_dir.to_path_buf()];
-
-    while let Some(current_path) = stack.pop() {
-        let entries = std::fs::read_dir(&current_path)?;
-
-        for entry in entries {
-            let entry = entry?;
-            let path = entry.path();
-
-            if path.is_file() {
-                checkpoint_files.push(path);
-            } else if path.is_dir() {
-                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    if name.starts_with(CHECKPOINT_TOPIC_PREFIX)
-                        || name.starts_with(CHECKPOINT_PARTITION_PREFIX)
-                        || name.chars().filter(|c| c.is_ascii_digit()).count() == name.len()
-                    {
-                        stack.push(path);
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(checkpoint_files)
-}
-
 #[tokio::test]
 async fn test_checkpoint_exporter_creation() {
     let temp_dir = TempDir::new().unwrap();
@@ -258,6 +229,7 @@ async fn test_checkpoint_exporter_creation() {
         full_upload_interval: 5,
         aws_region: "us-east-1".to_string(),
         max_local_checkpoints: 3,
+        max_checkpoint_retention_hours: 72,
         max_concurrent_checkpoints: 1,
         s3_timeout: Duration::from_secs(30),
     };
@@ -292,15 +264,13 @@ async fn test_manual_checkpoint_incremental() {
         full_upload_interval: 5,
         aws_region: "us-east-1".to_string(),
         max_local_checkpoints: 3,
+        max_checkpoint_retention_hours: 72,
         max_concurrent_checkpoints: 1,
         s3_timeout: Duration::from_secs(30),
     };
 
-    let uploader = MockUploader::new().unwrap();
-    let exporter = Some(Arc::new(CheckpointExporter::new(
-        config.clone(),
-        Box::new(uploader),
-    )));
+    let uploader = Box::new(MockUploader::new().unwrap());
+    let exporter = Some(Arc::new(CheckpointExporter::new(config.clone(), uploader)));
     let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
         path: checkpoint_dir.path().to_path_buf(),
         max_capacity: 1_000_000,
@@ -363,6 +333,7 @@ async fn test_checkpoint_skips_when_in_progress() {
         full_upload_interval: 5,
         aws_region: "us-east-1".to_string(),
         max_local_checkpoints: 3,
+        max_checkpoint_retention_hours: 72,
         max_concurrent_checkpoints: 1,
         s3_timeout: Duration::from_secs(30),
     };
@@ -433,16 +404,10 @@ async fn test_checkpoint_skips_when_in_progress() {
     assert!(file_count > 0, "Should have uploaded checkpoint files");
 
     // All files should have the same checkpoint timestamp (same directory)
+    let checkpoint_dir_pattern = Regex::new(r"\/0\d+\/").unwrap();
     let checkpoint_dirs: std::collections::HashSet<_> = uploaded_files
         .keys()
-        .filter_map(|key| {
-            if let Some(start) = key.find(CHECKPOINT_NAME_PREFIX) {
-                let end = key[start..].find('/').map(|i| start + i)?;
-                Some(&key[start..end])
-            } else {
-                None
-            }
-        })
+        .filter_map(|key| checkpoint_dir_pattern.find(key).map(|m| m.as_str()))
         .collect();
 
     assert_eq!(
@@ -477,6 +442,7 @@ async fn test_checkpoint_manual_full() {
         full_upload_interval: 5,
         aws_region: "us-east-1".to_string(),
         max_local_checkpoints: 3,
+        max_checkpoint_retention_hours: 72,
         max_concurrent_checkpoints: 1,
         s3_timeout: Duration::from_secs(30),
     };
@@ -530,12 +496,6 @@ async fn test_checkpoint_manual_full() {
     // Verify files were "uploaded" to mock storage
     let file_count = uploader.file_count().await.unwrap();
     assert!(file_count > 0, "Should have uploaded some files");
-
-    let stored_files = uploader.get_stored_files().await.unwrap();
-    assert!(
-        !stored_files.is_empty(),
-        "Should have stored files in mock uploader"
-    );
 }
 
 #[tokio::test]
@@ -563,6 +523,7 @@ async fn test_incremental_vs_full_upload_serial() {
         full_upload_interval: 2,
         aws_region: "us-east-1".to_string(),
         max_local_checkpoints: 10,
+        max_checkpoint_retention_hours: 72,
         max_concurrent_checkpoints: 1,
         s3_timeout: Duration::from_secs(30),
     };
@@ -587,7 +548,7 @@ async fn test_incremental_vs_full_upload_serial() {
 
     // let the checkpoint worker loop run long enough to perform some checkpoints
     manager.start();
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    tokio::time::sleep(Duration::from_millis(250)).await;
     manager.stop().await;
 
     // eval if some full and incremental uploads were performed
@@ -638,6 +599,7 @@ async fn test_unavailable_uploader() {
         full_upload_interval: 5,
         aws_region: "us-east-1".to_string(),
         max_local_checkpoints: 3,
+        max_checkpoint_retention_hours: 72,
         max_concurrent_checkpoints: 1,
         s3_timeout: Duration::from_secs(30),
     };
@@ -667,10 +629,8 @@ async fn test_unavailable_uploader() {
         exporter.clone(),
     );
 
-    // Now that we report (log/stat) the successful local checkpoint and
-    // the unavailable uploader without failing the run or bubbling up
-    // and crashing the worker, feels like erroring is the right output
-    // for this? We will want to monitor + alert on it when frequent enough
+    // The wrapper thread closure that is spawned to run this in
+    // production will catch and log/stat these errors
     let result = worker.checkpoint_partition().await;
     assert!(result.is_err());
 
@@ -707,6 +667,7 @@ async fn test_unpopulated_exporter() {
         full_upload_interval: 5,
         aws_region: "us-east-1".to_string(),
         max_local_checkpoints: 3,
+        max_checkpoint_retention_hours: 72,
         max_concurrent_checkpoints: 1,
         s3_timeout: Duration::from_secs(30),
     };
@@ -723,10 +684,12 @@ async fn test_unpopulated_exporter() {
         .stores()
         .insert(partition.clone(), store.clone());
 
+    // without an exporter supplied to the worker, the checkpoint will
+    // succeed and be created locally but never uploaded to remote storage
     let worker = CheckpointWorker::new(1, CheckpointMode::Full, paths, store.clone(), None);
 
     // Checkpoint should still succeed even if uploader is unavailable
     let result = worker.checkpoint_partition().await;
     assert!(result.is_ok()); // Should return OK result
-    assert!(result.unwrap().is_none()); // Should return false for non-existent partition
+    assert!(result.unwrap().is_none()); // Should be None since no remote upload was attempted
 }

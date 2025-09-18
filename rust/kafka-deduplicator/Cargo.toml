@@ -42,4 +42,5 @@ tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3.8"
+regex = { workspace = true }
 uuid = { version = "1.0", features = ["v4"] }

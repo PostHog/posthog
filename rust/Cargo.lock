@@ -3933,6 +3933,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk 0.22.1",
  "rdkafka",
+ "regex",
  "rocksdb",
  "serde",
  "serde_json",
