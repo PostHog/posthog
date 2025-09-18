@@ -599,7 +599,10 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.save()
 
         if not deleted_state:
-            from posthog.tasks.calculate_cohort import increment_version_and_enqueue_calculate_cohort
+            from posthog.tasks.calculate_cohort import (
+                increment_version_and_enqueue_calculate_cohort,
+                insert_cohort_from_query,
+            )
 
             if cohort.is_static:
                 # You can't update a static cohort using the trend/stickiness thing
