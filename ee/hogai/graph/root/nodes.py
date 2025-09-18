@@ -325,17 +325,14 @@ class RootNode(RootNodeUIContextMixin):
     """
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        from ee.hogai.tool import get_contextual_tool_class
-
         message_window, ui_context, billing_context, core_memory = await asyncio.gather(
             self._construct_and_update_messages_window(state, config),
             self._format_ui_context(self._get_ui_context(state), config),
             self._get_billing_info(config),
             self._aget_core_memory_text(),
         )
-
-        history, new_window_id = message_window
         should_add_billing_tool, billing_context_prompt = billing_context
+        history, new_window_id = message_window
 
         # Build system prompt with conditional session summarization and insight search sections
         system_prompt_template = ROOT_SYSTEM_PROMPT
@@ -372,16 +369,6 @@ class RootNode(RootNodeUIContextMixin):
                     + " If users ask to save, update, or delete the core memory, say you have done it."
                     + " If the '/remember [information]' command is used, the information gets appended verbatim to core memory.",
                 ),
-                *[
-                    (
-                        "system",
-                        f"<{tool_name}>\n"
-                        f"{get_contextual_tool_class(tool_name)(team=self._team, user=self._user).format_system_prompt_injection(tool_context)}\n"  # type: ignore
-                        f"</{tool_name}>",
-                    )
-                    for tool_name, tool_context in self._get_contextual_tools(config).items()
-                    if get_contextual_tool_class(tool_name) is not None
-                ],
             ],
             template_format="mustache",
         ).format_messages(
@@ -390,6 +377,8 @@ class RootNode(RootNodeUIContextMixin):
             ui_context=ui_context,
             billing_context=billing_context_prompt,
         )
+
+        # Mark the longest default prefix as cacheable
         add_cache_control(system_prompts[-1])
 
         message = self._get_model(
@@ -532,7 +521,27 @@ class RootNode(RootNodeUIContextMixin):
             )
         return filtered_conversation
 
-    def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
+    async def _construct_and_update_messages_window(
+        self, state: AssistantState, config: RunnableConfig
+    ) -> tuple[list[BaseMessage], str | None]:
+        """
+        Retrieves the current conversation window, finds a new window if necessary, and enforces the tool call limit.
+        """
+
+        history = self._construct_messages(state, config)
+
+        # Find a new window id and trim the history to it.
+        new_window_id = await self._find_new_window_id(state, config, history)
+        if new_window_id is not None:
+            history = self._get_conversation_window(history, new_window_id)
+
+        # Force the agent to stop if the tool call limit is reached.
+        if self._is_hard_limit_reached(state):
+            history.append(LangchainHumanMessage(content=ROOT_HARD_LIMIT_REACHED_PROMPT))
+
+        return history, new_window_id
+
+    def _construct_messages(self, state: AssistantState, config: RunnableConfig) -> list[BaseMessage]:
         # Filter out messages that are not part of the conversation window.
         conversation_window = self._get_assistant_messages_in_window(state)
 
@@ -544,11 +553,15 @@ class RootNode(RootNodeUIContextMixin):
         }
 
         history: list[BaseMessage] = []
+        start_message_idx: int | None = None
+
         for message in conversation_window:
             if isinstance(message, HumanMessage):
                 history.append(
                     LangchainHumanMessage(content=[{"type": "text", "text": message.content}], id=message.id)
                 )
+                if message.id == state.start_id:
+                    start_message_idx = len(history) - 1
             elif isinstance(message, AssistantMessage):
                 content = get_thinking_from_assistant_message(message)
                 if message.content:
@@ -588,6 +601,8 @@ class RootNode(RootNodeUIContextMixin):
                     )
                 )
 
+        history = self._inject_contextual_tools_message(history, config, start_message_idx=start_message_idx)
+
         # Append a single cache control to the last human message or last tool message
         for i in range(len(history) - 1, -1, -1):
             maybe_content_arr = history[i].content
@@ -602,25 +617,33 @@ class RootNode(RootNodeUIContextMixin):
 
         return history
 
-    async def _construct_and_update_messages_window(
-        self, state: AssistantState, config: RunnableConfig
-    ) -> tuple[list[BaseMessage], str | None]:
-        """
-        Retrieves the current conversation window, finds a new window if necessary, and enforces the tool call limit.
-        """
+    def _inject_contextual_tools_message(
+        self, history: list[BaseMessage], config: RunnableConfig, start_message_idx: int | None = None
+    ) -> list[BaseMessage]:
+        contextual_tools_message = self._construct_contextual_tools_message(config)
+        if not contextual_tools_message:
+            return history
 
-        history = self._construct_messages(state)
+        if start_message_idx is not None:
+            return [*history[:start_message_idx], contextual_tools_message, *history[start_message_idx:]]
+        return [contextual_tools_message, *history]
 
-        # Find a new window id and trim the history to it.
-        new_window_id = await self._find_new_window_id(state, config, history)
-        if new_window_id is not None:
-            history = self._get_conversation_window(history, new_window_id)
+    def _construct_contextual_tools_message(self, config: RunnableConfig) -> LangchainHumanMessage | None:
+        from ee.hogai.tool import get_contextual_tool_class
 
-        # Force the agent to stop if the tool call limit is reached.
-        if self._is_hard_limit_reached(state):
-            history.append(LangchainHumanMessage(content=ROOT_HARD_LIMIT_REACHED_PROMPT))
-
-        return history, new_window_id
+        contextual_tools_prompt = [
+            f"<{tool_name}>\n"
+            f"{get_contextual_tool_class(tool_name)(team=self._team, user=self._user).format_system_prompt_injection(tool_context)}\n"  # type: ignore
+            f"</{tool_name}>"
+            for tool_name, tool_context in self._get_contextual_tools(config).items()
+            if get_contextual_tool_class(tool_name) is not None
+        ]
+        if contextual_tools_prompt:
+            tools = "\n".join(contextual_tools_prompt)
+            return LangchainHumanMessage(
+                content=f"<system_reminder>\nContextual tools that are available to you on this page are: \n{tools}\n</system_reminder>"
+            )
+        return None
 
     def _is_hard_limit_reached(self, state: AssistantState) -> bool:
         return state.root_tool_calls_count is not None and state.root_tool_calls_count >= self.MAX_TOOL_CALLS

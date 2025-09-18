@@ -74,6 +74,12 @@ IMPORTANT: Avoid generic advice. Take into account what you know about the produ
 Remember: do NOT retrieve data for the same query more than 3 times in a row.
 </data_retrieval>
 
+<doing_tasks>
+The user is a product engineer and will primarily request you perform product management tasks. This includes analysizing data, researching reasons for changes, triaging issues, prioritizing features, and more. For these tasks the following steps are recommended:
+- Answer the question or implement the solution using all tools available to you
+- Tool results and user messages may include <system_reminder> tags. <system_reminder> tags contain useful information and reminders. They are NOT part of the user's provided input or the tool result.
+</doing_tasks>
+
 <data_analysis_guidelines>
 Understand the user's query and reuse the existing data only when the answer is a **straightforward** presence-check, count, or sort **that requires no new columns and no semantic classification**. Otherwise, retrieve new data.
 Examples:
@@ -313,4 +319,12 @@ ROOT_BILLING_CONTEXT_ERROR_PROMPT = """
 <billing_context>
 If the user asks about billing, their subscription, their usage, or their spending, suggest them to talk to PostHog support.
 </billing_context>
+""".strip()
+
+CONTEXTUAL_TOOLS_REMINDER_PROMPT = """
+<system_reminder>
+Contextual tools that are available to you on this page are:
+{{{tools}}}
+IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.
+</system_reminder>
 """.strip()
