@@ -440,15 +440,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         values.activeTab.uri
                     )
 
-                    const mountedCodeEditorLogic =
-                        codeEditorLogic.findMounted() ||
+                    initModel(
+                        newModel,
                         codeEditorLogic({
-                            key: props.key,
+                            key: `hogql-editor-TABID`,
                             query: values.suggestedQueryInput,
                             language: 'hogQL',
                         })
-
-                    initModel(newModel, mountedCodeEditorLogic)
+                    )
                     props.editor?.setModel(newModel)
                 } else {
                     props.editor?.setModel(existingModel)
@@ -465,16 +464,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 const existingModel = props.monaco.editor.getModel(values.activeTab.uri)
                 if (!existingModel) {
                     const newModel = props.monaco.editor.createModel(values.queryInput, 'hogQL', values.activeTab.uri)
-
-                    const mountedCodeEditorLogic =
-                        codeEditorLogic.findMounted() ||
+                    initModel(
+                        newModel,
                         codeEditorLogic({
-                            key: props.key,
+                            key: `hogql-editor-TABID`,
                             query: values.queryInput,
                             language: 'hogQL',
                         })
-
-                    initModel(newModel, mountedCodeEditorLogic)
+                    )
                     props.editor?.setModel(newModel)
                 } else {
                     props.editor?.setModel(existingModel)
@@ -490,14 +487,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             actions.createTab(query, undefined, insight)
         },
         createTab: async ({ query = '', view, insight, draft }) => {
-            const mountedCodeEditorLogic =
-                codeEditorLogic.findMounted() ||
-                codeEditorLogic({
-                    key: props.key,
-                    query: values.sourceQuery?.source.query ?? '',
-                    language: 'hogQL',
-                })
-
             const currentModelCount = 1
             const tabName = draft?.name || view?.name || insight?.name || NEW_QUERY
 
@@ -507,9 +496,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 if (!model) {
                     model = props.monaco.editor.createModel(query, 'hogQL', uri)
                     props.editor?.setModel(model)
-                    if (mountedCodeEditorLogic) {
-                        initModel(model, mountedCodeEditorLogic)
-                    }
+                    initModel(
+                        model,
+                        codeEditorLogic({
+                            key: `hogql-editor-TABID`,
+                            query: values.sourceQuery?.source.query ?? '',
+                            language: 'hogQL',
+                        })
+                    )
                 }
 
                 actions.updateTab({
@@ -520,6 +514,21 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     sourceQuery: insight?.query as DataVisualizationNode | undefined,
                     draft: draft,
                 })
+            }
+            if (query) {
+                actions.setQueryInput(query)
+            } else if (draft) {
+                actions.setQueryInput(draft.query.query)
+            } else if (view) {
+                actions.setQueryInput(view.query.query)
+            } else if (insight) {
+                const queryString =
+                    insight.query && 'source' in insight.query && 'query' in insight.query.source
+                        ? insight.query?.source?.query
+                        : insight.query && 'query' in insight.query
+                          ? insight.query?.query
+                          : ''
+                actions.setQueryInput(queryString || '')
             }
         },
         setSourceQuery: ({ sourceQuery }) => {
@@ -553,7 +562,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     actions.setInProgressViewEdit(values.activeTab.view.id, values.activeTab.view.latest_history_id)
                 }
             }
-            // actions.updateState()
         },
         saveDraft: async ({ activeTab, queryInput, viewId }) => {
             const latestActiveTab = values.allTabs.find((tab) => tab.uri.toString() === activeTab.uri.toString())
@@ -728,17 +736,18 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         },
         loadDataWarehouseSavedQueriesSuccess: ({ dataWarehouseSavedQueries }) => {
             // keep tab views up to date
-            const newTabs = values.allTabs.map((tab) => ({
-                ...tab,
-                view: dataWarehouseSavedQueries.find((v) => v.id === tab.view?.id),
-            }))
-            actions.setTabs(newTabs)
-            // actions.updateState()
+            const tab = values.activeTab
+            const view = dataWarehouseSavedQueries.find((v) => v.id === tab.view?.id)
+            if (tab && view) {
+                actions.setTabs([{ ...tab, view }])
+                actions.setQueryInput(view.query.query || '')
+            }
         },
         deleteDataWarehouseSavedQuerySuccess: ({ payload: viewId }) => {
             const mustRemoveTab = values.allTabs.find((tab) => tab.view?.id === viewId && !tab.draft)
             if (mustRemoveTab) {
                 actions.setTabs([])
+                actions.createTab()
             }
             lemonToast.success('View deleted')
         },

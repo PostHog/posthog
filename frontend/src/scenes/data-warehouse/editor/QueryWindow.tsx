@@ -1,6 +1,5 @@
 import { Monaco } from '@monaco-editor/react'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import type { editor as importedEditor } from 'monaco-editor'
 import { useMemo } from 'react'
 
@@ -34,7 +33,7 @@ interface QueryWindowProps {
 }
 
 export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Element {
-    const codeEditorKey = `hogQLQueryEditor/${router.values.location.pathname}`
+    const codeEditorKey = `hogql-editor-TABID`
 
     const {
         allTabs,
@@ -278,7 +277,7 @@ export function QueryWindow({ onSetMonacoAndEditor }: QueryWindowProps): JSX.Ele
             </div>
             <QueryPane
                 originalValue={originalQueryInput}
-                queryInput={suggestedQueryInput}
+                queryInput={suggestedQueryInput || queryInput}
                 sourceQuery={sourceQuery.source}
                 promptError={null}
                 onRun={runQuery}
