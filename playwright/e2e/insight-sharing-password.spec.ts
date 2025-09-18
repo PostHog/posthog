@@ -120,7 +120,19 @@ test('password-protected insight sharing', async ({ page, playwrightSetup }) => 
         fullPage: true,
     })
 
-    // Enter the password and submit
+    // First try wrong password
+    await page.fill('input[type="password"]', 'wrongpassword')
+    await page.click('text=Unlock')
+
+    // Verify error message appears
+    await expect(page.locator('text=Incorrect password')).toBeVisible()
+
+    // Verify we're still on the password page (not authenticated)
+    await expect(page.locator('input[type="password"]')).toBeVisible()
+    await expect(page.locator('text=Unlock')).toBeVisible()
+    await expect(page.locator('text=Access share')).toBeVisible()
+
+    // Now enter the correct password
     await page.fill('input[type="password"]', 'testpassword')
     await page.click('text=Unlock')
 
@@ -133,89 +145,4 @@ test('password-protected insight sharing', async ({ page, playwrightSetup }) => 
 
     // Verify the URL still shows the shared access token (not redirected to regular insight page)
     await expect(page).toHaveURL(new RegExp(`/shared/${sharingData.access_token}`))
-})
-
-test('password-protected insight sharing - wrong password', async ({ page, playwrightSetup }) => {
-    // Create workspace with API key
-    const workspace = await playwrightSetup.createWorkspace('Wrong Password Test Org')
-
-    // Create a trends insight via API
-    const payload: InsightCreationPayload = {
-        name: 'Wrong Password Test Insight',
-        query: {
-            kind: NodeKind.InsightVizNode,
-            source: {
-                kind: NodeKind.TrendsQuery,
-                series: [
-                    {
-                        kind: NodeKind.EventsNode,
-                        event: '$pageview',
-                    },
-                ],
-                dateRange: {
-                    date_from: '-30d',
-                },
-            },
-        },
-    }
-
-    const insightResponse = await page.request.post(`/api/projects/${workspace.team_id}/insights/`, {
-        headers: {
-            Authorization: `Bearer ${workspace.personal_api_key}`,
-            'Content-Type': 'application/json',
-        },
-        data: payload,
-    })
-
-    expect(insightResponse.ok()).toBe(true)
-    const insightData = await insightResponse.json()
-
-    // Enable sharing with password protection
-    const sharingResponse = await page.request.patch(
-        `/api/projects/${workspace.team_id}/insights/${insightData.id}/sharing`,
-        {
-            headers: {
-                Authorization: `Bearer ${workspace.personal_api_key}`,
-                'Content-Type': 'application/json',
-            },
-            data: {
-                enabled: true,
-                password_required: true,
-            },
-        }
-    )
-
-    expect(sharingResponse.ok()).toBe(true)
-    const sharingData: SharingConfigurationResponse = await sharingResponse.json()
-
-    // Create a password for the shared insight
-    await page.request.post(`/api/projects/${workspace.team_id}/insights/${insightData.id}/sharing/passwords/`, {
-        headers: {
-            Authorization: `Bearer ${workspace.personal_api_key}`,
-            'Content-Type': 'application/json',
-        },
-        data: {
-            raw_password: 'testpassword',
-            note: 'Test password for wrong password test',
-        },
-    })
-
-    // Navigate to the shared insight URL
-    const sharedUrl = `/shared/${sharingData.access_token}`
-    await page.goto(sharedUrl)
-
-    // Verify the password login page appears
-    await expect(page.locator('input[type="password"]')).toBeVisible()
-
-    // Enter the wrong password and submit
-    await page.fill('input[type="password"]', 'wrongpassword')
-    await page.click('text=Unlock')
-
-    // Verify error message appears
-    await expect(page.locator('text=Incorrect password')).toBeVisible()
-
-    // Verify we're still on the password page (not authenticated)
-    await expect(page.locator('input[type="password"]')).toBeVisible()
-    await expect(page.locator('text=Unlock')).toBeVisible()
-    await expect(page.locator('text=Access share')).toBeVisible()
 })
