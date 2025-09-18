@@ -87,7 +87,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                     className="rounded-none"
                     icon={<IconSidebarClose />}
                     type="tertiary"
-                    size="small"
+                    size="xsmall"
                 />
             )
         }
@@ -99,7 +99,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                     className="rounded-none"
                     icon={<IconSidebarClose />}
                     type="tertiary"
-                    size="small"
+                    size="xsmall"
                 />
             )
         }
