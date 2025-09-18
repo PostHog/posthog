@@ -190,7 +190,7 @@ def REPLACE_WEB_STATS_V2_STAGING_SQL():
     return TABLE_TEMPLATE(
         "web_pre_aggregated_stats_staging",
         WEB_STATS_V2_PRODUCTION_COLUMNS,
-        WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"),
+        WEB_STATS_ORDER_BY_FUNC("period_bucket"),
         force_unique_zk_path=True,
         replace=True,
         on_cluster=False,
