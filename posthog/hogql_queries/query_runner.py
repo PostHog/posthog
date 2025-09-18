@@ -1236,11 +1236,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _refresh_frequency(self) -> timedelta:
         return timedelta(minutes=1)
 
-    def apply_variable_overrides(self, variable_overrides: list[HogQLVariable] | None):
+    def apply_variable_overrides(self, variable_overrides: list[HogQLVariable]):
         """Irreversibly update self.query with provided variable overrides."""
-        if not variable_overrides:
-            return
-
         if not hasattr(self.query, "variables") or not self.query.kind == "HogQLQuery" or len(variable_overrides) == 0:
             return
 
@@ -1253,11 +1250,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if self.query.variables.get(variable.variableId):
                 self.query.variables[variable.variableId] = variable
 
-    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter | None):
+    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         """Irreversibly update self.query with provided dashboard filters."""
-        if not dashboard_filter:
-            return
-
         if not hasattr(self.query, "properties") or not hasattr(self.query, "dateRange"):
             capture_exception(
                 NotImplementedError(

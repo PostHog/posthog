@@ -185,9 +185,12 @@ def process_query_model(
         else:
             raise ValidationError(f"Unsupported query kind: {query.__class__.__name__}")
     else:  # Query runner available - it will handle execution as well as caching
-        query_runner.apply_dashboard_filters(dashboard_filters)
-        query_runner.apply_variable_overrides(variables_override)
+        if dashboard_filters:
+            query_runner.apply_dashboard_filters(dashboard_filters)
+        if variables_override:
+            query_runner.apply_variable_overrides(variables_override)
         query_runner.is_query_service = is_query_service
+
         result = query_runner.run(
             execution_mode=execution_mode,
             user=user,
