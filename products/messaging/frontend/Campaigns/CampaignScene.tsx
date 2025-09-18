@@ -12,7 +12,6 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
 import { CampaignMetrics } from './CampaignMetrics'
-import { CampaignOverview } from './CampaignOverview'
 import { CampaignSceneHeader } from './CampaignSceneHeader'
 import { CampaignWorkflow } from './CampaignWorkflow'
 import { campaignLogic } from './campaignLogic'
@@ -22,7 +21,7 @@ import { renderWorkflowLogMessage } from './logs/log-utils'
 export const scene: SceneExport<CampaignSceneLogicProps> = {
     component: CampaignScene,
     logic: campaignSceneLogic,
-    paramsToProps: ({ params: { id, tab } }) => ({ id: id || 'new', tab: tab || 'overview' }),
+    paramsToProps: ({ params: { id, tab } }) => ({ id: id || 'new', tab: tab || 'workflow' }),
 }
 
 export function CampaignScene(props: CampaignSceneLogicProps): JSX.Element {
@@ -40,11 +39,6 @@ export function CampaignScene(props: CampaignSceneLogicProps): JSX.Element {
     }
 
     const tabs: (LemonTab<CampaignTab> | null)[] = [
-        {
-            label: 'Overview',
-            key: 'overview',
-            content: <CampaignOverview {...props} />,
-        },
         {
             label: 'Workflow',
             key: 'workflow',
