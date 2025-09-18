@@ -401,7 +401,7 @@ class ExperimentQueryRunner(QueryRunner):
                     )
                 """
                 event_uuids_exprs.append(event_uuids_expr)
-            event_uuids_exprs_sql = f"tuple({', '.join(event_uuids_exprs)}) as matched_recordings"
+            event_uuids_exprs_sql = f"tuple({', '.join(event_uuids_exprs)}) as steps_event_data"
             select_fields.append(parse_expr(event_uuids_exprs_sql))
         else:
             # For non-funnel metrics, use the original logic

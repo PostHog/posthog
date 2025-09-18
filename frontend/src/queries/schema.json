@@ -12024,15 +12024,6 @@
                 "key": {
                     "type": "string"
                 },
-                "matched_recordings": {
-                    "items": {
-                        "items": {
-                            "$ref": "#/definitions/MatchedRecording"
-                        },
-                        "type": "array"
-                    },
-                    "type": "array"
-                },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
                 },
@@ -12042,6 +12033,20 @@
                 "step_counts": {
                     "items": {
                         "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "steps_event_data": {
+                    "items": {
+                        "items": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "maxItems": 2,
+                            "minItems": 2,
+                            "type": "array"
+                        },
+                        "type": "array"
                     },
                     "type": "array"
                 },
@@ -12067,15 +12072,6 @@
                 "key": {
                     "type": "string"
                 },
-                "matched_recordings": {
-                    "items": {
-                        "items": {
-                            "$ref": "#/definitions/MatchedRecording"
-                        },
-                        "type": "array"
-                    },
-                    "type": "array"
-                },
                 "number_of_samples": {
                     "$ref": "#/definitions/integer"
                 },
@@ -12085,6 +12081,20 @@
                 "step_counts": {
                     "items": {
                         "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "steps_event_data": {
+                    "items": {
+                        "items": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "maxItems": 2,
+                            "minItems": 2,
+                            "type": "array"
+                        },
+                        "type": "array"
                     },
                     "type": "array"
                 },
@@ -12254,15 +12264,6 @@
                 "key": {
                     "type": "string"
                 },
-                "matched_recordings": {
-                    "items": {
-                        "items": {
-                            "$ref": "#/definitions/MatchedRecording"
-                        },
-                        "type": "array"
-                    },
-                    "type": "array"
-                },
                 "method": {
                     "const": "bayesian",
                     "type": "string"
@@ -12279,6 +12280,20 @@
                 "step_counts": {
                     "items": {
                         "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "steps_event_data": {
+                    "items": {
+                        "items": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "maxItems": 2,
+                            "minItems": 2,
+                            "type": "array"
+                        },
+                        "type": "array"
                     },
                     "type": "array"
                 },
@@ -12318,15 +12333,6 @@
                 "key": {
                     "type": "string"
                 },
-                "matched_recordings": {
-                    "items": {
-                        "items": {
-                            "$ref": "#/definitions/MatchedRecording"
-                        },
-                        "type": "array"
-                    },
-                    "type": "array"
-                },
                 "method": {
                     "const": "frequentist",
                     "type": "string"
@@ -12346,6 +12352,20 @@
                 "step_counts": {
                     "items": {
                         "$ref": "#/definitions/integer"
+                    },
+                    "type": "array"
+                },
+                "steps_event_data": {
+                    "items": {
+                        "items": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "maxItems": 2,
+                            "minItems": 2,
+                            "type": "array"
+                        },
+                        "type": "array"
                     },
                     "type": "array"
                 },

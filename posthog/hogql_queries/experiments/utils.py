@@ -68,12 +68,8 @@ def get_new_variant_results(sorted_results: list[tuple]) -> list[ExperimentStats
         elif len(result) == 6:
             # Funnel metrics with sampled session IDs
             base_stats["step_counts"] = result[4]
-            base_stats["matched_recordings"] = [
-                [
-                    MatchedRecording(session_id=sid, events=[MatchedRecordingEvent(uuid=uuid)])
-                    for sid, uuid in step_matched_recordings
-                ]
-                for step_matched_recordings in result[5]
+            base_stats["steps_event_data"] = [
+                [(sid, uuid) for sid, uuid in session_id_event_uuid_tuple] for session_id_event_uuid_tuple in result[5]
             ]
 
         # Ratio metrics
@@ -115,8 +111,8 @@ def validate_variant_result(
     # Include funnel-specific fields if present
     if hasattr(variant_result, "step_counts") and variant_result.step_counts is not None:
         validated_result.step_counts = variant_result.step_counts
-    if hasattr(variant_result, "matched_recordings") and variant_result.matched_recordings is not None:
-        validated_result.matched_recordings = variant_result.matched_recordings
+    if hasattr(variant_result, "steps_event_data") and variant_result.steps_event_data is not None:
+        validated_result.steps_event_data = variant_result.steps_event_data
 
     # Include ratio-specific fields if present
     if hasattr(variant_result, "denominator_sum") and variant_result.denominator_sum is not None:
@@ -190,7 +186,7 @@ def get_frequentist_experiment_result(
             sum=test_variant_validated.sum,
             sum_squares=test_variant_validated.sum_squares,
             step_counts=test_variant_validated.step_counts,
-            matched_recordings=getattr(test_variant_validated, "matched_recordings", None),
+            steps_event_data=getattr(test_variant_validated, "steps_event_data", None),
             validation_failures=test_variant_validated.validation_failures,
         )
 
@@ -259,7 +255,7 @@ def get_bayesian_experiment_result(
             sum=test_variant_validated.sum,
             sum_squares=test_variant_validated.sum_squares,
             step_counts=test_variant_validated.step_counts,
-            matched_recordings=getattr(test_variant_validated, "matched_recordings", None),
+            steps_event_data=getattr(test_variant_validated, "steps_event_data", None),
             validation_failures=test_variant_validated.validation_failures,
         )
 

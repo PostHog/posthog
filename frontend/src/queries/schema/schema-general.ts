@@ -2686,7 +2686,7 @@ export interface ExperimentStatsBase {
     denominator_sum_squares?: number
     numerator_denominator_sum_product?: number
     step_counts?: integer[]
-    matched_recordings?: MatchedRecording[][]
+    steps_event_data?: [string, string][][]
 }
 
 export enum ExperimentStatsValidationFailure {
