@@ -4,7 +4,6 @@
 import { expect } from '@playwright/test'
 
 import { InsightVizNode, NodeKind, TrendsQuery } from '../../frontend/src/queries/schema/schema-general'
-import { PLAYWRIGHT_FROZEN_TIME } from '../utils/time-constants'
 import { test } from '../utils/workspace-test-base'
 
 type InsightCreationPayload = {
@@ -30,8 +29,8 @@ type SharePasswordResponse = {
 }
 
 test('password-protected insight sharing', async ({ page, playwrightSetup }) => {
-    // Freeze time for consistent snapshots
-    await page.clock.setFixedTime(new Date(PLAYWRIGHT_FROZEN_TIME))
+    // Set fixed time for consistent snapshots (November 3, 2024 at noon UTC)
+    await page.clock.setFixedTime(new Date('2024-11-03T12:00:00Z'))
 
     // Create workspace with API key
     const workspace = await playwrightSetup.createWorkspace('Password Sharing Test Org')
@@ -50,7 +49,9 @@ test('password-protected insight sharing', async ({ page, playwrightSetup }) => 
                     },
                 ],
                 dateRange: {
-                    date_from: '-30d',
+                    date_from: '2024-10-04',
+                    date_to: '2024-11-03',
+                    explicitDate: true,
                 },
             },
         },
