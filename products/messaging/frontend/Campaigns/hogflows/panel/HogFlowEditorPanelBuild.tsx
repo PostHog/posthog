@@ -49,7 +49,6 @@ export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
         type: 'wait_until_time_window',
         name: 'Wait until window',
         description: 'Wait until a specified time window.',
-        branchEdges: 1,
         config: {
             timezone: null,
             day: 'any',
@@ -100,9 +99,6 @@ export const LOGIC_NODES_TO_SHOW: CreateActionType[] = [
                 {
                     percentage: 50,
                 },
-                {
-                    percentage: 50,
-                },
             ],
         },
     },
@@ -117,15 +113,15 @@ export const POSTHOG_NODES_TO_SHOW: CreateActionType[] = [
     },
     {
         type: 'function',
-        name: 'Set group properties',
-        description: 'Set properties of a group in PostHog.',
-        config: { template_id: 'template-posthog-group-identify', inputs: {} },
+        name: 'Update person property',
+        description: 'Set properties of a person in PostHog.',
+        config: { template_id: 'template-posthog-update-person-properties', inputs: {} },
     },
     {
         type: 'function',
-        name: 'Update person properties',
-        description: 'Update properties of a person in PostHog.',
-        config: { template_id: 'template-posthog-update-person-properties', inputs: {} },
+        name: 'Set group property',
+        description: 'Set properties of a group in PostHog.',
+        config: { template_id: 'template-posthog-group-identify', inputs: {} },
     },
 ]
 

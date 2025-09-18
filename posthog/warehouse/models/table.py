@@ -180,6 +180,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             access_key=self.credential.access_key,
             access_secret=self.credential.access_secret,
             context=placeholder_context,
+            table_size_mib=self.size_in_s3_mib,
         )
         try:
             # chdb hangs in CI during tests
@@ -247,6 +248,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 access_key=self.credential.access_key,
                 access_secret=self.credential.access_secret,
                 context=placeholder_context,
+                table_size_mib=self.size_in_s3_mib,
             )
 
             result = sync_execute(
@@ -267,6 +269,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             access_key=self.credential.access_key,
             access_secret=self.credential.access_secret,
             context=placeholder_context,
+            table_size_mib=self.size_in_s3_mib,
         )
         try:
             # chdb hangs in CI during tests
@@ -308,6 +311,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 access_key=self.credential.access_key,
                 access_secret=self.credential.access_secret,
                 context=placeholder_context,
+                table_size_mib=self.size_in_s3_mib,
             )
 
         except Exception as err:
