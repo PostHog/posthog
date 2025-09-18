@@ -623,6 +623,11 @@ class RootNode(RootNodeUIContextMixin):
         """
         model = self._get_model(state, config)
 
+        # Quickly skip the window check if there are less than 3 human messages.
+        human_messages = [message for message in window if isinstance(message, LangchainHumanMessage)]
+        if len(human_messages) < 3:
+            return None
+
         # Contains an async method in get_num_tokens_from_messages
         if model.get_num_tokens_from_messages(window, thinking=self.THINKING_CONFIG) > self.CONVERSATION_WINDOW_SIZE:
             trimmed_window: list[BaseMessage] = trim_messages(
