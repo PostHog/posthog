@@ -5,7 +5,6 @@ from pathlib import Path
 
 import structlog
 
-from ee.hogai.session_summaries.session.output_data import EnrichedKeyActionSerializer
 from posthog.session_recordings.models.metadata import RecordingMetadata
 from posthog.sync import database_sync_to_async
 
@@ -14,6 +13,7 @@ from ee.hogai.session_summaries.session.input_data import (
     get_session_events,
     get_session_metadata,
 )
+from ee.hogai.session_summaries.session.output_data import EnrichedKeyActionSerializer
 from ee.hogai.session_summaries.session.prompt_data import SessionSummaryPromptData
 from ee.hogai.session_summaries.utils import load_custom_template, shorten_url
 from ee.models.session_summaries import ExtraSummaryContext
@@ -149,14 +149,10 @@ def prepare_prompt_data(
 def generate_video_validation_prompt(event: EnrichedKeyActionSerializer) -> str:
     """Generate a prompt for validating a video"""
     template_dir = Path(__file__).parent / "templates" / "video-validation"
-    example = load_custom_template(template_dir, "example.yml")
     prompt = load_custom_template(
         template_dir,
         "prompt.djt",
-        {
-            "EVENT_DESCRIPTION": event.data["description"],
-            "OUTPUT_EXAMPLE": example,
-        },
+        {"EVENT_DESCRIPTION": event.data["description"]},
     )
     return prompt
 
