@@ -9,7 +9,7 @@ export enum OutputTab {
     Materialization = 'materialization',
 }
 
-interface OutputTabProps {
+export interface OutputTabProps {
     tabId: string
 }
 
