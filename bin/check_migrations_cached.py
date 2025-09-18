@@ -31,19 +31,50 @@ def get_migration_hash():
     hasher = hashlib.sha256()
     migration_files = []
 
-    # Find all migration files from project root
-    for root, dirs, _ in os.walk(PROJECT_ROOT):
-        # Skip virtual environments and node_modules
-        if "venv" in root or "node_modules" in root or ".flox" in root:
+    # Define known Django app directories to search
+    # This avoids scanning the entire project tree
+    django_app_dirs = [
+        "posthog",  # Main posthog app
+        "ee",  # Enterprise edition
+        "products",  # Products directory
+    ]
+
+    # Search only in Django app directories
+    for app_dir in django_app_dirs:
+        app_path = PROJECT_ROOT / app_dir
+        if not app_path.exists():
             continue
-        if "migrations" in dirs:
-            migration_dir = os.path.join(root, "migrations")
-            for file in os.listdir(migration_dir):
-                if file.endswith(".py") and not file.startswith("__"):
-                    filepath = os.path.join(migration_dir, file)
-                    migration_files.append(filepath)
-                    with open(filepath, "rb") as f:
-                        hasher.update(f.read())
+
+        for root, dirs, _ in os.walk(app_path):
+            # Prune directories we don't need to traverse
+            dirs[:] = [
+                d
+                for d in dirs
+                if not d.startswith(".")
+                and d
+                not in {
+                    "__pycache__",
+                    "node_modules",
+                    "venv",
+                    ".venv",
+                    "env",
+                    ".env",
+                    ".flox",
+                    ".mypy_cache",
+                    "target",
+                    "build",
+                    "dist",
+                }
+            ]
+
+            if "migrations" in dirs:
+                migration_dir = os.path.join(root, "migrations")
+                for file in os.listdir(migration_dir):
+                    if file.endswith(".py") and not file.startswith("__"):
+                        filepath = os.path.join(migration_dir, file)
+                        migration_files.append(filepath)
+                        with open(filepath, "rb") as f:
+                            hasher.update(f.read())
 
     return hasher.hexdigest(), len(migration_files)
 
