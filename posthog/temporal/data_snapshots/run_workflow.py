@@ -7,7 +7,6 @@ from django.db import transaction
 
 import pyarrow as pa
 import temporalio
-import asyncstdlib
 from clickhouse_driver.errors import ServerException
 from posthoganalytics import capture_exception
 from structlog.contextvars import bind_contextvars
@@ -163,19 +162,17 @@ async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> tuple[str,
 
     snapshot_ts = dt.datetime.now(dt.UTC).strftime("%Y-%m-%d %H:%M:%S.%f")
 
-    async for _, res in asyncstdlib.enumerate(
-        hogql_table(
-            f"""
-        SELECT
-            *,
-            {merge_key} AS _ph_merge_key,
-            toString(cityHash64(concatWithSeparator('_', {', '.join(stringified_hashed_columns)}))) AS _ph_row_hash,
-            toDateTime('{snapshot_ts}', 'UTC') AS _ph_snapshot_ts
-        FROM ({hogql_query})
-    """,
-            team,
-            logger,
-        )
+    async for res in hogql_table(
+        f"""
+                SELECT
+                    *,
+                    {merge_key} AS _ph_merge_key,
+                    toString(cityHash64(concatWithSeparator('_', {', '.join(stringified_hashed_columns)}))) AS _ph_row_hash,
+                    toDateTime('{snapshot_ts}', 'UTC') AS _ph_snapshot_ts
+                FROM ({hogql_query})
+            """,
+        team,
+        logger,
     ):
         batch, ch_types = res
         batch = _transform_unsupported_decimals(batch)
