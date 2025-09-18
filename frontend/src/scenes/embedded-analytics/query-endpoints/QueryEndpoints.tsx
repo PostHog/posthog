@@ -1,8 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconPageChart, IconPencil, IconStopFilled, IconTrash } from '@posthog/icons'
-
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -19,7 +17,6 @@ import { QueryEndpointType } from '~/types'
 
 import { EmbeddedTab } from '../common'
 import { queryEndpointsLogic } from './queryEndpointsLogic'
-import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 
 export function QueryEndpoints(): JSX.Element {
     return (

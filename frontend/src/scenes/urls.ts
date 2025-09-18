@@ -9,10 +9,10 @@ import { ActivityTab, AnnotationType, CommentType, OnboardingStepKey, ProductKey
 import type { BillingSectionId } from './billing/types'
 import { DataPipelinesNewSceneKind } from './data-pipelines/DataPipelinesNewScene'
 import type { DataPipelinesSceneTab } from './data-pipelines/DataPipelinesScene'
+import { OutputTab } from './data-warehouse/editor/outputPaneLogic'
 import type { DataWarehouseSourceSceneTab } from './data-warehouse/settings/DataWarehouseSourceScene'
 import type { HogFunctionSceneTab } from './hog-functions/HogFunctionScene'
 import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
-import { OutputTab } from './data-warehouse/editor/outputPaneLogic'
 
 /**
  * To add a new URL to the front end:
@@ -47,9 +47,15 @@ export const urls = {
     revenueSettings: (): string => '/data-management/revenue',
     marketingAnalytics: (): string => '/data-management/marketing-analytics',
     customCss: (): string => '/themes/custom-css',
-    sqlEditor: (query?: string, view_id?: string, insightShortId?: string, draftId?: string, outputTab?: OutputTab): string => {
+    sqlEditor: (
+        query?: string,
+        view_id?: string,
+        insightShortId?: string,
+        draftId?: string,
+        outputTab?: OutputTab
+    ): string => {
         const params = new URLSearchParams()
-        
+
         if (query) {
             params.set('open_query', query)
         } else if (view_id) {
@@ -59,11 +65,11 @@ export const urls = {
         } else if (draftId) {
             params.set('open_draft', draftId)
         }
-        
+
         if (outputTab) {
             params.set('output_tab', outputTab)
         }
-        
+
         const queryString = params.toString()
         return `/sql${queryString ? `?${queryString}` : ''}`
     },

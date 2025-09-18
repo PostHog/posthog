@@ -4,6 +4,16 @@ export interface QueryConfig {
     dateFrom: string
     dateTo: string
     requestNameBreakdownEnabled: boolean
+    requestNameFilter: string[]
+}
+
+const createRequestNameFilterClause = (requestNameFilter: string[]): string => {
+    if (requestNameFilter.length === 0) {
+        return ''
+    }
+
+    const escapedNames = requestNameFilter.map((name) => `'${name.replace(/'/g, "''")}'`).join(', ')
+    return `and name in (${escapedNames})`
 }
 
 export const createExpensiveQueriesColumns = (requestNameBreakdownEnabled: boolean): ChartAxis[] => {
@@ -76,7 +86,12 @@ export const createLast20QueriesColumns = (requestNameBreakdownEnabled: boolean)
         : baseColumns
 }
 
-export const createApiQueriesCountQuery = ({ dateFrom, dateTo, requestNameBreakdownEnabled }: QueryConfig): string => `
+export const createApiQueriesCountQuery = ({
+    dateFrom,
+    dateTo,
+    requestNameBreakdownEnabled,
+    requestNameFilter,
+}: QueryConfig): string => `
     select 
         event_date, 
         ${requestNameBreakdownEnabled ? 'name,' : ''} 
@@ -85,10 +100,16 @@ export const createApiQueriesCountQuery = ({ dateFrom, dateTo, requestNameBreakd
     where is_personal_api_key_request 
         and event_date >= '${dateFrom}' 
         and event_date <= '${dateTo}'
+        ${createRequestNameFilterClause(requestNameFilter)}
     group by event_date ${requestNameBreakdownEnabled ? ', name' : ''}
     order by event_date asc ${requestNameBreakdownEnabled ? ', name asc' : ''}`
 
-export const createApiReadTbQuery = ({ dateFrom, dateTo, requestNameBreakdownEnabled }: QueryConfig): string => `
+export const createApiReadTbQuery = ({
+    dateFrom,
+    dateTo,
+    requestNameBreakdownEnabled,
+    requestNameFilter,
+}: QueryConfig): string => `
     select 
         event_date, 
         ${requestNameBreakdownEnabled ? 'name,' : ''}
@@ -98,10 +119,16 @@ export const createApiReadTbQuery = ({ dateFrom, dateTo, requestNameBreakdownEna
         is_personal_api_key_request 
         and event_date >= '${dateFrom}' 
         and event_date <= '${dateTo}'
+        ${createRequestNameFilterClause(requestNameFilter)}
     group by event_date ${requestNameBreakdownEnabled ? ', name' : ''}
     order by event_date asc ${requestNameBreakdownEnabled ? ', name asc' : ''}`
 
-export const createApiCpuSecondsQuery = ({ dateFrom, dateTo, requestNameBreakdownEnabled }: QueryConfig): string => `
+export const createApiCpuSecondsQuery = ({
+    dateFrom,
+    dateTo,
+    requestNameBreakdownEnabled,
+    requestNameFilter,
+}: QueryConfig): string => `
     select 
         event_date, 
         ${requestNameBreakdownEnabled ? 'name,' : ''}
@@ -111,6 +138,7 @@ export const createApiCpuSecondsQuery = ({ dateFrom, dateTo, requestNameBreakdow
         is_personal_api_key_request 
         and event_date >= '${dateFrom}' 
         and event_date <= '${dateTo}'
+        ${createRequestNameFilterClause(requestNameFilter)}
     group by event_date ${requestNameBreakdownEnabled ? ', name' : ''}
     order by event_date asc ${requestNameBreakdownEnabled ? ', name asc' : ''}`
 
@@ -127,7 +155,12 @@ export const createApiQueriesPerKeyQuery = ({ dateFrom, dateTo }: QueryConfig): 
     group by event_date, api_key_label
     order by event_date`
 
-export const createLast20QueriesQuery = ({ dateFrom, dateTo, requestNameBreakdownEnabled }: QueryConfig): string => `
+export const createLast20QueriesQuery = ({
+    dateFrom,
+    dateTo,
+    requestNameBreakdownEnabled,
+    requestNameFilter,
+}: QueryConfig): string => `
     select 
         event_time as finished_at, 
         ${requestNameBreakdownEnabled ? 'name,' : ''}
@@ -140,10 +173,16 @@ export const createLast20QueriesQuery = ({ dateFrom, dateTo, requestNameBreakdow
         is_personal_api_key_request
         and event_date >= '${dateFrom}'
         and event_date <= '${dateTo}'
+        ${createRequestNameFilterClause(requestNameFilter)}
     order by event_time desc
     limit 20`
 
-export const createExpensiveQueriesQuery = ({ dateFrom, dateTo, requestNameBreakdownEnabled }: QueryConfig): string => `
+export const createExpensiveQueriesQuery = ({
+    dateFrom,
+    dateTo,
+    requestNameBreakdownEnabled,
+    requestNameFilter,
+}: QueryConfig): string => `
     select 
         query_start_time, 
         ${requestNameBreakdownEnabled ? 'name,' : ''}
@@ -159,5 +198,6 @@ export const createExpensiveQueriesQuery = ({ dateFrom, dateTo, requestNameBreak
         is_personal_api_key_request
         and event_date >= '${dateFrom}'
         and event_date <= '${dateTo}'
+        ${createRequestNameFilterClause(requestNameFilter)}
     order by read_tb desc
     limit 25`

@@ -48,7 +48,7 @@ import { draftsLogic } from './draftsLogic'
 import { editorSceneLogic } from './editorSceneLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import type { multitabEditorLogicType } from './multitabEditorLogicType'
-import { outputPaneLogic, OutputTab } from './outputPaneLogic'
+import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import {
     aiSuggestionOnAccept,
     aiSuggestionOnAcceptText,

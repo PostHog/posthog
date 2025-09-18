@@ -71,10 +71,7 @@ export const queryEndpointsLogic = kea<queryEndpointsLogicType>([
         ],
     })),
     selectors({
-        isEmpty: [
-            (s) => [s.queryEndpoints],
-            (queryEndpoints) => queryEndpoints.length === 0,
-        ],
+        isEmpty: [(s) => [s.queryEndpoints], (queryEndpoints) => queryEndpoints.length === 0],
     }),
     reducers({
         filters: [
