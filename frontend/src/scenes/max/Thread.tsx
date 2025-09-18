@@ -111,16 +111,14 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                     <MessageGroupSkeleton groupType="human" className="opacity-5" />
                 </>
             ) : threadGrouped.length > 0 ? (
-                <>
-                    {threadGrouped.map((group: ThreadMessage[], index: number) => (
-                        <MessageGroup
-                            // Reset the components when the thread changes
-                            key={`${conversationId}-${index}`}
-                            messages={group}
-                            isFinal={index === threadGrouped.length - 1}
-                        />
-                    ))}
-                </>
+                threadGrouped.map((group: ThreadMessage[], index: number) => (
+                    <MessageGroup
+                        // Reset the components when the thread changes
+                        key={`${conversationId}-${index}`}
+                        messages={group}
+                        isFinal={index === threadGrouped.length - 1}
+                    />
+                ))
             ) : (
                 conversationId && (
                     <div className="flex flex-1 items-center justify-center">
@@ -516,7 +514,7 @@ function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Eleme
                     <IconCheck className="text-success size-4" />
                     <span>A notebook has been updated</span>
                 </div>
-                <LemonButton onClick={() => handleOpenNotebook()} size="xsmall" type="primary" icon={<IconOpenInNew />}>
+                <LemonButton onClick={handleOpenNotebook} size="xsmall" type="primary" icon={<IconOpenInNew />}>
                     Open notebook
                 </LemonButton>
             </div>
