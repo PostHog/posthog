@@ -6,7 +6,6 @@ import { LemonButton, LemonDialog, Link } from '@posthog/lemon-ui'
 
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconHeatmap } from 'lib/lemon-ui/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
@@ -14,7 +13,6 @@ import { SettingsBar, SettingsButton, SettingsMenu } from 'scenes/session-record
 import { PlayerInspectorButton } from 'scenes/session-recordings/player/player-meta/PlayerInspectorButton'
 import {
     PLAYBACK_SPEEDS,
-    SessionRecordingPlayerMode,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
@@ -118,20 +116,18 @@ function TTLWarning(): JSX.Element | null {
 
 export function PlayerMetaTopSettings({ playerIsHovering }: { playerIsHovering?: boolean }): JSX.Element {
     const {
-        logicProps: { noInspector, mode },
+        logicProps: { noInspector },
+        hoverModeIsEnabled,
     } = useValues(sessionRecordingPlayerLogic)
     const { setPause, openHeatmap } = useActions(sessionRecordingPlayerLogic)
-
-    // we don't want the hover UI in sharing mode where users might not be used to the player and be confused by no chrome
-    const hoverUIEnabled = useFeatureFlag('REPLAY_HOVER_UI', 'test') && mode === SessionRecordingPlayerMode.Standard
 
     return (
         <div
             className={cn(
-                hoverUIEnabled ? 'absolute top-full left-0 right-0 z-10 transition-all duration-150 ease-out' : '',
-                hoverUIEnabled && playerIsHovering
+                hoverModeIsEnabled ? 'absolute top-full left-0 right-0 z-10 transition-all duration-150 ease-out' : '',
+                hoverModeIsEnabled && playerIsHovering
                     ? 'opacity-100 pointer-events-auto'
-                    : hoverUIEnabled
+                    : hoverModeIsEnabled
                       ? 'opacity-0 pointer-events-none'
                       : ''
             )}

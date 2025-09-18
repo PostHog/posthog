@@ -244,43 +244,43 @@ export function DashboardHeader(): JSX.Element | null {
                                 </>
                             )}
                             {dashboard ? (
-                                <LemonButton
-                                    accessControl={{
-                                        resourceType: AccessControlResourceType.Dashboard,
-                                        minAccessLevel: AccessControlLevel.Editor,
-                                        userAccessLevel: dashboard.user_access_level,
-                                    }}
-                                    onClick={showAddInsightToDashboardModal}
-                                    type="primary"
-                                    data-attr="dashboard-add-graph-header"
-                                    sideAction={{
-                                        dropdown: {
-                                            placement: 'bottom-end',
-                                            overlay: (
-                                                <>
-                                                    <LemonButton
-                                                        accessControl={{
-                                                            resourceType: AccessControlResourceType.Dashboard,
-                                                            minAccessLevel: AccessControlLevel.Editor,
-                                                            userAccessLevel: dashboard.user_access_level,
-                                                        }}
-                                                        fullWidth
-                                                        onClick={() => {
-                                                            push(urls.dashboardTextTile(dashboard.id, 'new'))
-                                                        }}
-                                                        data-attr="add-text-tile-to-dashboard"
-                                                    >
-                                                        Add text card
-                                                    </LemonButton>
-                                                </>
-                                            ),
-                                        },
-                                        disabled: false,
-                                        'data-attr': 'dashboard-add-dropdown',
-                                    }}
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.Dashboard}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                    userAccessLevel={dashboard.user_access_level}
                                 >
-                                    Add insight
-                                </LemonButton>
+                                    <LemonButton
+                                        onClick={showAddInsightToDashboardModal}
+                                        type="primary"
+                                        data-attr="dashboard-add-graph-header"
+                                        sideAction={{
+                                            dropdown: {
+                                                placement: 'bottom-end',
+                                                overlay: (
+                                                    <AccessControlAction
+                                                        resourceType={AccessControlResourceType.Dashboard}
+                                                        minAccessLevel={AccessControlLevel.Editor}
+                                                        userAccessLevel={dashboard.user_access_level}
+                                                    >
+                                                        <LemonButton
+                                                            fullWidth
+                                                            onClick={() => {
+                                                                push(urls.dashboardTextTile(dashboard.id, 'new'))
+                                                            }}
+                                                            data-attr="add-text-tile-to-dashboard"
+                                                        >
+                                                            Add text card
+                                                        </LemonButton>
+                                                    </AccessControlAction>
+                                                ),
+                                            },
+                                            disabled: false,
+                                            'data-attr': 'dashboard-add-dropdown',
+                                        }}
+                                    >
+                                        Add insight
+                                    </LemonButton>
+                                </AccessControlAction>
                             ) : null}
                         </>
                     )

@@ -139,7 +139,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
             resource_attributes,
             instrumentation_scope,
             event_name
-            FROM logs
+            FROM logs, time_bucket_cte
         """
         )
         assert isinstance(query, ast.SelectQuery)
@@ -153,7 +153,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
         count_query = parse_select(
             f"""
             SELECT
-                [{min_or_max_if}(time_bucket, cumulative_count == 0), {min_or_max_if}(time_bucket, cumulative_count == {{limit}}) + toIntervalMinute(10)] AS time_buckets
+                arraySort([{min_or_max_if}(time_bucket, cumulative_count == 0) + toIntervalMinute({{offset_desc}}), {min_or_max_if}(time_bucket, cumulative_count == {{limit}}) + toIntervalMinute({{offset_asc}})]) AS time_buckets
             FROM
             (
                 WITH cumulative_counts AS
@@ -176,6 +176,8 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
         """,
             placeholders={
                 "limit": limit_ast,
+                "offset_desc": ast.Constant(value=10 if order_dir == "DESC" else 0),
+                "offset_asc": ast.Constant(value=10 if order_dir == "ASC" else 0),
                 "min_limit": limit_ast if order_dir == "ASC" else ast.Constant(value=0),
                 "max_limit": limit_ast if order_dir == "DESC" else ast.Constant(value=0),
                 "date_from": ast.Constant(value=self.query_date_range.date_from()),
@@ -185,26 +187,18 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse]):
 
         # this query always parses the same so safe to ignore typing
         count_query.select_from.table.initial_select_query.ctes["cumulative_counts"].expr.where = self.where()  # type: ignore
+        query.ctes = {"time_bucket_cte": ast.CTE(name="time_buckets", cte_type="column", expr=count_query)}
 
         query.where = ast.And(
             exprs=[
                 self.where(),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.GtEq,
-                    left=ast.Field(chain=["timestamp"]),
-                    right=ast.ArrayAccess(array=count_query, property=ast.Constant(value=1)),
-                ),
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Lt,
-                    left=ast.Field(chain=["timestamp"]),
-                    right=ast.ArrayAccess(array=count_query, property=ast.Constant(value=2)),
-                ),
+                parse_expr("timestamp >= time_bucket_cte[1]"),
+                parse_expr("timestamp < time_bucket_cte[2]"),
             ]
         )
         query.order_by = [
             parse_order_expr(f"toUnixTimestamp(timestamp) {order_dir}"),
         ]
-
         return query
 
     def where(self):
