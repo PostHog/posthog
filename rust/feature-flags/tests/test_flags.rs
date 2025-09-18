@@ -1551,7 +1551,7 @@ async fn test_complex_regex_and_name_match_flag() -> Result<()> {
         expected: json!({
             "errorsWhileComputingFlags": false,
             "featureFlags": {
-                "complex-flag": "test"  // Should get "test" variant due to name match
+                "complex-flag": "control"  // First condition matches (regex on created_at), gets control from multivariate
             }
         })
     );

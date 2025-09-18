@@ -133,7 +133,7 @@ export const newTabSceneLogic = kea<newTabSceneLogicType>([
                 const queryTree: ItemsGridItem[] = [
                     {
                         category: 'Create new insight',
-                        types: [{ name: 'SQL editor', icon: <IconDatabase />, href: '/sql' }, ...newInsightItems],
+                        types: [{ name: 'SQL query', icon: <IconDatabase />, href: '/sql' }, ...newInsightItems],
                     },
                     {
                         category: 'Create new ...',
