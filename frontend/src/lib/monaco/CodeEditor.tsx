@@ -305,20 +305,19 @@ export function CodeEditor({
 
     if (originalValue) {
         // If originalValue is provided, we render a diff editor instead
-        const diffEditorOnMount = (editor: any, monaco: Monaco): void => {
-            setMonacoAndEditor([monaco, editor])
+        const diffEditorOnMount = (diff: importedEditor.IStandaloneDiffEditor, monaco: Monaco): void => {
+            const modifiedEditor = diff.getModifiedEditor()
+            setMonacoAndEditor([monaco, modifiedEditor])
 
-            // Get the modified editor from the diff editor and set up change listener
-            const modifiedEditor = editor.getModifiedEditor()
-            if (modifiedEditor && editorProps.onChange) {
-                modifiedEditor.onDidChangeModelContent((event: any) => {
-                    const currentValue = modifiedEditor.getValue()
-                    editorProps.onChange?.(currentValue, event)
+            if (editorProps.onChange) {
+                const disposable = modifiedEditor.onDidChangeModelContent((event: editor.IModelContentChangedEvent) => {
+                    editorProps.onChange?.(modifiedEditor.getValue(), event)
                 })
+                monacoDisposables.current.push(disposable)
             }
 
-            // Call the original onMount if provided
-            onMount?.(editor, monaco)
+            // Keep onMount signature consistent with single-editor: pass the modified editor
+            onMount?.(modifiedEditor, monaco)
         }
 
         return (
