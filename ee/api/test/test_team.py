@@ -22,6 +22,7 @@ from posthog.models.team.team_caching import get_team_in_cache
 from posthog.models.user import User
 
 from ee.api.test.base import APILicensedTest
+from ee.models.rbac.access_control import AccessControl
 
 
 def team_enterprise_api_test_factory():  # type: ignore
@@ -381,10 +382,17 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
     def test_list_teams_restricted_ones_hidden(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
-        Team.objects.create(
+        other_team = Team.objects.create(
             organization=self.organization,
             name="Other",
-            access_control=True,
+        )
+
+        # Set up new access control system - restrict project to no default access
+        AccessControl.objects.create(
+            team=other_team,
+            access_level="none",
+            resource="project",
+            resource_id=str(other_team.id),
         )
 
         # The other team should not be returned as it's restricted for the logged-in user

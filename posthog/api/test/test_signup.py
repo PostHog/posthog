@@ -26,6 +26,7 @@ from posthog.models.organization_invite import OrganizationInvite
 from posthog.utils import get_instance_realm
 
 from ee.models.explicit_team_membership import ExplicitTeamMembership
+from ee.models.rbac.access_control import AccessControl
 
 MOCK_GITLAB_SSO_RESPONSE = {
     "access_token": "123",
@@ -716,15 +717,13 @@ class TestSignupAPI(APIBaseTest):
         new_project = Team.objects.create(organization=new_org, name="My First Project")
 
         if use_invite:
-            private_project: Team = Team.objects.create(
-                organization=new_org, name="Private Project", access_control=True
-            )
+            private_project: Team = Team.objects.create(organization=new_org, name="Private Project")
             invite = OrganizationInvite.objects.create(
                 target_email="jane@hogflix.posthog.com",
                 organization=new_org,
                 first_name="Jane",
                 level=OrganizationMembership.Level.MEMBER,
-                private_project_access=[{"id": private_project.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+                private_project_access=[{"id": private_project.id, "level": "admin"}],
             )
             if expired_invite:
                 invite.created_at = timezone.now() - timedelta(days=30)  # Set invite to 30 days old
@@ -1306,8 +1305,13 @@ class TestInviteSignupAPI(APIBaseTest):
             {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
         ]
         self.organization.save()
-        self.team.access_control = True
-        self.team.save()
+
+        AccessControl.objects.create(
+            team=self.team,
+            access_level="none",
+            resource="project",
+            resource_id=str(self.team.id),
+        )
 
         response = self.client.post(
             f"/api/signup/{invite.id}/",
@@ -1325,9 +1329,16 @@ class TestInviteSignupAPI(APIBaseTest):
 
     def test_api_invite_sign_up_where_default_project_is_private(self):
         self.client.logout()
-        self.team.access_control = True
-        self.team.save()
-        team = Team.objects.create(name="Public project", organization=self.organization, access_control=False)
+
+        # Restrict original team
+        AccessControl.objects.create(
+            team=self.team,
+            access_level="none",
+            resource="project",
+            resource_id=str(self.team.id),
+        )
+        # Create unrestricted team (no access control = default member access)
+        team = Team.objects.create(name="Public project", organization=self.organization)
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+privatepublic@posthog.com",
             organization=self.organization,
@@ -1349,14 +1360,18 @@ class TestInviteSignupAPI(APIBaseTest):
             {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
         ]
         self.organization.save()
-        private_project = Team.objects.create(
-            name="Private project", organization=self.organization, access_control=True
+        private_project = Team.objects.create(name="Private project", organization=self.organization)
+        AccessControl.objects.create(
+            team=private_project,
+            access_level="none",
+            resource="project",
+            resource_id=str(private_project.id),
         )
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+privatepublic@posthog.com",
             level=OrganizationMembership.Level.MEMBER,
             organization=self.organization,
-            private_project_access=[{"id": private_project.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+            private_project_access=[{"id": private_project.id, "level": "admin"}],
         )
         response = self.client.post(
             f"/api/signup/{invite.id}/",
@@ -1382,14 +1397,18 @@ class TestInviteSignupAPI(APIBaseTest):
             {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
         ]
         self.organization.save()
-        private_project = Team.objects.create(
-            name="Private project", organization=self.organization, access_control=True
+        private_project = Team.objects.create(name="Private project", organization=self.organization)
+        AccessControl.objects.create(
+            team=private_project,
+            access_level="none",
+            resource="project",
+            resource_id=str(private_project.id),
         )
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+privatepublic@posthog.com",
             level=OrganizationMembership.Level.MEMBER,
             organization=self.organization,
-            private_project_access=[{"id": private_project.id, "level": ExplicitTeamMembership.Level.ADMIN}],
+            private_project_access=[{"id": private_project.id, "level": "admin"}],
         )
         private_project.delete()
         assert not Team.objects.filter(pk=private_project.pk).exists()

@@ -292,12 +292,28 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.organization.available_product_features = []
         self.organization.save()
-        self.team.access_control = True
-        self.team.save()
+
+        # Set up restricted access (equivalent of old access_control)
+        AccessControl.objects.create(
+            team=self.team,
+            access_level="none",
+            resource="project",
+            resource_id=str(self.team.id),
+        )
 
         user_with_collaboration = User.objects.create_and_join(
             self.organization, "no-collaboration-feature@posthog.com", None
         )
+
+        # Grant access to the new user
+        AccessControl.objects.create(
+            team=self.team,
+            access_level="member",
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=user_with_collaboration.organization_memberships.first(),
+        )
+
         self.client.force_login(user_with_collaboration)
 
         with self.assertNumQueries(9):
