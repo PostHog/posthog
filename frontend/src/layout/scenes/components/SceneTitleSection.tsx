@@ -59,6 +59,12 @@ type SceneMainTitleProps = {
      */
     renameDebounceMs?: number
     /**
+     * If true, saves only on blur (when leaving the field)
+     * If false, saves on every change (debounced) - original behavior
+     * @default false
+     */
+    saveOnBlur?: boolean
+    /**
      * If true, the actions from PageHeader will be shown
      * @default false
      */
@@ -81,6 +87,7 @@ export function SceneTitleSection({
     canEdit = false,
     forceEdit = false,
     renameDebounceMs,
+    saveOnBlur = false,
     actions = true,
     forceBackTo,
 }: SceneMainTitleProps): JSX.Element | null {
@@ -124,6 +131,7 @@ export function SceneTitleSection({
                             canEdit={canEdit}
                             forceEdit={forceEdit}
                             renameDebounceMs={renameDebounceMs}
+                            saveOnBlur={saveOnBlur}
                         />
                     </div>
                     {/* If we're not showing breadcrumbs, we want to show the actions inline with the title */}
@@ -141,6 +149,7 @@ export function SceneTitleSection({
                             canEdit={canEdit}
                             forceEdit={forceEdit}
                             renameDebounceMs={renameDebounceMs}
+                            saveOnBlur={saveOnBlur}
                         />
                     </div>
                 )}
@@ -156,6 +165,7 @@ type SceneNameProps = {
     canEdit?: boolean
     forceEdit?: boolean
     renameDebounceMs?: number
+    saveOnBlur?: boolean
 }
 
 function SceneName({
@@ -165,6 +175,7 @@ function SceneName({
     canEdit = false,
     forceEdit = false,
     renameDebounceMs = 100,
+    saveOnBlur = false,
 }: SceneNameProps): JSX.Element {
     const [name, setName] = useState(initialName)
     const [isEditing, setIsEditing] = useState(forceEdit)
@@ -192,6 +203,12 @@ function SceneName({
         }
     }, renameDebounceMs)
 
+    const debouncedOnChange = useDebouncedCallback((value: string) => {
+        if (onChange) {
+            onChange(value)
+        }
+    }, renameDebounceMs)
+
     // If onBlur is provided, we want to show a button that allows the user to edit the name
     // Otherwise, we want to show the name as a text
     const Element =
@@ -204,6 +221,9 @@ function SceneName({
                         value={name || ''}
                         onChange={(e) => {
                             setName(e.target.value)
+                            if (!saveOnBlur) {
+                                debouncedOnChange(e.target.value)
+                            }
                         }}
                         data-attr="scene-title-textarea"
                         className={cn(
@@ -216,8 +236,8 @@ function SceneName({
                         )}
                         placeholder="Enter name"
                         onBlur={() => {
-                            // Save changes when leaving the field (debounced)
-                            if (name !== initialName) {
+                            // Save changes when leaving the field (only if saveOnBlur is true)
+                            if (saveOnBlur && name !== initialName) {
                                 debouncedOnBlurSave(name || '')
                             }
                             // Exit edit mode if not forced
@@ -277,6 +297,7 @@ type SceneDescriptionProps = {
     canEdit?: boolean
     forceEdit?: boolean
     renameDebounceMs?: number
+    saveOnBlur?: boolean
 }
 
 function SceneDescription({
@@ -287,6 +308,7 @@ function SceneDescription({
     canEdit = false,
     forceEdit = false,
     renameDebounceMs = 100,
+    saveOnBlur = false,
 }: SceneDescriptionProps): JSX.Element | null {
     const [description, setDescription] = useState(initialDescription)
     const [isEditing, setIsEditing] = useState(forceEdit)
@@ -315,6 +337,12 @@ function SceneDescription({
         }
     }, renameDebounceMs)
 
+    const debouncedOnDescriptionChange = useDebouncedCallback((value: string) => {
+        if (onChange) {
+            onChange(value)
+        }
+    }, renameDebounceMs)
+
     const Element =
         onChange && canEdit ? (
             <>
@@ -325,6 +353,9 @@ function SceneDescription({
                         value={description || ''}
                         onChange={(e) => {
                             setDescription(e.target.value)
+                            if (!saveOnBlur) {
+                                debouncedOnDescriptionChange(e.target.value)
+                            }
                         }}
                         data-attr="scene-description-textarea"
                         className={cn(
@@ -338,8 +369,8 @@ function SceneDescription({
                         markdown={markdown}
                         placeholder={emptyText}
                         onBlur={() => {
-                            // Save changes when leaving the field (debounced)
-                            if (description !== initialDescription) {
+                            // Save changes when leaving the field (only if saveOnBlur is true)
+                            if (saveOnBlur && description !== initialDescription) {
                                 debouncedOnBlurSaveDescription(description || '')
                             }
                             // Exit edit mode if not forced
