@@ -3275,6 +3275,7 @@ class AssistantMessageMetadata(BaseModel):
         extra="forbid",
     )
     form: Optional[AssistantForm] = None
+    thinking: Optional[list[dict[str, Any]]] = None
 
 
 class AssistantNumericValuePropertyFilter(BaseModel):

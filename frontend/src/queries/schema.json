@@ -1520,6 +1520,13 @@
             "properties": {
                 "form": {
                     "$ref": "#/definitions/AssistantForm"
+                },
+                "thinking": {
+                    "items": {
+                        "additionalProperties": {},
+                        "type": "object"
+                    },
+                    "type": "array"
                 }
             },
             "type": "object"

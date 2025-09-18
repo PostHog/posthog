@@ -1,7 +1,7 @@
 import re
 import json
 import math
-from typing import Literal, Optional, TypeVar, cast
+from typing import Any, Literal, Optional, TypeVar, cast
 from uuid import uuid4
 
 from django.conf import settings
@@ -46,13 +46,18 @@ from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor,
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
-from ee.hogai.utils.anthropic import normalize_ai_anthropic_message
+from ee.hogai.utils.anthropic import (
+    add_cache_control,
+    get_thinking_from_assistant_message,
+    normalize_ai_anthropic_message,
+)
 from ee.hogai.utils.helpers import find_last_ui_context
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantNodeName, BaseState, BaseStateWithMessages, InsightQuery
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
+    MAX_PERSONALITY_PROMPT,
     ROOT_BILLING_CONTEXT_ERROR_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
@@ -312,6 +317,10 @@ class RootNode(RootNodeUIContextMixin):
     """
     Determines the maximum number of tokens allowed in the conversation window.
     """
+    THINKING_CONFIG = {"type": "enabled", "budget_tokens": 1024}
+    """
+    Determines the thinking configuration for the model.
+    """
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         from ee.hogai.tool import get_contextual_tool_class
@@ -342,54 +351,42 @@ class RootNode(RootNodeUIContextMixin):
                 flags=re.DOTALL,
             )
 
-        prompt = (
-            ChatPromptTemplate.from_messages(
-                [
-                    ("system", system_prompt_template),
-                    (
-                        "system",
-                        CORE_MEMORY_PROMPT
-                        + "\nNew memories will automatically be added to the core memory as the conversation progresses. "
-                        + " If users ask to save, update, or delete the core memory, say you have done it."
-                        + " If the '/remember [information]' command is used, the information gets appended verbatim to core memory.",
-                    ),
-                    *[
-                        (
-                            "system",
-                            f"<{tool_name}>\n"
-                            f"{get_contextual_tool_class(tool_name)(team=self._team, user=self._user).format_system_prompt_injection(tool_context)}\n"  # type: ignore
-                            f"</{tool_name}>",
-                        )
-                        for tool_name, tool_context in self._get_contextual_tools(config).items()
-                        if get_contextual_tool_class(tool_name) is not None
-                    ],
-                ],
-                template_format="mustache",
-            )
-            + history
-        )
-
         ui_context = self._format_ui_context(self._get_ui_context(state), config)
         should_add_billing_tool, billing_context_prompt = self._get_billing_info(config)
 
-        chain = prompt | self._get_model(
-            state, config, extra_tools=["retrieve_billing_information"] if should_add_billing_tool else []
+        system_prompts = ChatPromptTemplate.from_messages(
+            [
+                ("system", system_prompt_template),
+                (
+                    "system",
+                    CORE_MEMORY_PROMPT
+                    + "\nNew memories will automatically be added to the core memory as the conversation progresses. "
+                    + " If users ask to save, update, or delete the core memory, say you have done it."
+                    + " If the '/remember [information]' command is used, the information gets appended verbatim to core memory.",
+                ),
+                *[
+                    (
+                        "system",
+                        f"<{tool_name}>\n"
+                        f"{get_contextual_tool_class(tool_name)(team=self._team, user=self._user).format_system_prompt_injection(tool_context)}\n"  # type: ignore
+                        f"</{tool_name}>",
+                    )
+                    for tool_name, tool_context in self._get_contextual_tools(config).items()
+                    if get_contextual_tool_class(tool_name) is not None
+                ],
+            ],
+            template_format="mustache",
+        ).format_messages(
+            personality_prompt=MAX_PERSONALITY_PROMPT,
+            core_memory=self.core_memory_text,
+            ui_context=ui_context,
+            billing_context=billing_context_prompt,
         )
+        add_cache_control(system_prompts[-1])
 
-        message = chain.invoke(
-            {
-                "core_memory": self.core_memory_text,
-                "project_datetime": self.project_now,
-                "project_timezone": self.project_timezone,
-                "project_name": self._team.name,
-                "organization_name": self._team.organization.name,
-                "user_full_name": self._user.get_full_name(),
-                "user_email": self._user.email,
-                "ui_context": ui_context,
-                "billing_context": billing_context_prompt,
-            },
-            config,
-        )
+        message = self._get_model(
+            state, config, extra_tools=["retrieve_billing_information"] if should_add_billing_tool else []
+        ).invoke(system_prompts + history, config)
 
         return PartialAssistantState(
             root_conversation_start_id=new_window_id,
@@ -467,6 +464,9 @@ class RootNode(RootNodeUIContextMixin):
             stream_usage=True,
             user=self._user,
             team=self._team,
+            betas=["interleaved-thinking-2025-05-14"],
+            # max_tokens=8192,
+            thinking=self.THINKING_CONFIG,
         )
 
         # The agent can now be in loops. Since insight building is an expensive operation, we want to limit a recursion depth.
@@ -538,16 +538,23 @@ class RootNode(RootNodeUIContextMixin):
                     LangchainHumanMessage(content=[{"type": "text", "text": message.content}], id=message.id)
                 )
             elif isinstance(message, AssistantMessage):
+                content = get_thinking_from_assistant_message(message)
+                if message.content:
+                    content.append({"type": "text", "text": message.content})
+
                 # Filter out tool calls without a tool response, so the completion doesn't fail.
                 tool_calls = [
                     tool for tool in (message.model_dump()["tool_calls"] or []) if tool["id"] in tool_result_messages
                 ]
 
-                history.append(
-                    LangchainAIMessage(
-                        content=[{"type": "text", "text": message.content}], tool_calls=tool_calls, id=message.id
+                if content or tool_calls:
+                    history.append(
+                        LangchainAIMessage(
+                            content=cast(list[str | dict[str, Any]], content),
+                            tool_calls=tool_calls,
+                            id=message.id,
+                        )
                     )
-                )
 
                 # Append associated tool call messages.
                 for tool_call in tool_calls:
@@ -571,14 +578,14 @@ class RootNode(RootNodeUIContextMixin):
 
         # Append a single cache control to the last human message or last tool message
         for i in range(len(history) - 1, -1, -1):
-            content = history[i].content
+            maybe_content_arr = history[i].content
             if (
                 isinstance(history[i], LangchainHumanMessage | LangchainAIMessage)
-                and isinstance(content, list)
-                and len(content) > 0
-                and isinstance(content[-1], dict)
+                and isinstance(maybe_content_arr, list)
+                and len(maybe_content_arr) > 0
+                and isinstance(maybe_content_arr[-1], dict)
             ):
-                content[-1]["cache_control"] = {"type": "ephemeral"}
+                maybe_content_arr[-1]["cache_control"] = {"type": "ephemeral"}
                 break
 
         return history
@@ -616,7 +623,8 @@ class RootNode(RootNodeUIContextMixin):
         """
         model = self._get_model(state, config)
 
-        if model.get_num_tokens_from_messages(window) > self.CONVERSATION_WINDOW_SIZE:
+        # Contains an async method in get_num_tokens_from_messages
+        if model.get_num_tokens_from_messages(window, thinking=self.THINKING_CONFIG) > self.CONVERSATION_WINDOW_SIZE:
             trimmed_window: list[BaseMessage] = trim_messages(
                 window,
                 token_counter=model,
