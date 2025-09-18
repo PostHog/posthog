@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { useEffect, useMemo, useState } from 'react'
 
 import { IconExternal, IconGitRepository, IconMagicWand } from '@posthog/icons'
@@ -25,6 +26,8 @@ export function IssueAIFix(): JSX.Element {
     const [showPRsPopover, setShowPRsPopover] = useState(false)
     const { integrationId, repository, fixStatus } = useValues(fixWithAiLogic)
     const { generateFix } = useActions(fixWithAiLogic)
+
+    const client = posthog.init('phc_VXlGk6yOu3agIn0h7lTmSOECAGWCtJonUJDAN4CexlJ')
 
     // Mock pull requests - replace with actual data when available
     const pullRequests: PullRequest[] = useMemo(
@@ -130,6 +133,7 @@ export function IssueAIFix(): JSX.Element {
                             variant="outline"
                             size="xxs"
                             className="text-xs text-muted-alt hover:text-default transition-colors"
+                            onClick={() => client.capture('error_tracking_fix_with_ai_open_pr_button_clicked')}
                         >
                             See related pull requests ({pullRequests.length})
                         </ButtonPrimitive>

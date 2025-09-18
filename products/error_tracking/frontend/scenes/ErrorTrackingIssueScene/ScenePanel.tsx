@@ -23,7 +23,7 @@ import { AssigneeIconDisplay, AssigneeLabelDisplay } from '../../components/Assi
 import { AssigneeSelect } from '../../components/Assignee/AssigneeSelect'
 import { ExternalReferences } from '../../components/ExternalReferences'
 import { StatusIndicator } from '../../components/Indicators'
-import { IssueAIFix } from '../../components/IssueAIFix'
+import { IssueAIFix } from '../../components/IssueAIFix/IssueAIFix'
 import { IssueTasks } from '../../components/IssueTasks'
 import { errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
 
@@ -58,7 +58,7 @@ export const ErrorTrackingIssueScenePanel = (): JSX.Element | null => {
             <IssueExternalReference />
             {hasTasks && <IssueTasks />}
             <SceneActivityIndicator at={issue.first_seen} prefix="First seen" />
-            <IssueAIFixSection />
+            <IssueAIAssistantSection />
 
             {/* Add a div here to break out of the gap-2 */}
             <div>
@@ -168,7 +168,7 @@ const IssueExternalReference = (): JSX.Element => {
     )
 }
 
-const IssueAIFixSection = (): JSX.Element => {
+const IssueAIAssistantSection = (): JSX.Element => {
     return (
         <ScenePanelLabel title="AI Assistant">
             <IssueAIFix />
