@@ -2,11 +2,16 @@ import { actions, kea, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { ExperimentMetricTimeseries, ExperimentQueryResponse } from 'queries/schema/schema-general'
+
+import {
+    ExperimentMetricTimeseries,
+    ExperimentQueryResponse,
+    ExperimentVariantResultBayesian,
+    ExperimentVariantResultFrequentist,
+} from '~/queries/schema/schema-general'
 
 import { getVariantInterval } from './MetricsView/shared/utils'
 import type { experimentTimeseriesLogicType } from './experimentTimeseriesLogicType'
-
 
 export interface ProcessedTimeseriesDataPoint {
     date: string
@@ -70,48 +75,56 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                 timeseries: ExperimentMetricTimeseries | null
             ): ((variantKey: string) => ProcessedTimeseriesDataPoint[]) => {
                 return (variantKey: string) => {
-                    if (!timeseries?.timeseries || (timeseries.status !== 'completed' && timeseries.status !== 'partial')) {
+                    if (
+                        !timeseries?.timeseries ||
+                        (timeseries.status !== 'completed' && timeseries.status !== 'partial')
+                    ) {
                         return []
                     }
 
                     const timeseriesData = Object.entries(timeseries.timeseries).map(([date, data]) => ({
                         date,
-                        ...data,
+                        ...(data as ExperimentQueryResponse),
                     }))
 
                     const sortedTimeseriesData = timeseriesData.sort((a, b) => a.date.localeCompare(b.date))
 
                     // Extract data for the specific variant
-                    const rawProcessedData = sortedTimeseriesData.map((d: { date: string } & ExperimentQueryResponse) => {
-                        if (d.variant_results && d.baseline) {
-                            const variant = d.variant_results.find((v) => v.key === variantKey)
-                            const baseline = d.baseline
+                    const rawProcessedData = sortedTimeseriesData.map(
+                        (d: { date: string } & ExperimentQueryResponse) => {
+                            if (d.variant_results && d.baseline) {
+                                const variant = d.variant_results.find(
+                                    (v: ExperimentVariantResultFrequentist | ExperimentVariantResultBayesian) =>
+                                        v.key === variantKey
+                                )
+                                const baseline = d.baseline
 
-                            if (variant && baseline) {
-                                const interval = getVariantInterval(variant)
-                                const [lower, upper] = interval || [0, 0]
-                                const delta = (lower + upper) / 2
+                                if (variant && baseline) {
+                                    const interval = getVariantInterval(variant)
+                                    const [lower, upper] = interval || [0, 0]
+                                    const delta = (lower + upper) / 2
 
-                                return {
-                                    date: d.date,
-                                    value: delta,
-                                    upper_bound: upper,
-                                    lower_bound: lower,
-                                    hasRealData: true,
-                                    number_of_samples: variant.number_of_samples,
+                                    return {
+                                        date: d.date,
+                                        value: delta,
+                                        upper_bound: upper,
+                                        lower_bound: lower,
+                                        hasRealData: true,
+                                        number_of_samples: variant.number_of_samples,
+                                    }
                                 }
                             }
-                        }
 
-                        // Missing data - will be forward-filled
-                        return {
-                            date: d.date,
-                            value: null,
-                            upper_bound: null,
-                            lower_bound: null,
-                            hasRealData: false,
+                            // Missing data - will be forward-filled
+                            return {
+                                date: d.date,
+                                value: null,
+                                upper_bound: null,
+                                lower_bound: null,
+                                hasRealData: false,
+                            }
                         }
-                    })
+                    )
 
                     // Forward-fill missing data with last known values
                     return rawProcessedData.map((d: ProcessedTimeseriesDataPoint, index: number) => {
@@ -151,11 +164,13 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
         // Calculate error summary for banner display
         errorSummary: [
             (s) => [s.timeseries],
-            (timeseries: ExperimentMetricTimeseries | null): { 
-                hasErrors: boolean; 
-                errorCount: number; 
-                totalDays: number; 
-                message: string 
+            (
+                timeseries: ExperimentMetricTimeseries | null
+            ): {
+                hasErrors: boolean
+                errorCount: number
+                totalDays: number
+                message: string
             } | null => {
                 if (!timeseries?.errors || Object.keys(timeseries.errors).length === 0) {
                     return null
@@ -165,17 +180,18 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                 const timeseriesDays = timeseries.timeseries ? Object.keys(timeseries.timeseries).length : 0
                 const totalDays = errorCount + timeseriesDays
 
-                const message = errorCount === 1 
-                    ? `1 day failed to calculate` 
-                    : `${errorCount} of ${totalDays} days failed to calculate`
+                const message =
+                    errorCount === 1
+                        ? `1 day failed to calculate`
+                        : `${errorCount} of ${totalDays} days failed to calculate`
 
                 return {
                     hasErrors: true,
                     errorCount,
                     totalDays,
-                    message
+                    message,
                 }
-            }
+            },
         ],
 
         // Generate Chart.js-ready datasets
