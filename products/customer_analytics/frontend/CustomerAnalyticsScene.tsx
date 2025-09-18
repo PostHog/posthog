@@ -36,7 +36,7 @@ const Header = (): JSX.Element => {
             <PageHeader />
             <SceneTitleSection
                 name="Customer analytics"
-                description="Manage and analyze your customers"
+                description="Analyze your customers"
                 resourceType={{
                     type: 'customerAnalytics',
                     forceIcon: <IconPeople />,

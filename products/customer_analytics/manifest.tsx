@@ -22,11 +22,11 @@ export const manifest: ProductManifest = {
     treeItemsProducts: [
         {
             path: 'Customer analytics',
-            category: 'Analytics',
+            category: 'Unreleased',
             iconType: 'cohort',
             href: urls.customerAnalytics(),
             tags: ['alpha'],
-            flag: FEATURE_FLAGS.CRM_ITERATION_ONE,
+            flag: FEATURE_FLAGS.CUSTOMER_ANALYTICS,
         },
     ],
 }

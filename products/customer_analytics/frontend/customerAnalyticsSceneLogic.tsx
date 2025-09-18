@@ -48,7 +48,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                     const response = await api.get(`api/environments/${values.currentTeamId}/dashboards/`)
                     const allDashboards: DashboardType[] = response.results || []
 
-                    // Filter dashboards that have the "customers" tag
+                    // Filter dashboards that have "customer-analytics" tag
                     const customerDashboards = allDashboards.filter(
                         (dashboard) => dashboard.tags && dashboard.tags.includes('customer-analytics')
                     )
@@ -106,7 +106,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             actions.showNewDashboardModal()
         },
         submitNewDashboardSuccessWithResult: ({ result }) => {
-            // Dashboard was created with customers tag, refresh and select it
+            // Dashboard was created with `customer-analytics` tag, refresh and select it
             actions.loadCustomerDashboards()
             actions.selectDashboard(result.id)
         },
