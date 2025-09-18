@@ -44,6 +44,22 @@ export type CohortLogicProps = {
     id?: CohortType['id']
 }
 
+function errorForCsvInForm(
+    isStatic: boolean | undefined,
+    id: number | 'new',
+    csv: File | undefined,
+    personsToCreateStaticCohort: Record<string, boolean>
+): string | undefined {
+    if (isStatic && id === 'new' && !csv) {
+        const personIds = Object.keys(personsToCreateStaticCohort)
+        if (personIds.length > 0) {
+            return
+        }
+        return 'You need to upload a CSV file or add people manually'
+    }
+    return
+}
+
 export const cohortEditLogic = kea<cohortEditLogicType>([
     props({} as CohortLogicProps),
     key((props) => props.id || 'new'),
@@ -237,9 +253,9 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     forms(({ actions, values }) => ({
         cohort: {
             defaults: NEW_COHORT,
-            errors: ({ name, is_static, filters }) => ({
+            errors: ({ name, is_static, id, csv, filters }) => ({
                 name: !name ? 'Cohort name cannot be empty' : undefined,
-                csv: undefined,
+                csv: errorForCsvInForm(is_static, id, csv, values.personsToCreateStaticCohort),
                 filters: {
                     properties: {
                         values: is_static ? undefined : filters.properties.values.map(validateGroup),
