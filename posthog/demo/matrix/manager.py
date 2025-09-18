@@ -319,6 +319,11 @@ class MatrixManager:
         if subject.past_events:
             from posthog.models.person.util import create_person, create_person_distinct_id
 
+            # Ensure snapshot is taken before accessing properties_at_now
+            # This handles cases where simulation didn't reach 'now' for this person
+            if not hasattr(subject, "properties_at_now"):
+                subject.take_snapshot_at_now()
+
             create_person(
                 uuid=str(subject.in_posthog_id),
                 team_id=team.pk,
