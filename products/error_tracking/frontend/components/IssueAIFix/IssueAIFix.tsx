@@ -51,7 +51,7 @@ export function IssueAIFix(): JSX.Element {
     return (
         <div className="space-y-3">
             <div className="flex gap-2 items-stretch">
-                <RepositorySelector />
+                <RepositorySelectorButton />
                 <LemonButton
                     type="primary"
                     icon={<IconMagicWand />}
@@ -140,33 +140,62 @@ export function IssueAIFix(): JSX.Element {
     )
 }
 
-function RepositorySelector(): JSX.Element {
-    const { repository } = useValues(fixWithAiLogic)
-    const { repositoryPopoverVisible } = useValues(fixWithAiLogic)
-    const { setRepositoryPopoverVisible } = useActions(fixWithAiLogic)
+function RepositorySelectorButton(): JSX.Element {
+    const { repository, repositoryPopoverVisible, integrationId } = useValues(fixWithAiLogic)
+    const { setRepositoryPopoverVisible, setIntegrationId } = useActions(fixWithAiLogic)
+
+    const { getIntegrationsByKind } = useValues(integrationsLogic)
+    const githubIntegrations = getIntegrationsByKind(['github'])
+
+    useEffect(() => {
+        if (githubIntegrations.length === 1) {
+            setIntegrationId(githubIntegrations[0].id)
+        }
+    }, [githubIntegrations, setIntegrationId])
 
     return (
-        <Popover
-            visible={repositoryPopoverVisible}
-            onClickOutside={() => setRepositoryPopoverVisible(false)}
-            overlay={<RepositoryPickerPopover />}
-            placement="bottom-start"
-            showArrow
-        >
-            <ButtonPrimitive
-                variant="outline"
-                size="fit"
-                onClick={() => setRepositoryPopoverVisible(true)}
-                className="px-3 min-w-0 flex-1"
-                tooltip="Click to select repository"
+        <>
+            {integrationId && <ShadowRepositoryPicker integrationId={integrationId} />}
+            <Popover
+                visible={repositoryPopoverVisible}
+                onClickOutside={() => setRepositoryPopoverVisible(false)}
+                overlay={<RepositoryPickerPopover />}
+                placement="bottom-start"
+                showArrow
             >
-                <IconGitRepository className="text-muted-alt flex-shrink-0" />
-                <span className="truncate font-medium">
-                    {repository ? repository.split('/').pop() : 'Select repository...'}
-                </span>
-            </ButtonPrimitive>
-        </Popover>
+                <ButtonPrimitive
+                    variant="outline"
+                    size="fit"
+                    onClick={() => setRepositoryPopoverVisible(true)}
+                    className="px-3 min-w-0 flex-1"
+                    tooltip="Click to select repository"
+                >
+                    <IconGitRepository className="text-muted-alt flex-shrink-0" />
+                    <span className="truncate font-medium">
+                        {repository ? repository.split('/').pop() : 'Select repository...'}
+                    </span>
+                </ButtonPrimitive>
+            </Popover>
+        </>
     )
+}
+
+function ShadowRepositoryPicker({ integrationId }: { integrationId: number }): JSX.Element {
+    const { options } = useRepositories(integrationId)
+    const { setRepository } = useActions(fixWithAiLogic)
+    const { release } = useValues(releasePreviewLogic)
+
+    useEffect(() => {
+        if (!options || !release?.metadata?.git?.repo_name) {
+            return
+        }
+
+        if (options.some((option) => option.key === release.metadata?.git?.repo_name)) {
+            setRepository(release.metadata.git.repo_name)
+        }
+    }, [options, release, setRepository])
+
+    return <></>
 }
 
 function RepositoryPickerPopover(): JSX.Element {
@@ -175,6 +204,12 @@ function RepositoryPickerPopover(): JSX.Element {
 
     const { integrationId } = useValues(fixWithAiLogic)
     const { setRepository, setIntegrationId } = useActions(fixWithAiLogic)
+
+    useEffect(() => {
+        if (githubIntegrations.length === 1) {
+            setIntegrationId(githubIntegrations[0].id)
+        }
+    }, [githubIntegrations.length, setIntegrationId, githubIntegrations])
 
     const handleIntegrationChange = (id: number | undefined): void => {
         if (!id) {
@@ -205,7 +240,7 @@ function RepositoryPickerPopover(): JSX.Element {
                 {integrationId && (
                     <div>
                         <label className="block text-sm font-medium mb-1">Repository</label>
-                        <RepositoryPicker integrationId={integrationId} />
+                        <RepositoryPicker />
                     </div>
                 )}
             </div>
@@ -213,36 +248,19 @@ function RepositoryPickerPopover(): JSX.Element {
     )
 }
 
-interface RepositoryPickerProps {
-    integrationId: number
-}
+function RepositoryPicker(): JSX.Element {
+    const { repository, integrationId } = useValues(fixWithAiLogic)
 
-function RepositoryPicker({ integrationId }: RepositoryPickerProps): JSX.Element {
-    const { release } = useValues(releasePreviewLogic)
-    const { options } = useRepositories(integrationId)
-
-    const { repository } = useValues(fixWithAiLogic)
     const { setRepository, setRepositoryPopoverVisible } = useActions(fixWithAiLogic)
 
-    useEffect(() => {
-        if (
-            release &&
-            release.metadata?.git?.repo_name &&
-            options.some((option) => option.key === release.metadata?.git?.repo_name) &&
-            !repository
-        ) {
-            setRepository(release.metadata.git.repo_name)
-        }
-    }, [options, release, repository, setRepository])
-
-    const setRepositoryAndClosePopover = (repo: string) => {
+    const setRepositoryAndClosePopover = (repo: string): void => {
         setRepository(repo)
         setRepositoryPopoverVisible(false)
     }
 
     return (
         <GitHubRepositoryPicker
-            integrationId={integrationId}
+            integrationId={integrationId!}
             value={repository ?? ''}
             onChange={setRepositoryAndClosePopover}
             keepParentPopoverOpenOnClick
