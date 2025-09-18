@@ -36,10 +36,10 @@ export function StepBar({ step, stepIndex, series }: StepBarProps): JSX.Element 
     if (experimentResult) {
         const variantKey = series.breakdown_value
         if (variantKey === 'control') {
-            stepEventUUIDs = experimentResult.baseline?.step_event_uuids
+            stepEventUUIDs = experimentResult.baseline?.matched_recordings
         } else {
             const variantResult = experimentResult.variant_results?.find((v: any) => v.key === variantKey)
-            stepEventUUIDs = variantResult?.step_event_uuids
+            stepEventUUIDs = variantResult?.matched_recordings
         }
     }
     const hasRecordings = stepEventUUIDs && stepEventUUIDs[stepIndex]?.length > 0

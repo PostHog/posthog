@@ -35,6 +35,7 @@ import {
     LifecycleFilterType,
     LifecycleToggle,
     LogEntryPropertyFilter,
+    MatchedRecording,
     PathsFilterType,
     PersonPropertyFilter,
     PropertyGroupFilter,
@@ -2651,7 +2652,7 @@ export interface ExperimentStatsBase {
     denominator_sum_squares?: number
     numerator_denominator_sum_product?: number
     step_counts?: integer[]
-    step_event_uuids?: string[][]
+    matched_recordings?: MatchedRecording[][]
 }
 
 export enum ExperimentStatsValidationFailure {
