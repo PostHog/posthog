@@ -1000,7 +1000,7 @@ mod tests {
             checkpoint_interval: Duration::from_secs(120),
             cleanup_interval: Duration::from_millis(50),
             max_checkpoint_retention_hours: 24, // don't come near this limit for this test!
-            max_local_checkpoints: 0, // scorched earth
+            max_local_checkpoints: 0,           // scorched earth
             local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
             ..Default::default()
         };
