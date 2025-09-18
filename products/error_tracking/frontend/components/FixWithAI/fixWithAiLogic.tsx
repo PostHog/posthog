@@ -4,6 +4,12 @@ import type { fixWithAiLogicType } from './fixWithAiLogicType'
 
 export type FixWithAIStatus = 'not_started' | 'in_progress' | 'done'
 
+export interface FixWithAIPullRequest {
+    id: number
+    title: string
+    url: string
+}
+
 export const fixWithAiLogic = kea<fixWithAiLogicType>([
     path(['products', 'error_tracking', 'frontend', 'components', 'IssueAIFix', 'fixWithAiLogic']),
 
@@ -13,6 +19,7 @@ export const fixWithAiLogic = kea<fixWithAiLogicType>([
         generateFix: true,
         setFixStatus: (fixStatus: FixWithAIStatus) => ({ fixStatus }),
         setRepositoryPopoverVisible: (repositoryPopoverVisible: boolean) => ({ repositoryPopoverVisible }),
+        setPullRequest: (pullRequest: FixWithAIPullRequest) => ({ pullRequest }),
     }),
 
     reducers({
@@ -40,15 +47,27 @@ export const fixWithAiLogic = kea<fixWithAiLogicType>([
                 setRepositoryPopoverVisible: (_, { repositoryPopoverVisible }) => repositoryPopoverVisible,
             },
         ],
+        pullRequest: [
+            null as FixWithAIPullRequest | null,
+            {
+                setPullRequest: (_, { pullRequest }) => pullRequest,
+            },
+        ],
     }),
 
     listeners(({ actions }) => ({
         generateFix: async () => {
             actions.setFixStatus('in_progress')
 
-            await new Promise((resolve) => setTimeout(resolve, 3000))
+            await new Promise((resolve) => setTimeout(resolve, 1_500))
 
             actions.setFixStatus('done')
+
+            actions.setPullRequest({
+                id: 1,
+                title: 'fix: ai fixed your code',
+                url: 'https://github.com/posthog/posthog/pull/42424',
+            })
         },
     })),
 ])
