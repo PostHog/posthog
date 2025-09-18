@@ -2,9 +2,9 @@ import { useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 
 import { IconExternal, IconGitRepository, IconMagicWand } from '@posthog/icons'
-import { LemonButton, Popover } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, Popover } from '@posthog/lemon-ui'
 
-import { GitHubRepositoryPicker } from 'lib/integrations/GitHubIntegrationHelpers'
+import { GitHubRepositoryPicker, useRepositories } from 'lib/integrations/GitHubIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -22,7 +22,7 @@ interface PullRequest {
 
 export function IssueAIFix(): JSX.Element {
     const [status, setStatus] = useState<FixWithAIStatus>('idle')
-    const [showRepositoryPicker, setShowRepositoryPicker] = useState(false)
+    const [showRepositoryPopover, setShowRepositoryPopover] = useState(false)
     const [showPRsPopover, setShowPRsPopover] = useState(false)
     const { release } = useValues(releasePreviewLogic)
     const { getIntegrationsByKind } = useValues(integrationsLogic)
@@ -76,60 +76,33 @@ export function IssueAIFix(): JSX.Element {
 
     return (
         <div className="space-y-3">
-            {integrationId ? (
-                <div className="flex gap-2 items-stretch">
-                    {!showRepositoryPicker ? (
-                        <>
-                            <ButtonPrimitive
-                                variant="outline"
-                                size="fit"
-                                onClick={() => setShowRepositoryPicker(true)}
-                                className="px-3 min-w-0 flex-1"
-                                tooltip="Click to change repository"
-                            >
-                                <IconGitRepository className="text-muted-alt flex-shrink-0" />
-                                <span className="truncate font-medium">
-                                    {repository ? repository.split('/').pop() : 'Select repository...'}
-                                </span>
-                            </ButtonPrimitive>
-                            <LemonButton
-                                type="primary"
-                                icon={<IconMagicWand />}
-                                onClick={handleStartFix}
-                                loading={isInProgress}
-                                disabled={isDone || !repository}
-                                disabledReason={!repository ? 'Select a repository first' : undefined}
-                                className="flex-shrink-0"
-                            >
-                                {isInProgress ? 'Generating fix...' : isDone ? 'Fix generated' : 'Fix with AI'}
-                            </LemonButton>
-                        </>
-                    ) : (
-                        <div className="w-full space-y-2">
-                            <label className="text-xs font-medium text-muted-alt">Select repository</label>
-                            <GitHubRepositoryPicker
-                                integrationId={integrationId}
-                                value={repository}
-                                onChange={(repo: string) => {
-                                    setRepository(repo)
-                                    setShowRepositoryPicker(false)
-                                }}
-                            />
-                            <ButtonPrimitive
-                                size="xxs"
-                                variant="outline"
-                                onClick={() => setShowRepositoryPicker(false)}
-                            >
-                                Cancel
-                            </ButtonPrimitive>
-                        </div>
-                    )}
-                </div>
-            ) : (
-                <div className="p-2 bg-bg-3000 rounded-lg text-center text-sm text-muted-alt">
-                    No GitHub integration configured
-                </div>
-            )}
+            <div className="flex gap-2 items-stretch">
+                <RepositorySelector
+                    repository={repository}
+                    integrationId={integrationId}
+                    showPopover={showRepositoryPopover}
+                    onShowPopover={setShowRepositoryPopover}
+                    onRepositoryChange={setRepository}
+                    onIntegrationChange={setIntegrationId}
+                />
+                <LemonButton
+                    type="primary"
+                    icon={<IconMagicWand />}
+                    onClick={handleStartFix}
+                    loading={isInProgress}
+                    disabled={isDone || !repository || !integrationId}
+                    disabledReason={
+                        !integrationId
+                            ? 'No GitHub integration configured'
+                            : !repository
+                              ? 'Select a repository first'
+                              : undefined
+                    }
+                    className="flex-shrink-0"
+                >
+                    {isInProgress ? 'Generating fix...' : isDone ? 'Fix generated' : 'Fix with AI'}
+                </LemonButton>
+            </div>
 
             {/* Pull Requests Popover */}
             {pullRequests.length > 0 && (
@@ -197,5 +170,145 @@ export function IssueAIFix(): JSX.Element {
                 </Popover>
             )}
         </div>
+    )
+}
+
+interface RepositorySelectorProps {
+    repository: string
+    integrationId: number | undefined
+    showPopover: boolean
+    onShowPopover: (show: boolean) => void
+    onRepositoryChange: (repository: string) => void
+    onIntegrationChange: (integrationId: number | undefined) => void
+}
+
+function RepositorySelector({
+    repository,
+    integrationId,
+    showPopover,
+    onShowPopover,
+    onRepositoryChange,
+    onIntegrationChange,
+}: RepositorySelectorProps): JSX.Element {
+    return (
+        <Popover
+            visible={showPopover}
+            onClickOutside={() => onShowPopover(false)}
+            overlay={
+                <RepositoryPickerPopover
+                    repository={repository}
+                    integrationId={integrationId}
+                    onRepositoryChange={onRepositoryChange}
+                    onIntegrationChange={onIntegrationChange}
+                    onClose={() => onShowPopover(false)}
+                />
+            }
+            placement="bottom-start"
+            showArrow
+        >
+            <ButtonPrimitive
+                variant="outline"
+                size="fit"
+                onClick={() => onShowPopover(true)}
+                className="px-3 min-w-0 flex-1"
+                tooltip="Click to select repository"
+            >
+                <IconGitRepository className="text-muted-alt flex-shrink-0" />
+                <span className="truncate font-medium">
+                    {repository ? repository.split('/').pop() : 'Select repository...'}
+                </span>
+            </ButtonPrimitive>
+        </Popover>
+    )
+}
+
+interface RepositoryPickerPopoverProps {
+    repository: string
+    integrationId: number | undefined
+    onRepositoryChange: (repository: string) => void
+    onIntegrationChange: (integrationId: number | undefined) => void
+    onClose: () => void
+}
+
+function RepositoryPickerPopover({
+    repository,
+    integrationId,
+    onRepositoryChange,
+    onIntegrationChange,
+    onClose,
+}: RepositoryPickerPopoverProps): JSX.Element {
+    const { getIntegrationsByKind } = useValues(integrationsLogic)
+    const githubIntegrations = getIntegrationsByKind(['github'])
+
+    const handleRepositorySelect = (repo: string): void => {
+        onRepositoryChange(repo)
+        onClose()
+    }
+
+    const handleIntegrationChange = (id: number | undefined): void => {
+        onIntegrationChange(id)
+        onRepositoryChange('') // Reset repository when integration changes
+    }
+
+    return (
+        <div className="p-3 min-w-[300px]">
+            <div className="space-y-3">
+                <div>
+                    <label className="block text-sm font-medium mb-1">GitHub Integration</label>
+                    <LemonSelect
+                        value={integrationId}
+                        onChange={handleIntegrationChange}
+                        options={githubIntegrations.map((integration: any) => ({
+                            value: integration.id,
+                            label: `${integration.display_name} (${integration.config?.account?.name || 'GitHub'})`,
+                        }))}
+                        placeholder="Select GitHub integration..."
+                        fullWidth
+                    />
+                </div>
+
+                {integrationId && (
+                    <div>
+                        <label className="block text-sm font-medium mb-1">Repository</label>
+                        <RepositoryPicker
+                            integrationId={integrationId}
+                            value={repository}
+                            onSelect={handleRepositorySelect}
+                        />
+                    </div>
+                )}
+            </div>
+        </div>
+    )
+}
+
+interface RepositoryPickerProps {
+    integrationId: number
+    value: string
+    onSelect: (repository: string) => void
+}
+
+function RepositoryPicker({ integrationId, value, onSelect }: RepositoryPickerProps): JSX.Element {
+    const { release } = useValues(releasePreviewLogic)
+    const { options } = useRepositories(integrationId)
+
+    useEffect(() => {
+        if (
+            release &&
+            release.metadata?.git?.repo_name &&
+            options.some((option) => option.key === release.metadata?.git?.repo_name) &&
+            !value
+        ) {
+            onSelect(release.metadata.git.repo_name)
+        }
+    }, [options, release, value, onSelect])
+
+    return (
+        <GitHubRepositoryPicker
+            integrationId={integrationId}
+            value={value}
+            onChange={onSelect}
+            keepParentPopoverOpenOnClick
+        />
     )
 }
