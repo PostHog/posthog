@@ -2530,6 +2530,10 @@
       entry_ad_ids_map AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC')),
       entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
   
+      -- channel type properties tuple - to reduce redundant reading of the timestamp when loading all of these columns
+      -- utm_source, utm_campaign, utm_medium, referring domain, has_gclid, has_fbclid, gad_source
+      entry_channel_type_properties AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Boolean, Boolean, Nullable(String)), DateTime64(6, 'UTC')),
+  
       -- Count pageview, autocapture, and screen events for providing totals.
       -- Use uniq instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
       -- events being inserted multiple times to be deduped later, but that can trigger multiple rows here.
@@ -2734,6 +2738,10 @@
       if(irclid IS NOT NULL, 'irclid', NULL)
   ]) AS Array(String))
   ), timestamp) as entry_ad_ids_set,
+  
+      -- channel type
+      initializeAggregation('argMinState', tuple(utm_source, utm_medium, utm_campaign, referring_domain, gclid IS NOT NULL, fbclid IS NOT NULL, gad_source), timestamp) as entry_channel_type_properties,
+  
   
       -- counts
       initializeAggregation('uniqState', if(event='$pageview', uuid, NULL)) as pageview_uniq,
@@ -3542,6 +3550,10 @@
       -- for lower-tier ad ids, just put them in a map, and set of the ones present
       entry_ad_ids_map AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC')),
       entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
+  
+      -- channel type properties tuple - to reduce redundant reading of the timestamp when loading all of these columns
+      -- utm_source, utm_campaign, utm_medium, referring domain, has_gclid, has_fbclid, gad_source
+      entry_channel_type_properties AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Boolean, Boolean, Nullable(String)), DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
       -- Use uniq instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
@@ -4402,6 +4414,10 @@
       -- for lower-tier ad ids, just put them in a map, and set of the ones present
       entry_ad_ids_map AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC')),
       entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
+  
+      -- channel type properties tuple - to reduce redundant reading of the timestamp when loading all of these columns
+      -- utm_source, utm_campaign, utm_medium, referring domain, has_gclid, has_fbclid, gad_source
+      entry_channel_type_properties AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Boolean, Boolean, Nullable(String)), DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
       -- Use uniq instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
@@ -5612,6 +5628,10 @@
       -- for lower-tier ad ids, just put them in a map, and set of the ones present
       entry_ad_ids_map AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC')),
       entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
+  
+      -- channel type properties tuple - to reduce redundant reading of the timestamp when loading all of these columns
+      -- utm_source, utm_campaign, utm_medium, referring domain, has_gclid, has_fbclid, gad_source
+      entry_channel_type_properties AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Boolean, Boolean, Nullable(String)), DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
       -- Use uniq instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
