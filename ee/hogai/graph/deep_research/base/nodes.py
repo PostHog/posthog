@@ -57,10 +57,11 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
         node_name: DeepResearchNodeName,
         stream_parameters: Optional[dict] = None,
         context: Optional[NotebookContext] = None,
-    ) -> NotebookUpdateMessage:
+    ) -> tuple[NotebookUpdateMessage, Optional[str]]:
         notebook_update_message = None
         writer = get_stream_writer()
         chunk = AIMessageChunk(content="")
+        response_id = None
         async for new_chunk in chain.astream(
             stream_parameters or {},
             config,
@@ -72,6 +73,7 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
             notebook_update_message = await self._llm_chunk_to_notebook_update_message(chunk, context)
             custom_message = self._message_to_langgraph_update(notebook_update_message, node_name)
             writer(custom_message)
+            response_id = new_chunk.response_metadata["id"] if new_chunk.response_metadata else None
 
         if not notebook_update_message:
             raise ValueError("No notebook update message found.")
@@ -79,7 +81,7 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
         # We set the id to mark this as the last completed chunk
         notebook_update_message.id = str(uuid4())
 
-        return notebook_update_message
+        return notebook_update_message, response_id
 
     def _get_notebook_serializer(self, context: Optional[NotebookContext] = None) -> NotebookSerializer:
         """Get or create a reusable notebook serializer to avoid repeated query conversions during streaming."""

@@ -27,10 +27,12 @@ class DeepResearchNotebookPlanningNode(DeepResearchNode):
 
         chain = prompt | self._get_model(instructions, state.previous_response_id)
 
-        notebook_update_message = await self._astream_notebook(chain, config, DeepResearchNodeName.NOTEBOOK_PLANNING)
+        notebook_update_message, response_id = await self._astream_notebook(
+            chain, config, DeepResearchNodeName.NOTEBOOK_PLANNING
+        )
 
         return PartialDeepResearchState(
             messages=[notebook_update_message],
-            previous_response_id=None,  # we reset the previous response id because we're starting a new conversation after the onboarding
-            notebook_short_id=notebook_update_message.notebook_id,
+            previous_response_id=response_id,
+            planning_notebook_short_id=notebook_update_message.notebook_id,
         )

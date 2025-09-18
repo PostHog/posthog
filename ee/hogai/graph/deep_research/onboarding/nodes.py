@@ -14,7 +14,9 @@ from ee.hogai.utils.helpers import extract_content_from_ai_message
 
 
 class DeepResearchOnboardingNode(DeepResearchNode):
-    def should_run_onboarding_at_start(self, state: DeepResearchState) -> Literal["onboarding", "planning", "continue"]:
+    def should_run_onboarding_at_start(
+        self, state: DeepResearchState
+    ) -> Literal["onboarding", "planning", "continue", "replan"]:
         if not state.messages:
             return "onboarding"
 
@@ -24,7 +26,9 @@ class DeepResearchOnboardingNode(DeepResearchNode):
             # So there will be 2 human messages during the onboarding flow
             return "onboarding"
 
-        if state.notebook_short_id:
+        if state.planning_notebook_short_id:
+            if state.final_report_notebook_short_id:
+                return "replan"
             return "continue"
         return "planning"
 

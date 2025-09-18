@@ -251,7 +251,8 @@ class TestDeepResearchStates(BaseTest):
             intermediate_results=intermediate_results,
             messages=messages,
             previous_response_id="resp-123",
-            notebook_short_id="nb-456",
+            planning_notebook_short_id="nb-456",
+            final_report_notebook_short_id="nb-789",
             start_id="start-789",
             graph_status="resumed",
         )
@@ -262,7 +263,8 @@ class TestDeepResearchStates(BaseTest):
         self.assertEqual(len(state.intermediate_results), 1)
         self.assertEqual(len(state.messages), 2)
         self.assertEqual(state.previous_response_id, "resp-123")
-        self.assertEqual(state.notebook_short_id, "nb-456")
+        self.assertEqual(state.planning_notebook_short_id, "nb-456")
+        self.assertEqual(state.final_report_notebook_short_id, "nb-789")
         self.assertEqual(state.start_id, "start-789")
         self.assertEqual(state.graph_status, "resumed")
 
@@ -305,7 +307,7 @@ class TestDeepResearchStates(BaseTest):
                 DeepResearchIntermediateResult(content="Test content", artifact_ids=["art-1", "art-2"])
             ],
             messages=[HumanMessage(content="Hello")],
-            notebook_short_id="nb-123",
+            planning_notebook_short_id="nb-123",
         )
 
         serialized = original_state.model_dump()
@@ -319,4 +321,4 @@ class TestDeepResearchStates(BaseTest):
         self.assertEqual(len(deserialized.intermediate_results), 1)
         self.assertEqual(deserialized.intermediate_results[0].content, "Test content")
         self.assertEqual(len(deserialized.messages), 1)
-        self.assertEqual(deserialized.notebook_short_id, "nb-123")
+        self.assertEqual(deserialized.planning_notebook_short_id, "nb-123")
