@@ -1860,7 +1860,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         sse_response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/stream_tiles/")
         self.assertEqual(sse_response.status_code, 200)
 
-        sse_content = b"".join(sse_response.streaming_content).decode("utf-8")
+        sse_content = b"".join(sse_response.streaming_content).decode("utf-8")  # type: ignore
 
         metadata_line = None
         for line in sse_content.split("\n"):
@@ -1869,7 +1869,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 break
 
         self.assertIsNotNone(metadata_line, f"Could not find metadata in SSE response. Content: {repr(sse_content)}")
-        sse_data = json.loads(metadata_line)
+        sse_data = json.loads(metadata_line)  # type: ignore
         sse_dashboard = sse_data["dashboard"]
 
         self.assertEqual(
