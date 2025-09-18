@@ -1,10 +1,10 @@
 /**
  * Test creating insights via API and then viewing them in the UI
  */
-
 import { expect } from '@playwright/test'
+
+import { InsightVizNode, NodeKind, TrendsQuery } from '../../frontend/src/queries/schema/schema-general'
 import { test } from '../utils/workspace-test-base'
-import { InsightVizNode, TrendsQuery, NodeKind } from '../../frontend/src/queries/schema/schema-general'
 
 type InsightCreationPayload = {
     name: string
@@ -53,13 +53,17 @@ test('create trends insight via API and snapshot', async ({ page, playwrightSetu
     await playwrightSetup.loginAndNavigateToTeam(page, workspace)
     await page.goto(`/project/${workspace.team_id}/insights/${insightData.short_id}`)
 
-    // Wait for the line graph with canvas to be visible and loaded
-    await expect(page.locator('[data-attr="trend-line-graph"] canvas')).toBeVisible()
+    // Wait for the insights graph container to be visible and loaded
+    await expect(page.locator('[data-attr="insights-graph"]')).toBeVisible()
 
-    // Now verify the insight title is correct (use more specific selector)
-    await expect(page.locator('[data-attr="top-bar-name"] .EditableField__display')).toHaveText(
-        'Pageview Trends Analysis'
-    )
+    // Wait for any canvas element within the insights graph (more robust than specific chart type)
+    await expect(page.locator('[data-attr="insights-graph"] canvas')).toBeVisible()
+
+    // Verify we're on the correct insight page by checking the URL
+    await expect(page).toHaveURL(new RegExp(`/insights/${insightData.short_id}`))
+
+    // Verify the insight title - check the scene name container (handles both editable and non-editable cases)
+    await expect(page.locator('.scene-name')).toContainText('Pageview Trends Analysis')
 
     // Take a screenshot of the insight for visual regression testing
     await page.locator('[data-attr="insights-graph"]').screenshot({
