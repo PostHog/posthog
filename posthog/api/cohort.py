@@ -625,7 +625,12 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.save()
 
         if not deleted_state:
-            if cohort.is_static and request.FILES.get("csv"):
+            from posthog.tasks.calculate_cohort import (
+                increment_version_and_enqueue_calculate_cohort,
+                insert_cohort_from_query,
+            )
+
+            if cohort.is_static:
                 # You can't update a static cohort using the trend/stickiness thing
                 self._calculate_static_by_csv(request.FILES["csv"], cohort)
                 if request.FILES.get("csv"):
