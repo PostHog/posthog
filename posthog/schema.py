@@ -90,6 +90,7 @@ class AssistantContextualTool(StrEnum):
     SEARCH_DOCS = "search_docs"
     SEARCH_INSIGHTS = "search_insights"
     SESSION_SUMMARIZATION = "session_summarization"
+    CREATE_DASHBOARD = "create_dashboard"
 
 
 class AssistantDateRange(BaseModel):
@@ -4886,6 +4887,7 @@ class TaskExecutionItem(BaseModel):
     progress_text: Optional[str] = None
     prompt: str
     status: TaskExecutionStatus
+    task_type: str
 
 
 class TaskExecutionMessage(BaseModel):

@@ -159,6 +159,7 @@ export interface TaskExecutionItem {
     status: TaskExecutionStatus
     artifact_ids?: string[]
     progress_text?: string
+    task_type: string
 }
 
 export interface TaskExecutionMessage extends BaseAssistantMessage {
@@ -231,6 +232,7 @@ export type AssistantContextualTool =
     | 'search_docs'
     | 'search_insights'
     | 'session_summarization'
+    | 'create_dashboard'
 
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:

@@ -6,17 +6,24 @@ from unittest.mock import Mock
 from parameterized import parameterized
 from pydantic import ValidationError
 
-from posthog.schema import AssistantMessage, AssistantTrendsQuery, HumanMessage, PlanningStepStatus, TaskExecutionItem
+from posthog.schema import (
+    AssistantMessage,
+    AssistantTrendsQuery,
+    HumanMessage,
+    PlanningStepStatus,
+    TaskExecutionItem,
+    TaskExecutionStatus,
+)
 
 from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,
-    DeepResearchSingleTaskResult,
     DeepResearchState,
     DeepResearchTodo,
     PartialDeepResearchState,
     _SharedDeepResearchState,
 )
 from ee.hogai.utils.types import InsightArtifact
+from ee.hogai.utils.types.base import TaskResult
 
 """
 Test suite for type system consistency across multi-node deep research workflow.
@@ -84,12 +91,12 @@ class TestDeepResearchTodo(BaseTest):
         self.assertEqual(original.priority, deserialized.priority)
 
 
-class TestDeepResearchSingleTaskResult(BaseTest):
-    """Test DeepResearchSingleTaskResult class with different configurations."""
+class TestTaskResult(BaseTest):
+    """Test TaskResult class with different configurations."""
 
     def test_task_result_with_default_artifacts(self):
         """Should create task result with empty artifacts list by default."""
-        result = DeepResearchSingleTaskResult(
+        result = TaskResult(
             id="task-1", description="Test task", result="Task completed successfully", status="completed"
         )
 
@@ -102,14 +109,18 @@ class TestDeepResearchSingleTaskResult(BaseTest):
     def test_task_result_with_artifacts(self):
         """Should create task result with artifacts."""
         mock_query = Mock(spec=AssistantTrendsQuery)
-        artifact = InsightArtifact(id="artifact-1", query=mock_query, description="Test artifact")
+        artifact = InsightArtifact(id=None, task_id="artifact-1", query=mock_query, content="Test artifact")
 
-        result = DeepResearchSingleTaskResult(
-            id="task-1", description="Test task", result="Task completed", status="completed", artifacts=[artifact]
+        result = TaskResult(
+            id="task-1",
+            description="Test task",
+            result="Task completed",
+            status=TaskExecutionStatus.COMPLETED,
+            artifacts=[artifact],
         )
 
         self.assertEqual(len(result.artifacts), 1)
-        self.assertEqual(result.artifacts[0].id, "artifact-1")
+        self.assertEqual(result.artifacts[0].task_id, "artifact-1")
 
     @parameterized.expand(
         [
@@ -121,17 +132,17 @@ class TestDeepResearchSingleTaskResult(BaseTest):
     )
     def test_task_result_valid_statuses(self, status):
         """Should accept all valid TaskExecutionStatus values."""
-        result = DeepResearchSingleTaskResult(id="task-1", description="Test", result="Result", status=status)
+        result = TaskResult(id="task-1", description="Test", result="Result", status=status)
         self.assertEqual(result.status, status)
 
     def test_task_result_invalid_status(self):
         """Should raise ValidationError for invalid status."""
         with self.assertRaises(ValidationError):
-            DeepResearchSingleTaskResult(id="task-1", description="Test", result="Result", status="invalid_status")
+            TaskResult(id="task-1", description="Test", result="Result", status="invalid_status")
 
     def test_task_result_serialization(self):
         """Should serialize and deserialize correctly."""
-        original = DeepResearchSingleTaskResult(
+        original = TaskResult(
             id="task-complex-123",
             description="Complex task description",
             result="Multi-line\nresult with\nspecial chars: !@#$%",
@@ -140,7 +151,7 @@ class TestDeepResearchSingleTaskResult(BaseTest):
         )
 
         serialized = original.model_dump()
-        deserialized = DeepResearchSingleTaskResult.model_validate(serialized)
+        deserialized = TaskResult.model_validate(serialized)
 
         self.assertEqual(original.id, deserialized.id)
         self.assertEqual(original.description, deserialized.description)
@@ -231,13 +242,12 @@ class TestDeepResearchStates(BaseTest):
                 description="Execute analysis",
                 prompt="Analyze the data and generate insights",
                 status="pending",
+                task_type="create_insight",
             )
         ]
 
         task_results = [
-            DeepResearchSingleTaskResult(
-                id="result-1", description="Analysis result", result="Analysis completed", status="completed"
-            )
+            TaskResult(id="result-1", description="Analysis result", result="Analysis completed", status="completed")
         ]
 
         intermediate_results = [DeepResearchIntermediateResult(content="Intermediate findings", artifact_ids=["art-1"])]
@@ -296,11 +306,7 @@ class TestDeepResearchStates(BaseTest):
         """Should serialize and deserialize complex state correctly."""
         original_state = DeepResearchState(
             todos=[DeepResearchTodo(id=1, description="Test todo", status="pending", priority="high")],
-            task_results=[
-                DeepResearchSingleTaskResult(
-                    id="task-1", description="Test result", result="Success", status="completed"
-                )
-            ],
+            task_results=[TaskResult(id="task-1", description="Test result", result="Success", status="completed")],
             intermediate_results=[
                 DeepResearchIntermediateResult(content="Test content", artifact_ids=["art-1", "art-2"])
             ],

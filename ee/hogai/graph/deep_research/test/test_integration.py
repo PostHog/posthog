@@ -29,14 +29,9 @@ from ee.hogai.graph.deep_research.notebook.nodes import DeepResearchNotebookPlan
 from ee.hogai.graph.deep_research.onboarding.nodes import DeepResearchOnboardingNode
 from ee.hogai.graph.deep_research.planner.nodes import DeepResearchPlannerNode, DeepResearchPlannerToolsNode
 from ee.hogai.graph.deep_research.report.nodes import DeepResearchReportNode
-from ee.hogai.graph.deep_research.task_executor.nodes import TaskExecutorNode
-from ee.hogai.graph.deep_research.types import (
-    DeepResearchIntermediateResult,
-    DeepResearchSingleTaskResult,
-    DeepResearchState,
-    DeepResearchTodo,
-)
-from ee.hogai.graph.graph import InsightsAssistantGraph
+from ee.hogai.graph.deep_research.task_executor.nodes import DeepResearchTaskExecutorNode
+from ee.hogai.graph.deep_research.types import DeepResearchIntermediateResult, DeepResearchState, DeepResearchTodo
+from ee.hogai.utils.types.base import TaskResult
 from ee.models.assistant import Conversation
 
 
@@ -60,7 +55,7 @@ class TestDeepResearchWorkflowIntegration(APIBaseTest):
         messages: list[Any] | None = None,
         todos: list[DeepResearchTodo] | None = None,
         tasks: list[TaskExecutionItem] | None = None,
-        task_results: list[DeepResearchSingleTaskResult] | None = None,
+        task_results: list[TaskResult] | None = None,
         intermediate_results: list[DeepResearchIntermediateResult] | None = None,
         notebook_short_id: str | None = None,
     ) -> DeepResearchState:
@@ -118,7 +113,7 @@ class TestDeepResearchWorkflowIntegration(APIBaseTest):
         ]
 
         task_results = [
-            DeepResearchSingleTaskResult(
+            TaskResult(
                 id=f"result_{i}", description=f"Result {i}", result="Success", status=TaskExecutionStatus.COMPLETED
             )
             for i in range(num_results)
@@ -228,17 +223,12 @@ class TestDeepResearchE2E(APIBaseTest):
             (DeepResearchPlannerNode, "planner"),
             (DeepResearchPlannerToolsNode, "planner_tools"),
             (DeepResearchReportNode, "report"),
-            (TaskExecutorNode, "task_executor"),
+            (DeepResearchTaskExecutorNode, "task_executor"),
         ]
 
         for node_class, node_name in nodes_to_test:
             with self.subTest(node=node_name):
-                if node_class == TaskExecutorNode:
-                    # TaskExecutorNode requires insights subgraph
-                    insights_graph = InsightsAssistantGraph(self.team, self.user).compile_full_graph()
-                    node_instance = node_class(self.team, self.user, insights_graph)
-                else:
-                    node_instance = node_class(self.team, self.user)
+                node_instance = node_class(self.team, self.user)
 
                 self.assertIsNotNone(node_instance)
                 self.assertEqual(node_instance._team, self.team)
@@ -249,7 +239,7 @@ class TestDeepResearchE2E(APIBaseTest):
             messages=[HumanMessage(content="Test message")],
             todos=[DeepResearchTodo(id=1, description="Test todo", status=PlanningStepStatus.PENDING, priority="high")],
             task_results=[
-                DeepResearchSingleTaskResult(
+                TaskResult(
                     id="task_1", description="Test task", result="Test result", status=TaskExecutionStatus.COMPLETED
                 )
             ],

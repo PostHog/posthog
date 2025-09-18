@@ -17,13 +17,12 @@ from ee.hogai.graph.deep_research.base.nodes import DeepResearchNode
 from ee.hogai.graph.deep_research.report.prompts import DEEP_RESEARCH_REPORT_PROMPT, FINAL_REPORT_USER_PROMPT
 from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,
-    DeepResearchNodeName,
     DeepResearchState,
-    InsightArtifact,
     PartialDeepResearchState,
 )
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor
 from ee.hogai.notebook.notebook_serializer import NotebookContext
+from ee.hogai.utils.types.base import InsightArtifact, TaskArtifact
 
 
 class FormattedInsight(BaseModel):
@@ -81,7 +80,6 @@ class DeepResearchReportNode(DeepResearchNode):
         notebook_update_message = await self._astream_notebook(
             chain,
             config,
-            DeepResearchNodeName.REPORT,
             stream_parameters={
                 "intermediate_results": intermediate_results_text,
                 "artifacts": artifacts_text,
@@ -93,9 +91,9 @@ class DeepResearchReportNode(DeepResearchNode):
             messages=[notebook_update_message],
         )
 
-    def _collect_all_artifacts(self, state: DeepResearchState) -> list[InsightArtifact]:
+    def _collect_all_artifacts(self, state: DeepResearchState) -> list[TaskArtifact]:
         """Collect all artifacts from task results."""
-        artifacts = []
+        artifacts: list[TaskArtifact] = []
         for result in state.task_results:
             artifacts.extend(result.artifacts)
 
@@ -103,15 +101,15 @@ class DeepResearchReportNode(DeepResearchNode):
         for intermediate_result in state.intermediate_results:
             valid_ids.update(intermediate_result.artifact_ids)
 
-        artifacts = [artifact for artifact in artifacts if artifact.id in valid_ids]
+        artifacts = [artifact for artifact in artifacts if artifact.task_id in valid_ids]
         return artifacts
 
-    def _format_insights(self, artifacts: list[InsightArtifact]) -> list[FormattedInsight]:
+    def _format_insights(self, artifacts: list[TaskArtifact]) -> list[FormattedInsight]:
         """Format insight artifacts using the query executor."""
         formatted_insights = []
 
         for artifact in artifacts:
-            if not artifact.query:
+            if not isinstance(artifact, InsightArtifact) or artifact.query is None:
                 # Skip artifacts without queries (shouldn't happen in production)
                 continue
 
@@ -125,8 +123,8 @@ class DeepResearchReportNode(DeepResearchNode):
 
                 formatted_insights.append(
                     FormattedInsight(
-                        id=artifact.id,
-                        description=artifact.description,
+                        id=artifact.task_id,
+                        description=artifact.content,
                         formatted_results=formatted_results,
                         query_type=query_type,
                     )
@@ -136,8 +134,8 @@ class DeepResearchReportNode(DeepResearchNode):
                 capture_exception(e)
                 formatted_insights.append(  # TODO: remove me
                     FormattedInsight(
-                        id=artifact.id,
-                        description=artifact.description,
+                        id=artifact.task_id,
+                        description=artifact.content,
                         formatted_results="",
                         query_type=self._get_query_type_name(artifact.query),
                     )
@@ -190,9 +188,11 @@ class DeepResearchReportNode(DeepResearchNode):
 
         return "\n".join(formatted_parts)
 
-    def _create_context(self, artifacts: list[InsightArtifact]) -> NotebookContext:
+    def _create_context(self, artifacts: list[TaskArtifact]) -> NotebookContext:
         """
         Create a context for the notebook serializer.
         """
-        context = NotebookContext(insights={artifact.id: artifact for artifact in artifacts})
+        context = NotebookContext(
+            insights={artifact.task_id: artifact for artifact in artifacts if isinstance(artifact, InsightArtifact)}
+        )
         return context
