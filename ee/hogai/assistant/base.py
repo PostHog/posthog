@@ -24,6 +24,7 @@ from posthog.schema import (
     HumanMessage,
     MaxBillingContext,
     ReasoningMessage,
+    TaskExecutionMessage,
 )
 
 from posthog import event_usage
@@ -32,6 +33,7 @@ from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.base import BaseAssistantNode
+from ee.hogai.graph.deep_research.types import DeepResearchNodeName
 from ee.hogai.graph.graph import AssistantCompiledStateGraph
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import extract_content_from_ai_message, should_output_assistant_message
@@ -340,8 +342,10 @@ class BaseAssistant(ABC):
             self._state = validate_state_update(new_state, self._state_type)
         elif is_value_update(update) and (new_messages := self._process_value_update(update)):
             return new_messages
-        elif is_message_update(update) and (new_message := self._process_message_update(update)):
-            return [new_message]
+        elif is_message_update(update):
+            new_message = await self._aprocess_message_update(update)
+            if new_message:
+                return [new_message]
         elif is_task_started_update(update) and (new_message := await self._process_task_started_update(update)):
             return [new_message]
         return None
@@ -377,11 +381,18 @@ class BaseAssistant(ABC):
 
         return [AssistantGenerationStatusEvent(type=AssistantGenerationStatusType.ACK)]
 
-    def _process_message_update(self, update: GraphMessageUpdateTuple) -> BaseModel | None:
+    async def _aprocess_message_update(self, update: GraphMessageUpdateTuple) -> BaseModel | None:
         langchain_message, langgraph_state = update[1]
 
         # Return ready messages as is
         if isinstance(langchain_message, get_args(AssistantMessageUnion)):
+            # Persist selected streamed messages
+            try:
+                node_name = cast(MaxNodeName, langgraph_state["langgraph_node"])
+                if self._should_persist_stream_message(langchain_message, node_name):
+                    await self._persist_stream_message(node_name, langchain_message)
+            except Exception as e:
+                logger.warning("Failed to persist streamed message", error=str(e))
             return langchain_message
 
         # If not ready message or chunk, return None
@@ -411,6 +422,35 @@ class BaseAssistant(ABC):
             return None
 
         return AssistantMessage(content=message_content)
+
+    def _build_root_config_for_persistence(self) -> RunnableConfig:
+        """Config pinned to the root namespace for checkpoint writes."""
+        return {
+            "configurable": {
+                "thread_id": self._conversation.id,
+                # Force root graph to avoid subgraph namespaces when persisting mid-stream
+                "checkpoint_ns": "",
+            }
+        }
+
+    async def _persist_stream_message(self, node_name: MaxNodeName, message: AssistantMessageUnion) -> None:
+        """Persist a single streamed message as a partial state update on the root graph."""
+        root_config = self._build_root_config_for_persistence()
+        partial_update = self._partial_state_type(messages=[message])
+        await self._graph.aupdate_state(root_config, partial_update, as_node=node_name)
+
+    def _should_persist_stream_message(self, message: BaseModel, node_name: MaxNodeName) -> bool:
+        """
+        Only persist discrete, low-frequency stream events.
+        Avoid persisting chunked AssistantMessage text to reduce DB write volume.
+        For now we only persist reasoning and task execution messages from deep research.
+        """
+        if isinstance(node_name, DeepResearchNodeName):
+            if isinstance(message, ReasoningMessage):
+                return True
+            if isinstance(message, TaskExecutionMessage):
+                return True
+        return False
 
     def _chunk_reasoning_headline(self, reasoning: dict[str, Any]) -> Optional[str]:
         """Process a chunk of OpenAI `reasoning`, and if a new headline was just finalized, return it.
