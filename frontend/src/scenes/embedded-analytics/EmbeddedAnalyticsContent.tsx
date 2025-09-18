@@ -14,9 +14,9 @@ import { EmbeddedTab } from './common'
 import { embeddedAnalyticsLogic } from './embeddedAnalyticsLogic'
 import { QueryEndpoints } from './query-endpoints/QueryEndpoints'
 
-export function EmbeddedAnalyticsContent(): JSX.Element {
+export function EmbeddedAnalyticsContent({ tabId }: { tabId?: string }): JSX.Element {
     return (
-        <BindLogic logic={embeddedAnalyticsLogic} props={{}}>
+        <BindLogic logic={embeddedAnalyticsLogic} props={{ tabId: tabId }}>
             <SceneContent className="EmbeddedAnalyticsContent w-full flex flex-col">
                 <EmbeddedAnalyticsTabs />
 
@@ -50,8 +50,12 @@ const EmbeddedAnalyticsTabs = (): JSX.Element => {
             activeKey={activeTab}
             onChange={setActiveTab}
             tabs={[
-                { key: EmbeddedTab.QUERY_ENDPOINTS, label: 'Query endpoints' },
-                { key: EmbeddedTab.USAGE, label: 'API usage' },
+                {
+                    key: EmbeddedTab.QUERY_ENDPOINTS,
+                    label: 'Query endpoints',
+                    link: urls.embeddedAnalytics(EmbeddedTab.QUERY_ENDPOINTS),
+                },
+                { key: EmbeddedTab.USAGE, label: 'API usage', link: urls.embeddedAnalytics(EmbeddedTab.USAGE) },
             ]}
         />
     )

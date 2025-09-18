@@ -10,10 +10,10 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { EmbeddedAnalyticsContent } from './EmbeddedAnalyticsContent'
 import { embeddedAnalyticsLogic } from './embeddedAnalyticsLogic'
 
-export function EmbeddedAnalyticsScene(): JSX.Element {
+export function EmbeddedAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
     return (
         <>
-            <PageHeader />
+            <PageHeader tabbedPage />
             <SceneContent>
                 <SceneTitleSection
                     name="Embedded analytics"
@@ -28,7 +28,7 @@ export function EmbeddedAnalyticsScene(): JSX.Element {
                     }}
                 />
                 <SceneDivider />
-                <EmbeddedAnalyticsContent />
+                <EmbeddedAnalyticsContent tabId={tabId} />
             </SceneContent>
         </>
     )

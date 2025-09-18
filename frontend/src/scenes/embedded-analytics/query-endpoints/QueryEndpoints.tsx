@@ -17,6 +17,7 @@ import { urls } from 'scenes/urls'
 
 import { QueryEndpointType } from '~/types'
 
+import { EmbeddedTab } from '../common'
 import { queryEndpointsLogic } from './queryEndpointsLogic'
 
 export function QueryEndpoints(): JSX.Element {
@@ -43,7 +44,7 @@ export const QueryEndpointsTable = (): JSX.Element => {
                 return (
                     <LemonTableLink
                         // TODO: Add link to endpoint modal
-                        to={urls.embeddedAnalytics()}
+                        to={urls.embeddedAnalytics(EmbeddedTab.QUERY_ENDPOINTS)}
                         title={record.name}
                         description={record.description}
                     />
@@ -109,7 +110,7 @@ export const QueryEndpointsTable = (): JSX.Element => {
                                 onClick={() => {
                                     router.actions.push(
                                         // TODO: Add request name to URL
-                                        urls.embeddedAnalytics()
+                                        urls.embeddedAnalytics(EmbeddedTab.USAGE)
                                     )
                                 }}
                                 fullWidth

@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { EmbeddedTab } from 'scenes/embedded-analytics/common'
 import { queryEndpointsLogic } from 'scenes/embedded-analytics/query-endpoints/queryEndpointsLogic'
 import { urls } from 'scenes/urls'
 
@@ -66,7 +67,7 @@ export const queryEndpointLogic = kea<queryEndpointLogicType>([
                 </>,
                 {
                     onClose: () => {
-                        router.actions.push(urls.embeddedAnalytics())
+                        router.actions.push(urls.embeddedAnalytics(EmbeddedTab.QUERY_ENDPOINTS))
                     },
                 }
             )

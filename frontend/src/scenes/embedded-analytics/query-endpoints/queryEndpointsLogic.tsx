@@ -24,7 +24,9 @@ export const queryEndpointsLogic = kea<queryEndpointsLogicType>([
     path(['scenes', 'embedded-analytics', 'query-endpoints', 'queryEndpointsLogic']),
     actions({
         setFilters: (filters: Partial<QueryEndpointsFilters>) => {
-            return { filters }
+            {
+                filters
+            }
         },
     }),
     loaders(({ values }) => ({
@@ -49,7 +51,7 @@ export const queryEndpointsLogic = kea<queryEndpointsLogicType>([
                     if (values.filters.search) {
                         const fuse = new Fuse<QueryEndpointType>(haystack, {
                             keys: ['name', 'description', 'query.query'],
-                            threshold: 0.7,
+                            threshold: 0.3,
                         })
                         haystack = fuse.search(values.filters.search).map((result) => result.item)
                     }

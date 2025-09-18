@@ -16,6 +16,7 @@ import { ActivityScope, ActivityTab, InsightShortId, PropertyFilterType, ReplayT
 
 import { BillingSectionId } from './billing/types'
 import { DataPipelinesSceneTab } from './data-pipelines/DataPipelinesScene'
+import { EmbeddedTab } from './embedded-analytics/common'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -344,11 +345,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Embedded analytics',
         layout: 'app-container',
     },
-    [Scene.QueryEndpoints]: {
-        projectBased: true,
-        name: 'Query endpoints',
-        layout: 'app-container',
-    },
     [Scene.Wizard]: { projectBased: true, name: 'Wizard', layout: 'plain' },
     ...productConfiguration,
 }
@@ -472,7 +468,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webAnalyticsWebVitals()]: [Scene.WebAnalytics, 'webAnalyticsWebVitals'],
     [urls.webAnalyticsMarketing()]: [Scene.WebAnalytics, 'webAnalyticsMarketing'],
     [urls.webAnalyticsPageReports()]: [Scene.WebAnalytics, 'webAnalyticsPageReports'],
-    [urls.embeddedAnalytics()]: [Scene.QueryEndpoints, 'queryEndpoints'],
+    [urls.embeddedAnalytics(':tab' as EmbeddedTab)]: [Scene.EmbeddedAnalytics, 'embeddedAnalytics'],
     [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
     [urls.revenueSettings()]: [Scene.DataManagement, 'revenue'],
     [urls.marketingAnalytics()]: [Scene.DataManagement, 'marketingAnalytics'],
