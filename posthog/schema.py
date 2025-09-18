@@ -4862,6 +4862,7 @@ class SurveyQuestionSchema(BaseModel):
     lowerBoundLabel: Optional[str] = None
     optional: Optional[bool] = None
     question: str
+    id: Optional[str] = None
     scale: Optional[float] = None
     shuffleOptions: Optional[bool] = None
     type: SurveyQuestionType
