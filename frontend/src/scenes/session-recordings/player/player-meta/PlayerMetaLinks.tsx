@@ -16,7 +16,6 @@ import { AccessControlAction, getAccessControlDisabledReason } from 'lib/compone
 import { FEATURE_FLAGS } from 'lib/constants'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
@@ -62,7 +61,6 @@ function PinToPlaylistButton(): JSX.Element {
         <AccessControlAction
             resourceType={AccessControlResourceType.SessionRecording}
             minAccessLevel={AccessControlLevel.Editor}
-            userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]}
         >
             <PlaylistPopoverButton
                 tooltip={tooltip}
@@ -242,7 +240,6 @@ const MenuActions = ({ size }: { size: PlayerMetaBreakpoints }): JSX.Element => 
                     icon: <IconTrash />,
                     disabledReason: getAccessControlDisabledReason(
                         AccessControlResourceType.SessionRecording,
-                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
                         AccessControlLevel.Editor
                     ),
                     tooltip: 'Delete recording',
