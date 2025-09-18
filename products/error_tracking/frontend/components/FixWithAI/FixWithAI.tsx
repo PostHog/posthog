@@ -1,16 +1,15 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 
-import { IconExternal, IconGitRepository, IconMagicWand } from '@posthog/icons'
-import { LemonButton, LemonSelect, Popover } from '@posthog/lemon-ui'
+import { IconExternal, IconMagicWand } from '@posthog/icons'
+import { LemonButton, Popover } from '@posthog/lemon-ui'
 
-import { GitHubRepositoryPicker, useRepositories } from 'lib/integrations/GitHubIntegrationHelpers'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import 'lib/integrations/GitHubIntegrationHelpers'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
-import { releasePreviewLogic } from '../ExceptionAttributesPreview/ReleasesPreview/releasePreviewLogic'
+import { RepositorySelectorButton } from './RepositorySelectorButton'
 import { fixWithAiLogic } from './fixWithAiLogic'
 
 export type FixWithAIStatus = 'idle' | 'in_progress' | 'done'
@@ -22,7 +21,7 @@ interface PullRequest {
     status: 'open' | 'merged' | 'closed'
 }
 
-export function IssueAIFix(): JSX.Element {
+export function FixWithAI(): JSX.Element {
     const [showPRsPopover, setShowPRsPopover] = useState(false)
     const { integrationId, repository, fixStatus } = useValues(fixWithAiLogic)
     const { generateFix } = useActions(fixWithAiLogic)
@@ -52,7 +51,7 @@ export function IssueAIFix(): JSX.Element {
     const isDone = fixStatus === 'done'
 
     return (
-        <div className="space-y-3">
+        <div>
             <div className="flex gap-2 items-stretch">
                 <RepositorySelectorButton />
                 <LemonButton
@@ -141,133 +140,5 @@ export function IssueAIFix(): JSX.Element {
                 </Popover>
             )}
         </div>
-    )
-}
-
-function RepositorySelectorButton(): JSX.Element {
-    const { repository, repositoryPopoverVisible, integrationId } = useValues(fixWithAiLogic)
-    const { setRepositoryPopoverVisible, setIntegrationId } = useActions(fixWithAiLogic)
-
-    const { getIntegrationsByKind } = useValues(integrationsLogic)
-    const githubIntegrations = getIntegrationsByKind(['github'])
-
-    useEffect(() => {
-        if (githubIntegrations.length === 1) {
-            setIntegrationId(githubIntegrations[0].id)
-        }
-    }, [githubIntegrations, setIntegrationId])
-
-    return (
-        <>
-            {integrationId && <ShadowRepositoryPicker integrationId={integrationId} />}
-            <Popover
-                visible={repositoryPopoverVisible}
-                onClickOutside={() => setRepositoryPopoverVisible(false)}
-                overlay={<RepositoryPickerPopover />}
-                placement="bottom-start"
-                showArrow
-            >
-                <ButtonPrimitive
-                    variant="outline"
-                    size="fit"
-                    onClick={() => setRepositoryPopoverVisible(true)}
-                    className="px-3 min-w-0 flex-1"
-                    tooltip="Click to select repository"
-                >
-                    <IconGitRepository className="text-muted-alt flex-shrink-0" />
-                    <span className="truncate font-medium">
-                        {repository ? repository.split('/').pop() : 'Select repository...'}
-                    </span>
-                </ButtonPrimitive>
-            </Popover>
-        </>
-    )
-}
-
-function ShadowRepositoryPicker({ integrationId }: { integrationId: number }): JSX.Element {
-    const { options } = useRepositories(integrationId)
-    const { setRepository } = useActions(fixWithAiLogic)
-    const { release } = useValues(releasePreviewLogic)
-
-    useEffect(() => {
-        if (!options || !release?.metadata?.git?.repo_name) {
-            return
-        }
-
-        if (options.some((option) => option.key === release.metadata?.git?.repo_name)) {
-            setRepository(release.metadata.git.repo_name)
-        }
-    }, [options, release, setRepository])
-
-    return <></>
-}
-
-function RepositoryPickerPopover(): JSX.Element {
-    const { getIntegrationsByKind } = useValues(integrationsLogic)
-    const githubIntegrations = getIntegrationsByKind(['github'])
-
-    const { integrationId } = useValues(fixWithAiLogic)
-    const { setRepository, setIntegrationId } = useActions(fixWithAiLogic)
-
-    useEffect(() => {
-        if (githubIntegrations.length === 1) {
-            setIntegrationId(githubIntegrations[0].id)
-        }
-    }, [githubIntegrations.length, setIntegrationId, githubIntegrations])
-
-    const handleIntegrationChange = (id: number | undefined): void => {
-        if (!id) {
-            return
-        }
-
-        setIntegrationId(id)
-        setRepository('')
-    }
-
-    return (
-        <div className="p-3 min-w-[300px]">
-            <div className="space-y-3">
-                <div>
-                    <label className="block text-sm font-medium mb-1">GitHub Integration</label>
-                    <LemonSelect
-                        value={integrationId}
-                        onChange={handleIntegrationChange}
-                        options={githubIntegrations.map((integration: any) => ({
-                            value: integration.id,
-                            label: `${integration.display_name} (${integration.config?.account?.name || 'GitHub'})`,
-                        }))}
-                        placeholder="Select GitHub integration..."
-                        fullWidth
-                    />
-                </div>
-
-                {integrationId && (
-                    <div>
-                        <label className="block text-sm font-medium mb-1">Repository</label>
-                        <RepositoryPicker />
-                    </div>
-                )}
-            </div>
-        </div>
-    )
-}
-
-function RepositoryPicker(): JSX.Element {
-    const { repository, integrationId } = useValues(fixWithAiLogic)
-
-    const { setRepository, setRepositoryPopoverVisible } = useActions(fixWithAiLogic)
-
-    const setRepositoryAndClosePopover = (repo: string): void => {
-        setRepository(repo)
-        setRepositoryPopoverVisible(false)
-    }
-
-    return (
-        <GitHubRepositoryPicker
-            integrationId={integrationId!}
-            value={repository ?? ''}
-            onChange={setRepositoryAndClosePopover}
-            keepParentPopoverOpenOnClick
-        />
     )
 }
