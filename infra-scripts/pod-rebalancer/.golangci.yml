@@ -1,58 +1,69 @@
+version: '2'
 run:
-    timeout: 5m
     tests: true
-
-linters-settings:
-    gofmt:
-        simplify: true
-    goimports:
-        local-prefixes: github.com/posthog/pod-rebalancer
-    misspell:
-        locale: US
-    govet:
-        enable-all: true
-    staticcheck:
-        checks: ['all']
-    gosec:
-        excludes:
-            - G104 # Unhandled errors are checked by other linters
-    cyclop:
-        max-complexity: 15
-    funlen:
-        lines: 100
-        statements: 50
-
 linters:
     enable:
-        - gofmt
-        - goimports
-        - govet
-        - staticcheck
-        - gosec
-        - misspell
-        - ineffassign
-        - unused
-        - errcheck
-        - gosimple
-        - typecheck
         - cyclop
         - funlen
         - gocognit
-        - nestif
+        - gosec
         - lll
+        - misspell
+        - nestif
     disable:
-        - wsl # Whitespace linter is too opinionated
-
+        - wsl
+    settings:
+        cyclop:
+            max-complexity: 15
+        funlen:
+            lines: 100
+            statements: 50
+        gosec:
+            excludes:
+                - G104
+        govet:
+            enable-all: true
+        misspell:
+            locale: US
+        staticcheck:
+            checks:
+                - all
+    exclusions:
+        generated: lax
+        presets:
+            - comments
+            - common-false-positives
+            - legacy
+            - std-error-handling
+        rules:
+            - linters:
+                  - cyclop
+                  - funlen
+                  - gocognit
+              path: _test\.go
+            - linters:
+                  - unused
+              path: tools\.go
+        paths:
+            - third_party$
+            - builtin$
+            - examples$
 issues:
-    exclude-rules:
-        - path: _test\.go
-          linters:
-              - funlen
-              - cyclop
-              - gocognit
-        - path: tools\.go
-          linters:
-              - unused
-
     max-issues-per-linter: 0
     max-same-issues: 0
+formatters:
+    enable:
+        - gofmt
+        - goimports
+    settings:
+        gofmt:
+            simplify: true
+        goimports:
+            local-prefixes:
+                - github.com/posthog/pod-rebalancer
+    exclusions:
+        generated: lax
+        paths:
+            - third_party$
+            - builtin$
+            - examples$
