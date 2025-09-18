@@ -124,6 +124,8 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # order by rank
         if query:
             qs = qs.order_by("-rank")
+        else:
+            qs = qs.order_by("type", F("extra_fields__name").asc(nulls_first=True))
 
         return Response({"results": qs[:LIMIT], "counts": counts})
 
