@@ -138,7 +138,7 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
         if self._writer and self.node_name:
             self._writer(self._message_to_langgraph_update(message, self.node_name))
 
-    async def _stream_reasoning(self, content: str, substeps: list[str] | None = None):
+    async def _write_reasoning(self, content: str, substeps: list[str] | None = None):
         """
         Streams a reasoning message to the stream writer.
         """
