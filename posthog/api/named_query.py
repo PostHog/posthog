@@ -209,9 +209,12 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
 
             # Build QueryRequest
             query_request_data = {
-                **request.data,  # Allow overriding QueryRequest fields like refresh, client_query_id
-                "query": named_query.query,
+                "client_query_id": data.client_query_id,
+                "filters_override": data.filters_override,
                 "name": named_query.name,
+                "refresh": data.refresh,  # Allow overriding QueryRequest fields like refresh, client_query_id
+                "query": named_query.query,
+                "variables_override": data.variables_override,
             }
 
             merged_data = self.get_model(query_request_data, QueryRequest)

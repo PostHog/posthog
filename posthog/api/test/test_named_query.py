@@ -4,6 +4,7 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from rest_framework import status
 
+from posthog.models.insight_variable import InsightVariable
 from posthog.models.named_query import NamedQuery
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -280,3 +281,42 @@ class TestNamedQuery(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("detail", response.json())
+
+    def test_execute_query_with_variables(self):
+        """Test executing a named query with variables."""
+        # Create an insight variable first
+        variable = InsightVariable.objects.create(
+            team=self.team,
+            name="From Date",
+            code_name="from_date",
+            type=InsightVariable.Type.DATE,
+            default_value="2025-01-01",
+        )
+
+        # Create a query with variables
+        query_with_variables = {
+            "kind": "HogQLQuery",
+            "query": "select * from events where toDate(timestamp) > {variables.from_date} limit 1",
+            "variables": {
+                str(variable.id): {"variableId": str(variable.id), "code_name": "from_date", "value": "2025-01-01"}
+            },
+        }
+
+        NamedQuery.objects.create(
+            name="query_with_variables",
+            team=self.team,
+            query=query_with_variables,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        # Execute with variable values
+        request_data = {"variables_values": {"from_date": "2025-09-18"}}
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/named_query/query_with_variables/run/", request_data, format="json"
+        )
+
+        response_data = response.json()
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response_data)
+        self.assertIn("results", response_data)
