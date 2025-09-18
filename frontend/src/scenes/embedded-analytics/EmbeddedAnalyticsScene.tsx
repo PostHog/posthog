@@ -9,6 +9,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { EmbeddedAnalyticsContent } from './EmbeddedAnalyticsContent'
 import { embeddedAnalyticsLogic } from './embeddedAnalyticsLogic'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 
 export function EmbeddedAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
     return (
@@ -17,7 +18,7 @@ export function EmbeddedAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
             <SceneContent>
                 <SceneTitleSection
                     name="Embedded analytics"
-                    description="Monitor API usage metrics and system performance through embedded analytics dashboard."
+                    description="Define queries your application will use via the API and monitor their cost and usage."
                     resourceType={{
                         type: 'embedded',
                         forceIcon: <IconCode2 />,
@@ -27,6 +28,17 @@ export function EmbeddedAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                         ],
                     }}
                 />
+                <LemonBanner
+                    type="warning"
+                    action={{ children: 'Send feedback', id: 'embedded-analytics-feedback-button' }}
+                >
+                    <p>
+                        Embedded analytics is in alpha and it may not be fully reliable. We are actively working
+                        on it and how things work may change.
+
+                        Please let us know what you'd like to see here and/or report any issues directly to us!
+                    </p>
+                </LemonBanner>
                 <SceneDivider />
                 <EmbeddedAnalyticsContent tabId={tabId} />
             </SceneContent>

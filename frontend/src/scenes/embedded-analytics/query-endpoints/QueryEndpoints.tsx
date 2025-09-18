@@ -19,6 +19,7 @@ import { QueryEndpointType } from '~/types'
 
 import { EmbeddedTab } from '../common'
 import { queryEndpointsLogic } from './queryEndpointsLogic'
+import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
 
 export function QueryEndpoints(): JSX.Element {
     return (
@@ -106,7 +107,6 @@ export const QueryEndpointsTable = (): JSX.Element => {
                     overlay={
                         <>
                             <LemonButton
-                                icon={<IconPageChart />}
                                 onClick={() => {
                                     router.actions.push(
                                         // TODO: Add request name to URL
@@ -118,19 +118,8 @@ export const QueryEndpointsTable = (): JSX.Element => {
                                 View usage
                             </LemonButton>
 
-                            <LemonButton
-                                icon={<IconPencil />}
-                                onClick={() => {
-                                    // TODO: Once editor is refactored, allow sending #output-pane-tab=query-endpoint
-                                    router.actions.push(urls.sqlEditor(record.query.query))
-                                }}
-                                fullWidth
-                            >
-                                Edit query endpoint
-                            </LemonButton>
                             <LemonDivider />
                             <LemonButton
-                                icon={<IconStopFilled />}
                                 onClick={() => {
                                     deactivateQueryEndpoint(record.name)
                                 }}
@@ -140,7 +129,6 @@ export const QueryEndpointsTable = (): JSX.Element => {
                                 Deactivate query endpoint
                             </LemonButton>
                             <LemonButton
-                                icon={<IconTrash />}
                                 onClick={() => {
                                     deleteQueryEndpoint(record.name)
                                 }}

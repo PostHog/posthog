@@ -1,5 +1,5 @@
 import Fuse from 'fuse.js'
-import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -70,6 +70,12 @@ export const queryEndpointsLogic = kea<queryEndpointsLogicType>([
             },
         ],
     })),
+    selectors({
+        isEmpty: [
+            (s) => [s.queryEndpoints],
+            (queryEndpoints) => queryEndpoints.length === 0,
+        ],
+    }),
     reducers({
         filters: [
             DEFAULT_FILTERS as QueryEndpointsFilters,

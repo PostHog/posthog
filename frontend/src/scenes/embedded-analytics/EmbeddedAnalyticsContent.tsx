@@ -13,30 +13,53 @@ import { EmbeddedTiles } from './EmbeddedAnalyticsTiles'
 import { EmbeddedTab } from './common'
 import { embeddedAnalyticsLogic } from './embeddedAnalyticsLogic'
 import { QueryEndpoints } from './query-endpoints/QueryEndpoints'
+import { BigLeaguesHog } from 'lib/components/hedgehogs'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { ProductKey } from '~/types'
+import { queryEndpointsLogic } from './query-endpoints/queryEndpointsLogic'
+import { OutputTab } from 'scenes/data-warehouse/editor/outputPaneLogic'
+
+const EMBEDDED_ANALYTICS_QUERY_ENDPOINTS_PRODUCT_DESCRIPTION = "Embedded analytics help you create pre-built SQL queries that you can easily use in your application via our API. Please note that embedded analytics is in alpha and may not be fully reliable or set in stone."
+const EMBEDDED_ANALYTICS_API_USAGE_PRODUCT_DESCRIPTION = "Monitor your API usage and cost. Please note that embedded analytics is in alpha and may not be fully reliable or set in stone."
 
 export function EmbeddedAnalyticsContent({ tabId }: { tabId?: string }): JSX.Element {
+
+    const { isEmpty } = useValues(queryEndpointsLogic)
+    const { activeTab } = useValues(embeddedAnalyticsLogic)
     return (
         <BindLogic logic={embeddedAnalyticsLogic} props={{ tabId: tabId }}>
-            <SceneContent className="EmbeddedAnalyticsContent w-full flex flex-col">
-                <EmbeddedAnalyticsTabs />
+            <BindLogic logic={queryEndpointsLogic} props={{}}>
+                <SceneContent className="EmbeddedAnalyticsContent w-full flex flex-col">
+                    <EmbeddedAnalyticsTabs />
+                    <ProductIntroduction
+                        productName="embedded analytics"
+                        productKey={ProductKey.EMBEDDED_ANALYTICS}
+                        thingName="query endpoint"
+                        description={activeTab === EmbeddedTab.QUERY_ENDPOINTS ? EMBEDDED_ANALYTICS_QUERY_ENDPOINTS_PRODUCT_DESCRIPTION : EMBEDDED_ANALYTICS_API_USAGE_PRODUCT_DESCRIPTION}
+                        docsURL="https://posthog.com/docs/embedded-analytics"
+                        customHog={BigLeaguesHog}
+                        isEmpty={isEmpty}
+                        action={() => router.actions.push(urls.sqlEditor(undefined, undefined, undefined, undefined, OutputTab.QueryEndpoint))}
+                    />
 
-                <PageHeader
-                    buttons={
-                        <LemonButton
-                            data-attr="new-query-endpoint"
-                            onClick={() => {
-                                // TODO: Once editor is refactored, allow sending #output-pane-tab=query-endpoint
-                                router.actions.push(urls.sqlEditor())
-                            }}
-                            type="primary"
-                            tooltip="This will redirect you to the SQL Editor."
-                        >
-                            New query endpoint
-                        </LemonButton>
-                    }
-                />
-                <MainContent />
-            </SceneContent>
+                    <PageHeader
+                        buttons={
+                            <LemonButton
+                                data-attr="new-query-endpoint"
+                                onClick={() => {
+                                    router.actions.push(urls.sqlEditor(undefined, undefined, undefined, undefined, OutputTab.QueryEndpoint))
+                                }}
+                                type="primary"
+                                tooltip="Redirects you to the SQL Editor."
+                            >
+                                New query endpoint
+                            </LemonButton>
+                        }
+                    />
+                    <MainContent />
+                </SceneContent>
+            </BindLogic>
+
         </BindLogic>
     )
 }
