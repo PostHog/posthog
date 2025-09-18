@@ -8,16 +8,20 @@ import (
 	"github.com/prometheus/client_golang/api"
 	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
 	"github.com/prometheus/common/model"
+	"go.uber.org/zap"
+
+	"github.com/posthog/pod-rebalancer/pkg/logging"
 )
 
 // Client wraps the Prometheus API client with convenience methods
 type Client struct {
 	api     v1.API
 	timeout time.Duration
+	logger  *logging.Logger
 }
 
 // NewClient creates a new Prometheus client with the given endpoint and timeout
-func NewClient(endpoint string, timeout time.Duration) (*Client, error) {
+func NewClient(endpoint string, timeout time.Duration, logger *logging.Logger) (*Client, error) {
 	config := api.Config{
 		Address: endpoint,
 	}
@@ -30,6 +34,7 @@ func NewClient(endpoint string, timeout time.Duration) (*Client, error) {
 	return &Client{
 		api:     v1.NewAPI(client),
 		timeout: timeout,
+		logger:  logger,
 	}, nil
 }
 
@@ -47,15 +52,16 @@ func (c *Client) Query(ctx context.Context, query string) (model.Value, error) {
 
 	// Log warnings if any
 	if len(warnings) > 0 {
-		// Note: In a real implementation, we'd use the logger from context
-		// For now, we'll just ignore warnings or could return them
+		c.logger.Debug("Prometheus query warnings", zap.Strings("warnings", warnings))
 	}
 
 	return result, nil
 }
 
 // QueryRange executes a PromQL range query and returns the result
-func (c *Client) QueryRange(ctx context.Context, query string, start, end time.Time, step time.Duration) (model.Value, error) {
+func (c *Client) QueryRange(
+	ctx context.Context, query string, start, end time.Time, step time.Duration,
+) (model.Value, error) {
 	queryCtx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 
@@ -71,7 +77,7 @@ func (c *Client) QueryRange(ctx context.Context, query string, start, end time.T
 	}
 
 	if len(warnings) > 0 {
-		// Log warnings if needed
+		c.logger.Debug("Prometheus range query warnings", zap.Strings("warnings", warnings))
 	}
 
 	return result, nil

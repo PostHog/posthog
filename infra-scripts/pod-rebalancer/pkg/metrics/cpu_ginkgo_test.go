@@ -9,7 +9,8 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/mock"
-	"go.uber.org/zap"
+
+	"github.com/posthog/pod-rebalancer/pkg/logging"
 )
 
 // MockPrometheusClient implements PrometheusClient interface for testing using testify mock
@@ -31,7 +32,7 @@ func (m *MockPrometheusClient) Query(ctx context.Context, query string) (model.V
 var _ = Describe("CPUMetrics", func() {
 	var (
 		client         *MockPrometheusClient
-		logger         *zap.Logger
+		logger         *logging.Logger
 		namespace      string
 		deploymentName string
 		timeWindow     time.Duration
@@ -41,7 +42,7 @@ var _ = Describe("CPUMetrics", func() {
 
 	BeforeEach(func() {
 		client = &MockPrometheusClient{}
-		logger = zap.NewNop()
+		logger, _ = logging.New("error") // Use error level to minimize test output
 		namespace = "posthog"
 		deploymentName = "ingestion-consumer"
 		timeWindow = time.Minute
@@ -61,7 +62,8 @@ var _ = Describe("CPUMetrics", func() {
 						Value:  4.0,
 					},
 				}
-				expectedQuery := `median(sum(median by (container) (kube_pod_container_resource_limits{resource="cpu", namespace="posthog", container="ingestion-consumer"})))`
+				expectedQuery := `median(sum(median by (container) ` +
+					`(kube_pod_container_resource_limits{resource="cpu", namespace="posthog", container="ingestion-consumer"})))`
 				client.On("Query", mock.Anything, expectedQuery).Return(vectorResult, nil)
 			})
 
@@ -76,7 +78,8 @@ var _ = Describe("CPUMetrics", func() {
 
 		Context("with empty result", func() {
 			BeforeEach(func() {
-				expectedQuery := `median(sum(median by (container) (kube_pod_container_resource_limits{resource="cpu", namespace="posthog", container="ingestion-consumer"})))`
+				expectedQuery := `median(sum(median by (container) ` +
+					`(kube_pod_container_resource_limits{resource="cpu", namespace="posthog", container="ingestion-consumer"})))`
 				client.On("Query", mock.Anything, expectedQuery).Return(model.Vector{}, nil)
 			})
 
@@ -102,7 +105,8 @@ var _ = Describe("CPUMetrics", func() {
 					Value:  2.0,
 				},
 			}
-			expectedQuery := `median(sum(median by (container) (kube_pod_container_resource_requests{resource="cpu", namespace="posthog", container="ingestion-consumer"})))`
+			expectedQuery := `median(sum(median by (container) ` +
+				`(kube_pod_container_resource_requests{resource="cpu", namespace="posthog", container="ingestion-consumer"})))`
 			client.On("Query", mock.Anything, expectedQuery).Return(vectorResult, nil)
 
 			requests, err := fetcher.FetchCPURequests(ctx)
@@ -135,17 +139,17 @@ var _ = Describe("CPUMetrics", func() {
 					},
 				}
 				expectedQuery := `topk(2, sum by(pod) (rate(container_cpu_usage_seconds_total{
-  namespace="posthog", 
-  container="ingestion-consumer"  
+  namespace="posthog",
+  container="ingestion-consumer"
 }[1m0s]))) >
 scalar(kube_horizontalpodautoscaler_spec_target_metric{
-  horizontalpodautoscaler=~"(keda-hpa-)?ingestion-consumer", 
+  horizontalpodautoscaler=~"(keda-hpa-)?ingestion-consumer",
   namespace="posthog",
   metric_name="cpu"
 }) / 100 * 1.50 *
 avg(kube_pod_container_resource_requests{
-  resource="cpu", 
-  namespace="posthog", 
+  resource="cpu",
+  namespace="posthog",
   container="ingestion-consumer"
 })`
 				client.On("Query", mock.Anything, expectedQuery).Return(vectorResult, nil)
@@ -214,7 +218,7 @@ avg(kube_pod_container_resource_requests{
 					},
 				}
 				expectedQuery := `bottomk(2, sum by(pod) (rate(container_cpu_usage_seconds_total{
-  namespace="posthog", 
+  namespace="posthog",
   container="ingestion-consumer"
 }[1m0s])))`
 				client.On("Query", mock.Anything, expectedQuery).Return(vectorResult, nil)

@@ -96,7 +96,7 @@ PROMETHEUS_ENDPOINT=http://localhost:9090
 PROMETHEUS_TIMEOUT=30s
 
 # Kubernetes
-KUBE_NAMESPACE=default  
+KUBE_NAMESPACE=default
 KUBE_LABEL_SELECTOR=app=consumer
 
 # Thresholds
@@ -138,7 +138,7 @@ func TestConfigLoad(t *testing.T) {
     }{
         // test cases
     }
-    
+
     for _, tt := range tests {
         t.Run(tt.name, func(t *testing.T) {
             // test implementation
@@ -173,7 +173,7 @@ func TestConfigLoad(t *testing.T) {
 ## Tools Configuration
 
 - **golangci-lint**: `.golangci.yml`
-- **Task runner**: `Taskfile.yml`  
+- **Task runner**: `Taskfile.yml`
 - **Go modules**: `go.mod`, `go.sum`
 - **Environment**: `.envrc`
 - **Git ignore**: `.gitignore`

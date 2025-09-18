@@ -32,9 +32,6 @@ linters:
         - misspell
         - ineffassign
         - unused
-        - deadcode
-        - varcheck
-        - structcheck
         - errcheck
         - gosimple
         - typecheck
@@ -44,7 +41,6 @@ linters:
         - nestif
         - lll
     disable:
-        - exhaustivestruct # Too strict for this project
         - wsl # Whitespace linter is too opinionated
 
 issues:
@@ -56,9 +52,7 @@ issues:
               - gocognit
         - path: tools\.go
           linters:
-              - deadcode
               - unused
-              - varcheck
 
     max-issues-per-linter: 0
     max-same-issues: 0

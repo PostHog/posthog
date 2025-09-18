@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/posthog/pod-rebalancer/pkg/metrics"
 	"go.uber.org/zap"
+
+	"github.com/posthog/pod-rebalancer/pkg/logging"
+	"github.com/posthog/pod-rebalancer/pkg/metrics"
 )
 
 // Engine analyzes CPU usage and selects pods for deletion based on the sophisticated algorithm
@@ -16,11 +18,11 @@ type Engine struct {
 	toleranceMultiplier       float64
 	minimumImprovementPercent float64
 	hpaPrefix                 string
-	logger                    *zap.Logger
+	logger                    *logging.Logger
 }
 
 // NewEngine creates a new decision engine with the specified parameters
-func NewEngine(cpuFetcher metrics.CPUMetricsFetcher, topK int, toleranceMultiplier, minimumImprovementPercent float64, hpaPrefix string, logger *zap.Logger) *Engine {
+func NewEngine(cpuFetcher metrics.CPUMetricsFetcher, topK int, toleranceMultiplier, minimumImprovementPercent float64, hpaPrefix string, logger *logging.Logger) *Engine {
 	return &Engine{
 		cpuFetcher:                cpuFetcher,
 		topKPods:                  topK,

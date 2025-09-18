@@ -7,6 +7,8 @@ import (
 
 	"github.com/prometheus/common/model"
 	"go.uber.org/zap"
+
+	"github.com/posthog/pod-rebalancer/pkg/logging"
 )
 
 // PrometheusClient defines the interface for querying Prometheus
@@ -17,14 +19,14 @@ type PrometheusClient interface {
 // CPUMetrics implements the CPUMetricsFetcher interface
 type CPUMetrics struct {
 	client         PrometheusClient
-	logger         *zap.Logger
+	logger         *logging.Logger
 	namespace      string
 	deploymentName string
 	timeWindow     time.Duration
 }
 
 // NewCPUMetrics creates a new CPU metrics fetcher
-func NewCPUMetrics(client PrometheusClient, logger *zap.Logger, namespace, deploymentName string, timeWindow time.Duration) *CPUMetrics {
+func NewCPUMetrics(client PrometheusClient, logger *logging.Logger, namespace, deploymentName string, timeWindow time.Duration) *CPUMetrics {
 	return &CPUMetrics{
 		client:         client,
 		logger:         logger,
@@ -98,7 +100,9 @@ func (f *CPUMetrics) parseCPUResults(result model.Value) (map[string]float64, er
 // FetchCPULimits fetches CPU resource limits for containers
 // Returns the median CPU limit across containers
 func (f *CPUMetrics) FetchCPULimits(ctx context.Context) (float64, error) {
-	query := fmt.Sprintf(`median(sum(median by (container) (kube_pod_container_resource_limits{resource="cpu", namespace="%s", container="%s"})))`,
+	query := fmt.Sprintf(
+		`median(sum(median by (container) (kube_pod_container_resource_limits{resource="cpu", namespace="%s", container="%s"})))`,
+
 		f.namespace, f.deploymentName)
 
 	f.logger.Debug("Executing CPU limits query",
@@ -119,7 +123,9 @@ func (f *CPUMetrics) FetchCPULimits(ctx context.Context) (float64, error) {
 // FetchCPURequests fetches CPU resource requests for containers
 // Returns the median CPU request across containers
 func (f *CPUMetrics) FetchCPURequests(ctx context.Context) (float64, error) {
-	query := fmt.Sprintf(`median(sum(median by (container) (kube_pod_container_resource_requests{resource="cpu", namespace="%s", container="%s"})))`,
+	query := fmt.Sprintf(
+		`median(sum(median by (container) (kube_pod_container_resource_requests{resource="cpu", namespace="%s", container="%s"})))`,
+
 		f.namespace, f.deploymentName)
 
 	f.logger.Debug("Executing CPU requests query",
@@ -139,19 +145,21 @@ func (f *CPUMetrics) FetchCPURequests(ctx context.Context) (float64, error) {
 
 // FetchTopKPodsAboveTolerance fetches the top K pods that exceed the tolerance threshold
 // This uses a single PromQL query to find pods above HPA target * tolerance multiplier
-func (f *CPUMetrics) FetchTopKPodsAboveTolerance(ctx context.Context, k int, toleranceMultiplier float64, hpaPrefix string) (map[string]float64, error) {
+func (f *CPUMetrics) FetchTopKPodsAboveTolerance(
+	ctx context.Context, k int, toleranceMultiplier float64, hpaPrefix string,
+) (map[string]float64, error) {
 	query := fmt.Sprintf(`topk(%d, sum by(pod) (rate(container_cpu_usage_seconds_total{
-  namespace="%s", 
-  container="%s"  
+  namespace="%s",
+  container="%s"
 }[%s]))) >
 scalar(kube_horizontalpodautoscaler_spec_target_metric{
-  horizontalpodautoscaler=~"(%s)?%s", 
+  horizontalpodautoscaler=~"(%s)?%s",
   namespace="%s",
   metric_name="cpu"
 }) / 100 * %.2f *
 avg(kube_pod_container_resource_requests{
-  resource="cpu", 
-  namespace="%s", 
+  resource="cpu",
+  namespace="%s",
   container="%s"
 })`, k, f.namespace, f.deploymentName, f.timeWindow,
 		hpaPrefix, f.deploymentName, f.namespace, toleranceMultiplier,
@@ -178,7 +186,7 @@ avg(kube_pod_container_resource_requests{
 // FetchBottomKPods fetches the K pods with lowest CPU usage
 func (f *CPUMetrics) FetchBottomKPods(ctx context.Context, k int) (map[string]float64, error) {
 	query := fmt.Sprintf(`bottomk(%d, sum by(pod) (rate(container_cpu_usage_seconds_total{
-  namespace="%s", 
+  namespace="%s",
   container="%s"
 }[%s])))`, k, f.namespace, f.deploymentName, f.timeWindow)
 

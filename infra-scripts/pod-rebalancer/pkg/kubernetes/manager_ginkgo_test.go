@@ -8,27 +8,28 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"go.uber.org/zap"
 	v1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 	ktesting "k8s.io/client-go/testing"
+
+	"github.com/posthog/pod-rebalancer/pkg/logging"
 )
 
 var _ = Describe("PodManager", func() {
 	var (
 		manager   *PodManager
 		client    *fake.Clientset
-		logger    *zap.Logger
+		logger    *logging.Logger
 		namespace string
 		ctx       context.Context
 	)
 
 	BeforeEach(func() {
 		client = fake.NewSimpleClientset()
-		logger = zap.NewNop()
+		logger, _ = logging.New("error") // Use error level to minimize test output
 		namespace = "posthog"
 		ctx = context.Background()
 	})

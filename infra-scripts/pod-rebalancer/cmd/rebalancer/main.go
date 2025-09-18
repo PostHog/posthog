@@ -11,6 +11,7 @@ import (
 	"github.com/posthog/pod-rebalancer/pkg/config"
 	"github.com/posthog/pod-rebalancer/pkg/decision"
 	"github.com/posthog/pod-rebalancer/pkg/kubernetes"
+	"github.com/posthog/pod-rebalancer/pkg/logging"
 	"github.com/posthog/pod-rebalancer/pkg/metrics"
 	"github.com/posthog/pod-rebalancer/pkg/prometheus"
 )
@@ -32,7 +33,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger, err := createLogger(cfg.LogLevel)
+	logger, err := logging.New(cfg.LogLevel)
 	if err != nil {
 		fmt.Printf("Failed to create logger: %v\n", err)
 		os.Exit(1)
@@ -44,9 +45,10 @@ func main() {
 		zap.String("deployment", cfg.DeploymentName),
 		zap.Bool("dry_run", cfg.DryRun))
 
-	promClient, err := prometheus.NewClient(cfg.PrometheusEndpoint, cfg.PrometheusTimeout)
+	promClient, err := prometheus.NewClient(cfg.PrometheusEndpoint, cfg.PrometheusTimeout, logger)
 	if err != nil {
-		logger.Fatal("Failed to create Prometheus client", zap.Error(err))
+		logger.Error("Failed to create Prometheus client", zap.Error(err))
+		os.Exit(1)
 	}
 
 	cpuMetrics := metrics.NewCPUMetrics(
@@ -64,7 +66,8 @@ func main() {
 
 	analysis, err := engine.Analyze(ctx)
 	if err != nil {
-		logger.Fatal("Failed to analyze pods for rebalancing", zap.Error(err))
+		logger.Error("Failed to analyze pods for rebalancing", zap.Error(err))
+		os.Exit(1)
 	}
 
 	duration := time.Since(start)
@@ -74,43 +77,11 @@ func main() {
 		zap.String("reason", analysis.Reason))
 
 	if analysis.ShouldRebalance {
-		logger.Info("Rebalancing required, proceeding with pod deletions",
-			zap.Strings("target_pods", analysis.TargetPods),
-			zap.Float64("improvement_percent", analysis.Metrics.ImprovementPercent))
-
-		k8sManager, err := kubernetes.NewManager(cfg.KubeNamespace, cfg.DryRun, logger)
+		err = executeRebalancing(ctx, cfg, analysis, logger, start)
 		if err != nil {
-			logger.Fatal("Failed to create Kubernetes manager", zap.Error(err))
-		}
-
-		err = k8sManager.ValidateMinimumPods(ctx, analysis.TargetPods, cfg.KubeLabelSelector, cfg.MinimumPodsRequired)
-		if err != nil {
-			logger.Fatal("Minimum pod validation failed", zap.Error(err))
-		}
-
-		result, err := k8sManager.DeletePods(ctx, analysis.TargetPods)
-		if err != nil {
-			logger.Fatal("Failed to delete pods", zap.Error(err))
-		}
-
-		logger.Info("Pod deletion completed",
-			zap.Int("attempted", len(result.Attempted)),
-			zap.Int("deleted", len(result.Deleted)),
-			zap.Int("skipped", len(result.Skipped)),
-			zap.Int("errors", len(result.Errors)),
-			zap.Strings("deleted_pods", result.Deleted))
-
-		if len(result.Errors) > 0 {
-			logger.Error("Some pod deletions failed")
-			for pod, err := range result.Errors {
-				logger.Error("Pod deletion error", zap.String("pod", pod), zap.Error(err))
-			}
+			logger.Error("Rebalancing failed", zap.Error(err))
 			os.Exit(1)
 		}
-
-		logger.Info("Rebalancing completed successfully",
-			zap.Float64("improvement_percent", analysis.Metrics.ImprovementPercent),
-			zap.Duration("total_duration", time.Since(start)))
 	} else {
 		logger.Info("No rebalancing needed",
 			zap.String("reason", analysis.Reason),
@@ -122,32 +93,46 @@ func main() {
 	logger.Info("Pod rebalancer completed successfully", zap.Duration("total_duration", time.Since(start)))
 }
 
-// createLogger creates a zap logger with the specified level
-func createLogger(level string) (*zap.Logger, error) {
-	var zapLevel zap.AtomicLevel
-	switch level {
-	case "debug":
-		zapLevel = zap.NewAtomicLevelAt(zap.DebugLevel)
-	case "info":
-		zapLevel = zap.NewAtomicLevelAt(zap.InfoLevel)
-	case "warn":
-		zapLevel = zap.NewAtomicLevelAt(zap.WarnLevel)
-	case "error":
-		zapLevel = zap.NewAtomicLevelAt(zap.ErrorLevel)
-	default:
-		zapLevel = zap.NewAtomicLevelAt(zap.InfoLevel)
+func executeRebalancing(ctx context.Context, cfg *config.Config, analysis *decision.Analysis, logger *logging.Logger, start time.Time) error {
+	logger.Info("Rebalancing required, proceeding with pod deletions",
+		zap.Strings("target_pods", analysis.TargetPods),
+		zap.Float64("improvement_percent", analysis.Metrics.ImprovementPercent))
+
+	k8sManager, err := kubernetes.NewManager(cfg.KubeNamespace, cfg.DryRun, logger)
+	if err != nil {
+		return fmt.Errorf("failed to create Kubernetes manager: %w", err)
 	}
 
-	config := zap.Config{
-		Level:            zapLevel,
-		Development:      false,
-		Encoding:         "json",
-		EncoderConfig:    zap.NewProductionEncoderConfig(),
-		OutputPaths:      []string{"stdout"},
-		ErrorOutputPaths: []string{"stderr"},
+	err = k8sManager.ValidateMinimumPods(ctx, analysis.TargetPods, cfg.KubeLabelSelector, cfg.MinimumPodsRequired)
+	if err != nil {
+		return fmt.Errorf("minimum pod validation failed: %w", err)
 	}
 
-	return config.Build()
+	result, err := k8sManager.DeletePods(ctx, analysis.TargetPods)
+	if err != nil {
+		return fmt.Errorf("failed to delete pods: %w", err)
+	}
+
+	logger.Info("Pod deletion completed",
+		zap.Int("attempted", len(result.Attempted)),
+		zap.Int("deleted", len(result.Deleted)),
+		zap.Int("skipped", len(result.Skipped)),
+		zap.Int("errors", len(result.Errors)),
+		zap.Strings("deleted_pods", result.Deleted))
+
+	if len(result.Errors) > 0 {
+		logger.Error("Some pod deletions failed")
+		for pod, err := range result.Errors {
+			logger.Error("Pod deletion error", zap.String("pod", pod), zap.Error(err))
+		}
+		return fmt.Errorf("pod deletion errors occurred")
+	}
+
+	logger.Info("Rebalancing completed successfully",
+		zap.Float64("improvement_percent", analysis.Metrics.ImprovementPercent),
+		zap.Duration("total_duration", time.Since(start)))
+
+	return nil
 }
 
 func printHelp() {

@@ -10,6 +10,8 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+
+	"github.com/posthog/pod-rebalancer/pkg/logging"
 )
 
 // PodManager handles Kubernetes pod operations with dry-run support
@@ -17,7 +19,7 @@ type PodManager struct {
 	client    kubernetes.Interface
 	namespace string
 	dryRun    bool
-	logger    *zap.Logger
+	logger    *logging.Logger
 }
 
 // DeletionResult tracks what happened during pod deletions
@@ -29,7 +31,7 @@ type DeletionResult struct {
 }
 
 // NewManager creates a new PodManager with the provided configuration
-func NewManager(namespace string, dryRun bool, logger *zap.Logger) (*PodManager, error) {
+func NewManager(namespace string, dryRun bool, logger *logging.Logger) (*PodManager, error) {
 	client, err := createKubernetesClient()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create kubernetes client: %w", err)
@@ -44,7 +46,7 @@ func NewManager(namespace string, dryRun bool, logger *zap.Logger) (*PodManager,
 }
 
 // NewManagerWithClient creates a PodManager with a provided client (useful for testing)
-func NewManagerWithClient(client kubernetes.Interface, namespace string, dryRun bool, logger *zap.Logger) *PodManager {
+func NewManagerWithClient(client kubernetes.Interface, namespace string, dryRun bool, logger *logging.Logger) *PodManager {
 	return &PodManager{
 		client:    client,
 		namespace: namespace,

@@ -10,13 +10,13 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"go.uber.org/zap"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/posthog/pod-rebalancer/pkg/config"
 	"github.com/posthog/pod-rebalancer/pkg/kubernetes"
+	"github.com/posthog/pod-rebalancer/pkg/logging"
 	"github.com/posthog/pod-rebalancer/pkg/metrics"
 	"github.com/posthog/pod-rebalancer/pkg/prometheus"
 )
@@ -24,7 +24,7 @@ import (
 var _ = Describe("Simple Integration Tests", func() {
 	var (
 		ctx            context.Context
-		logger         *zap.Logger
+		logger         *logging.Logger
 		mockPrometheus *httptest.Server
 		k8sClient      *fake.Clientset
 		namespace      string
@@ -33,7 +33,7 @@ var _ = Describe("Simple Integration Tests", func() {
 
 	BeforeEach(func() {
 		ctx = context.Background()
-		logger = zap.NewNop()
+		logger, _ = logging.New("error") // Use error level to minimize test output
 		namespace = "test-namespace"
 		deploymentName = "test-deployment"
 		k8sClient = fake.NewSimpleClientset()
@@ -93,14 +93,15 @@ var _ = Describe("Simple Integration Tests", func() {
 		BeforeEach(func() {
 			mockPrometheus = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				// Simple successful response for any query
-				response := `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1640995200,"1.0"]}]}}`
+				response := `{"status":"success","data":{"resultType":"vector",` +
+					`"result":[{"metric":{},"value":[1640995200,"1.0"]}]}}`
 				w.Header().Set("Content-Type", "application/json")
 				w.Write([]byte(response))
 			}))
 		})
 
 		It("should successfully create and query Prometheus client", func() {
-			client, err := prometheus.NewClient(mockPrometheus.URL, 30*time.Second)
+			client, err := prometheus.NewClient(mockPrometheus.URL, 30*time.Second, logger)
 			Expect(err).NotTo(HaveOccurred())
 
 			result, err := client.Query(ctx, "up")
@@ -109,7 +110,7 @@ var _ = Describe("Simple Integration Tests", func() {
 		})
 
 		It("should handle connection errors gracefully", func() {
-			client, err := prometheus.NewClient("http://unreachable-host:9090", 1*time.Second)
+			client, err := prometheus.NewClient("http://unreachable-host:9090", 1*time.Second, logger)
 			Expect(err).NotTo(HaveOccurred())
 
 			_, err = client.Query(ctx, "up")
@@ -130,15 +131,19 @@ var _ = Describe("Simple Integration Tests", func() {
 
 				switch {
 				case strings.Contains(query, "kube_pod_container_resource_limits"):
-					response := `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1640995200,"2.0"]}]}}`
+					response := `{"status":"success","data":{"resultType":"vector",` +
+						`"result":[{"metric":{},"value":[1640995200,"2.0"]}]}}`
 					w.Header().Set("Content-Type", "application/json")
 					w.Write([]byte(response))
 				case strings.Contains(query, "kube_pod_container_resource_requests") && !strings.Contains(query, "avg("):
-					response := `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1640995200,"1.0"]}]}}`
+					response := `{"status":"success","data":{"resultType":"vector",` +
+						`"result":[{"metric":{},"value":[1640995200,"1.0"]}]}}`
 					w.Header().Set("Content-Type", "application/json")
 					w.Write([]byte(response))
 				case strings.Contains(query, "bottomk"):
-					response := `{"status":"success","data":{"resultType":"vector","result":[{"metric":{"pod":"low-cpu-pod-1"},"value":[1640995200,"0.2"]},{"metric":{"pod":"low-cpu-pod-2"},"value":[1640995200,"0.3"]}]}}`
+					response := `{"status":"success","data":{"resultType":"vector",` +
+						`"result":[{"metric":{"pod":"low-cpu-pod-1"},"value":[1640995200,"0.2"]},` +
+						`{"metric":{"pod":"low-cpu-pod-2"},"value":[1640995200,"0.3"]}]}}`
 					w.Header().Set("Content-Type", "application/json")
 					w.Write([]byte(response))
 				default:
@@ -151,7 +156,7 @@ var _ = Describe("Simple Integration Tests", func() {
 		})
 
 		It("should fetch CPU metrics successfully", func() {
-			client, err := prometheus.NewClient(mockPrometheus.URL, 30*time.Second)
+			client, err := prometheus.NewClient(mockPrometheus.URL, 30*time.Second, logger)
 			Expect(err).NotTo(HaveOccurred())
 
 			cpuMetrics := metrics.NewCPUMetrics(
@@ -244,7 +249,7 @@ var _ = Describe("Simple Integration Tests", func() {
 				w.Write([]byte("Internal Server Error"))
 			}))
 
-			client, err := prometheus.NewClient(mockPrometheus.URL, 30*time.Second)
+			client, err := prometheus.NewClient(mockPrometheus.URL, 30*time.Second, logger)
 			Expect(err).NotTo(HaveOccurred())
 
 			cpuMetrics := metrics.NewCPUMetrics(
@@ -264,7 +269,7 @@ var _ = Describe("Simple Integration Tests", func() {
 				w.Write([]byte("invalid json"))
 			}))
 
-			client, err := prometheus.NewClient(mockPrometheus.URL, 30*time.Second)
+			client, err := prometheus.NewClient(mockPrometheus.URL, 30*time.Second, logger)
 			Expect(err).NotTo(HaveOccurred())
 
 			_, err = client.Query(ctx, "up")
@@ -275,14 +280,15 @@ var _ = Describe("Simple Integration Tests", func() {
 	Describe("Performance Tests", func() {
 		It("should complete operations within reasonable time", func() {
 			mockPrometheus = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				response := `{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1640995200,"1.0"]}]}}`
+				response := `{"status":"success","data":{"resultType":"vector",` +
+					`"result":[{"metric":{},"value":[1640995200,"1.0"]}]}}`
 				w.Header().Set("Content-Type", "application/json")
 				w.Write([]byte(response))
 			}))
 
 			start := time.Now()
 
-			client, err := prometheus.NewClient(mockPrometheus.URL, 30*time.Second)
+			client, err := prometheus.NewClient(mockPrometheus.URL, 30*time.Second, logger)
 			Expect(err).NotTo(HaveOccurred())
 
 			cpuMetrics := metrics.NewCPUMetrics(

@@ -8,13 +8,16 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
+	"github.com/posthog/pod-rebalancer/pkg/logging"
 )
 
 var _ = Describe("Prometheus Client", func() {
 	Describe("NewClient", func() {
 		DescribeTable("should handle different endpoint configurations",
 			func(endpoint string, timeout time.Duration, expectError bool) {
-				client, err := NewClient(endpoint, timeout)
+				logger, _ := logging.New("error")
+				client, err := NewClient(endpoint, timeout, logger)
 
 				if expectError {
 					Expect(err).To(HaveOccurred())
@@ -62,7 +65,8 @@ var _ = Describe("Prometheus Client", func() {
 					}))
 
 					var err error
-					client, err = NewClient(server.URL, 5*time.Second)
+					logger, _ := logging.New("error")
+					client, err = NewClient(server.URL, 5*time.Second, logger)
 					Expect(err).NotTo(HaveOccurred())
 				})
 
@@ -87,7 +91,8 @@ var _ = Describe("Prometheus Client", func() {
 					}))
 
 					var err error
-					client, err = NewClient(server.URL, 5*time.Second)
+					logger, _ := logging.New("error")
+					client, err = NewClient(server.URL, 5*time.Second, logger)
 					Expect(err).NotTo(HaveOccurred())
 				})
 
@@ -111,7 +116,8 @@ var _ = Describe("Prometheus Client", func() {
 					}))
 
 					var err error
-					client, err = NewClient(server.URL, 5*time.Second)
+					logger, _ := logging.New("error")
+					client, err = NewClient(server.URL, 5*time.Second, logger)
 					Expect(err).NotTo(HaveOccurred())
 				})
 
@@ -133,7 +139,8 @@ var _ = Describe("Prometheus Client", func() {
 					}))
 
 					var err error
-					client, err = NewClient(server.URL, 100*time.Millisecond) // Very short timeout
+					logger, _ := logging.New("error")
+					client, err = NewClient(server.URL, 100*time.Millisecond, logger) // Very short timeout
 					Expect(err).NotTo(HaveOccurred())
 				})
 
@@ -156,7 +163,8 @@ var _ = Describe("Prometheus Client", func() {
 					}))
 
 					var err error
-					client, err = NewClient(server.URL, 5*time.Second)
+					logger, _ := logging.New("error")
+					client, err = NewClient(server.URL, 5*time.Second, logger)
 					Expect(err).NotTo(HaveOccurred())
 				})
 
@@ -173,7 +181,8 @@ var _ = Describe("Prometheus Client", func() {
 					}))
 
 					var err error
-					client, err = NewClient(server.URL, 5*time.Second)
+					logger, _ := logging.New("error")
+					client, err = NewClient(server.URL, 5*time.Second, logger)
 					Expect(err).NotTo(HaveOccurred())
 				})
 
@@ -199,7 +208,8 @@ var _ = Describe("Prometheus Client", func() {
 				}))
 
 				var err error
-				client, err = NewClient(server.URL, 5*time.Second)
+				logger, _ := logging.New("error")
+				client, err = NewClient(server.URL, 5*time.Second, logger)
 				Expect(err).NotTo(HaveOccurred())
 			})
 
