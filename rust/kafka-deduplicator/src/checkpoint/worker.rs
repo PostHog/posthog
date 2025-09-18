@@ -138,7 +138,7 @@ impl CheckpointWorker {
                 self.worker_id,
                 local_path = self.target.local_path_tag,
                 checkpoint_mode = self.mode.as_str(),
-                "Checkpoint worker: failed store metrics update after local chekcpoint: {}",
+                "Checkpoint worker: failed store metrics update after local checkpoint: {}",
                 e
             );
         }
@@ -406,7 +406,7 @@ mod tests {
             ..Default::default()
         };
 
-        // Create target partition and attempt path objects, run chekcpoint worker
+        // Create target partition and attempt path objects, run checkpoint worker
         let partition = Partition::new("some_test_topic".to_string(), 0);
         let target =
             CheckpointTarget::new(partition.clone(), Path::new(&config.local_checkpoint_dir))
