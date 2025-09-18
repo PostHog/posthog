@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonSelect, Spinner } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
@@ -28,6 +29,7 @@ export const IssueQueryOptions = (): JSX.Element => {
     const { orderBy, orderDirection, revenuePeriod } = useValues(issueQueryOptionsLogic)
     const { setOrderBy, setRevenueEntity, setOrderDirection, setRevenuePeriod } = useActions(issueQueryOptionsLogic)
     const { hasRevenueTables, hasRevenueEvents } = useValues(revenueAnalyticsLogic)
+    const hasRevenueSorting = useFeatureFlag('ERROR_TRACKING_REVENUE_SORTING')
 
     const hasRevenueAnalytics = hasRevenueTables || hasRevenueEvents
 
@@ -65,7 +67,7 @@ export const IssueQueryOptions = (): JSX.Element => {
                                 label: labels['sessions'],
                                 onClick: () => setOrderBy('sessions'),
                             },
-                            {
+                            hasRevenueSorting && {
                                 label: 'Revenue',
                                 ...(hasRevenueAnalytics
                                     ? { onClick: () => router.actions.push(urls.revenueSettings()) }
