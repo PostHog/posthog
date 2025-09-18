@@ -41,12 +41,12 @@ import { DataColorThemes } from './environment/DataColorThemes'
 import { ErrorTrackingIntegrations } from './environment/ErrorTrackingIntegrations'
 import { FeatureFlagSettings } from './environment/FeatureFlagSettings'
 import { FeaturePreviewsSettings } from './environment/FeaturePreviewsSettings'
-import { GithubIntegration } from './environment/GithubIntegration'
 import { GroupAnalyticsConfig } from './environment/GroupAnalyticsConfig'
 import { HeatmapsSettings } from './environment/HeatmapsSettings'
 import { HumanFriendlyComparisonPeriodsSetting } from './environment/HumanFriendlyComparisonPeriodsSetting'
 import { IPAllowListInfo } from './environment/IPAllowListInfo'
 import { IPCapture } from './environment/IPCapture'
+import { GithubIntegration } from './environment/Integrations'
 import MCPServerSettings from './environment/MCPServerSettings'
 import { ManagedReverseProxy } from './environment/ManagedReverseProxy'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
@@ -514,11 +514,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <SlackIntegration />,
             },
             {
-                id: 'integration-error-tracking',
-                title: 'Error tracking integrations',
-                component: <ErrorTrackingIntegrations />,
-            },
-            {
                 id: 'integration-github',
                 title: 'GitHub integration',
                 component: <GithubIntegration />,
@@ -526,7 +521,7 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'integration-other',
                 title: 'Other integrations',
-                component: <IntegrationsList omitKinds={['slack', 'linear', 'github']} />,
+                component: <IntegrationsList omitKinds={['slack', 'github']} />,
             },
             {
                 id: 'integration-ip-allowlist',
