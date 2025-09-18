@@ -7,7 +7,7 @@ from typing import Any, Generic, Optional, Protocol, TypeGuard, TypeVar, Union, 
 
 import structlog
 import posthoganalytics
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel
 
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
@@ -42,7 +42,6 @@ from posthog.schema import (
     QueryStatusResponse,
     QueryTiming,
     RetentionQuery,
-    SamplingRate,
     SessionAttributionExplorerQuery,
     SessionBatchEventsQuery,
     SessionsTimelineQuery,
@@ -176,6 +175,10 @@ RunnableQueryNode = Union[
 ]
 
 
+class NoQueryRunnerError(ValueError):
+    pass
+
+
 def get_query_runner(
     query: dict[str, Any] | RunnableQueryNode | BaseModel,
     team: Team,
@@ -186,7 +189,7 @@ def get_query_runner(
     try:
         kind = get_from_dict_or_attr(query, "kind")
     except AttributeError:
-        raise ValueError(f"Can't get a runner for an unknown query type: {query}")
+        raise NoQueryRunnerError(f"Can't get a runner for an unknown query type: {query}")
 
     if kind == "TrendsQuery":
         # Check if this should use calendar heatmap runner instead
@@ -693,7 +696,7 @@ def get_query_runner(
             limit_context=limit_context,
         )
 
-    raise ValueError(f"Can't get a runner for an unknown query kind: {kind}")
+    raise NoQueryRunnerError(f"Can't get a runner for an unknown query kind: {kind}")
 
 
 def get_query_runner_or_none(
@@ -707,10 +710,8 @@ def get_query_runner_or_none(
         return get_query_runner(
             query=query, team=team, timings=timings, limit_context=limit_context, modifiers=modifiers
         )
-    except ValueError as e:
-        if "Can't get a runner for an unknown" in str(e):
-            return None
-        raise
+    except NoQueryRunnerError:
+        return None
 
 
 Q = TypeVar("Q", bound=RunnableQueryNode)
@@ -788,9 +789,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return isinstance(data, self.query_type)
 
     def is_cached_response(self, data) -> TypeGuard[dict]:
-        return hasattr(data, "is_cached") or (  # Duck typing for backwards compatibility with `CachedQueryResponse`
-            isinstance(data, dict) and "is_cached" in data
-        )
+        return hasattr(data, "is_cached")
 
     @property
     def _limit_context_aliased_for_cache(self) -> LimitContext:
@@ -1083,8 +1082,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             fresh_response = CachedResponse(**fresh_response_dict)
 
             # Don't cache debug queries with errors and export queries
-            has_error: Optional[list] = fresh_response_dict.get("error", None)
-            if (has_error is None or len(has_error) == 0) and self.limit_context != LimitContext.EXPORT:
+            query_error: Optional[list] = fresh_response_dict.get("error", None)
+            has_error = query_error is not None and len(query_error) > 0
+            if not has_error and self.limit_context != LimitContext.EXPORT:
                 cache_manager.set_cache_data(
                     response=fresh_response_dict,
                     # This would be a possible place to decide to not ever keep this cache warm
@@ -1106,7 +1106,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     "query_type": getattr(self.query, "kind", "Other"),
                     "response_time_ms": round((perf_counter() - start_time) * 1000, 2),
                     "query_duration_ms": query_duration_ms,
-                    "has_error": has_error is not None and len(has_error) > 0,
+                    "has_error": has_error,
                 },
                 groups=(groups(self.team.organization, self.team)),
             )
@@ -1196,8 +1196,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
     def _refresh_frequency(self) -> timedelta:
         return timedelta(minutes=1)
 
-    def apply_variable_overrides(self, variable_overrides: list[HogQLVariable]):
+    def apply_variable_overrides(self, variable_overrides: list[HogQLVariable] | None):
         """Irreversibly update self.query with provided variable overrides."""
+        if variable_overrides is None:
+            return
+
         if not hasattr(self.query, "variables") or not self.query.kind == "HogQLQuery" or len(variable_overrides) == 0:
             return
 
@@ -1210,8 +1213,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if self.query.variables.get(variable.variableId):
                 self.query.variables[variable.variableId] = variable
 
-    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
+    def apply_dashboard_filters(self, dashboard_filter: DashboardFilter | None):
         """Irreversibly update self.query with provided dashboard filters."""
+        if dashboard_filter is None:
+            return
+
         if not hasattr(self.query, "properties") or not hasattr(self.query, "dateRange"):
             capture_exception(
                 NotImplementedError(
@@ -1296,45 +1302,3 @@ class QueryRunnerWithHogQLContext(AnalyticsQueryRunner[AR]):
         # so we'll reuse this database for the query once it eventually runs
         self.database = create_hogql_database(team=self.team)
         self.hogql_context = HogQLContext(team_id=self.team.pk, database=self.database)
-
-
-### START OF BACKWARDS COMPATIBILITY CODE
-
-# In May 2024 we've switched from a single shared `CachedQueryResponse` to a `Cached*QueryResponse` being defined
-# for each runnable query kind, so we won't be creating new `CachedQueryResponse`s. Unfortunately, as of May 2024,
-# we're pickling cached query responses instead of e.g. serializing to JSON, so we have to unpickle them later.
-# Because of that, we need `CachedQueryResponse` to still be defined here till the end of May 2024 - otherwise
-# we wouldn't be able to unpickle and therefore use cached results from before this change was merged.
-
-DataT = TypeVar("DataT")
-
-
-class QueryResponse(BaseModel, Generic[DataT]):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    results: DataT
-    timings: Optional[list[QueryTiming]] = None
-    types: Optional[list[Union[tuple[str, str], str]]] = None
-    columns: Optional[list[str]] = None
-    error: Optional[str] = None
-    hogql: Optional[str] = None
-    hasMore: Optional[bool] = None
-    limit: Optional[int] = None
-    offset: Optional[int] = None
-    samplingRate: Optional[SamplingRate] = None
-    modifiers: Optional[HogQLQueryModifiers] = None
-
-
-class CachedQueryResponse(QueryResponse):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    is_cached: bool
-    last_refresh: str
-    next_allowed_client_refresh: str
-    cache_key: str
-    timezone: str
-
-
-### END OF BACKWARDS COMPATIBILITY CODE

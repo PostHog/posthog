@@ -1,8 +1,8 @@
-from typing import Optional
+from typing import Generic, Optional, TypeVar, Union
 
 import structlog
 import pydantic_core
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -12,10 +12,13 @@ from posthog.schema import (
     DataWarehouseViewLink,
     HogQLAutocomplete,
     HogQLMetadata,
+    HogQLQueryModifiers,
     HogQLVariable,
     HogQuery,
     HogQueryResponse,
     QuerySchemaRoot,
+    QueryTiming,
+    SamplingRate,
 )
 
 from posthog.hogql.autocomplete import get_hogql_autocomplete
@@ -29,7 +32,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions_capture import capture_exception
-from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode, QueryResponse, get_query_runner
+from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode, get_query_runner_or_none
 from posthog.models import Team, User
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.warehouse.models import DataWarehouseJoin
@@ -37,6 +40,25 @@ from posthog.warehouse.models import DataWarehouseJoin
 from common.hogvm.python.debugger import color_bytecode
 
 logger = structlog.get_logger(__name__)
+
+DataT = TypeVar("DataT")
+
+
+class QueryResponse(BaseModel, Generic[DataT]):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    results: DataT
+    timings: Optional[list[QueryTiming]] = None
+    types: Optional[list[Union[tuple[str, str], str]]] = None
+    columns: Optional[list[str]] = None
+    error: Optional[str] = None
+    hogql: Optional[str] = None
+    hasMore: Optional[bool] = None
+    limit: Optional[int] = None
+    offset: Optional[int] = None
+    samplingRate: Optional[SamplingRate] = None
+    modifiers: Optional[HogQLQueryModifiers] = None
 
 
 def process_query_dict(
@@ -119,77 +141,26 @@ def process_query_model(
 ) -> dict | BaseModel:
     result: dict | BaseModel
 
-    try:
-        query_runner = get_query_runner(query, team, limit_context=limit_context)
-    except ValueError:  # This query doesn't run via query runner
-        if hasattr(query, "source") and isinstance(query.source, BaseModel):
-            result = process_query_model(
-                team,
-                query.source,
-                dashboard_filters=dashboard_filters,
-                variables_override=variables_override,
-                limit_context=limit_context,
-                execution_mode=execution_mode,
-                user=user,
-                query_id=query_id,
-                insight_id=insight_id,
-                dashboard_id=dashboard_id,
-                is_query_service=is_query_service,
-            )
-        elif execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
-            # Caching is handled by query runners, so in this case we can only return a cache miss
-            result = CacheMissResponse(cache_key=None)
-        elif isinstance(query, HogQuery):
-            if is_cloud() and (user is None or not user.is_staff):
-                return {"results": "Hog queries currently require staff user privileges."}
-
-            try:
-                hog_result = execute_hog(query.code or "", team=team)
-                bytecode = hog_result.bytecodes.get("root", None)
-                result = HogQueryResponse(
-                    results=hog_result.result,
-                    bytecode=bytecode,
-                    coloredBytecode=color_bytecode(bytecode) if bytecode else None,
-                    stdout="\n".join(hog_result.stdout),
-                )
-            except Exception as e:
-                result = HogQueryResponse(results=f"ERROR: {str(e)}")
-        elif isinstance(query, HogQLAutocomplete):
-            result = get_hogql_autocomplete(query=query, team=team)
-        elif isinstance(query, HogQLMetadata):
-            metadata_query = HogQLMetadata.model_validate(query)
-            metadata_response = get_hogql_metadata(query=metadata_query, team=team)
-            result = metadata_response
-        elif isinstance(query, DatabaseSchemaQuery):
-            joins = DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
-            database = create_hogql_database(team=team, modifiers=create_default_modifiers_for_team(team))
-            context = HogQLContext(team_id=team.pk, team=team, database=database)
-            result = DatabaseSchemaQueryResponse(
-                tables=serialize_database(context),
-                joins=[
-                    DataWarehouseViewLink.model_validate(
-                        {
-                            "id": str(join.id),
-                            "source_table_name": join.source_table_name,
-                            "source_table_key": join.source_table_key,
-                            "joining_table_name": join.joining_table_name,
-                            "joining_table_key": join.joining_table_key,
-                            "field_name": join.field_name,
-                            "configuration": join.configuration,
-                            "created_at": join.created_at.isoformat(),
-                        }
-                    )
-                    for join in joins
-                ],
-            )
-        else:
-            raise ValidationError(f"Unsupported query kind: {query.__class__.__name__}")
+    query_runner = get_query_runner_or_none(query, team, limit_context=limit_context)
+    if query_runner is None:
+        result = _process_query_runnerless_query_model(
+            team,
+            query,
+            dashboard_filters=dashboard_filters,
+            variables_override=variables_override,
+            limit_context=limit_context,
+            execution_mode=execution_mode,
+            user=user,
+            query_id=query_id,
+            insight_id=insight_id,
+            dashboard_id=dashboard_id,
+            is_query_service=is_query_service,
+        )
     else:  # Query runner available - it will handle execution as well as caching
-        if dashboard_filters:
-            query_runner.apply_dashboard_filters(dashboard_filters)
-        if variables_override:
-            query_runner.apply_variable_overrides(variables_override)
+        query_runner.apply_dashboard_filters(dashboard_filters)
+        query_runner.apply_variable_overrides(variables_override)
         query_runner.is_query_service = is_query_service
+
         result = query_runner.run(
             execution_mode=execution_mode,
             user=user,
@@ -199,3 +170,85 @@ def process_query_model(
         )
 
     return result
+
+
+def _process_query_runnerless_query_model(
+    team: Team,
+    query: BaseModel,  # mypy has problems with unions and isinstance
+    *,
+    dashboard_filters: Optional[DashboardFilter] = None,
+    variables_override: Optional[list[HogQLVariable]] = None,
+    limit_context: Optional[LimitContext] = None,
+    execution_mode: ExecutionMode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+    user: Optional[User] = None,
+    query_id: Optional[str] = None,
+    insight_id: Optional[int] = None,
+    dashboard_id: Optional[int] = None,
+    is_query_service: bool = False,
+) -> dict | BaseModel:
+    if hasattr(query, "source") and isinstance(query.source, BaseModel):
+        return process_query_model(
+            team,
+            query.source,
+            dashboard_filters=dashboard_filters,
+            variables_override=variables_override,
+            limit_context=limit_context,
+            execution_mode=execution_mode,
+            user=user,
+            query_id=query_id,
+            insight_id=insight_id,
+            dashboard_id=dashboard_id,
+            is_query_service=is_query_service,
+        )
+
+    # Caching is handled by query runners, so in this case we can only return a cache miss
+    if execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
+        return CacheMissResponse(cache_key=None)
+
+    if isinstance(query, HogQuery):
+        if is_cloud() and (user is None or not user.is_staff):
+            return {"results": "Hog queries currently require staff user privileges."}
+
+        try:
+            hog_result = execute_hog(query.code or "", team=team)
+            bytecode = hog_result.bytecodes.get("root", None)
+            return HogQueryResponse(
+                results=hog_result.result,
+                bytecode=bytecode,
+                coloredBytecode=color_bytecode(bytecode) if bytecode else None,
+                stdout="\n".join(hog_result.stdout),
+            )
+        except Exception as e:
+            return HogQueryResponse(results=f"ERROR: {str(e)}")
+
+    if isinstance(query, HogQLAutocomplete):
+        return get_hogql_autocomplete(query=query, team=team)
+
+    if isinstance(query, HogQLMetadata):
+        metadata_query = HogQLMetadata.model_validate(query)
+        return get_hogql_metadata(query=metadata_query, team=team)
+
+    if isinstance(query, DatabaseSchemaQuery):
+        joins = DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True)
+        database = create_hogql_database(team=team, modifiers=create_default_modifiers_for_team(team))
+        context = HogQLContext(team_id=team.pk, team=team, database=database)
+        return DatabaseSchemaQueryResponse(
+            tables=serialize_database(context),
+            joins=[
+                DataWarehouseViewLink.model_validate(
+                    {
+                        "id": str(join.id),
+                        "source_table_name": join.source_table_name,
+                        "source_table_key": join.source_table_key,
+                        "joining_table_name": join.joining_table_name,
+                        "joining_table_key": join.joining_table_key,
+                        "field_name": join.field_name,
+                        "configuration": join.configuration,
+                        "created_at": join.created_at.isoformat(),
+                    }
+                )
+                for join in joins
+            ],
+        )
+
+    raise ValidationError(f"Unsupported query kind: {query.__class__.__name__}")
