@@ -433,9 +433,12 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 return
             }
 
-            if (values.queryInput) {
+            // Always create suggestion payload when a new suggestion comes in, even for consecutive suggestions
+            // Only skip diff mode if the editor is completely empty
+            if (values.queryInput && values.queryInput.trim() !== '') {
                 actions._setSuggestionPayload({
                     suggestedValue: suggestedQueryInput,
+                    originalValue: values.queryInput, // Store current content as the original
                     acceptText: aiSuggestionOnAcceptText,
                     rejectText: aiSuggestionOnRejectText,
                     onAccept: aiSuggestionOnAccept,
@@ -569,6 +572,15 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             actions.setFinishedLoading(false)
         },
         setQueryInput: ({ queryInput }) => {
+            // Clear suggestion payload if user has manually edited beyond the suggested value
+            if (
+                values.suggestionPayload?.suggestedValue &&
+                queryInput !== values.suggestionPayload.suggestedValue &&
+                queryInput !== values.suggestionPayload.originalValue
+            ) {
+                actions._setSuggestionPayload(null)
+            }
+
             // if editing a view, track latest history id changes are based on
             if (values.activeTab?.view && values.activeTab?.view.query?.query) {
                 if (queryInput === values.activeTab.view?.query.query) {

@@ -305,6 +305,22 @@ export function CodeEditor({
 
     if (originalValue) {
         // If originalValue is provided, we render a diff editor instead
+        const diffEditorOnMount = (editor: any, monaco: Monaco): void => {
+            setMonacoAndEditor([monaco, editor])
+
+            // Get the modified editor from the diff editor and set up change listener
+            const modifiedEditor = editor.getModifiedEditor()
+            if (modifiedEditor && editorProps.onChange) {
+                modifiedEditor.onDidChangeModelContent((event: any) => {
+                    const currentValue = modifiedEditor.getValue()
+                    editorProps.onChange?.(currentValue, event)
+                })
+            }
+
+            // Call the original onMount if provided
+            onMount?.(editor, monaco)
+        }
+
         return (
             <MonacoDiffEditor
                 key={queryKey}
@@ -318,6 +334,7 @@ export function CodeEditor({
                     acceptSuggestionOnEnter: 'on',
                     renderGutterMenu: false,
                 }}
+                onMount={diffEditorOnMount}
                 {...editorProps}
             />
         )
