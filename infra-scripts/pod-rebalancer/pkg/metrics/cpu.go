@@ -26,7 +26,10 @@ type CPUMetrics struct {
 }
 
 // NewCPUMetrics creates a new CPU metrics fetcher
-func NewCPUMetrics(client PrometheusClient, logger *logging.Logger, namespace, deploymentName string, timeWindow time.Duration) *CPUMetrics {
+func NewCPUMetrics(
+	client PrometheusClient, logger *logging.Logger,
+	namespace, deploymentName string, timeWindow time.Duration,
+) *CPUMetrics {
 	return &CPUMetrics{
 		client:         client,
 		logger:         logger,
@@ -101,7 +104,8 @@ func (f *CPUMetrics) parseCPUResults(result model.Value) (map[string]float64, er
 // Returns the median CPU limit across containers
 func (f *CPUMetrics) FetchCPULimits(ctx context.Context) (float64, error) {
 	query := fmt.Sprintf(
-		`median(sum(median by (container) (kube_pod_container_resource_limits{resource="cpu", namespace="%s", container="%s"})))`,
+		`median(sum(median by (container) `+
+			`(kube_pod_container_resource_limits{resource="cpu", namespace="%s", container="%s"})))`,
 
 		f.namespace, f.deploymentName)
 
@@ -124,7 +128,8 @@ func (f *CPUMetrics) FetchCPULimits(ctx context.Context) (float64, error) {
 // Returns the median CPU request across containers
 func (f *CPUMetrics) FetchCPURequests(ctx context.Context) (float64, error) {
 	query := fmt.Sprintf(
-		`median(sum(median by (container) (kube_pod_container_resource_requests{resource="cpu", namespace="%s", container="%s"})))`,
+		`median(sum(median by (container) `+
+			`(kube_pod_container_resource_requests{resource="cpu", namespace="%s", container="%s"})))`,
 
 		f.namespace, f.deploymentName)
 

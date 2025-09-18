@@ -23,6 +23,8 @@ linters:
                 - G104
         govet:
             enable-all: true
+            disable:
+                - fieldalignment
         misspell:
             locale: US
         staticcheck:
@@ -40,6 +42,8 @@ linters:
                   - cyclop
                   - funlen
                   - gocognit
+                  - errcheck
+                  - lll
               path: _test\.go
             - linters:
                   - unused

@@ -22,7 +22,11 @@ type Engine struct {
 }
 
 // NewEngine creates a new decision engine with the specified parameters
-func NewEngine(cpuFetcher metrics.CPUMetricsFetcher, topK int, toleranceMultiplier, minimumImprovementPercent float64, hpaPrefix string, logger *logging.Logger) *Engine {
+func NewEngine(
+	cpuFetcher metrics.CPUMetricsFetcher, topK int,
+	toleranceMultiplier, minimumImprovementPercent float64,
+	hpaPrefix string, logger *logging.Logger,
+) *Engine {
 	return &Engine{
 		cpuFetcher:                cpuFetcher,
 		topKPods:                  topK,

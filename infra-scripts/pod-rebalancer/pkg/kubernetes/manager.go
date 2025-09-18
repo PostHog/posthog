@@ -46,7 +46,9 @@ func NewManager(namespace string, dryRun bool, logger *logging.Logger) (*PodMana
 }
 
 // NewManagerWithClient creates a PodManager with a provided client (useful for testing)
-func NewManagerWithClient(client kubernetes.Interface, namespace string, dryRun bool, logger *logging.Logger) *PodManager {
+func NewManagerWithClient(
+	client kubernetes.Interface, namespace string, dryRun bool, logger *logging.Logger,
+) *PodManager {
 	return &PodManager{
 		client:    client,
 		namespace: namespace,
@@ -147,7 +149,9 @@ func (pm *PodManager) deleteSinglePod(ctx context.Context, podName string, resul
 }
 
 // ValidateMinimumPods checks if deleting the specified pods would leave fewer than minimum required pods
-func (pm *PodManager) ValidateMinimumPods(ctx context.Context, podsToDelete []string, labelSelector string, minimumPods int) error {
+func (pm *PodManager) ValidateMinimumPods(
+	ctx context.Context, podsToDelete []string, labelSelector string, minimumPods int,
+) error {
 	// Get current pods matching the selector
 	listOptions := metav1.ListOptions{}
 	if labelSelector != "" {

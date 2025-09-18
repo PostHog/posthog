@@ -38,7 +38,9 @@ func main() {
 		fmt.Printf("Failed to create logger: %v\n", err)
 		os.Exit(1)
 	}
-	defer logger.Sync()
+	defer func() {
+		_ = logger.Sync()
+	}()
 
 	logger.Info("Starting Pod Rebalancer",
 		zap.String("namespace", cfg.KubeNamespace),
@@ -93,7 +95,10 @@ func main() {
 	logger.Info("Pod rebalancer completed successfully", zap.Duration("total_duration", time.Since(start)))
 }
 
-func executeRebalancing(ctx context.Context, cfg *config.Config, analysis *decision.Analysis, logger *logging.Logger, start time.Time) error {
+func executeRebalancing(
+	ctx context.Context, cfg *config.Config, analysis *decision.Analysis,
+	logger *logging.Logger, start time.Time,
+) error {
 	logger.Info("Rebalancing required, proceeding with pod deletions",
 		zap.Strings("target_pods", analysis.TargetPods),
 		zap.Float64("improvement_percent", analysis.Metrics.ImprovementPercent))
