@@ -2,9 +2,11 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSwitch, Link } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { AccessControlResourceType } from '~/types'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
@@ -22,12 +24,14 @@ export function FilterTestAccountsConfiguration(): JSX.Element {
                 </>
             }
         >
-            <LemonSwitch
-                onChange={updateFilterTestAccounts}
-                checked={filterTestAccounts}
-                label="Filter test accounts out of revenue analytics"
-                bordered
-            />
+            <AccessControlAction resourceType={AccessControlResourceType.RevenueAnalytics} minAccessLevel="editor">
+                <LemonSwitch
+                    onChange={updateFilterTestAccounts}
+                    checked={filterTestAccounts}
+                    label="Filter test accounts out of revenue analytics"
+                    bordered
+                />
+            </AccessControlAction>
         </SceneSection>
     )
 }

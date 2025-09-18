@@ -12,7 +12,7 @@ import { CampaignSceneLogicProps } from './campaignSceneLogic'
 export const CampaignSceneHeader = (props: CampaignSceneLogicProps = {}): JSX.Element => {
     const logic = campaignLogic(props)
     const { campaign, campaignChanged, isCampaignSubmitting, campaignLoading, campaignHasErrors } = useValues(logic)
-    const { saveCampaign, submitCampaign, discardChanges } = useActions(logic)
+    const { saveCampaign, submitCampaign, discardChanges, setCampaignValue } = useActions(logic)
 
     const isSavedCampaign = props.id && props.id !== 'new'
 
@@ -70,7 +70,16 @@ export const CampaignSceneHeader = (props: CampaignSceneLogicProps = {}): JSX.El
                     </>
                 }
             />
-            <SceneTitleSection name="Messaging" resourceType={{ type: 'messaging' }} />
+            <SceneTitleSection
+                name={campaign?.name}
+                description={campaign?.description}
+                resourceType={{ type: 'messaging' }}
+                canEdit
+                onNameChange={(name) => setCampaignValue('name', name)}
+                onDescriptionChange={(description) => setCampaignValue('description', description)}
+                isLoading={campaignLoading}
+                renameDebounceMs={200}
+            />
         </>
     )
 }

@@ -223,8 +223,11 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.Notebook]: AccessControlResourceType.Notebook,
     [Scene.Notebooks]: AccessControlResourceType.Notebook,
 
-    // Session recordings
+    // Session recording
     [Scene.Replay]: AccessControlResourceType.SessionRecording,
     [Scene.ReplaySingle]: AccessControlResourceType.SessionRecording,
     [Scene.ReplayPlaylist]: AccessControlResourceType.SessionRecording,
+
+    // Revenue analytics
+    [Scene.RevenueAnalytics]: AccessControlResourceType.RevenueAnalytics,
 }

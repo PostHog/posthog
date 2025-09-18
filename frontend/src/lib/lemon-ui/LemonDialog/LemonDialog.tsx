@@ -58,6 +58,7 @@ export function LemonDialog({
             ? null
             : {
                   children: 'Okay',
+                  disabledReason: shouldAwaitSubmit && isLoading ? 'Please wait...' : undefined,
               })
     if (primaryButton) {
         primaryButton.type = primaryButton.type || 'primary'

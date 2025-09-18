@@ -33,12 +33,7 @@ import { retryIfRetriable } from '../utils/retries'
 import { promisifyCallback } from '../utils/utils'
 import { ensureTopicExists } from './admin'
 import { getKafkaConfigFromEnv } from './config'
-import {
-    parseBrokerStatistics,
-    parsePartitionStatistics,
-    trackBrokerMetrics,
-    trackPartitionMetrics,
-} from './kafka-client-metrics'
+import { parseBrokerStatistics, trackBrokerMetrics } from './kafka-client-metrics'
 
 const DEFAULT_BATCH_TIMEOUT_MS = 500
 const SLOW_BATCH_PROCESSING_LOG_THRESHOLD_MS = 10000
@@ -512,11 +507,6 @@ export class KafkaConsumer {
                 const brokerStats = parseBrokerStatistics(parsedStats)
 
                 trackBrokerMetrics(brokerStats, this.config.groupId, this.consumerId)
-
-                const partitionStats = parsePartitionStatistics(parsedStats)
-                for (const { topicName, partitionId, partitionData } of partitionStats) {
-                    trackPartitionMetrics(topicName, partitionId, partitionData, this.config.groupId, this.consumerId)
-                }
 
                 // Log key metrics for observability - only include cgrp fields if present
                 const logData: any = {

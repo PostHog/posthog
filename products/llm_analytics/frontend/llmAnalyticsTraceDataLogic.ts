@@ -7,7 +7,7 @@ import {
     DataTableNode,
     LLMTrace,
     LLMTraceEvent,
-    TracesQueryResponse,
+    TraceQueryResponse,
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
@@ -61,7 +61,7 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
         trace: [
             (s) => [s.response],
             (response): LLMTrace | undefined => {
-                const traceResponse = response as TracesQueryResponse | null
+                const traceResponse = response as TraceQueryResponse | null
                 return traceResponse?.results?.[0]
             },
         ],

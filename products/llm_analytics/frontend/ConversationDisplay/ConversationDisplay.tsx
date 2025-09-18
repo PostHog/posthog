@@ -40,6 +40,7 @@ export function ConversationDisplay({ eventProperties }: { eventProperties: Even
                     totalCostUsd={eventProperties.$ai_total_cost_usd}
                     model={eventProperties.$ai_model}
                     latency={eventProperties.$ai_latency}
+                    timestamp={eventProperties.timestamp}
                 />
 
                 {showPlaygroundButton && (

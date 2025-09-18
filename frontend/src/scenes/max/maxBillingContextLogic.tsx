@@ -207,7 +207,9 @@ export const billingToMaxContext = (
 
     return {
         has_active_subscription: billing.has_active_subscription || false,
-        subscription_level: billing.subscription_level as MaxBillingContextSubscriptionLevel,
+        subscription_level:
+            (billing.subscription_level as MaxBillingContextSubscriptionLevel) ||
+            MaxBillingContextSubscriptionLevel.FREE,
         billing_plan: billing.billing_plan || null,
         is_deactivated: billing.deactivated,
         products: maxProducts,

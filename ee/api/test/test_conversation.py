@@ -325,12 +325,12 @@ class TestConversation(APIBaseTest):
         # should be idempotent
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-    def test_can_cancel_other_users_conversation_in_same_project(self):
+    def test_cannot_cancel_other_users_conversation_in_same_project(self):
         conversation = Conversation.objects.create(user=self.other_user, team=self.team)
         response = self.client.patch(
             f"/api/environments/{self.team.id}/conversations/{conversation.id}/cancel/",
         )
-        # This should now fail because cancel action also filters by user
+        # This should fail because cancel action also filters by user
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_cancel_other_teams_conversation(self):

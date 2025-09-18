@@ -1,11 +1,14 @@
 import { useValues } from 'kea'
 
-import { IconCalendar } from '@posthog/icons'
+import { IconCalendar, IconFlag } from '@posthog/icons'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { cn } from 'lib/utils/css-classes'
 import { INSIGHT_TYPE_OPTIONS } from 'scenes/saved-insights/SavedInsights'
 import { SavedInsightFilters } from 'scenes/saved-insights/savedInsightsLogic'
@@ -22,10 +25,10 @@ export function SavedInsightsFilters({
 }): JSX.Element {
     const { nameSortedDashboards } = useValues(dashboardsModel)
 
-    const { tab, createdBy, insightType, dateFrom, dateTo, dashboardId, search } = filters
+    const { tab, createdBy, insightType, dateFrom, dateTo, dashboardId, search, hideFeatureFlagInsights } = filters
 
     return (
-        <div className={cn('flex justify-between gap-2 mb-2 items-center flex-wrap mb-0')}>
+        <div className={cn('flex justify-between gap-2 items-center flex-wrap')}>
             <LemonInput
                 type="search"
                 placeholder="Search for insights"
@@ -87,7 +90,43 @@ export function SavedInsightsFilters({
                         />
                     </div>
                 ) : null}
+                <FeatureFlagInsightsToggle
+                    hideFeatureFlagInsights={hideFeatureFlagInsights ?? undefined}
+                    onToggle={(checked) => setFilters({ hideFeatureFlagInsights: checked })}
+                />
             </div>
         </div>
+    )
+}
+
+const FeatureFlagInsightsToggle = ({
+    hideFeatureFlagInsights,
+    onToggle,
+}: {
+    hideFeatureFlagInsights?: boolean
+    onToggle: (checked: boolean) => void
+}): JSX.Element => {
+    return (
+        <Tooltip
+            title={
+                <div>
+                    <p>
+                        PostHog automatically creates insights by default for feature flags to help you understand their
+                        performance.
+                    </p>
+                    <p>Use this toggle to hide these auto-generated insights from your insights list.</p>
+                </div>
+            }
+            placement="top"
+        >
+            <LemonButton
+                icon={<IconFlag />}
+                onClick={() => onToggle(!hideFeatureFlagInsights)}
+                type="secondary"
+                size="small"
+            >
+                Hide feature flag insights: <LemonSwitch checked={hideFeatureFlagInsights || false} className="ml-1" />
+            </LemonButton>
+        </Tooltip>
     )
 }

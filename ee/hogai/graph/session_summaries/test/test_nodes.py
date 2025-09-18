@@ -168,17 +168,14 @@ class TestSessionSummarizationNode(BaseTest):
     @patch("ee.hogai.graph.session_summaries.nodes.database_sync_to_async")
     @patch("products.replay.backend.max_tools.SearchSessionRecordingsTool")
     @patch("ee.hogai.graph.session_summaries.nodes._SessionSearch._generate_filter_query")
-    @patch("ee.hogai.graph.session_summaries.nodes.get_stream_writer")
     def test_arun_filter_generation_clarification_needed(
         self,
-        mock_get_stream_writer: MagicMock,
         mock_generate_filter_query: MagicMock,
         mock_search_tool_class: MagicMock,
         mock_db_sync: MagicMock,
         mock_query_runner_class: MagicMock,
     ) -> None:
         """Test that clarification questions from SearchSessionRecordingsTool are properly returned."""
-        mock_get_stream_writer.return_value = None
         conversation = Conversation.objects.create(team=self.team, user=self.user)
         # Mock _generate_filter_query to avoid LLM call
         mock_generate_filter_query.return_value = "filtered query for test"
@@ -273,10 +270,8 @@ class TestSessionSummarizationNode(BaseTest):
 
         self.assertIn("No summary was generated", str(context.exception))
 
-    @patch("ee.hogai.graph.session_summaries.nodes.get_stream_writer")
-    def test_arun_no_query(self, mock_get_stream_writer: MagicMock) -> None:
+    def test_arun_no_query(self) -> None:
         """Test arun returns error when no query is provided."""
-        mock_get_stream_writer.return_value = None
         conversation = Conversation.objects.create(team=self.team, user=self.user)
 
         state = self._create_test_state(query=None, should_use_current_filters=False)
@@ -291,10 +286,8 @@ class TestSessionSummarizationNode(BaseTest):
         assert isinstance(message, AssistantToolCallMessage)
         self.assertIn("encountered an issue", message.content)
 
-    @patch("ee.hogai.graph.session_summaries.nodes.get_stream_writer")
-    def test_arun_no_use_current_filters_decision(self, mock_get_stream_writer: MagicMock) -> None:
+    def test_arun_no_use_current_filters_decision(self) -> None:
         """Test arun returns error when should_use_current_filters decision is not made."""
-        mock_get_stream_writer.return_value = None
         conversation = Conversation.objects.create(team=self.team, user=self.user)
 
         state = self._create_test_state(query="test query", should_use_current_filters=None)
@@ -313,17 +306,14 @@ class TestSessionSummarizationNode(BaseTest):
     @patch("ee.hogai.graph.session_summaries.nodes.database_sync_to_async")
     @patch("products.replay.backend.max_tools.SearchSessionRecordingsTool")
     @patch("ee.hogai.graph.session_summaries.nodes._SessionSearch._generate_filter_query")
-    @patch("ee.hogai.graph.session_summaries.nodes.get_stream_writer")
     def test_arun_no_sessions_found(
         self,
-        mock_get_stream_writer: MagicMock,
         mock_generate_filter_query: MagicMock,
         mock_search_tool_class: MagicMock,
         mock_db_sync: MagicMock,
         mock_query_runner_class: MagicMock,
     ) -> None:
         """Test arun returns appropriate message when no sessions match filters."""
-        mock_get_stream_writer.return_value = None
         conversation = Conversation.objects.create(team=self.team, user=self.user)
 
         # Mock _generate_filter_query to avoid LLM call
@@ -360,11 +350,9 @@ class TestSessionSummarizationNode(BaseTest):
     @patch("ee.hogai.graph.session_summaries.nodes.database_sync_to_async")
     @patch("products.replay.backend.max_tools.SearchSessionRecordingsTool")
     @patch("ee.hogai.graph.session_summaries.nodes._SessionSearch._generate_filter_query")
-    @patch("ee.hogai.graph.session_summaries.nodes.get_stream_writer")
     @patch("ee.hogai.graph.session_summaries.nodes.GROUP_SUMMARIES_MIN_SESSIONS", 5)
     def test_arun_individual_vs_group_sessions(
         self,
-        mock_get_stream_writer: MagicMock,
         mock_generate_filter_query: MagicMock,
         mock_search_tool_class: MagicMock,
         mock_db_sync: MagicMock,
@@ -372,8 +360,6 @@ class TestSessionSummarizationNode(BaseTest):
         mock_execute_summarize: MagicMock,
     ) -> None:
         """Test arun chooses individual summarization when session count is below threshold."""
-        mock_writer = MagicMock()
-        mock_get_stream_writer.return_value = mock_writer
         conversation = Conversation.objects.create(team=self.team, user=self.user)
 
         # Mock _generate_filter_query to avoid LLM call
@@ -426,15 +412,12 @@ class TestSessionSummarizationNode(BaseTest):
 
     @patch("posthog.session_recordings.queries.session_recording_list_from_query.SessionRecordingListFromQuery")
     @patch("ee.hogai.graph.session_summaries.nodes.database_sync_to_async")
-    @patch("ee.hogai.graph.session_summaries.nodes.get_stream_writer")
     def test_arun_use_current_filters_true_with_context(
         self,
-        mock_get_stream_writer: MagicMock,
         mock_db_sync: MagicMock,
         mock_query_runner_class: MagicMock,
     ) -> None:
         """Test arun uses current filters when should_use_current_filters=True and context is provided."""
-        mock_get_stream_writer.return_value = None
         conversation = Conversation.objects.create(team=self.team, user=self.user)
 
         # Mock empty session results for simplicity
@@ -491,17 +474,14 @@ class TestSessionSummarizationNode(BaseTest):
     @patch("ee.hogai.graph.session_summaries.nodes.database_sync_to_async")
     @patch("products.replay.backend.max_tools.SearchSessionRecordingsTool")
     @patch("ee.hogai.graph.session_summaries.nodes._SessionSearch._generate_filter_query")
-    @patch("ee.hogai.graph.session_summaries.nodes.get_stream_writer")
     def test_arun_use_current_filters_false_generates_filters(
         self,
-        mock_get_stream_writer: MagicMock,
         mock_generate_filter_query: MagicMock,
         mock_search_tool_class: MagicMock,
         mock_db_sync: MagicMock,
         mock_query_runner_class: MagicMock,
     ) -> None:
         """Test arun generates new filters when should_use_current_filters=False."""
-        mock_get_stream_writer.return_value = None
         conversation = Conversation.objects.create(team=self.team, user=self.user)
 
         # Mock _generate_filter_query to avoid LLM call

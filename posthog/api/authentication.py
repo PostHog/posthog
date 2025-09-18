@@ -352,10 +352,15 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
     token = serializers.CharField(write_only=True)
     password = serializers.CharField(write_only=True)
 
+    def to_representation(self, instance):
+        if isinstance(instance, dict) and "email" in instance:
+            return {"success": True, "email": instance["email"]}
+        return {"success": True}
+
     def create(self, validated_data):
         # Special handling for E2E tests (note we don't actually change anything in the DB, just simulate the response)
         if settings.E2E_TESTING and validated_data["token"] == "e2e_test_token":
-            return True
+            return {"email": "test@posthog.com"}
 
         try:
             user = User.objects.filter(is_active=True).get(uuid=self.context["view"].kwargs["user_uuid"])
@@ -388,9 +393,8 @@ class PasswordResetCompleteSerializer(serializers.Serializer):
         user.requested_password_reset_at = None
         user.save()
 
-        login(self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend")
         report_user_password_reset(user)
-        return True
+        return {"email": user.email}
 
 
 class PasswordResetViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
@@ -405,7 +409,7 @@ class PasswordResetCompleteViewSet(NonCreatingViewSetMixin, mixins.RetrieveModel
     queryset = User.objects.none()
     serializer_class = PasswordResetCompleteSerializer
     permission_classes = (permissions.AllowAny,)
-    SUCCESS_STATUS_CODE = status.HTTP_204_NO_CONTENT
+    SUCCESS_STATUS_CODE = status.HTTP_200_OK
 
     def get_object(self):
         token = self.request.query_params.get("token")

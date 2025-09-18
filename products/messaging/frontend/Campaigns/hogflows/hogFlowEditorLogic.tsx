@@ -32,7 +32,8 @@ import { getSmartStepPath } from './steps/SmartEdge'
 import { StepViewNodeHandle } from './steps/types'
 import type { HogFlow, HogFlowAction, HogFlowActionNode } from './types'
 
-const getEdgeId = (edge: HogFlow['edges'][number]): string => `${edge.from}->${edge.to} ${edge.index ?? ''}`.trim()
+const getEdgeId = (edge: HogFlow['edges'][number]): string =>
+    `${edge.from}->${edge.to} ${edge.type} ${edge.index ?? ''}`.trim()
 
 export const HOG_FLOW_EDITOR_MODES = ['build', 'test', 'metrics', 'logs'] as const
 export type HogFlowEditorMode = (typeof HOG_FLOW_EDITOR_MODES)[number]
@@ -508,6 +509,8 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 // Finally the continue edge
                 newEdges.push({
                     ...edgeToBeReplaced,
+                    index: undefined,
+                    type: 'continue',
                     from: newAction.id,
                 })
 

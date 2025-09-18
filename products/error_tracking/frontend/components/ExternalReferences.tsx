@@ -122,6 +122,7 @@ const createGitHubIssueForm = (
 
     LemonDialog.openForm({
         title: 'Create GitHub issue',
+        shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
             body: body,
@@ -157,6 +158,7 @@ const createLinearIssueForm = (
 ): void => {
     LemonDialog.openForm({
         title: 'Create Linear issue',
+        shouldAwaitSubmit: true,
         initialValues: {
             title: issue.name,
             description: issue.description,

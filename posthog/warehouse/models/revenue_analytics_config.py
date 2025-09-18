@@ -4,6 +4,7 @@ from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
+from posthog.rbac.decorators import field_access_control
 from posthog.warehouse.types import ExternalDataSourceType
 
 from .external_data_source import ExternalDataSource
@@ -18,8 +19,8 @@ class ExternalDataSourceRevenueAnalyticsConfig(models.Model):
         ExternalDataSource, on_delete=models.CASCADE, primary_key=True, related_name="revenue_analytics_config"
     )
 
-    enabled = models.BooleanField(default=True)
-    include_invoiceless_charges = models.BooleanField(default=True)
+    enabled = field_access_control(models.BooleanField(default=True), "revenue_analytics", "editor")
+    include_invoiceless_charges = field_access_control(models.BooleanField(default=True), "revenue_analytics", "editor")
 
 
 # This is best effort, we always attempt to create the config manually

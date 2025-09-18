@@ -24,14 +24,15 @@ class Command(BaseCommand):
             total_teams_migrated = 0
 
             queryset = (
-                Team.objects.filter(session_recording_retention_period="legacy")
-                .order_by("id")
-                .only("id", "organization", "session_recording_retention_period")
+                Team.objects.all().order_by("id").only("id", "organization", "session_recording_retention_period")
             )
 
             for batch in Paginator(queryset, batch_size):
                 teams_to_migrate = []
                 for team in batch.object_list:
+                    if team.session_recording_retention_period != "legacy":
+                        continue
+
                     # NOTE: We use file export as a proxy to see if they are subbed to Recordings
                     is_paid = team.organization.is_feature_available(AvailableFeature.RECORDINGS_FILE_EXPORT)
                     team.session_recording_retention_period = "90d" if is_paid else "30d"

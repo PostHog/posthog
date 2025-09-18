@@ -82,13 +82,6 @@ from posthog.queries.trends.lifecycle_actors import LifecycleActors
 from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.util import get_earliest_timestamp
 from posthog.renderers import SafeJSONRenderer
-from posthog.tasks.calculate_cohort import (
-    calculate_cohort_from_list,
-    increment_version_and_enqueue_calculate_cohort,
-    insert_cohort_from_feature_flag,
-    insert_cohort_from_insight_filter,
-    insert_cohort_from_query,
-)
 from posthog.utils import format_query_params_absolute_url
 
 
@@ -269,6 +262,12 @@ class CohortSerializer(serializers.ModelSerializer):
         return value
 
     def _handle_static(self, cohort: Cohort, context: dict, validated_data: dict) -> None:
+        from posthog.tasks.calculate_cohort import (
+            insert_cohort_from_feature_flag,
+            insert_cohort_from_insight_filter,
+            insert_cohort_from_query,
+        )
+
         request = self.context["request"]
         if request.FILES.get("csv"):
             self._calculate_static_by_csv(request.FILES["csv"], cohort)
@@ -301,6 +300,8 @@ class CohortSerializer(serializers.ModelSerializer):
         elif cohort.query is not None:
             raise ValidationError("Cannot create a dynamic cohort with a query. Set is_static to true.")
         else:
+            from posthog.tasks.calculate_cohort import increment_version_and_enqueue_calculate_cohort
+
             increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=request.user)
 
         report_user_action(request.user, "cohort created", cohort.get_analytics_metadata())
@@ -389,6 +390,8 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def _validate_and_process_ids(self, ids: list[str], id_type: str, cohort: Cohort) -> None:
         """Final validation and task scheduling"""
+        from posthog.tasks.calculate_cohort import calculate_cohort_from_list
+
         if not ids:
             raise ValidationError({"csv": [CSVConfig.ErrorMessages.NO_VALID_IDS]})
 
@@ -595,6 +598,8 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.save()
 
         if not deleted_state:
+            from posthog.tasks.calculate_cohort import increment_version_and_enqueue_calculate_cohort
+
             if cohort.is_static:
                 # You can't update a static cohort using the trend/stickiness thing
                 if request.FILES.get("csv"):

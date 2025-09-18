@@ -160,6 +160,7 @@ export const billingLogic = kea<billingLogicType>([
         showPurchaseCreditsModal: (isOpen: boolean) => ({ isOpen }),
         toggleCreditCTAHeroDismissed: (isDismissed: boolean) => ({ isDismissed }),
         setComputedDiscount: (discount: number) => ({ discount }),
+        setCreditBrackets: (creditBrackets: any[]) => ({ creditBrackets }),
         scrollToProduct: (productType: string) => ({ productType }),
     }),
     connect({
@@ -268,9 +269,15 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
         computedDiscount: [
-            0,
+            null as number | null,
             {
                 setComputedDiscount: (_, { discount }) => discount,
+            },
+        ],
+        creditBrackets: [
+            [],
+            {
+                setCreditBrackets: (_, { creditBrackets }) => creditBrackets || [],
             },
         ],
     }),
@@ -407,42 +414,47 @@ export const billingLogic = kea<billingLogicType>([
         creditOverview: [
             {
                 eligible: false,
-                estimated_monthly_credit_amount_usd: DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD,
+                estimated_monthly_credit_amount_usd: null,
                 status: 'none',
                 invoice_url: null,
                 collection_method: null,
                 cc_last_four: null,
                 email: null,
+                credit_brackets: [],
             },
             {
                 loadCreditOverview: async () => {
                     // Check if the user is subscribed
                     if (values.billing?.has_active_subscription) {
                         const response = await api.get('api/billing/credits/overview')
+
                         if (!values.creditForm.creditInput) {
-                            actions.setCreditFormValue(
-                                'creditInput',
-                                Math.round(
-                                    (response.estimated_monthly_credit_amount_usd ||
-                                        DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD) * 12
-                                )
-                            )
+                            let spend = DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD
+
+                            if (response.estimated_monthly_credit_amount_usd !== null) {
+                                spend = response.estimated_monthly_credit_amount_usd
+                            }
+
+                            actions.setCreditBrackets(response.credit_brackets)
+                            actions.setCreditFormValue('creditInput', Math.round(spend * 12))
                         }
 
                         if (response.eligible && response.status === 'none') {
                             actions.reportCreditsCTAShown(response)
                         }
+
                         return response
                     }
                     // Return default values if not subscribed
                     return {
                         eligible: false,
-                        estimated_monthly_credit_amount_usd: DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD,
+                        estimated_monthly_credit_amount_usd: null,
                         status: 'none',
                         invoice_url: null,
                         collection_method: null,
                         cc_last_four: null,
                         email: null,
+                        credit_brackets: [],
                     }
                 },
             },
@@ -546,6 +558,23 @@ export const billingLogic = kea<billingLogicType>([
             (s) => [s.billing],
             (billing: BillingType): { name?: string; email?: string } | null => billing?.account_owner || null,
         ],
+        estimatedMonthlyCreditAmountUsd: [
+            (s) => [s.creditOverview],
+            (creditOverview): number | null => {
+                if (creditOverview === null) {
+                    return null
+                }
+
+                if (
+                    creditOverview.estimated_monthly_credit_amount_usd === null ||
+                    creditOverview.estimated_monthly_credit_amount_usd === undefined
+                ) {
+                    return DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD
+                }
+
+                return creditOverview.estimated_monthly_credit_amount_usd
+            },
+        ],
     }),
     forms(({ actions, values }) => ({
         activateLicense: {
@@ -583,7 +612,7 @@ export const billingLogic = kea<billingLogicType>([
             submit: async ({ creditInput, collectionMethod }) => {
                 await api.create('api/billing/credits/purchase', {
                     annual_amount_usd: +Math.round(+creditInput - +creditInput * values.creditDiscount),
-                    discount_percent: values.computedDiscount * 100,
+                    discount_percent: values.computedDiscount! * 100,
                     collection_method: collectionMethod,
                 })
 
@@ -657,8 +686,7 @@ export const billingLogic = kea<billingLogicType>([
             posthog.capture('credits cta shown', {
                 eligible: creditOverview.eligible,
                 status: creditOverview.status,
-                estimated_monthly_credit_amount_usd:
-                    creditOverview.estimated_monthly_credit_amount_usd || DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD,
+                estimated_monthly_credit_amount_usd: creditOverview.estimated_monthly_credit_amount_usd,
             })
         },
         toggleCreditCTAHeroDismissed: ({ isDismissed }) => {
@@ -839,17 +867,18 @@ export const billingLogic = kea<billingLogicType>([
         setCreditFormValue: ({ name, value }) => {
             if (name === 'creditInput' || (name as FieldNamePath)?.[0] === 'creditInput') {
                 const spend = +value
-                let discount = 0
-                if (spend >= 100000) {
-                    discount = 0.35
-                } else if (spend >= 60000) {
-                    discount = 0.25
-                } else if (spend >= 20000) {
-                    discount = 0.2
-                } else if (spend >= 3000) {
-                    discount = 0.1
+
+                for (const bracket of values.creditBrackets) {
+                    if (
+                        spend >= bracket.annual_credit_from_inclusive &&
+                        spend < (bracket.annual_credit_to_exclusive || Infinity)
+                    ) {
+                        actions.setComputedDiscount(bracket.discount)
+                        return
+                    }
                 }
-                actions.setComputedDiscount(discount)
+
+                actions.setComputedDiscount(0)
             }
         },
         registerInstrumentationProps: async (_, breakpoint) => {

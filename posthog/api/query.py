@@ -1,6 +1,4 @@
 import re
-import uuid
-from concurrent.futures import ThreadPoolExecutor
 
 from django.core.cache import cache
 from django.http import JsonResponse, StreamingHttpResponse
@@ -43,6 +41,7 @@ from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filter
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode, execution_mode_from_refresh
 from posthog.models.user import User
+from posthog.models.utils import uuid7
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
@@ -55,14 +54,6 @@ from posthog.rate_limit import (
 from posthog.schema_migrations.upgrade import upgrade
 
 from common.hogvm.python.utils import HogVMException
-
-# Create a dedicated thread pool for query processing
-# Setting max_workers to ensure we don't overwhelm the system
-# while still allowing concurrent queries
-QUERY_EXECUTOR = ThreadPoolExecutor(
-    max_workers=50,  # 50 should be enough to have 200 simultaneous queries across clickhouse
-    thread_name_prefix="query_processor",
-)
 
 
 def _process_query_request(
@@ -77,7 +68,7 @@ def _process_query_request(
     if request_data.variables_override is not None:
         query = apply_dashboard_variables(query, request_data.variables_override, team)
 
-    query_id = client_query_id or uuid.uuid4().hex
+    query_id = client_query_id or uuid7().hex
     execution_mode = execution_mode_from_refresh(request_data.refresh)
 
     if request_data.async_:  # TODO: Legacy async, use "refresh=async" instead

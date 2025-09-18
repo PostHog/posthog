@@ -15,16 +15,16 @@ export interface InfoTableRow {
 }
 
 export interface InfoTabLogicProps {
-    codeEditorKey: string
+    tabId: string
 }
 
 export const infoTabLogic = kea<infoTabLogicType>([
     path(['data-warehouse', 'editor', 'sidebar', 'infoTabLogic']),
     props({} as InfoTabLogicProps),
-    key((props) => props.codeEditorKey),
+    key((props) => props.tabId),
     connect((props: InfoTabLogicProps) => ({
         values: [
-            multitabEditorLogic({ key: props.codeEditorKey }),
+            multitabEditorLogic({ tabId: props.tabId }),
             ['metadata'],
             databaseTableListLogic,
             ['posthogTablesMap', 'dataWarehouseTablesMap'],

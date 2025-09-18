@@ -1,1 +1,1 @@
-0859_alter_team_session_recording_retention_period
+0860_add_namedquery

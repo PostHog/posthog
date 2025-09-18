@@ -8,6 +8,7 @@ import React from 'react'
 import { IconChevronDown, IconExternal } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonButtonProps, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
+import { getAccessControlDisabledReason } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
 import { TimeSensitiveAuthenticationArea } from 'lib/components/TimeSensitiveAuthentication/TimeSensitiveAuthentication'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -107,26 +108,39 @@ export function Settings({
                       </OptionButton>
                   ),
                   items: !isCollapsed
-                      ? levelSections.map((section) => ({
-                            key: section.id,
-                            content: (
-                                <OptionButton
-                                    to={section.to ?? urls.settings(section.id)}
-                                    handleLocally={handleLocally}
-                                    active={selectedSectionId === section.id}
-                                    isLink={!!section.to}
-                                    onClick={() => {
-                                        if (section.to) {
-                                            router.actions.push(section.to)
-                                        } else {
-                                            selectSection(section.id, level)
+                      ? levelSections.map((section) => {
+                            const { id, to, accessControl } = section
+
+                            return {
+                                key: section.id,
+                                content: (
+                                    <OptionButton
+                                        key={id}
+                                        to={to ?? urls.settings(id)}
+                                        handleLocally={handleLocally}
+                                        active={selectedSectionId === id}
+                                        isLink={!!to}
+                                        onClick={() => {
+                                            if (to) {
+                                                router.actions.push(to)
+                                            } else {
+                                                selectSection(id, level)
+                                            }
+                                        }}
+                                        disabledReason={
+                                            accessControl
+                                                ? getAccessControlDisabledReason(
+                                                      accessControl.resourceType,
+                                                      accessControl.minimumAccessLevel
+                                                  )
+                                                : undefined
                                         }
-                                    }}
-                                >
-                                    {section.title}
-                                </OptionButton>
-                            ),
-                        }))
+                                    >
+                                        {section.title}
+                                    </OptionButton>
+                                ),
+                            }
+                        })
                       : [],
               }
           })
@@ -238,12 +252,10 @@ const OptionGroup = ({ options, depth = 0 }: { options: SettingOption[]; depth?:
     return (
         <ul className="gap-y-px">
             {options.map((option) => (
-                <>
-                    <li key={option.key} className={depthMap[depth]}>
-                        {option.content}
-                    </li>
+                <React.Fragment key={option.key}>
+                    <li className={depthMap[depth]}>{option.content}</li>
                     {option.items ? <OptionGroup options={option.items} depth={depth + 1} /> : null}
-                </>
+                </React.Fragment>
             ))}
         </ul>
     )
@@ -257,7 +269,8 @@ const OptionButton = ({
     handleLocally,
     isLink = false,
     sideIcon,
-}: Pick<LemonButtonProps, 'to' | 'children' | 'active'> & {
+    disabledReason,
+}: Pick<LemonButtonProps, 'to' | 'children' | 'active' | 'disabledReason'> & {
     handleLocally: boolean
     onClick: () => void
     isLink?: boolean
@@ -278,6 +291,7 @@ const OptionButton = ({
             sideIcon={isLink ? <IconExternal /> : sideIcon}
             fullWidth
             active={active}
+            disabledReason={disabledReason}
         >
             {children}
         </LemonButton>

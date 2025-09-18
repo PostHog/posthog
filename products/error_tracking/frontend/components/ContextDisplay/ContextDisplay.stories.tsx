@@ -27,6 +27,24 @@ export function ContextDisplayWithStacktrace(): JSX.Element {
     return <ContextWrapperAllEvents>{(props) => <ContextDisplay {...props} />}</ContextWrapperAllEvents>
 }
 
+export function ContextDisplayMisc(): JSX.Element {
+    return (
+        <ContextDisplay
+            loading={false}
+            exceptionAttributes={{}}
+            additionalProperties={{
+                undefined_value: undefined,
+                null_value: null,
+                number: 123,
+                string: 'value',
+                array: ['item-1', 'item-2'],
+                url: 'https://example.com',
+                object: { key: 'value', 'nested-object': { key: 'value' } },
+            }}
+        />
+    )
+}
+
 //////////////////// Utils
 
 function getProps(event_name: TestEventName): ContextDisplayProps {
@@ -44,7 +62,7 @@ function ContextWrapperAllEvents({ children }: { children: (props: ContextDispla
             {eventNames.map((name: TestEventName) => {
                 const props = getProps(name)
                 return (
-                    <LemonCard hoverEffect={false} className="p-0 w-[900px]">
+                    <LemonCard key={name} hoverEffect={false} className="p-0 w-[900px]">
                         {children(props)}
                     </LemonCard>
                 )

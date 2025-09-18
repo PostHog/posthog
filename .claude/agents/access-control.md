@@ -58,9 +58,8 @@ Users can gain access through:
 ACCESS_CONTROL_RESOURCES = [
     "feature_flag",
     "dashboard",
-    "insight",
+    ...,
     "your_resource",  # Add your new resource
-    "session_recording",
 ]
 ```
 
@@ -112,10 +111,7 @@ resources: [
     (): AccessControlType['resource'][] => {
         return [
             AccessControlResourceType.FeatureFlag,
-            AccessControlResourceType.Dashboard,
-            AccessControlResourceType.Insight,
-            AccessControlResourceType.Notebook,
-            AccessControlResourceType.SessionRecording,
+            ...,
             AccessControlResourceType.YourNewResource,  // Add your resource here
         ]
     },
@@ -154,7 +150,7 @@ export interface YourResourceType {
 
 #### 4.4 Block UI Elements Based on Access Levels
 
-You should wrap the components you care about with the `AccessControlAction`. It requires the child component to expose a `disabledReason` prop which is automatically set by the wrapper.
+You should wrap the components you care about with the `AccessControlAction`. It requires the child component to expose a `disabled` and/or `disabledReason` props which are automatically set by the wrapper.
 
 If your component doesn't respect that interface you can instead expose a function that accepts `{ disabled, disabledReason }` as parameters.
 
@@ -163,6 +159,16 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessControlResourceType, AccessControlLevel } from '~/types'
 
 // Automatically sets `disabled` and `disabledReason` on the child
+// This relies on the user's global permissions
+<AccessControlAction
+    resourceType={AccessControlResourceType.YourResource}
+    minAccessLevel={AccessControlLevel.Editor}
+>
+    <LemonButton>My button</LemonButton>
+</AccessControlAction>
+
+// If your resource includes their own access level
+// you should specify it directly using `userAccessLevel`
 <AccessControlAction
     resourceType={AccessControlResourceType.YourResource}
     minAccessLevel={AccessControlLevel.Editor}
@@ -171,21 +177,10 @@ import { AccessControlResourceType, AccessControlLevel } from '~/types'
     <LemonButton>My button</LemonButton>
 </AccessControlAction>
 
-// If you wanna fallback to the global access level for the logged-in user
-// then you don't need to pass the userAccessLevel prop
-// since we'll infer it from `getAppContext()`
+// Not recommended, but you can use a function that receives `{ disabled, disabledReason }` as parameters instead
 <AccessControlAction
     resourceType={AccessControlResourceType.YourResource}
     minAccessLevel={AccessControlLevel.Editor}
->
-    <LemonButton>My button</LemonButton>
-</AccessControlAction>
-
-// Manually sets the values for custom component
-<AccessControlAction
-    resourceType={AccessControlResourceType.YourResource}
-    minAccessLevel={AccessControlLevel.Editor}
-    userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.YourResource]}
 >
     {({ disabledReason }) => (<CustomComponent onClick={handleAction} tooltip={disabledReason} readOnly={!!disabledReason} />)}
 </AccessControlAction>
@@ -294,6 +289,10 @@ When implementing access controls, audit all places where users can interact wit
 - Export/import functionality
 - Sharing and collaboration features
 
+#### 4.7 Update Storybook mocks
+
+Make sure you've added your new resource to [`common/storybook/.storybook/app-context.ts`](common/storybook/.storybook/app-context.ts) to guarantee snapshots won't flake/will assume you have access to everything.
+
 ### 5. Add Field-Level Access Controls (if needed)
 
 For products that need field-level access controls on related models:
@@ -348,8 +347,8 @@ RESOURCE_INHERITANCE_MAP = {
 1. Add resource to `resourcesAccessControlLogic.ts` resources array
 2. Add scene mappings to `sceneToAccessControlResourceType` in `sceneTypes.ts`
 3. Update TypeScript types to include `user_access_level: AccessLevel`
-4. Block UI elements using `accessControl` props or `AccessControlAction` wrapper
-5. Implement CRUD permission checks (create uses resource-level access, edit/delete use object-level `user_access_level`)
+4. Block UI elements using the `AccessControlAction` wrapper
+5. Implement CRUD permission checks (create uses resource-level access (set by default), edit/delete use object-level `user_access_level`)
 6. Audit all user interaction points (buttons, menus, forms, shortcuts, etc.)
 7. Handle access control UI (user management modals, permission settings)
 

@@ -1,7 +1,6 @@
 from .activities import (
     ai_agent_work_activity,
     get_task_details_activity,
-    process_task_moved_to_todo_activity,
     update_issue_github_info_activity,
     update_issue_status_activity,
 )
@@ -21,7 +20,6 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
-    process_task_moved_to_todo_activity,
     update_issue_status_activity,
     ai_agent_work_activity,
     get_task_details_activity,

@@ -305,6 +305,7 @@ export enum AccessControlResourceType {
     Dashboard = 'dashboard',
     Notebook = 'notebook',
     SessionRecording = 'session_recording',
+    RevenueAnalytics = 'revenue_analytics',
 }
 
 interface UserBaseType {
@@ -4491,6 +4492,7 @@ export type APIScopeObject =
     | 'project'
     | 'property_definition'
     | 'query'
+    | 'revenue_analytics'
     | 'session_recording'
     | 'session_recording_playlist'
     | 'sharing_configuration'

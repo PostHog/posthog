@@ -970,6 +970,17 @@ class InsightViewSet(
                 queryset = queryset.filter(created_by=request.user)
             elif key == "favorited":
                 queryset = queryset.filter(Q(favorited=True))
+            elif key == "hide_feature_flag_insights":
+                if str_to_bool(request.GET["hide_feature_flag_insights"]):
+                    # Exclude insights with the specific feature flag names
+                    from posthog.helpers.dashboard_templates import (
+                        FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
+                        FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
+                    )
+
+                    queryset = queryset.exclude(
+                        name__in=[FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME, FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME]
+                    )
             elif key == "date_from":
                 queryset = queryset.filter(
                     last_modified_at__gt=relative_date_parse(request.GET["date_from"], self.team.timezone_info)

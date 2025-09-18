@@ -1,5 +1,5 @@
 import Fuse from 'fuse.js'
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
@@ -9,6 +9,7 @@ import { LemonDialog, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -70,8 +71,14 @@ export const renderTableCount = (count: undefined | number): null | JSX.Element 
     )
 }
 
+export interface EditorSceneLogicProps {
+    tabId: string
+}
+
 export const editorSceneLogic = kea<editorSceneLogicType>([
     path(['data-warehouse', 'editor', 'editorSceneLogic']),
+    props({} as EditorSceneLogicProps),
+    tabAwareScene(),
     connect(() => ({
         values: [
             sceneLogic,
@@ -131,7 +138,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
             posthog.capture('ai_query_prompt_open')
         },
     })),
-    selectors(({ actions }) => ({
+    selectors(({ actions, props }) => ({
         contents: [
             (s) => [
                 s.relevantViews,
@@ -169,8 +176,8 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                                       : null,
                                   onClick: () => {
                                       multitabEditorLogic({
-                                          key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                                      }).actions.createTab(`SELECT * FROM ${table.name}`)
+                                          tabId: props.tabId,
+                                      }).actions.createTab('SELECT * FROM ' + table.name)
                                   },
                                   menuItems: [
                                       {
@@ -246,11 +253,11 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                         const onClick = (): void => {
                             isManagedView
                                 ? multitabEditorLogic({
-                                      key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                                  }).actions.createTab(`SELECT * FROM ${view.name}`)
+                                      tabId: props.tabId,
+                                  }).actions.createTab('SELECT * FROM ' + view.name)
                                 : isSavedQuery
                                   ? multitabEditorLogic({
-                                        key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                                        tabId: props.tabId,
                                     }).actions.editView(view.query.query, view)
                                   : null
                         }
@@ -261,7 +268,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                                       label: 'Edit view definition',
                                       onClick: () => {
                                           multitabEditorLogic({
-                                              key: `hogQLQueryEditor/${router.values.location.pathname}`,
+                                              tabId: props.tabId,
                                           }).actions.editView(view.query.query, view)
                                       },
                                   },
@@ -391,8 +398,8 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                         searchMatch: null,
                         onClick: () => {
                             multitabEditorLogic({
-                                key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                            }).actions.createTab(`SELECT * FROM ${table.name}`)
+                                tabId: props.tabId,
+                            }).actions.createTab('SELECT * FROM ' + table.name)
                         },
                         menuItems: [
                             {
@@ -441,8 +448,8 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                         searchMatch: null,
                         onClick: () => {
                             multitabEditorLogic({
-                                key: `hogQLQueryEditor/${router.values.location.pathname}`,
-                            }).actions.createTab(`SELECT * FROM ${table.name}`)
+                                tabId: props.tabId,
+                            }).actions.createTab('SELECT * FROM ' + table.name)
                         },
                         menuItems: [
                             {

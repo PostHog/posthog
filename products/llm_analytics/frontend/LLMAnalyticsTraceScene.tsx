@@ -584,6 +584,7 @@ const EventContent = React.memo(
                                     totalCostUsd={event.properties.$ai_total_cost_usd}
                                     model={event.properties.$ai_model}
                                     latency={event.properties.$ai_latency}
+                                    timestamp={event.createdAt}
                                 />
                             ) : (
                                 <MetadataHeader
@@ -591,6 +592,7 @@ const EventContent = React.memo(
                                     outputTokens={event.outputTokens}
                                     totalCostUsd={event.totalCost}
                                     latency={event.totalLatency}
+                                    timestamp={event.createdAt}
                                 />
                             )}
                             {isLLMTraceEvent(event) && <ParametersHeader eventProperties={event.properties} />}

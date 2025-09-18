@@ -8,6 +8,8 @@ import { LemonDialog } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { CyclotronJobInputsValidation } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { LiquidRenderer } from 'lib/utils/liquid'
+import { EmailTemplate } from 'scenes/hog-functions/email-templater/emailTemplaterLogic'
 import { urls } from 'scenes/urls'
 
 import { HogFunctionTemplateType } from '~/types'
@@ -28,7 +30,7 @@ export type TriggerAction = Extract<HogFlowAction, { type: 'trigger' }>
 
 const NEW_CAMPAIGN: HogFlow = {
     id: 'new',
-    name: '',
+    name: 'New campaign',
     actions: [
         {
             id: TRIGGER_NODE_ID,
@@ -68,6 +70,16 @@ const NEW_CAMPAIGN: HogFlow = {
     team_id: -1,
     created_at: '',
     updated_at: '',
+}
+
+function getTemplatingError(value: string, templating?: 'liquid' | 'hog'): string | undefined {
+    if (templating === 'liquid' && typeof value === 'string') {
+        try {
+            LiquidRenderer.parse(value)
+        } catch (e: any) {
+            return `Liquid template error: ${e.message}`
+        }
+    }
 }
 
 export const campaignLogic = kea<campaignLogicType>([
@@ -192,6 +204,37 @@ export const campaignLogic = kea<campaignLogicType>([
                         if (!schemaValidation.success) {
                             result.valid = false
                             result.schema = schemaValidation.error
+                        } else if (action.type === 'function_email') {
+                            // special case for function_email which has nested email inputs, so basic hog input validation is not enough
+                            // TODO: modify email/native_email input type to flatten email inputs so we don't need this special case
+                            const emailValue = action.config.inputs?.email?.value as any | undefined
+                            const emailTemplating = action.config.inputs?.email?.templating
+
+                            const emailTemplateErrors: Partial<EmailTemplate> = {
+                                html: !emailValue?.html
+                                    ? 'HTML is required'
+                                    : getTemplatingError(emailValue?.html, emailTemplating),
+                                subject: !emailValue?.subject
+                                    ? 'Subject is required'
+                                    : getTemplatingError(emailValue?.subject, emailTemplating),
+                                from: !emailValue?.from?.email
+                                    ? 'From is required'
+                                    : getTemplatingError(emailValue?.from?.email, emailTemplating),
+                                to: !emailValue?.to?.email
+                                    ? 'To is required'
+                                    : getTemplatingError(emailValue?.to?.email, emailTemplating),
+                            }
+
+                            const combinedErrors = Object.values(emailTemplateErrors)
+                                .filter((v) => !!v)
+                                .join(', ')
+
+                            if (combinedErrors) {
+                                result.valid = false
+                                result.errors = {
+                                    email: combinedErrors,
+                                }
+                            }
                         } else if (isFunctionAction(action)) {
                             const template = hogFunctionTemplatesById[action.config.template_id]
                             if (!template) {

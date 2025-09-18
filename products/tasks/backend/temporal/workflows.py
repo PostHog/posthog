@@ -11,7 +11,6 @@ from posthog.temporal.common.logger import get_logger
 from .activities import (
     ai_agent_work_activity,
     get_task_details_activity,
-    process_task_moved_to_todo_activity,
     update_issue_github_info_activity,
     update_issue_status_activity,
 )
@@ -91,30 +90,15 @@ class IssueProcessingIntegratedWorkflow(PostHogWorkflow):
                     ),
                 )
 
-                # Step 3: Execute background processing
-                logger.info(f"Step 3: Running background processing for issue {inputs.task_id}")
-                processing_result = await workflow.execute_activity(
-                    process_task_moved_to_todo_activity,
-                    inputs,
-                    start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(
-                        initial_interval=timedelta(seconds=30),
-                        maximum_interval=timedelta(minutes=2),
-                        maximum_attempts=3,
-                    ),
-                )
-
-                logger.info(f"Background processing completed: {processing_result}")
-
-                # Step 4: Get issue details for commits and PR
+                # Step 3: Get issue details for commits and PR
                 task_details = await workflow.execute_activity(
                     get_task_details_activity,
                     {"task_id": inputs.task_id, "team_id": inputs.team_id},
                     start_to_close_timeout=timedelta(minutes=1),
                 )
 
-                # Step 5: Commit sample changes
-                logger.info(f"Step 5: Committing changes for issue {inputs.task_id}")
+                # Step 4: Commit sample changes
+                logger.info(f"Step 4: Committing changes for issue {inputs.task_id}")
 
                 # Example file changes - in real implementation, these would come from AI agent
                 sample_file_changes = [
@@ -154,8 +138,8 @@ class IssueProcessingIntegratedWorkflow(PostHogWorkflow):
                 else:
                     logger.info(f"Changes committed successfully: {commit_result['total_files']} files")
 
-                # Step 6: Create pull request
-                logger.info(f"Step 6: Creating pull request for issue {inputs.task_id}")
+                # Step 5: Create pull request
+                logger.info(f"Step 5: Creating pull request for issue {inputs.task_id}")
                 pr_result = await workflow.execute_activity(
                     create_pr_activity,
                     CreatePRInputs(task_processing_inputs=inputs, branch_name=branch_name),
@@ -172,8 +156,8 @@ class IssueProcessingIntegratedWorkflow(PostHogWorkflow):
                 else:
                     logger.warning(f"Failed to create pull request: {pr_result.get('error')}")
 
-                # Step 7: Update issue status to testing
-                logger.info(f"Step 7: Moving issue {inputs.task_id} to testing status")
+                # Step 6: Update issue status to testing
+                logger.info(f"Step 6: Moving issue {inputs.task_id} to testing status")
                 await workflow.execute_activity(
                     update_issue_status_activity,
                     {"task_id": inputs.task_id, "team_id": inputs.team_id, "new_status": "testing"},
@@ -266,23 +250,8 @@ class TaskProcessingWorkflow(PostHogWorkflow):
                     ),
                 )
 
-                # Step 3: Execute initial background processing
-                logger.info(f"Step 3: Running initial background processing for issue {inputs.task_id}")
-                processing_result = await workflow.execute_activity(
-                    process_task_moved_to_todo_activity,
-                    inputs,
-                    start_to_close_timeout=timedelta(minutes=5),
-                    retry_policy=RetryPolicy(
-                        initial_interval=timedelta(seconds=30),
-                        maximum_interval=timedelta(minutes=2),
-                        maximum_attempts=3,
-                    ),
-                )
-
-                logger.info(f"Background processing completed: {processing_result}")
-
-                # Step 4: Execute AI agent work with hybrid local + GitHub MCP access
-                logger.info(f"Step 4: Starting AI agent work for issue {inputs.task_id}")
+                # Step 3: Execute AI agent work with hybrid local + GitHub MCP access
+                logger.info(f"Step 3: Starting AI agent work for issue {inputs.task_id}")
                 ai_result = await workflow.execute_activity(
                     ai_agent_work_activity,
                     {
@@ -306,8 +275,8 @@ class TaskProcessingWorkflow(PostHogWorkflow):
 
                 logger.info(f"AI agent work completed successfully for issue {inputs.task_id}")
 
-                # Step 5: Commit local changes using GitHub integration
-                logger.info(f"Step 5: Committing local changes via GitHub API for issue {inputs.task_id}")
+                # Step 4: Commit local changes using GitHub integration
+                logger.info(f"Step 4: Committing local changes via GitHub API for issue {inputs.task_id}")
 
                 # Get task details for commit message
                 task_details = await workflow.execute_activity(
@@ -341,16 +310,16 @@ class TaskProcessingWorkflow(PostHogWorkflow):
                     f"Changes committed successfully via GitHub API for issue {inputs.task_id}: {commit_result.get('message')}"
                 )
 
-                # Step 6: Update issue with GitHub branch info
-                logger.info(f"Step 6: Updating issue {inputs.task_id} with GitHub branch info")
+                # Step 5: Update issue with GitHub branch info
+                logger.info(f"Step 5: Updating issue {inputs.task_id} with GitHub branch info")
                 await workflow.execute_activity(
                     update_issue_github_info_activity,
                     {"task_id": inputs.task_id, "team_id": inputs.team_id, "branch_name": repo_info["branch_name"]},
                     start_to_close_timeout=timedelta(minutes=2),
                 )
 
-                # Step 7: Create pull request using GitHub integration
-                logger.info(f"Step 7: Creating pull request via GitHub API for issue {inputs.task_id}")
+                # Step 6: Create pull request using GitHub integration
+                logger.info(f"Step 6: Creating pull request via GitHub API for issue {inputs.task_id}")
                 pr_result = await workflow.execute_activity(
                     create_pr_activity,
                     CreatePRInputs(task_processing_inputs=inputs, branch_name=repo_info["branch_name"]),
@@ -380,8 +349,8 @@ class TaskProcessingWorkflow(PostHogWorkflow):
                         f"Pull request creation skipped or failed: {pr_result.get('message', 'Unknown reason')}"
                     )
 
-                # Step 8: Update issue status to testing
-                logger.info(f"Step 8: Moving issue {inputs.task_id} to testing status")
+                # Step 7: Update issue status to testing
+                logger.info(f"Step 7: Moving issue {inputs.task_id} to testing status")
                 await workflow.execute_activity(
                     update_issue_status_activity,
                     {"task_id": inputs.task_id, "team_id": inputs.team_id, "new_status": "testing"},
@@ -405,9 +374,9 @@ class TaskProcessingWorkflow(PostHogWorkflow):
                 return error_msg
 
             finally:
-                # Step 9: Always clean up the cloned repository
+                # Step 8: Always clean up the cloned repository
                 if repo_info and repo_info.get("repo_path"):
-                    logger.info(f"Step 9: Cleaning up repository at {repo_info['repo_path']}")
+                    logger.info(f"Step 8: Cleaning up repository at {repo_info['repo_path']}")
                     try:
                         await workflow.execute_activity(
                             cleanup_repo_activity,

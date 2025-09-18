@@ -340,6 +340,54 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual((response.json()["results"][0]["favorited"]), True)
 
+    def test_hide_feature_flag_insights_filter(self) -> None:
+        from posthog.helpers.dashboard_templates import (
+            FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
+            FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
+        )
+
+        filter_dict = {
+            "events": [{"id": "$pageview"}],
+            "properties": [{"key": "$browser", "value": "Mac OS X"}],
+        }
+
+        # Create feature flag insights
+        Insight.objects.create(
+            name=FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
+            filters=Filter(data=filter_dict).to_dict(),
+            saved=True,
+            team=self.team,
+            created_by=self.user,
+        )
+
+        Insight.objects.create(
+            name=FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
+            filters=Filter(data=filter_dict).to_dict(),
+            saved=True,
+            team=self.team,
+            created_by=self.user,
+        )
+
+        # Create a regular insight
+        Insight.objects.create(
+            name="Regular Insight",
+            filters=Filter(data=filter_dict).to_dict(),
+            saved=True,
+            team=self.team,
+            created_by=self.user,
+        )
+
+        # Without filter, should return all 3 insights
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?saved=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 3)
+
+        # With filter, should exclude feature flag insights
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/?saved=true&hide_feature_flag_insights=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 1)
+        self.assertEqual(response.json()["results"][0]["name"], "Regular Insight")
+
     def test_get_insight_in_dashboard_context(self) -> None:
         filter_dict = {
             "events": [{"id": "$pageview"}],

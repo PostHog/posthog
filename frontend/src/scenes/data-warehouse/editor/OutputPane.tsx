@@ -258,22 +258,14 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
     )
 }
 
-export function OutputPane(): JSX.Element {
+export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
     const { editingView } = useValues(multitabEditorLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const {
-        sourceQuery,
-        exportContext,
-        editorKey,
-        editingInsight,
-        updateInsightButtonEnabled,
-        showLegacyFilters,
-        localStorageResponse,
-        queryInput,
-    } = useValues(multitabEditorLogic)
+    const { sourceQuery, exportContext, editingInsight, updateInsightButtonEnabled, showLegacyFilters, queryInput } =
+        useValues(multitabEditorLogic)
     const { saveAsInsight, updateInsight, setSourceQuery, runQuery, shareTab } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
@@ -286,7 +278,7 @@ export function OutputPane(): JSX.Element {
     const { queryCancelled } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
 
-    const response = (dataNodeResponse ?? localStorageResponse) as HogQLQueryResponse | undefined
+    const response = dataNodeResponse as HogQLQueryResponse | undefined
 
     const [progressCache, setProgressCache] = useState<Record<string, number>>({})
 
@@ -614,15 +606,13 @@ export function OutputPane(): JSX.Element {
                     saveAsInsight={saveAsInsight}
                     queryId={queryId}
                     pollResponse={pollResponse}
-                    editorKey={editorKey}
+                    tabId={tabId}
                     setProgress={setProgress}
                     progress={queryId ? progressCache[queryId] : undefined}
                 />
             </div>
             <div className="flex justify-between px-2 border-t">
-                <div>
-                    {response && !responseError ? <LoadPreviewText localResponse={localStorageResponse} /> : <></>}
-                </div>
+                <div>{response && !responseError ? <LoadPreviewText localResponse={response} /> : <></>}</div>
                 <div className="flex items-center gap-4">
                     {featureFlags[FEATURE_FLAGS.QUERY_EXECUTION_DETAILS] ? <QueryExecutionDetails /> : <ElapsedTime />}
                 </div>
@@ -750,7 +740,7 @@ const Content = ({
     rows,
     isDarkModeOn,
     vizKey,
-    editorKey,
+    tabId,
     setSourceQuery,
     exportContext,
     saveAsInsight,
@@ -792,7 +782,7 @@ const Content = ({
         return (
             <TabScroller>
                 <div className="px-6 py-4 border-t">
-                    <QueryInfo codeEditorKey={editorKey} />
+                    <QueryInfo tabId={tabId} />
                 </div>
             </TabScroller>
         )
