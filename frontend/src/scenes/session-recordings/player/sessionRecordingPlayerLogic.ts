@@ -984,6 +984,23 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 },
             },
         ],
+        hoverFlagIsEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => {
+                return featureFlags[FEATURE_FLAGS.REPLAY_HOVER_UI] === 'test'
+            },
+        ],
+        hoverModeIsEnabled: [
+            (s) => [s.logicProps, s.isCommenting, s.hoverFlagIsEnabled, s.showingClipParams],
+            (logicProps, isCommenting, hoverFlagIsEnabled, showingClipParams): boolean => {
+                return (
+                    hoverFlagIsEnabled &&
+                    logicProps.mode === SessionRecordingPlayerMode.Standard &&
+                    !isCommenting &&
+                    !showingClipParams
+                )
+            },
+        ],
     }),
     listeners(({ props, values, actions, cache }) => ({
         caughtAssetErrorFromIframe: ({ errorDetails }) => {
