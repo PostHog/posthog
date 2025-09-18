@@ -76,7 +76,6 @@ export function IssueAIFix(): JSX.Element {
 
     return (
         <div className="space-y-3">
-            {/* Repository Selection and Fix Button on same line */}
             {integrationId ? (
                 <div className="flex gap-2 items-stretch">
                     {!showRepositoryPicker ? (
@@ -85,7 +84,7 @@ export function IssueAIFix(): JSX.Element {
                                 variant="outline"
                                 size="fit"
                                 onClick={() => setShowRepositoryPicker(true)}
-                                className="flex items-center gap-2 px-3 py-2 h-full border border-border rounded-lg hover:bg-bg-3000 text-sm min-w-0 flex-1"
+                                className="px-3 min-w-0 flex-1"
                                 tooltip="Click to change repository"
                             >
                                 <IconGitRepository className="text-muted-alt flex-shrink-0" />
