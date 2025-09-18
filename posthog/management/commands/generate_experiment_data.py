@@ -14,6 +14,7 @@ import posthoganalytics
 from pydantic import BaseModel, Field, ValidationError
 
 from posthog.models import Team, User
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 
 def initialize_self_capture():
@@ -33,6 +34,7 @@ def initialize_self_capture():
             posthoganalytics.api_key = team.api_token
             posthoganalytics.host = settings.SITE_URL
             logging.info(f"Self-capture initialized with team {team.name} (API key: {team.api_token[:10]}...)")
+            return team
         else:
             logging.warning("No team found for self-capture initialization. Aborting")
             sys.exit(1)
@@ -193,13 +195,24 @@ class Command(BaseCommand):
         )
         parser.add_argument("--experiment-id", type=str, help="Experiment ID (feature flag name)")
         parser.add_argument("--config", type=str, help="Path to experiment config file")
+        parser.add_argument(
+            "--generate-session-replays",
+            action="store_true",
+            help="Generate session replay data for a subset of sessions",
+        )
+        parser.add_argument(
+            "--replay-probability",
+            type=float,
+            default=0.3,
+            help="Probability (0.0 to 1.0) that a session will have replay data (default: 0.3)",
+        )
 
     def handle(self, *args, **options):
         # Make sure this runs in development environment only
         if not settings.DEBUG:
             raise ValueError("This command should only be run in development! DEBUG must be True.")
 
-        initialize_self_capture()
+        team = initialize_self_capture()
 
         experiment_type = options.get("type")
 
@@ -233,6 +246,10 @@ class Command(BaseCommand):
 
         variants = list(experiment_config.variants.keys())
         variant_counts = {variant: 0 for variant in variants}
+
+        generate_replays = options.get("generate_session_replays", False)
+        replay_probability = options.get("replay_probability", 0.3)
+        replay_count = 0
 
         for _ in range(experiment_config.number_of_users):
             variant = random.choices(
@@ -298,9 +315,35 @@ class Command(BaseCommand):
                 if should_stop:
                     break
 
+            # Generate session replay data for this session if enabled
+            if generate_replays and random.random() < replay_probability:
+                replay_count += 1
+                # Generate session replay with some activity
+                produce_replay_summary(
+                    team_id=team.pk,
+                    session_id=session_id,
+                    distinct_id=distinct_id,
+                    first_timestamp=random_timestamp,
+                    last_timestamp=random_timestamp + timedelta(minutes=random.randint(5, 30)),
+                    first_url=f"https://example.com/experiment/{experiment_id}/{variant}",
+                    click_count=random.randint(5, 50),
+                    keypress_count=random.randint(10, 100),
+                    mouse_activity_count=random.randint(20, 200),
+                    active_milliseconds=random.randint(30000, 300000),  # 30s to 5min active time
+                    console_log_count=random.randint(0, 10),
+                    console_warn_count=random.randint(0, 3),
+                    console_error_count=random.randint(0, 2),
+                    ensure_analytics_event_in_session=False,  # We already have events from above
+                    retention_period_days=90,
+                )
+
         # TODO: need to figure out how to wait for the data to be flushed. shutdown() doesn't work as expected.
         time.sleep(2)
         posthoganalytics.shutdown()
 
         logging.info(f"Generated data for {experiment_id}")
         logging.info(f"Variant counts: {variant_counts}")
+        if generate_replays:
+            logging.info(
+                f"Generated {replay_count} session replays ({replay_count/experiment_config.number_of_users:.1%} of sessions)"
+            )
