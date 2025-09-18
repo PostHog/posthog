@@ -399,10 +399,13 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         isUsingPathsV1: [(s) => [s.featureFlags], (featureFlags) => !featureFlags[FEATURE_FLAGS.PATHS_V2]],
         isUsingPathsV2: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.PATHS_V2]],
         hasOverrides: [
-            () => [(_, props) => props],
-            (props) =>
-                (isObject(props.filtersOverride) && !isEmptyObject(props.filtersOverride)) ||
-                (isObject(props.variablesOverride) && !isEmptyObject(props.variablesOverride)),
+            () => [(_, props) => props.filtersOverride, (_, props) => props.variablesOverride],
+            (filtersOverride: DashboardFilter | null, variablesOverride: Record<string, HogQLVariable> | null) => {
+                return (
+                    (isObject(filtersOverride) && !isEmptyObject(filtersOverride)) ||
+                    (isObject(variablesOverride) && !isEmptyObject(variablesOverride))
+                )
+            },
         ],
         editingDisabledReason: [
             (s) => [s.hasOverrides],
