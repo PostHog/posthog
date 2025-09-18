@@ -14,7 +14,6 @@ from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import EmailNormalizer
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
 
@@ -269,6 +268,8 @@ class User(AbstractUser, UUIDTClassicModel):
                 # If project access control is NOT applicable, simply prefer open projects just in case
                 self.current_team = organization.teams.order_by("access_control", "id").first()
             else:
+                from posthog.rbac.user_access_control import UserAccessControl
+
                 uac = UserAccessControl(user=self, organization_id=str(organization.id))
                 self.current_team = (
                     uac.filter_queryset_by_access_level(organization.teams.all(), include_all_if_admin=True)
