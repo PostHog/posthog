@@ -226,7 +226,7 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
                     raise exceptions.ValidationError(team_error)
 
                 # Check if user is trying to invite with a higher level than their own
-                user_level_rank = {"member": 1, "admin": 2}.get(access_level, 0)
+                user_level_rank = {"member": 1, "admin": 2}.get(access_level or "", 0)
                 requested_level_rank = {"member": 1, "admin": 2}.get(level, 0)
 
                 if requested_level_rank > user_level_rank:

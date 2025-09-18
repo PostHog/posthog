@@ -95,18 +95,6 @@ class UserPermissions:
         return {membership.organization_id: membership for membership in memberships}
 
     @cached_property
-    def explicit_team_memberships(self) -> dict[int, Any]:
-        try:
-            from ee.models import ExplicitTeamMembership
-        except ImportError:
-            return {}
-
-        memberships = ExplicitTeamMembership.objects.filter(
-            parent_membership_id__in=[membership.pk for membership in self.organization_memberships.values()]
-        ).only("parent_membership_id", "level", "team_id")
-        return {membership.team_id: membership.level for membership in memberships}
-
-    @cached_property
     def dashboard_privileges(self) -> dict[int, Dashboard.PrivilegeLevel]:
         try:
             from ee.models import DashboardPrivilege
