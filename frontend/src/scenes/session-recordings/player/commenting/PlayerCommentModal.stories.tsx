@@ -16,7 +16,7 @@ export default meta
 
 export function Default(): JSX.Element {
     return (
-        <div className="min-h-65">
+        <div className="min-h-80 relative">
             <BindLogic logic={sessionRecordingPlayerLogic} props={{ sessionRecordingId: '23' }}>
                 <PlayerCommentModal />
             </BindLogic>
