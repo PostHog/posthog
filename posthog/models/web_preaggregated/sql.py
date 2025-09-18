@@ -126,6 +126,7 @@ def REPLACE_WEB_STATS_HOURLY_STAGING_SQL():
 #
 # Production table schemas extracted from DESCRIBE TABLE commands:
 WEB_STATS_V2_PRODUCTION_COLUMNS = """
+    pathname String,
     entry_pathname String,
     end_pathname String,
     browser String,
@@ -149,9 +150,6 @@ WEB_STATS_V2_PRODUCTION_COLUMNS = """
     persons_uniq_state AggregateFunction(uniq, UUID),
     sessions_uniq_state AggregateFunction(uniq, String),
     pageviews_count_state AggregateFunction(sum, UInt64),
-    bounces_count_state AggregateFunction(sum, UInt64),
-    total_session_duration_state AggregateFunction(sum, Int64),
-    total_session_count_state AggregateFunction(sum, UInt64),
     mat_metadata_loggedIn Nullable(Bool)
 """
 

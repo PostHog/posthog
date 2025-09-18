@@ -875,6 +875,7 @@ class DatabaseSchemaSource(BaseModel):
 
 class DatabaseSchemaTableType(StrEnum):
     POSTHOG = "posthog"
+    SYSTEM = "system"
     DATA_WAREHOUSE = "data_warehouse"
     VIEW = "view"
     BATCH_EXPORT = "batch_export"
@@ -3636,6 +3637,17 @@ class DatabaseSchemaPostHogTable(BaseModel):
     name: str
     row_count: Optional[float] = None
     type: Literal["posthog"] = "posthog"
+
+
+class DatabaseSchemaSystemTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: dict[str, DatabaseSchemaField]
+    id: str
+    name: str
+    row_count: Optional[float] = None
+    type: Literal["system"] = "system"
 
 
 class DatabaseSchemaTableCommon(BaseModel):
@@ -13574,6 +13586,7 @@ class QueryResponseAlternative62(BaseModel):
         str,
         Union[
             DatabaseSchemaPostHogTable,
+            DatabaseSchemaSystemTable,
             DatabaseSchemaDataWarehouseTable,
             DatabaseSchemaViewTable,
             DatabaseSchemaManagedViewTable,
@@ -13759,6 +13772,7 @@ class DatabaseSchemaQueryResponse(BaseModel):
         str,
         Union[
             DatabaseSchemaPostHogTable,
+            DatabaseSchemaSystemTable,
             DatabaseSchemaDataWarehouseTable,
             DatabaseSchemaViewTable,
             DatabaseSchemaManagedViewTable,
