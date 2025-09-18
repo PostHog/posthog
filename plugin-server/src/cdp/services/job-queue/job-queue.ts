@@ -6,7 +6,7 @@
 import { DateTime } from 'luxon'
 import { Counter, Gauge } from 'prom-client'
 
-import { PluginsServerConfig } from '../../../types'
+import { HealthCheckResultError, PluginsServerConfig } from '../../../types'
 import { logger } from '../../../utils/logger'
 import {
     CYCLOTRON_INVOCATION_JOB_QUEUES,
@@ -177,7 +177,7 @@ export class CyclotronJobQueue {
             return this.jobQueueDelay.isHealthy()
         }
 
-        return false
+        return new HealthCheckResultError('Invalid consumer mode', {})
     }
 
     private getTarget(invocation: CyclotronJobInvocation): CyclotronJobQueueSource {

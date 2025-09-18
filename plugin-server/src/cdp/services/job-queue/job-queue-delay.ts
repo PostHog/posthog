@@ -8,7 +8,7 @@ import { Message } from 'node-rdkafka'
 
 import { KafkaConsumer } from '../../../kafka/consumer'
 import { KafkaProducerWrapper } from '../../../kafka/producer'
-import { PluginsServerConfig } from '../../../types'
+import { HealthCheckResult, HealthCheckResultError, PluginsServerConfig } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { CyclotronJobInvocation, CyclotronJobQueueKind } from '../../types'
 
@@ -90,8 +90,11 @@ export class CyclotronJobQueueDelay {
         await this.kafkaProducer?.disconnect()
     }
 
-    public isHealthy() {
-        return this.kafkaConsumer?.isHealthy() ?? false
+    public isHealthy(): HealthCheckResult {
+        if (!this.kafkaConsumer) {
+            return new HealthCheckResultError('Kafka consumer not initialized', {})
+        }
+        return this.kafkaConsumer.isHealthy()
     }
 
     private async delayWithCancellation(delayMs: number): Promise<void> {
