@@ -758,7 +758,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_periodic_flush_task() {
+    async fn test_periodic_flush_and_export_task() {
         let store_manager = create_test_store_manager();
         let store = create_test_store("test_periodic_flush_task", 0);
 
@@ -884,5 +884,135 @@ mod tests {
 
         // Token should be cancelled
         assert!(cancel_token.is_cancelled());
+    }
+
+    #[tokio::test]
+    async fn test_cleaner_task_retention_time() {
+        // Add some test stores
+        let store_manager = create_test_store_manager();
+        let store1 = create_test_store("flush_all_with_stores", 0);
+        let store2 = create_test_store("flush_all_with_stores", 1);
+
+        // Add events to the stores
+        let event = create_test_event();
+        store1.handle_event_with_raw(&event).unwrap();
+        store2.handle_event_with_raw(&event).unwrap();
+
+        // add dedup stores to manager
+        let stores = store_manager.stores();
+        stores.insert(
+            Partition::new("flush_all_with_stores".to_string(), 0),
+            store1,
+        );
+        stores.insert(
+            Partition::new("flush_all_with_stores".to_string(), 1),
+            store2,
+        );
+
+        let tmp_checkpoint_dir = TempDir::new().unwrap();
+
+        // configure frequent checkpoints and long retention, cleanup interval
+        let config = CheckpointConfig {
+            checkpoint_interval: Duration::from_millis(50),
+            cleanup_interval: Duration::from_secs(120),
+            local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+
+        // start the manager and produce some local checkpoint files
+        let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
+        manager.start();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        manager.stop().await;
+
+        let found_files =
+            find_local_checkpoint_files(Path::new(&config.local_checkpoint_dir)).unwrap();
+        assert!(!found_files.is_empty());
+
+        // reconfigure the manager to not run checkpoints, but to clean up immediately
+        // with a very recent retention time (now!)
+        let config = CheckpointConfig {
+            checkpoint_interval: Duration::from_secs(120),
+            cleanup_interval: Duration::from_millis(50),
+            max_checkpoint_retention_hours: 0,
+            max_local_checkpoints: 100, // don't come near this limit for this test!
+            local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+
+        let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
+        manager.start();
+        // wait for the cleanup task to run
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        manager.stop().await;
+
+        let found_files =
+            find_local_checkpoint_files(Path::new(&config.local_checkpoint_dir)).unwrap();
+        assert!(found_files.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_cleaner_task_partition_count() {
+        // Add some test stores
+        let store_manager = create_test_store_manager();
+        let store1 = create_test_store("flush_all_with_stores", 0);
+        let store2 = create_test_store("flush_all_with_stores", 1);
+
+        // Add events to the stores
+        let event = create_test_event();
+        store1.handle_event_with_raw(&event).unwrap();
+        store2.handle_event_with_raw(&event).unwrap();
+
+        // add dedup stores to manager
+        let stores = store_manager.stores();
+        stores.insert(
+            Partition::new("flush_all_with_stores".to_string(), 0),
+            store1,
+        );
+        stores.insert(
+            Partition::new("flush_all_with_stores".to_string(), 1),
+            store2,
+        );
+
+        let tmp_checkpoint_dir = TempDir::new().unwrap();
+
+        // configure frequent checkpoints and long retention, cleanup interval
+        let config = CheckpointConfig {
+            checkpoint_interval: Duration::from_millis(50),
+            cleanup_interval: Duration::from_secs(120),
+            local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+
+        // start the manager and produce some local checkpoint files
+        let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
+        manager.start();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        manager.stop().await;
+
+        let found_files =
+            find_local_checkpoint_files(Path::new(&config.local_checkpoint_dir)).unwrap();
+        assert!(!found_files.is_empty());
+
+        // reconfigure the manager to not run checkpoints, but to clean up immediately
+        // with a very recent retention time (now!)
+        let config = CheckpointConfig {
+            checkpoint_interval: Duration::from_secs(120),
+            cleanup_interval: Duration::from_millis(50),
+            max_checkpoint_retention_hours: 24, // don't come near this limit for this test!
+            max_local_checkpoints: 0, // scorched earth
+            local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+
+        let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
+        manager.start();
+        // wait for the cleanup task to run
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        manager.stop().await;
+
+        let found_files =
+            find_local_checkpoint_files(Path::new(&config.local_checkpoint_dir)).unwrap();
+        assert!(found_files.is_empty());
     }
 }
