@@ -8,7 +8,7 @@ This module defines:
 """
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Union
 
 import dagster
 
@@ -118,6 +118,7 @@ def experiment_timeseries(context: dagster.AssetExecutionContext) -> dict[str, A
         raise dagster.Failure(f"Experiment {experiment_id} not found or deleted")
 
     metric_type = metric.get("metric_type")
+    metric_obj: Union[ExperimentMeanMetric, ExperimentFunnelMetric, ExperimentRatioMetric]
     if metric_type == "mean":
         metric_obj = ExperimentMeanMetric(**metric)
     elif metric_type == "funnel":

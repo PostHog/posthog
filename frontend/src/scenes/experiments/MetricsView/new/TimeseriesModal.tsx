@@ -27,7 +27,7 @@ export function TimeseriesModal({
 }: TimeseriesModalProps): JSX.Element {
     const logic = experimentTimeseriesLogic({ experimentId: experiment.id })
     const { loadTimeseries, clearTimeseries } = useActions(logic)
-    const { timeseries, chartData, errorSummary } = useValues(logic)
+    const { timeseries, chartData, timeseriesStatus } = useValues(logic)
 
     useEffect(() => {
         if (isOpen && metric.uuid) {
@@ -58,9 +58,9 @@ export function TimeseriesModal({
             <div style={{ padding: '16px' }}>
                 {timeseries ? (
                     <div>
-                        {errorSummary && errorSummary.hasIssues && (
+                        {timeseriesStatus && (
                             <div style={{ marginBottom: '16px' }}>
-                                <LemonBanner type="warning">{errorSummary.message}</LemonBanner>
+                                <LemonBanner type="warning">{timeseriesStatus}</LemonBanner>
                             </div>
                         )}
                         {(timeseries.status === 'completed' ||
