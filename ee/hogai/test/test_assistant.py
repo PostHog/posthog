@@ -47,6 +47,9 @@ from posthog.schema import (
     MaxProductInfo,
     MaxUIContext,
     ReasoningMessage,
+    TaskExecutionItem,
+    TaskExecutionMessage,
+    TaskExecutionStatus,
     TrendsQuery,
     VisualizationMessage,
 )
@@ -55,6 +58,7 @@ from posthog.models import Action
 
 from ee.hogai.assistant.base import BaseAssistant
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
+from ee.hogai.graph.deep_research.types import DeepResearchNodeName
 from ee.hogai.graph.funnels.nodes import FunnelsSchemaGeneratorOutput
 from ee.hogai.graph.graph import AssistantCompiledStateGraph
 from ee.hogai.graph.memory import prompts as memory_prompts
@@ -1974,23 +1978,47 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         assert result is not None
         assert result.content == "First part second part"
 
-    def test_process_message_update_persists_messages(self):
-        """Messages should be returned synchronously and persisted when requested."""
+    def test_deep_research_persists_reasoning_messages(self):
         assistant = Assistant.create(
             team=self.team,
             conversation=self.conversation,
             user=self.user,
+            mode=AssistantMode.DEEP_RESEARCH,
         )
 
-        ready_message = AssistantMessage(content="streamed reasoning", type="ai")
-        langgraph_state: LangGraphState = {"langgraph_node": AssistantNodeName.ROOT}
-        update: GraphMessageUpdateTuple = ("messages", (ready_message, langgraph_state))
+        reasoning_message = ReasoningMessage(content="streamed reasoning")
+        langgraph_state: LangGraphState = {"langgraph_node": DeepResearchNodeName.PLANNER}
+        update: GraphMessageUpdateTuple = ("messages", (reasoning_message, langgraph_state))
 
-        with (
-            patch.object(assistant, "_should_persist_stream_message", return_value=True),
-            patch.object(assistant, "_persist_stream_message", new_callable=AsyncMock) as mock_persist,
-        ):
+        with patch.object(assistant, "_persist_stream_message", new_callable=AsyncMock) as mock_persist:
             result = async_to_sync(assistant._aprocess_message_update)(update)
 
-        assert result is ready_message
-        mock_persist.assert_awaited_once_with(AssistantNodeName.ROOT, ready_message)
+        assert result is reasoning_message
+        mock_persist.assert_awaited_once_with(DeepResearchNodeName.PLANNER, reasoning_message)
+
+    def test_deep_research_persists_task_execution_messages(self):
+        assistant = Assistant.create(
+            team=self.team,
+            conversation=self.conversation,
+            user=self.user,
+            mode=AssistantMode.DEEP_RESEARCH,
+        )
+
+        task_message = TaskExecutionMessage(
+            tasks=[
+                TaskExecutionItem(
+                    description="Write summary",
+                    id="t1",
+                    prompt="Write a summary",
+                    status=TaskExecutionStatus.IN_PROGRESS,
+                )
+            ]
+        )
+        langgraph_state: LangGraphState = {"langgraph_node": DeepResearchNodeName.TASK_EXECUTOR}
+        update: GraphMessageUpdateTuple = ("messages", (task_message, langgraph_state))
+
+        with patch.object(assistant, "_persist_stream_message", new_callable=AsyncMock) as mock_persist:
+            result = async_to_sync(assistant._aprocess_message_update)(update)
+
+        assert result is task_message
+        mock_persist.assert_awaited_once_with(DeepResearchNodeName.TASK_EXECUTOR, task_message)

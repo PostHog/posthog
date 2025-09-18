@@ -2,7 +2,16 @@ from collections.abc import AsyncGenerator
 from typing import Any, Optional
 from uuid import UUID
 
-from posthog.schema import AssistantMessage, HumanMessage, MaxBillingContext, VisualizationMessage
+from pydantic import BaseModel
+
+from posthog.schema import (
+    AssistantMessage,
+    HumanMessage,
+    MaxBillingContext,
+    ReasoningMessage,
+    TaskExecutionMessage,
+    VisualizationMessage,
+)
 
 from posthog.models import Team, User
 
@@ -94,6 +103,19 @@ class DeepResearchAssistant(BaseAssistant):
             DeepResearchNodeName.PLANNER,
             DeepResearchNodeName.REPORT,
         }
+
+    def _should_persist_stream_message(self, message: BaseModel, node_name: MaxNodeName) -> bool:
+        """
+        Only persist discrete, low-frequency stream events.
+        Avoid persisting chunked AssistantMessage text to reduce DB write volume.
+        Persisting reasoning and task execution messages from deep research.
+        """
+        if isinstance(node_name, DeepResearchNodeName):
+            if isinstance(message, ReasoningMessage):
+                return True
+            if isinstance(message, TaskExecutionMessage):
+                return True
+        return False
 
     def get_initial_state(self) -> DeepResearchState:
         if self._latest_message:

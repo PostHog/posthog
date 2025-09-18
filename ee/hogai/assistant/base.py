@@ -24,7 +24,6 @@ from posthog.schema import (
     HumanMessage,
     MaxBillingContext,
     ReasoningMessage,
-    TaskExecutionMessage,
 )
 
 from posthog import event_usage
@@ -33,7 +32,6 @@ from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.base import BaseAssistantNode
-from ee.hogai.graph.deep_research.types import DeepResearchNodeName
 from ee.hogai.graph.graph import AssistantCompiledStateGraph
 from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import extract_content_from_ai_message, should_output_assistant_message
@@ -342,10 +340,8 @@ class BaseAssistant(ABC):
             self._state = validate_state_update(new_state, self._state_type)
         elif is_value_update(update) and (new_messages := self._process_value_update(update)):
             return new_messages
-        elif is_message_update(update):
-            new_message = await self._aprocess_message_update(update)
-            if new_message:
-                return [new_message]
+        elif is_message_update(update) and (new_message := await self._aprocess_message_update(update)):
+            return [new_message]
         elif is_task_started_update(update) and (new_message := await self._process_task_started_update(update)):
             return [new_message]
         return None
@@ -424,7 +420,12 @@ class BaseAssistant(ABC):
         return AssistantMessage(content=message_content)
 
     def _build_root_config_for_persistence(self) -> RunnableConfig:
-        """Config pinned to the root namespace for checkpoint writes."""
+        """
+        Return a RunnableConfig that forces checkpoint writes onto the root conversation namespace.
+        Streaming messages may originate from nested subgraphs. By pinning the `checkpoint_ns`
+        to root, we ensure the partial update lands on the root graph so that persisted chunks are
+        discoverable when the conversation state is rehydrated later.
+        """
         return {
             "configurable": {
                 "thread_id": self._conversation.id,
@@ -440,16 +441,7 @@ class BaseAssistant(ABC):
         await self._graph.aupdate_state(root_config, partial_update, as_node=node_name)
 
     def _should_persist_stream_message(self, message: BaseModel, node_name: MaxNodeName) -> bool:
-        """
-        Only persist discrete, low-frequency stream events.
-        Avoid persisting chunked AssistantMessage text to reduce DB write volume.
-        For now we only persist reasoning and task execution messages from deep research.
-        """
-        if isinstance(node_name, DeepResearchNodeName):
-            if isinstance(message, ReasoningMessage):
-                return True
-            if isinstance(message, TaskExecutionMessage):
-                return True
+        """Subclasses can opt-in to persisting specific streamed messages."""
         return False
 
     def _chunk_reasoning_headline(self, reasoning: dict[str, Any]) -> Optional[str]:
