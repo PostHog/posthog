@@ -21,6 +21,8 @@ class Command(BaseCommand):
                 self.style.SUCCESS("Starting Replay retention migration" + (" (DRY RUN)" if dry_run else ""))
             )
 
+            total_teams_migrated = 0
+
             queryset = (
                 Team.objects.filter(session_recording_retention_period="legacy")
                 .order_by("id")
@@ -46,9 +48,11 @@ class Command(BaseCommand):
                         ["session_recording_retention_period"],
                     )
 
+                total_teams_migrated += len(teams_to_migrate)
+
             self.stdout.write(
                 self.style.SUCCESS(
-                    f"Success - {len(teams_to_migrate)} teams migrated" + (" (DRY RUN)" if dry_run else "")
+                    f"Success - {total_teams_migrated} teams migrated" + (" (DRY RUN)" if dry_run else "")
                 )
             )
         except Exception as e:
