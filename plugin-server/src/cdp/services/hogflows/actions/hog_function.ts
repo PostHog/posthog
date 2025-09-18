@@ -29,6 +29,12 @@ export class HogFunctionHandler implements ActionHandler {
     ): Promise<ActionHandlerResult> {
         const functionResult = await this.executeHogFunction(invocation, action)
 
+        // Add all events to capture
+        result.capturedPostHogEvents = [
+            ...result.capturedPostHogEvents,
+            ...functionResult.capturedPostHogEvents
+        ]
+
         // Add all logs
         functionResult.logs.forEach((log: MinimalLogEntry) => {
             result.logs.push({
