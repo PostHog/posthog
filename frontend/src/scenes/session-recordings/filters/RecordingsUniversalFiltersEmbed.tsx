@@ -16,7 +16,6 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { maxLogic } from 'scenes/max/maxLogic'
@@ -478,11 +477,6 @@ export const RecordingsUniversalFiltersEmbed = ({
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.SessionRecording}
                                     minAccessLevel={AccessControlLevel.Editor}
-                                    userAccessLevel={
-                                        getAppContext()?.resource_access_control?.[
-                                            AccessControlResourceType.SessionRecording
-                                        ]
-                                    }
                                 >
                                     <LemonButton
                                         type="secondary"

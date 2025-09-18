@@ -7,7 +7,6 @@ import { LemonButton, LemonInput, LemonTable, LemonTableColumn, LemonTableColumn
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
 
 import {
@@ -104,9 +103,6 @@ export function SavedFilters({
                     <AccessControlAction
                         resourceType={AccessControlResourceType.SessionRecording}
                         minAccessLevel={AccessControlLevel.Editor}
-                        userAccessLevel={
-                            getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
-                        }
                     >
                         <LemonButton
                             status="danger"
