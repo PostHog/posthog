@@ -868,14 +868,20 @@ mod tests {
     use std::{collections::HashMap, path::PathBuf, time::Duration};
     use tempfile::TempDir;
 
-    fn create_test_store(topic: &str, partition: i32) -> (DeduplicationStore, TempDir) {
-        let temp_dir = TempDir::new().unwrap();
+    fn create_test_store_manager() -> Arc<StoreManager> {
         let config = DeduplicationStoreConfig {
-            path: temp_dir.path().to_path_buf(),
+            path: TempDir::new().unwrap().path().to_path_buf(),
             max_capacity: 1_000_000,
         };
-        let store = DeduplicationStore::new(config.clone(), topic.to_string(), partition).unwrap();
-        (store, temp_dir)
+        Arc::new(StoreManager::new(config))
+    }
+
+    fn create_test_store(topic: &str, partition: i32) -> DeduplicationStore {
+        let config = DeduplicationStoreConfig {
+            path: TempDir::new().unwrap().path().to_path_buf(),
+            max_capacity: 1_000_000,
+        };
+        DeduplicationStore::new(config.clone(), topic.to_string(), partition).unwrap()
     }
 
     fn create_test_event() -> RawEvent {
@@ -920,11 +926,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_checkpoint_manager_creation() {
-        let tmp_store_dir = TempDir::new().unwrap();
-        let stores = Arc::new(StoreManager::new(DeduplicationStoreConfig {
-            path: tmp_store_dir.path().to_path_buf(),
-            max_capacity: 1_000_000,
-        }));
+        let stores = create_test_store_manager();
 
         let tmp_checkpoint_dir = TempDir::new().unwrap();
         let config = CheckpointConfig {
@@ -946,11 +948,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_checkpoint_manager_start_stop() {
-        let tmp_store_dir = TempDir::new().unwrap();
-        let stores = Arc::new(StoreManager::new(DeduplicationStoreConfig {
-            path: tmp_store_dir.path().to_path_buf(),
-            max_capacity: 1_000_000,
-        }));
+        let store_manager = create_test_store_manager();
 
         let tmp_checkpoint_dir = TempDir::new().unwrap();
         let config = CheckpointConfig {
@@ -959,7 +957,7 @@ mod tests {
             local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
             ..Default::default()
         };
-        let mut manager = CheckpointManager::new(config.clone(), stores.clone(), None);
+        let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
 
         // Start the manager
         manager.start();
@@ -974,11 +972,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_flush_all_empty() {
-        let tmp_store_dir = TempDir::new().unwrap();
-        let stores = Arc::new(StoreManager::new(DeduplicationStoreConfig {
-            path: tmp_store_dir.path().to_path_buf(),
-            max_capacity: 1_000_000,
-        }));
+        let store_manager = create_test_store_manager();
 
         let tmp_checkpoint_dir = TempDir::new().unwrap();
         let config = CheckpointConfig {
@@ -986,7 +980,7 @@ mod tests {
             local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
             ..Default::default()
         };
-        let manager = CheckpointManager::new(config.clone(), stores.clone(), None);
+        let manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
 
         // Flushing empty stores should succeed
         assert!(manager.flush_all().await.is_ok());
@@ -995,20 +989,17 @@ mod tests {
     #[tokio::test]
     async fn test_flush_all_with_stores() {
         // Add some test stores
-        let (store1, _dir1) = create_test_store("flush_all_with_stores", 0);
-        let (store2, _dir2) = create_test_store("flush_all_with_stores", 1);
-
-        let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
-            path: _dir1.path().to_path_buf(),
-            max_capacity: 1_000_000,
-        }));
-        let stores = store_manager.stores();
+        let store_manager = create_test_store_manager();
+        let store1 = create_test_store("flush_all_with_stores", 0);
+        let store2 = create_test_store("flush_all_with_stores", 1);
 
         // Add events to the stores
         let event = create_test_event();
         store1.handle_event_with_raw(&event).unwrap();
         store2.handle_event_with_raw(&event).unwrap();
 
+        // add dedup stores to manager
+        let stores = store_manager.stores();
         stores.insert(
             Partition::new("flush_all_with_stores".to_string(), 0),
             store1,
@@ -1033,17 +1024,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_worker_checkpoint_partition_full() {
-        let (store, temp_dir) = create_test_store("some_test_topic", 0);
-        let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
-            path: temp_dir.path().to_path_buf(),
-            max_capacity: 1_000_000,
-        }));
-        let stores = store_manager.stores();
+        let store_manager = create_test_store_manager();
+        let store = create_test_store("some_test_topic", 0);
 
         // Add an event to the store
         let event = create_test_event();
         store.handle_event_with_raw(&event).unwrap();
 
+        let stores = store_manager.stores();
         stores.insert(
             Partition::new("some_test_topic".to_string(), 0),
             store.clone(),
@@ -1105,21 +1093,16 @@ mod tests {
     // and smoke tests the local checkpoint behavior for now
     #[tokio::test]
     async fn test_worker_checkpoint_partition_incremental() {
-        let (store, temp_dir) = create_test_store("some_test_topic", 0);
-        let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
-            path: temp_dir.path().to_path_buf(),
-            max_capacity: 1_000_000,
-        }));
-        let stores = store_manager.stores();
+        let store_manager = create_test_store_manager();
+        let store = create_test_store("some_test_topic", 0);
 
         // Add an event to the store
         let event = create_test_event();
-        store.handle_event_with_raw(&event).unwrap();
 
-        stores.insert(
-            Partition::new("some_test_topic".to_string(), 0),
-            store.clone(),
-        );
+        let partition = Partition::new("some_test_topic".to_string(), 0);
+        store.handle_event_with_raw(&event).unwrap();
+        let stores = store_manager.stores();
+        stores.insert(partition.clone(), store.clone());
 
         let tmp_checkpoint_dir = TempDir::new().unwrap();
         let config = CheckpointConfig {
@@ -1130,8 +1113,7 @@ mod tests {
         };
         let manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
 
-        // Create target partition and attempt path objects, run chekcpoint worker
-        let partition = Partition::new("some_test_topic".to_string(), 0);
+        // Create partition path object for this attempt, run checkpoint worker
         let paths = CheckpointPath::new(partition.clone(), Path::new(&config.local_checkpoint_dir))
             .unwrap();
 
@@ -1174,11 +1156,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_checkpoint_partition_not_found() {
-        let tmp_store_dir = TempDir::new().unwrap();
-        let stores = Arc::new(StoreManager::new(DeduplicationStoreConfig {
-            path: tmp_store_dir.path().to_path_buf(),
-            max_capacity: 1_000_000,
-        }));
+        let store_manager = create_test_store_manager();
 
         let tmp_checkpoint_dir = TempDir::new().unwrap();
         let config = CheckpointConfig {
@@ -1191,7 +1169,7 @@ mod tests {
         // no Partition is created and associated with the store manager,
         // so the ChekcpointManager task loop should find no Partitions to
         // execute CheckpointWorkers against
-        let mut manager = CheckpointManager::new(config.clone(), stores.clone(), None);
+        let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
 
         // Should fail for non-existent topic partition.
         // run the manager checkpoint loop for a few cycles
@@ -1209,12 +1187,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_periodic_flush_task() {
-        let (store, dir) = create_test_store("test_periodic_flush_task", 0);
-        let store_manager = Arc::new(StoreManager::new(DeduplicationStoreConfig {
-            path: dir.path().to_path_buf(),
-            max_capacity: 1_000_000,
-        }));
-        let stores = store_manager.stores();
+        let store_manager = create_test_store_manager();
+        let store = create_test_store("test_periodic_flush_task", 0);
 
         // Add an event
         let event1 = create_test_event();
@@ -1232,6 +1206,7 @@ mod tests {
         };
 
         let partition = Partition::new("test_periodic_flush_task".to_string(), 0);
+        let stores = store_manager.stores();
         stores.insert(partition.clone(), store);
 
         let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
@@ -1292,11 +1267,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_double_start() {
-        let tmp_store_dir = TempDir::new().unwrap();
-        let stores = Arc::new(StoreManager::new(DeduplicationStoreConfig {
-            path: tmp_store_dir.path().to_path_buf(),
-            max_capacity: 1_000_000,
-        }));
+        let store_manager = create_test_store_manager();
 
         let tmp_checkpoint_dir = TempDir::new().unwrap();
         let config = CheckpointConfig {
@@ -1304,7 +1275,7 @@ mod tests {
             local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
             ..Default::default()
         };
-        let mut manager = CheckpointManager::new(config.clone(), stores.clone(), None);
+        let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
 
         // Start once - should return reporter
         let health_reporter = manager.start();
@@ -1321,11 +1292,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_drop_cancels_task() {
-        let tmp_store_dir = TempDir::new().unwrap();
-        let stores = Arc::new(StoreManager::new(DeduplicationStoreConfig {
-            path: tmp_store_dir.path().to_path_buf(),
-            max_capacity: 1_000_000,
-        }));
+        let store_manager = create_test_store_manager();
 
         let tmp_checkpoint_dir = TempDir::new().unwrap();
         let config = CheckpointConfig {
@@ -1333,7 +1300,7 @@ mod tests {
             local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
             ..Default::default()
         };
-        let mut manager = CheckpointManager::new(config.clone(), stores.clone(), None);
+        let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
 
         manager.start();
         let cancel_token = manager.cancel_token.clone();
