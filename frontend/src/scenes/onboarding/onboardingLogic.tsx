@@ -316,7 +316,7 @@ export const onboardingLogic = kea<onboardingLogicType>([
             }
 
             if (values.isFirstProductOnboarding && !values.modalMode) {
-                // Because the side panel opening has it's own actionToUrl,
+                // Because the side panel opening has its own actionToUrl,
                 // we delay opening it to avoid a race condition with the updateCurrentTeamSuccess redirect
                 setTimeout(() => {
                     actions.openSidePanel(SidePanelTab.Activation)
