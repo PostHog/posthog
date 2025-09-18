@@ -52,15 +52,16 @@ impl AppContext {
         // read posthog_grouptypemappings from the new persons DB. Otherwise, we
         // fall back to the std. cloud DB pool above.
         let persons_options = PgPoolOptions::new().max_connections(config.max_pg_connections);
-        let persons_pool: Option<PgPool> = if config.database_persons_url.is_some() {
-            Some(
-                persons_options
-                    .connect(config.database_persons_url.as_ref().unwrap())
-                    .await?,
-            )
-        } else {
-            None
-        };
+        let persons_pool: Option<PgPool> =
+            if config.read_groups_from_persons_db && !config.database_persons_url.is_empty() {
+                Some(
+                    persons_options
+                        .connect(&config.database_persons_url)
+                        .await?,
+                )
+            } else {
+                None
+            };
 
         let liveness: HealthRegistry = HealthRegistry::new("liveness");
         let worker_liveness = liveness
