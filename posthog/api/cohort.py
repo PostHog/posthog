@@ -261,7 +261,7 @@ class CohortSerializer(serializers.ModelSerializer):
                 raise ValidationError(type_serializer.errors["cohort_type"][0])
             raise ValidationError("Invalid cohort type for the given filters")
 
-        return value    
+        return value
 
     def _handle_static(self, cohort: Cohort, context: dict, validated_data: dict, person_ids: list[str] | None) -> None:
         from posthog.tasks.calculate_cohort import (
@@ -269,6 +269,7 @@ class CohortSerializer(serializers.ModelSerializer):
             insert_cohort_from_insight_filter,
             insert_cohort_from_query,
         )
+
         request = self.context["request"]
         if request.FILES.get("csv") or person_ids is not None:
             if person_ids is not None:
