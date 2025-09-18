@@ -140,6 +140,10 @@ impl CheckpointManager {
                         for (partition, store) in candidates {
                             let partition_tag = partition.to_string();
 
+                            // clone the manager lock structures for this worker instance
+                            let worker_is_checkpointing = is_checkpointing.clone();
+                            let worker_checkpoint_counters = checkpoint_counters.clone();
+
                             // acquire semaphore or block here
                             let ticket: OwnedSemaphorePermit;
                             tokio::select! {
@@ -194,51 +198,52 @@ impl CheckpointManager {
                             // clone things that the worker thread will need references to
                             let cancel_worker_token = cancel_submit_loop_token.child_token();
 
-                            // TODO: for now, we don't bother to track the handles of spawned workers
+                            // for now, we don't bother to track the handles of spawned workers
                             // because each worker represents one best-effort checkpoint attempt
-                            let result = tokio::spawn(async move {
-                                tokio::select! {
-                                    _ = cancel_worker_token.cancelled() => {
-                                        info!(partition = partition_tag, "Checkpoint manager: inner submit loop shutting down");
-                                        Ok(None)
-                                    }
-
-                                    result = worker.checkpoint_partition() => {
-                                        let status = match result {
-                                            Ok(Some(_)) => "success",
-                                            Ok(None) => "skipped",
-                                            Err(_) => "error",
-                                        };
-                                        info!(worker_task_id, partition = partition_tag, result = status,
-                                            "Checkpoint manager: checkpoint attempt completed");
-
-                                        result
-                                    }
+                            let _result = tokio::spawn(async move {
+                                // best effort to bail if the checkpoint manager shut
+                                // down before the worker thread started executing...
+                                if tokio::time::timeout(std::time::Duration::from_millis(1), cancel_worker_token.cancelled()).await.is_ok() {
+                                    info!(partition = partition_tag, "Checkpoint manager: inner submit loop shutting down, skipping worker execution");
+                                    return Ok(None);
                                 }
-                            });
 
-                            // release the permit so another checkpoint attempt can proceed
-                            drop(ticket);
+                                // block and execute the checkpoint attempt here
+                                let result = worker.checkpoint_partition().await;
 
-                            // release the in-flight lock regardless of outcome
-                            {
-                                let mut is_checkpointing_guard = is_checkpointing.lock().await;
-                                is_checkpointing_guard.remove(&partition);
-                            }
+                                let status = match result {
+                                    Ok(Some(_)) => "success",
+                                    Ok(None) => "skipped",
+                                    Err(_) => "error",
+                                };
+                                info!(worker_task_id, partition = partition_tag, result = status,
+                                    "Checkpoint manager: checkpoint attempt completed");
 
-                            // result is observed interally and errors shouldn't bubble up here
-                            // so we only care if the export was successful and we need to
-                            // increment the checkpoint counter
-                            if let Ok(Ok(Some(_))) = result.await {
-                                // NOTE: could race another checkpoint attempt on same partition between
-                                //       is_checkpointing release and this call, but we must maintain
-                                //       lock access ordering. Can revisit this later if its a problem
+                                // release the permit so another checkpoint attempt can proceed
+                                drop(ticket);
+
+                                // release the in-flight lock regardless of outcome
                                 {
-                                    let mut counter_guard = checkpoint_counters.lock().await;
-                                    let counter_for_partition = *counter_guard.get(&partition).unwrap_or(&0_u32);
-                                    counter_guard.insert(partition.clone(), counter_for_partition + 1);
+                                    let mut is_checkpointing_guard = worker_is_checkpointing.lock().await;
+                                    is_checkpointing_guard.remove(&partition);
                                 }
-                            }
+
+                                // result is observed interally and errors shouldn't bubble up here
+                                // so we only care if the export was successful and we need to
+                                // increment the checkpoint counter
+                                if let Ok(Some(_)) = result {
+                                    // NOTE: could race another checkpoint attempt on same partition between
+                                    //       is_checkpointing release and this call, but we must maintain
+                                    //       lock access ordering. Can revisit this later if its a problem
+                                    {
+                                        let mut counter_guard = worker_checkpoint_counters.lock().await;
+                                        let counter_for_partition = *counter_guard.get(&partition).unwrap_or(&0_u32);
+                                        counter_guard.insert(partition.clone(), counter_for_partition + 1);
+                                    }
+                                }
+
+                                result
+                            });
                         } // end partition loop
 
                         info!("Completed periodic checkpoint attempt for {} stores", store_count);
