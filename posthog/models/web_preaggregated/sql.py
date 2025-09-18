@@ -117,6 +117,14 @@ def REPLACE_WEB_STATS_HOURLY_STAGING_SQL():
 
 
 # Hardcoded production column definitions to match exact table structure
+#
+# NOTE: These definitions exist because the production destination tables have a different
+# column order than what our WEB_STATS_COLUMNS/WEB_BOUNCES_COLUMNS generate. Specifically,
+# mat_metadata_loggedIn appears at the END of the production tables (due to migration via
+# ALTER TABLE ADD COLUMN), but our code generates it in the middle. For REPLACE PARTITION
+# to work, staging and destination tables must have identical column order and types.
+#
+# Production table schemas extracted from DESCRIBE TABLE commands:
 WEB_STATS_V2_PRODUCTION_COLUMNS = """
     entry_pathname String,
     end_pathname String,
