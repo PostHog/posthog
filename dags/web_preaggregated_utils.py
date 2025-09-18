@@ -7,6 +7,7 @@ import dagster
 from dagster import Array, Backoff, DagsterRunStatus, Field, Jitter, RetryPolicy, RunsFilter, SkipReason
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.settings.base_variables import DEBUG
 
@@ -161,6 +162,16 @@ def clear_all_staging_partitions(
             pass
 
     context.log.info(f"Completed clearing {staging_table}: {dropped_count}/{len(all_partitions)} partitions dropped")
+
+
+def recreate_staging_table(
+    context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, staging_table: str, replace_sql_func
+) -> None:
+    """Recreate staging table on all hosts using REPLACE TABLE."""
+    context.log.info(f"Recreating staging table {staging_table}")
+    cluster.map_hosts_by_roles(
+        lambda client: client.execute(replace_sql_func()), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
+    ).result()
 
 
 # Shared config schema for daily processing
