@@ -12,6 +12,7 @@ export const fixWithAiLogic = kea<fixWithAiLogicType>([
         setRepository: (repository: string) => ({ repository }),
         generateFix: true,
         setFixStatus: (fixStatus: FixWithAIStatus) => ({ fixStatus }),
+        setRepositoryPopoverVisible: (repositoryPopoverVisible: boolean) => ({ repositoryPopoverVisible }),
     }),
 
     reducers({
@@ -31,6 +32,12 @@ export const fixWithAiLogic = kea<fixWithAiLogicType>([
             'not_started',
             {
                 setFixStatus: (_, { fixStatus }) => fixStatus,
+            },
+        ],
+        repositoryPopoverVisible: [
+            false,
+            {
+                setRepositoryPopoverVisible: (_, { repositoryPopoverVisible }) => repositoryPopoverVisible,
             },
         ],
     }),

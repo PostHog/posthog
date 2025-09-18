@@ -22,13 +22,9 @@ interface PullRequest {
 }
 
 export function IssueAIFix(): JSX.Element {
-    const [status, setStatus] = useState<FixWithAIStatus>('idle')
-    const [showRepositoryPopover, setShowRepositoryPopover] = useState(false)
     const [showPRsPopover, setShowPRsPopover] = useState(false)
-
-    const { getIntegrationsByKind } = useValues(integrationsLogic)
-
-    const { integrationId, repository } = useValues(fixWithAiLogic)
+    const { integrationId, repository, fixStatus } = useValues(fixWithAiLogic)
+    const { generateFix } = useActions(fixWithAiLogic)
 
     // Mock pull requests - replace with actual data when available
     const pullRequests: PullRequest[] = useMemo(
@@ -49,22 +45,17 @@ export function IssueAIFix(): JSX.Element {
         []
     )
 
-    const handleStartFix = (): void => {
-        setStatus('in_progress')
-        setTimeout(() => setStatus('done'), 3000)
-    }
-
-    const isInProgress = status === 'in_progress'
-    const isDone = status === 'done'
+    const isInProgress = fixStatus === 'in_progress'
+    const isDone = fixStatus === 'done'
 
     return (
         <div className="space-y-3">
             <div className="flex gap-2 items-stretch">
-                <RepositorySelector showPopover={showRepositoryPopover} onShowPopover={setShowRepositoryPopover} />
+                <RepositorySelector />
                 <LemonButton
                     type="primary"
                     icon={<IconMagicWand />}
-                    onClick={handleStartFix}
+                    onClick={generateFix}
                     loading={isInProgress}
                     disabled={isDone || !repository || !integrationId}
                     disabledReason={
@@ -158,7 +149,7 @@ function RepositorySelector(): JSX.Element {
         <Popover
             visible={repositoryPopoverVisible}
             onClickOutside={() => setRepositoryPopoverVisible(false)}
-            overlay={<RepositoryPickerPopover onClose={() => setRepositoryPopoverVisible(false)} />}
+            overlay={<RepositoryPickerPopover />}
             placement="bottom-start"
             showArrow
         >
@@ -241,15 +232,19 @@ function RepositoryPicker({ integrationId }: RepositoryPickerProps): JSX.Element
             !repository
         ) {
             setRepository(release.metadata.git.repo_name)
-            setRepositoryPopoverVisible(false)
         }
-    }, [options, release, repository, setRepository, setRepositoryPopoverVisible])
+    }, [options, release, repository, setRepository])
+
+    const setRepositoryAndClosePopover = (repo: string) => {
+        setRepository(repo)
+        setRepositoryPopoverVisible(false)
+    }
 
     return (
         <GitHubRepositoryPicker
             integrationId={integrationId}
             value={repository ?? ''}
-            onChange={setRepository}
+            onChange={setRepositoryAndClosePopover}
             keepParentPopoverOpenOnClick
         />
     )
