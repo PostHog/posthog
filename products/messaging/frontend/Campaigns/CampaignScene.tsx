@@ -44,37 +44,47 @@ export function CampaignScene(props: CampaignSceneLogicProps): JSX.Element {
             key: 'workflow',
             content: <CampaignWorkflow {...props} />,
         },
-        props.id && props.id !== 'new'
-            ? {
-                  label: 'Logs',
-                  key: 'logs',
-                  content: (
-                      <LogsViewer
-                          sourceType="hog_flow"
-                          sourceId={props.id}
-                          instanceLabel="workflow run"
-                          renderMessage={(m) => renderWorkflowLogMessage(campaign, m)}
-                      />
-                  ),
-              }
-            : null,
-        props.id && props.id !== 'new'
-            ? {
-                  label: 'Metrics',
-                  key: 'metrics',
-                  content: <CampaignMetrics id={props.id} />,
-              }
-            : null,
+
+        {
+            label: 'Logs',
+            key: 'logs',
+            content: (
+                <LogsViewer
+                    sourceType="hog_flow"
+                    /**
+                     * If we're rendering tabs, props.id is guaranteed to be
+                     * defined and not "new" (see return statement below)
+                     */
+                    sourceId={props.id!}
+                    instanceLabel="workflow run"
+                    renderMessage={(m) => renderWorkflowLogMessage(campaign, m)}
+                />
+            ),
+        },
+        {
+            label: 'Metrics',
+            key: 'metrics',
+            /**
+             * If we're rendering tabs, props.id is guaranteed to be
+             * defined and not "new" (see return statement below)
+             */
+            content: <CampaignMetrics id={props.id!} />,
+        },
     ]
 
     return (
         <SceneContent className="flex flex-col">
             <CampaignSceneHeader {...props} />
-            <LemonTabs
-                activeKey={currentTab}
-                onChange={(tab) => router.actions.push(urls.messagingCampaign(props.id ?? 'new', tab))}
-                tabs={tabs}
-            />
+            {/* Only show Logs and Metrics tabs if the campaign has already been created */}
+            {!props.id || props.id === 'new' ? (
+                <CampaignWorkflow {...props} />
+            ) : (
+                <LemonTabs
+                    activeKey={currentTab}
+                    onChange={(tab) => router.actions.push(urls.messagingCampaign(props.id ?? 'new', tab))}
+                    tabs={tabs}
+                />
+            )}
         </SceneContent>
     )
 }
