@@ -1,4 +1,4 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, kea, key, path, props, reducers } from 'kea'
 
 import type { outputPaneLogicType } from './outputPaneLogicType'
 
@@ -9,8 +9,14 @@ export enum OutputTab {
     Materialization = 'materialization',
 }
 
+export interface OutputTabProps {
+    tabId: string
+}
+
 export const outputPaneLogic = kea<outputPaneLogicType>([
     path(['data-warehouse', 'editor', 'outputPaneLogic']),
+    props({} as OutputTabProps),
+    key((props) => props.tabId),
     actions({
         setActiveTab: (tab: OutputTab) => ({ tab }),
     }),
