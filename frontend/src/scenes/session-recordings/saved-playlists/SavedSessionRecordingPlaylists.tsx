@@ -14,7 +14,6 @@ import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { IconArrowUp } from 'lib/lemon-ui/icons'
 import { isObject } from 'lib/utils'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { SavedSessionRecordingPlaylistsEmptyState } from 'scenes/session-recordings/saved-playlists/SavedSessionRecordingPlaylistsEmptyState'
 import { urls } from 'scenes/urls'
 
@@ -165,9 +164,6 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                     <AccessControlAction
                         resourceType={AccessControlResourceType.SessionRecording}
                         minAccessLevel={AccessControlLevel.Editor}
-                        userAccessLevel={
-                            getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
-                        }
                     >
                         <LemonButton
                             size="small"
@@ -216,11 +212,6 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.SessionRecording}
                                     minAccessLevel={AccessControlLevel.Editor}
-                                    userAccessLevel={
-                                        getAppContext()?.resource_access_control?.[
-                                            AccessControlResourceType.SessionRecording
-                                        ]
-                                    }
                                 >
                                     <LemonButton
                                         onClick={() => duplicatePlaylist(playlist)}
@@ -237,11 +228,6 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.SessionRecording}
                                     minAccessLevel={AccessControlLevel.Editor}
-                                    userAccessLevel={
-                                        getAppContext()?.resource_access_control?.[
-                                            AccessControlResourceType.SessionRecording
-                                        ]
-                                    }
                                 >
                                     <LemonButton
                                         status="danger"
