@@ -1,11 +1,13 @@
-use rdkafka::consumer::{BaseConsumer, ConsumerContext, Rebalance};
+use rdkafka::consumer::{BaseConsumer, Consumer, ConsumerContext, Rebalance};
+use rdkafka::util::Timeout;
 use rdkafka::{ClientContext, TopicPartitionList};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::runtime::Handle;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
 
-use crate::kafka::types::Partition;
+use crate::kafka::types::{Partition, PartitionAssignment};
 
 use super::rebalance_handler::RebalanceHandler;
 use super::tracker::InFlightTracker;
@@ -16,7 +18,7 @@ enum RebalanceEvent {
     /// Partitions are being revoked
     Revoke(Vec<Partition>),
     /// Partitions have been assigned  
-    Assign(Vec<Partition>),
+    Assign(Vec<PartitionAssignment>),
 }
 
 /// Stateful Kafka consumer context that coordinates with external state systems
@@ -171,7 +173,7 @@ impl ConsumerContext for StatefulConsumerContext {
         }
     }
 
-    fn post_rebalance(&self, _base_consumer: &BaseConsumer<Self>, rebalance: &Rebalance) {
+    fn post_rebalance(&self, base_consumer: &BaseConsumer<Self>, rebalance: &Rebalance) {
         info!("Post-rebalance event: {:?}", rebalance);
 
         // Handle partition assignment if applicable
@@ -179,17 +181,77 @@ impl ConsumerContext for StatefulConsumerContext {
             Rebalance::Assign(partitions) => {
                 info!("Assigned {} partitions", partitions.count());
 
-                // Extract partition info
-                let partitions: Vec<Partition> = partitions
-                    .elements()
-                    .into_iter()
-                    .map(Partition::from)
-                    .collect();
+                // Create a new TopicPartitionList to query committed offsets
+                let mut query_tpl = TopicPartitionList::new();
+                for elem in partitions.elements() {
+                    query_tpl.add_partition(elem.topic(), elem.partition());
+                }
 
-                info!("📋 Total partitions assigned: {:?}", partitions);
+                // Get the committed offsets for all assigned partitions
+                // This tells us where the consumer group last committed
+                let committed_offsets = match base_consumer
+                    .committed_offsets(query_tpl, Timeout::After(Duration::from_millis(5000)))
+                {
+                    Ok(offsets) => {
+                        info!("Successfully fetched committed offsets");
+                        offsets
+                    }
+                    Err(e) => {
+                        warn!("Failed to fetch committed offsets: {} - partitions will start from configured offset reset policy", e);
+                        TopicPartitionList::new()
+                    }
+                };
+
+                // Build partition assignments with committed offsets
+                let mut partition_assignments = Vec::new();
+                for elem in partitions.elements() {
+                    let topic = elem.topic();
+                    let partition_num = elem.partition();
+
+                    // Try to find the committed offset for this partition
+                    let offset = committed_offsets
+                        .elements()
+                        .into_iter()
+                        .find(|e| e.topic() == topic && e.partition() == partition_num)
+                        .and_then(|e| match e.offset() {
+                            rdkafka::Offset::Offset(off) if off >= 0 => {
+                                info!(
+                                    "Partition {}-{}: resuming from committed offset {}",
+                                    topic, partition_num, off
+                                );
+                                Some(off)
+                            }
+                            rdkafka::Offset::Invalid => {
+                                // No committed offset exists - new consumer group or partition
+                                info!(
+                                    "Partition {}-{}: no committed offset, will use auto.offset.reset policy",
+                                    topic, partition_num
+                                );
+                                None
+                            }
+                            other => {
+                                info!(
+                                    "Partition {}-{}: offset type {:?}, will use auto.offset.reset policy",
+                                    topic, partition_num, other
+                                );
+                                None
+                            }
+                        });
+
+                    let partition = Partition::new(topic.to_string(), partition_num);
+                    partition_assignments.push(PartitionAssignment::new(partition, offset));
+                }
+
+                info!(
+                    "📋 Total partitions assigned with positions: {:?}",
+                    partition_assignments
+                );
 
                 // Send assignment event to async worker
-                if let Err(e) = self.rebalance_tx.send(RebalanceEvent::Assign(partitions)) {
+                if let Err(e) = self
+                    .rebalance_tx
+                    .send(RebalanceEvent::Assign(partition_assignments))
+                {
                     error!("Failed to send assign event to rebalance worker: {}", e);
                 }
             }
@@ -403,6 +465,10 @@ mod tests {
         let context = StatefulConsumerContext::new(handler.clone(), tracker.clone());
         let consumer = create_test_consumer(Arc::new(TestRebalanceHandler::default()));
 
+        // Assign partition first
+        use crate::common::test_utils::assign_test_partitions;
+        assign_test_partitions(&tracker, "test-topic-1", vec![0]).await;
+
         // Track some messages in different partitions
         let msg1 = rdkafka::message::OwnedMessage::new(
             Some("payload1".as_bytes().to_vec()),
@@ -435,8 +501,8 @@ mod tests {
             .await
             .unwrap();
 
-        let ackable1 = tracker.track_message(msg1, 100, permit1).await;
-        let ackable2 = tracker.track_message(msg2, 100, permit2).await;
+        let ackable1 = tracker.track_message(msg1, 100, permit1).await.unwrap();
+        let ackable2 = tracker.track_message(msg2, 100, permit2).await.unwrap();
 
         // Verify messages are tracked and partition is active
         assert_eq!(tracker.in_flight_count().await, 2);

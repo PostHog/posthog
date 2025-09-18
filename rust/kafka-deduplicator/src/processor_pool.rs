@@ -279,11 +279,16 @@ mod tests {
     }
 
     async fn create_test_message(key: Option<&[u8]>, offset: i64) -> AckableMessage {
+        use crate::common::test_utils::assign_test_partitions;
         use crate::kafka::tracker::InFlightTracker;
         use rdkafka::message::{OwnedHeaders, OwnedMessage};
         use rdkafka::Timestamp;
 
         let tracker = Arc::new(InFlightTracker::new());
+
+        // Assign partition first
+        assign_test_partitions(&tracker, "test-topic", vec![0]).await;
+
         let permit = tracker
             .in_flight_semaphore_clone()
             .acquire_owned()
@@ -300,7 +305,7 @@ mod tests {
             Some(OwnedHeaders::new()),
         );
 
-        tracker.track_message(message, 1024, permit).await
+        tracker.track_message(message, 1024, permit).await.unwrap()
     }
 
     #[tokio::test]

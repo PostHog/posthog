@@ -162,6 +162,7 @@ pub trait MessageProcessor: Send + Sync + Clone + 'static {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::common::test_utils::assign_test_partitions;
     use crate::kafka::InFlightTracker;
     use rdkafka::message::{OwnedHeaders, OwnedMessage, Timestamp};
     use std::{sync::Arc, time::Duration};
@@ -187,6 +188,10 @@ mod tests {
     #[tokio::test]
     async fn test_message_ack() {
         let tracker = Arc::new(InFlightTracker::new());
+
+        // Assign partition first
+        assign_test_partitions(&tracker, "test-topic", vec![0]).await;
+
         let message = create_test_message("test-topic", 0, 0, "test-payload");
         let permit = tracker
             .in_flight_semaphore_clone()
@@ -194,7 +199,7 @@ mod tests {
             .await
             .unwrap();
 
-        let ackable = tracker.track_message(message, 100, permit).await;
+        let ackable = tracker.track_message(message, 100, permit).await.unwrap();
 
         // Verify message is tracked
         assert_eq!(tracker.in_flight_count().await, 1);
@@ -218,6 +223,10 @@ mod tests {
     #[tokio::test]
     async fn test_message_nack() {
         let tracker = Arc::new(InFlightTracker::new());
+
+        // Assign partition first
+        assign_test_partitions(&tracker, "test-topic", vec![0]).await;
+
         let message = create_test_message("test-topic", 0, 0, "test-payload");
         let permit = tracker
             .in_flight_semaphore_clone()
@@ -225,7 +234,7 @@ mod tests {
             .await
             .unwrap();
 
-        let ackable = tracker.track_message(message, 50, permit).await;
+        let ackable = tracker.track_message(message, 50, permit).await.unwrap();
 
         // Nack the message
         ackable.nack("test error".to_string()).await;

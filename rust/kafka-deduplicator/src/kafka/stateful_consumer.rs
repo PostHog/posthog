@@ -205,10 +205,18 @@ impl StatefulKafkaConsumer {
 
         // Detach the message and track it
         let owned_msg = msg.detach();
-        let ackable_msg = self
+        let ackable_msg = match self
             .tracker
             .track_message(owned_msg, estimated_size, permit)
-            .await;
+            .await
+        {
+            Ok(msg) => msg,
+            Err(e) => {
+                error!("Failed to track message: {}", e);
+                metrics::counter!("messages_rejected_tracking_error").increment(1);
+                return Ok(());
+            }
+        };
 
         // Send to processor pool - they handle the actual processing
         if self.message_sender.send(ackable_msg).is_err() {
