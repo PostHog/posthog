@@ -61,8 +61,6 @@ class ProcessConditionBatchInputs:
 
 @dataclasses.dataclass
 class CohortMembershipResult:
-    """Result from processing cohort memberships."""
-
     memberships: list[tuple[int, str, int]]
     conditions_processed: int
     batch_number: int
@@ -70,7 +68,6 @@ class CohortMembershipResult:
 
 @temporalio.activity.defn
 async def get_unique_conditions_activity(inputs: BehavioralCohortsWorkflowInputs) -> list[dict[str, Any]]:
-    """Get unique condition hashes from ClickHouse."""
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
