@@ -177,6 +177,7 @@ function InsightCardInternal(
                 'viewer',
                 false
             )
+
             return (
                 <InsightErrorState
                     data-attr="insight-access-denied-state"
