@@ -113,15 +113,15 @@ export const POSTHOG_NODES_TO_SHOW: CreateActionType[] = [
     },
     {
         type: 'function',
-        name: 'Set group properties',
-        description: 'Set properties of a group in PostHog.',
-        config: { template_id: 'template-posthog-group-identify', inputs: {} },
+        name: 'Update person property',
+        description: 'Set properties of a person in PostHog.',
+        config: { template_id: 'template-posthog-update-person-properties', inputs: {} },
     },
     {
         type: 'function',
-        name: 'Update person properties',
-        description: 'Update properties of a person in PostHog.',
-        config: { template_id: 'template-posthog-update-person-properties', inputs: {} },
+        name: 'Set group property',
+        description: 'Set properties of a group in PostHog.',
+        config: { template_id: 'template-posthog-group-identify', inputs: {} },
     },
 ]
 

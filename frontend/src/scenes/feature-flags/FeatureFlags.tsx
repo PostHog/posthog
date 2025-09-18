@@ -25,7 +25,6 @@ import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/Wrapping
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
-import { getAppContext } from 'lib/utils/getAppContext'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { useMaxTool } from 'scenes/max/useMaxTool'
 import { projectLogic } from 'scenes/projectLogic'
@@ -468,9 +467,6 @@ export function FeatureFlags(): JSX.Element {
                     <AccessControlAction
                         resourceType={AccessControlResourceType.FeatureFlag}
                         minAccessLevel={AccessControlLevel.Editor}
-                        userAccessLevel={
-                            getAppContext()?.resource_access_control?.[AccessControlResourceType.FeatureFlag]
-                        }
                     >
                         <LemonButton type="primary" to={urls.featureFlag('new')} data-attr="new-feature-flag">
                             New feature flag

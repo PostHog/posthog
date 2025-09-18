@@ -30,7 +30,6 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SESSION_REPLAY_MINIMUM_DURATION_OPTIONS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { IconCancel } from 'lib/lemon-ui/icons'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { AiRegexHelper, AiRegexHelperButton } from 'scenes/session-recordings/components/AiRegexHelper/AiRegexHelper'
 import { SupportedPlatforms } from 'scenes/settings/environment/SessionRecordingSettings'
 import { isStringWithLength, replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
@@ -93,9 +92,6 @@ function LinkedFlagSelector(): JSX.Element | null {
                         <AccessControlAction
                             resourceType={AccessControlResourceType.SessionRecording}
                             minAccessLevel={AccessControlLevel.Editor}
-                            userAccessLevel={
-                                getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
-                            }
                         >
                             {({ disabledReason }) => (
                                 <FlagSelector
@@ -113,11 +109,6 @@ function LinkedFlagSelector(): JSX.Element | null {
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.SessionRecording}
                                 minAccessLevel={AccessControlLevel.Editor}
-                                userAccessLevel={
-                                    getAppContext()?.resource_access_control?.[
-                                        AccessControlResourceType.SessionRecording
-                                    ]
-                                }
                             >
                                 <LemonButton
                                     className="ml-2"
@@ -145,9 +136,6 @@ function LinkedFlagSelector(): JSX.Element | null {
                         <AccessControlAction
                             resourceType={AccessControlResourceType.SessionRecording}
                             minAccessLevel={AccessControlLevel.Editor}
-                            userAccessLevel={
-                                getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
-                            }
                         >
                             {({ disabledReason }) => (
                                 <LemonSegmentedButton
@@ -290,9 +278,6 @@ function UrlConfigRow({
                 <AccessControlAction
                     resourceType={AccessControlResourceType.SessionRecording}
                     minAccessLevel={AccessControlLevel.Editor}
-                    userAccessLevel={
-                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
-                    }
                 >
                     <LemonButton icon={<IconPencil />} onClick={() => onEdit(index)} tooltip="Edit" center>
                         Edit
@@ -302,9 +287,6 @@ function UrlConfigRow({
                 <AccessControlAction
                     resourceType={AccessControlResourceType.SessionRecording}
                     minAccessLevel={AccessControlLevel.Editor}
-                    userAccessLevel={
-                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
-                    }
                 >
                     <LemonButton
                         icon={<IconTrash />}
@@ -358,9 +340,6 @@ function UrlConfigSection({
                 <AccessControlAction
                     resourceType={AccessControlResourceType.SessionRecording}
                     minAccessLevel={AccessControlLevel.Editor}
-                    userAccessLevel={
-                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
-                    }
                 >
                     <LemonButton
                         onClick={props.onAdd}
@@ -476,7 +455,6 @@ function EventSelectButton(): JSX.Element {
             <AccessControlAction
                 resourceType={AccessControlResourceType.SessionRecording}
                 minAccessLevel={AccessControlLevel.Editor}
-                userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]}
             >
                 <LemonButton
                     size="small"
@@ -517,9 +495,6 @@ function EventTriggerOptions(): JSX.Element | null {
                         key={trigger}
                         resourceType={AccessControlResourceType.SessionRecording}
                         minAccessLevel={AccessControlLevel.Editor}
-                        userAccessLevel={
-                            getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
-                        }
                     >
                         {({ disabledReason }) => (
                             <LemonSnack
@@ -554,9 +529,6 @@ function Sampling(): JSX.Element {
                 <AccessControlAction
                     resourceType={AccessControlResourceType.SessionRecording}
                     minAccessLevel={AccessControlLevel.Editor}
-                    userAccessLevel={
-                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
-                    }
                 >
                     <LemonSelect
                         onChange={(v) => {
@@ -683,9 +655,6 @@ function MinimumDurationSetting(): JSX.Element | null {
                     <AccessControlAction
                         resourceType={AccessControlResourceType.SessionRecording}
                         minAccessLevel={AccessControlLevel.Editor}
-                        userAccessLevel={
-                            getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
-                        }
                     >
                         <LemonSelect
                             dropdownMatchSelectWidth={false}
@@ -749,9 +718,6 @@ function TriggerMatchChoice(): JSX.Element {
                 <AccessControlAction
                     resourceType={AccessControlResourceType.SessionRecording}
                     minAccessLevel={AccessControlLevel.Editor}
-                    userAccessLevel={
-                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
-                    }
                 >
                     <LemonSelect
                         options={[

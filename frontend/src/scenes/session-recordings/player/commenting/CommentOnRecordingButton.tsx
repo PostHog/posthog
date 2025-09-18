@@ -8,7 +8,6 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { emojiUsageLogic } from 'lib/lemon-ui/LemonTextArea/emojiUsageLogic'
 import { cn } from 'lib/utils/css-classes'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { playerCommentOverlayLogic } from 'scenes/session-recordings/player/commenting/playerFrameCommentOverlayLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
@@ -52,7 +51,6 @@ export function CommentOnRecordingButton({ className }: { className?: string }):
         <AccessControlAction
             resourceType={AccessControlResourceType.SessionRecording}
             minAccessLevel={AccessControlLevel.Editor}
-            userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]}
         >
             <LemonButton
                 size="xsmall"
