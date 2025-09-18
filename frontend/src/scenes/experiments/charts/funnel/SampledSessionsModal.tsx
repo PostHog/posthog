@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 import { LemonButton, LemonModal, LemonTable, LemonTabs } from '@posthog/lemon-ui'
 
@@ -35,45 +35,36 @@ export function SampledSessionsModal({
     const [loading, setLoading] = useState(false)
     const [activeTab, setActiveTab] = useState('0')
 
-    // Parse sessions from steps data
-    const parseSessionsByStep = (): Map<number, SessionData[]> => {
-        const sessionsByStep = new Map<number, SessionData[]>()
+    // Parse sessions from steps data - memoized to prevent recreating on each render
+    const sessionsByStep = useMemo(() => {
+        const map = new Map<number, SessionData[]>()
 
         stepsEventData.forEach((stepData, stepIndex) => {
             const sessions: SessionData[] = stepData.map(([sessionId, eventUuid]) => ({
                 sessionId,
                 eventUuid,
             }))
-            sessionsByStep.set(stepIndex, sessions)
+            map.set(stepIndex, sessions)
         })
 
-        return sessionsByStep
-    }
+        return map
+    }, [stepsEventData])
 
-    const sessionsByStep = parseSessionsByStep()
-
-    // Get all unique session IDs
-    const allSessionIds = Array.from(
-        new Set(
-            Array.from(sessionsByStep.values())
-                .flat()
-                .map((s) => s.sessionId)
-        )
-    )
-
-    // Check recording availability for all sessions
-    useEffect(() => {
-        // Calculate session IDs inside the effect to avoid dependency issues
-        const sessionIds = Array.from(
+    // Get all unique session IDs - memoized to prevent recreating on each render
+    const allSessionIds = useMemo(() => {
+        return Array.from(
             new Set(
                 Array.from(sessionsByStep.values())
                     .flat()
                     .map((s) => s.sessionId)
             )
         )
+    }, [sessionsByStep])
 
+    // Check recording availability for all sessions
+    useEffect(() => {
         const checkRecordingAvailability = async (): Promise<void> => {
-            if (!isOpen || sessionIds.length === 0) {
+            if (!isOpen || allSessionIds.length === 0) {
                 return
             }
 
@@ -81,8 +72,8 @@ export function SampledSessionsModal({
             try {
                 const response = await api.recordings.list({
                     kind: NodeKind.RecordingsQuery,
-                    session_ids: sessionIds,
-                    limit: sessionIds.length,
+                    session_ids: allSessionIds,
+                    limit: allSessionIds.length,
                 })
 
                 const availabilityMap = new Map<string, boolean>()
@@ -99,7 +90,7 @@ export function SampledSessionsModal({
         }
 
         void checkRecordingAvailability()
-    }, [isOpen, sessionsByStep])
+    }, [isOpen, allSessionIds])
 
     const openSessionRecording = (sessionId: string, eventUuid: string): void => {
         sessionPlayerModalLogic.actions.openSessionPlayer({
