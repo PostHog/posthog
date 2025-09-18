@@ -328,6 +328,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         setSyncMoreNoticeDismissed: (dismissed: boolean) => ({ dismissed }),
         setEditingDraft: (draftId: string) => ({ draftId }),
         openUnsavedQuery: (record: Record<string, any>) => ({ record }),
+        deleteUnsavedQuery: (record: Record<string, any>) => ({ record }),
     }),
     connect(() => ({
         values: [
@@ -429,6 +430,32 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     } catch (e) {
                         console.error(e)
                         return null
+                    }
+                },
+                deleteUnsavedQuery: async ({ record }) => {
+                    const { queryTabState } = values
+                    if (!values.user || !queryTabState || !queryTabState.state || !queryTabState.id) {
+                        return null
+                    }
+                    try {
+                        const { editorModelsStateKey } = queryTabState.state
+                        const queries = JSON.parse(editorModelsStateKey)
+                        const newState = {
+                            ...queryTabState,
+                            state: {
+                                ...queryTabState.state,
+                                editorModelsStateKey: JSON.stringify(
+                                    queries.filter((q: any) => q.name !== record.name && q.path !== record.path)
+                                ),
+                            },
+                        }
+
+                        await api.queryTabState.update(queryTabState.id, newState)
+
+                        return newState
+                    } catch (e) {
+                        console.error(e)
+                        return queryTabState
                     }
                 },
             },

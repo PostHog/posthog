@@ -43,6 +43,7 @@ export const QueryDatabase = (): JSX.Element => {
         setEditingDraft,
         renameDraft,
         openUnsavedQuery,
+        deleteUnsavedQuery,
     } = useActions(queryDatabaseLogic)
     const { activeTabId, activeSceneId } = useValues(sceneLogic)
     const { deleteDataWarehouseSavedQuery } = useActions(dataWarehouseViewsLogic)
@@ -313,6 +314,9 @@ export const QueryDatabase = (): JSX.Element => {
                                 asChild
                                 onClick={(e) => {
                                     e.stopPropagation()
+                                    if (item.record) {
+                                        deleteUnsavedQuery(item.record)
+                                    }
                                 }}
                             >
                                 <ButtonPrimitive menuItem>Discard</ButtonPrimitive>
