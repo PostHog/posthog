@@ -3,15 +3,14 @@ from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 
 ADD_COLUMN_SHARDED_EVENTS = """
 ALTER TABLE sharded_events
-ADD COLUMN IF NOT EXISTS `mat_$ai_trace_id` VARCHAR
-MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$ai_trace_id'), '^\"|\"$', '')
-COMMENT 'column_materializer::$ai_trace_id'
+ADD COLUMN IF NOT EXISTS `mat_$ai_trace_id` Nullable(String)
+MATERIALIZED JSONExtract(properties, '$ai_trace_id', 'Nullable(String)')
 """
 
 ADD_COLUMN_EVENTS = """
 ALTER TABLE events
-ADD COLUMN IF NOT EXISTS `mat_$ai_trace_id` VARCHAR
-COMMENT 'column_materializer::$ai_trace_id'
+ADD COLUMN IF NOT EXISTS `mat_$ai_trace_id` Nullable(String)
+COMMENT 'column_materializer::properties::$ai_trace_id'
 """
 
 ADD_INDEX_SHARDED_EVENTS = """
