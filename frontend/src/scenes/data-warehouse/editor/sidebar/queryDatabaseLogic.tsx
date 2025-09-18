@@ -1,11 +1,14 @@
 import Fuse from 'fuse.js'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import { IconDatabase, IconDocument, IconPlug, IconPlus } from '@posthog/icons'
 import { LemonMenuItem } from '@posthog/lemon-ui'
 import { Spinner } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { TreeItem } from 'lib/components/DatabaseTableTree/DatabaseTableTree'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTreeRef, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -13,6 +16,8 @@ import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { DataWarehouseSourceIcon, mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { FuseSearchMatch } from '~/layout/navigation-3000/sidebars/utils'
 import {
@@ -21,7 +26,7 @@ import {
     DatabaseSchemaManagedViewTable,
     DatabaseSchemaTable,
 } from '~/queries/schema/schema-general'
-import { DataWarehouseSavedQuery, DataWarehouseSavedQueryDraft, DataWarehouseViewLink } from '~/types'
+import { DataWarehouseSavedQuery, DataWarehouseSavedQueryDraft, DataWarehouseViewLink, QueryTabState } from '~/types'
 
 import { dataWarehouseJoinsLogic } from '../../external/dataWarehouseJoinsLogic'
 import { dataWarehouseViewsLogic } from '../../saved_queries/dataWarehouseViewsLogic'
@@ -322,6 +327,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         selectSourceTable: (tableName: string) => ({ tableName }),
         setSyncMoreNoticeDismissed: (dismissed: boolean) => ({ dismissed }),
         setEditingDraft: (draftId: string) => ({ draftId }),
+        openUnsavedQuery: (record: Record<string, any>) => ({ record }),
+        deleteUnsavedQuery: (record: Record<string, any>) => ({ record }),
     }),
     connect(() => ({
         values: [
@@ -343,6 +350,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             ['drafts', 'draftsResponseLoading', 'hasMoreDrafts'],
             featureFlagLogic,
             ['featureFlags'],
+            userLogic,
+            ['user'],
         ],
         actions: [
             viewLinkLogic,
@@ -408,6 +417,50 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             },
         ],
     }),
+    loaders(({ values }) => ({
+        queryTabState: [
+            null as QueryTabState | null,
+            {
+                loadQueryTabState: async () => {
+                    if (!values.user) {
+                        return null
+                    }
+                    try {
+                        return await api.queryTabState.user(values.user?.uuid)
+                    } catch (e) {
+                        console.error(e)
+                        return null
+                    }
+                },
+                deleteUnsavedQuery: async ({ record }) => {
+                    const { queryTabState } = values
+                    if (!values.user || !queryTabState || !queryTabState.state || !queryTabState.id) {
+                        return null
+                    }
+                    try {
+                        const { editorModelsStateKey } = queryTabState.state
+                        const queries = JSON.parse(editorModelsStateKey)
+                        const newState = {
+                            ...queryTabState,
+                            state: {
+                                ...queryTabState.state,
+                                editorModelsStateKey: JSON.stringify(
+                                    queries.filter((q: any) => q.name !== record.name && q.path !== record.path)
+                                ),
+                            },
+                        }
+
+                        await api.queryTabState.update(queryTabState.id, newState)
+
+                        return newState
+                    } catch (e) {
+                        console.error(e)
+                        return queryTabState
+                    }
+                },
+            },
+        ],
+    })),
     selectors(({ actions }) => ({
         hasNonPosthogSources: [
             (s) => [s.dataWarehouseTables],
@@ -603,6 +656,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 s.draftsResponseLoading,
                 s.hasMoreDrafts,
                 s.featureFlags,
+                s.queryTabState,
             ],
             (
                 posthogTables: DatabaseSchemaTable[],
@@ -614,7 +668,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 drafts: DataWarehouseSavedQueryDraft[],
                 draftsResponseLoading: boolean,
                 hasMoreDrafts: boolean,
-                featureFlags: FeatureFlagsSet
+                featureFlags: FeatureFlagsSet,
+                queryTabState: QueryTabState | null
             ): TreeDataItem[] => {
                 const sourcesChildren: TreeDataItem[] = []
 
@@ -694,6 +749,25 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 viewsChildren.sort((a, b) => a.name.localeCompare(b.name))
                 managedViewsChildren.sort((a, b) => a.name.localeCompare(b.name))
 
+                const states = queryTabState?.state?.editorModelsStateKey
+                const unsavedChildren: TreeDataItem[] = []
+                let i = 1
+                if (states) {
+                    try {
+                        for (const state of JSON.parse(states)) {
+                            unsavedChildren.push({
+                                id: `unsaved-${i++}`,
+                                name: state.name || 'Unsaved query',
+                                type: 'node',
+                                icon: <IconDocument />,
+                                record: { type: 'unsaved-query', ...state },
+                            })
+                        }
+                    } catch {
+                        // do nothing
+                    }
+                }
+
                 const draftsChildren: TreeDataItem[] = []
 
                 if (featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS]) {
@@ -738,6 +812,20 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     createTopLevelFolderNode('sources', sourcesChildren, false, <IconPlug />),
                     ...(featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS]
                         ? [createTopLevelFolderNode('drafts', draftsChildren, false)]
+                        : []),
+                    ...(unsavedChildren.length > 0
+                        ? [
+                              {
+                                  id: 'unsaved-folder',
+                                  name: 'Unsaved queries',
+                                  type: 'node',
+                                  icon: <IconDocument />,
+                                  record: {
+                                      type: 'unsaved-folder',
+                                  },
+                                  children: unsavedChildren,
+                              } as TreeDataItem,
+                          ]
                         : []),
                     createTopLevelFolderNode('views', viewsChildren),
                     createTopLevelFolderNode('managed-views', managedViewsChildren),
@@ -850,6 +938,15 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             viewLinkLogic.actions.selectSourceTable(tableName)
             viewLinkLogic.actions.toggleJoinTableModal()
         },
+        openUnsavedQuery: ({ record }) => {
+            if (record.insight) {
+                router.actions.push(urls.sqlEditor(undefined, undefined, record.insight.short_id))
+            } else if (record.view) {
+                router.actions.push(urls.sqlEditor(undefined, record.view.id))
+            } else {
+                router.actions.push(urls.sqlEditor(record.query))
+            }
+        },
     })),
     subscriptions({
         posthogTables: (posthogTables: DatabaseSchemaTable[]) => {
@@ -873,6 +970,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             if (values.featureFlags[FEATURE_FLAGS.EDITOR_DRAFTS]) {
                 actions.loadDrafts()
             }
+            actions.loadQueryTabState()
         },
     })),
 ])
