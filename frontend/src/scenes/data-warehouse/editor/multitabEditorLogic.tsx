@@ -11,6 +11,7 @@ import { LemonDialog, LemonInput, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { initModel } from 'lib/monaco/CodeEditor'
@@ -1013,13 +1014,19 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             },
         ],
     }),
+    tabAwareActionToUrl(() => ({
+        setQueryInput: ({ queryInput }) => {
+            return [urls.sqlEditor(), undefined, { q: queryInput }, { replace: true }]
+        },
+    })),
     tabAwareUrlToAction(({ actions, values, props }) => ({
-        [urls.sqlEditor()]: async (_, searchParams) => {
+        [urls.sqlEditor()]: async (_, searchParams, hashParams) => {
             if (
                 !searchParams.open_query &&
                 !searchParams.open_view &&
                 !searchParams.open_insight &&
-                !searchParams.open_draft
+                !searchParams.open_draft &&
+                !hashParams.q
             ) {
                 return
             }
@@ -1129,7 +1136,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     // Open query string
                     actions.createTab(searchParams.open_query)
                     tabAdded = true
-                    router.actions.replace(router.values.location.pathname)
+                } else if (hashParams.q && !values.queryInput) {
+                    actions.createTab(hashParams.q)
+                    tabAdded = true
                 }
             }
 

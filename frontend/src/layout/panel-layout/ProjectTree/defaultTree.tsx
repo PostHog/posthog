@@ -416,7 +416,7 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
             href: urls.dataPipelines(),
         } as FileSystemImport,
         {
-            path: `SQL editor`,
+            path: `SQL query`,
             category: 'Analytics',
             type: 'sql',
             iconType: 'sql_editor' as FileSystemIconType,
