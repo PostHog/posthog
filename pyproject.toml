@@ -42,7 +42,7 @@ dependencies = [
     "django-redis==5.2.0",
     "django-statsd==2.5.2",
     "django-structlog~=9.1.0",
-    "django-two-factor-auth==1.16.0",
+    "django-two-factor-auth~=1.18.0",
     "djangorestframework==3.15.1",
     "djangorestframework-csv~=3.0.2",
     "djangorestframework-dataclasses==1.2.0",
