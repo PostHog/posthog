@@ -18,6 +18,7 @@ import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { removeUndefinedAndNull } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { insightsApi } from 'scenes/insights/utils/api'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -32,6 +33,7 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import {
+    Breadcrumb,
     ChartDisplayType,
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryDraft,
@@ -970,6 +972,46 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         ],
         isDraft: [(s) => [s.activeTab], (activeTab) => (activeTab ? !!activeTab.draft?.id : false)],
         currentDraft: [(s) => [s.activeTab], (activeTab) => (activeTab ? activeTab.draft : null)],
+        breadcrumbs: [
+            (s) => [s.activeTab],
+            (activeTab): Breadcrumb[] => {
+                const { draft, insight, view } = activeTab || {}
+                const first = {
+                    key: Scene.SQLEditor,
+                    name: 'SQL query',
+                    to: urls.sqlEditor(),
+                }
+                if (view) {
+                    return [
+                        first,
+                        {
+                            key: view.id,
+                            name: view.name,
+                            path: urls.sqlEditor(undefined, view.id),
+                        },
+                    ]
+                } else if (insight) {
+                    return [
+                        first,
+                        {
+                            key: insight.id,
+                            name: insight.name || insight.derived_name || 'Untitled',
+                            path: urls.sqlEditor(undefined, undefined, insight.short_id),
+                        },
+                    ]
+                } else if (draft) {
+                    return [
+                        first,
+                        {
+                            key: draft.id,
+                            name: draft.name || 'Untitled',
+                            path: urls.sqlEditor(undefined, undefined, undefined, draft.id),
+                        },
+                    ]
+                }
+                return [first]
+            },
+        ],
     }),
     tabAwareUrlToAction(({ actions, values, props }) => ({
         [urls.sqlEditor()]: async (_, searchParams) => {
