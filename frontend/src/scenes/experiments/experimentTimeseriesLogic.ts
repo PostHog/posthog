@@ -76,85 +76,51 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                 timeseries: ExperimentMetricTimeseries | null
             ): ((variantKey: string) => ProcessedTimeseriesDataPoint[]) => {
                 return (variantKey: string) => {
-                    if (
-                        !timeseries?.timeseries ||
-                        (timeseries.status !== 'completed' && timeseries.status !== 'partial')
-                    ) {
+                    // Only show completed timeseries
+                    if (!timeseries?.timeseries || timeseries.status !== 'completed') {
                         return []
                     }
 
-                    const timeseriesData = Object.entries(timeseries.timeseries).map(([date, data]) => ({
+                    const allTimeseriesEntries = Object.entries(timeseries.timeseries).map(([date, data]) => ({
                         date,
-                        ...(data as ExperimentQueryResponse),
+                        data: data as ExperimentQueryResponse,
                     }))
 
-                    const sortedTimeseriesData = timeseriesData.sort((a, b) => a.date.localeCompare(b.date))
+                    const sortedTimeseriesData = allTimeseriesEntries.sort((a, b) => a.date.localeCompare(b.date))
 
                     // Extract data for the specific variant
-                    const rawProcessedData = sortedTimeseriesData.map(
-                        (d: { date: string } & ExperimentQueryResponse) => {
-                            if (d.variant_results && d.baseline) {
-                                const variant = d.variant_results.find(
-                                    (v: ExperimentVariantResultFrequentist | ExperimentVariantResultBayesian) =>
-                                        v.key === variantKey
-                                )
-                                const baseline = d.baseline
+                    return sortedTimeseriesData.map((entry) => {
+                        const d = entry.data
+                        if (d.variant_results && d.baseline) {
+                            const variant = d.variant_results.find(
+                                (v: ExperimentVariantResultFrequentist | ExperimentVariantResultBayesian) =>
+                                    v.key === variantKey
+                            )
+                            const baseline = d.baseline
 
-                                if (variant && baseline) {
-                                    const interval = getVariantInterval(variant)
-                                    const [lower, upper] = interval || [0, 0]
-                                    const delta = (lower + upper) / 2
+                            if (variant && baseline) {
+                                const interval = getVariantInterval(variant)
+                                const [lower, upper] = interval || [0, 0]
+                                const delta = (lower + upper) / 2
 
-                                    return {
-                                        date: d.date,
-                                        value: delta,
-                                        upper_bound: upper,
-                                        lower_bound: lower,
-                                        hasRealData: true,
-                                        number_of_samples: variant.number_of_samples,
-                                    }
-                                }
-                            }
-
-                            // Missing data - will be forward-filled
-                            return {
-                                date: d.date,
-                                value: null,
-                                upper_bound: null,
-                                lower_bound: null,
-                                hasRealData: false,
-                            }
-                        }
-                    )
-
-                    // Forward-fill missing data with last known values
-                    return rawProcessedData.map((d: ProcessedTimeseriesDataPoint, index: number) => {
-                        if (d.hasRealData) {
-                            return d
-                        }
-
-                        // Find the last data point with real data
-                        for (let i = index - 1; i >= 0; i--) {
-                            const prevPoint = rawProcessedData[i]
-                            if (prevPoint.hasRealData) {
                                 return {
-                                    date: d.date,
-                                    value: prevPoint.value,
-                                    upper_bound: prevPoint.upper_bound,
-                                    lower_bound: prevPoint.lower_bound,
-                                    hasRealData: false,
-                                    number_of_samples: prevPoint.number_of_samples,
+                                    date: entry.date,
+                                    value: delta,
+                                    upper_bound: upper,
+                                    lower_bound: lower,
+                                    hasRealData: true,
+                                    number_of_samples: variant.number_of_samples || 0,
                                 }
                             }
                         }
 
-                        // If no previous data found, use zeros
+                        // No variant data found
                         return {
-                            date: d.date,
+                            date: entry.date,
                             value: 0,
                             upper_bound: 0,
                             lower_bound: 0,
-                            hasRealData: false,
+                            hasRealData: true,
                             number_of_samples: 0,
                         }
                     })
@@ -162,36 +128,27 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
             },
         ],
 
-        // Calculate error summary for banner display
-        errorSummary: [
+        // Simple status check for complete data
+        timeseriesStatus: [
             (s) => [s.timeseries],
-            (
-                timeseries: ExperimentMetricTimeseries | null
-            ): {
-                hasErrors: boolean
-                errorCount: number
-                totalDays: number
-                message: string
-            } | null => {
-                if (!timeseries?.errors || Object.keys(timeseries.errors).length === 0) {
+            (timeseries: ExperimentMetricTimeseries | null): string | null => {
+                if (!timeseries) {
                     return null
                 }
 
-                const errorCount = Object.keys(timeseries.errors).length
-                const timeseriesDays = timeseries.timeseries ? Object.keys(timeseries.timeseries).length : 0
-                const totalDays = errorCount + timeseriesDays
-
-                const message =
-                    errorCount === 1
-                        ? `1 day failed to calculate`
-                        : `${errorCount} of ${totalDays} days failed to calculate`
-
-                return {
-                    hasErrors: true,
-                    errorCount,
-                    totalDays,
-                    message,
+                if (timeseries.status === 'pending') {
+                    return 'Calculating timeseries data...'
                 }
+
+                if (timeseries.status === 'failed') {
+                    return 'Failed to calculate timeseries data'
+                }
+
+                if (timeseries.status === 'partial') {
+                    return 'Timeseries calculation in progress...'
+                }
+
+                return null
             },
         ],
 
@@ -207,126 +164,65 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                         return null
                     }
 
-                    const labels = processedData.map((d: ProcessedTimeseriesDataPoint) => d.date)
-                    const realDataMask = processedData.map((d: ProcessedTimeseriesDataPoint) => d.hasRealData)
-                    const interpolatedDataMask = processedData.map((d: ProcessedTimeseriesDataPoint) => !d.hasRealData)
-
-                    // Values for real data (null where interpolated)
-                    const realValues = processedData.map((d: ProcessedTimeseriesDataPoint, i: number) =>
-                        realDataMask[i] ? (d.value ?? 0) : null
-                    )
-                    const realUpperBounds = processedData.map((d: ProcessedTimeseriesDataPoint, i: number) =>
-                        realDataMask[i] ? (d.upper_bound ?? 0) : null
-                    )
-                    const realLowerBounds = processedData.map((d: ProcessedTimeseriesDataPoint, i: number) =>
-                        realDataMask[i] ? (d.lower_bound ?? 0) : null
+                    // Find the first day with a meaningful interval value (not zero)
+                    const firstMeaningfulIndex = processedData.findIndex(
+                        (d) =>
+                            d.hasRealData &&
+                            d.value !== null &&
+                            d.value !== 0 &&
+                            d.upper_bound !== null &&
+                            d.lower_bound !== null &&
+                            d.upper_bound !== 0 &&
+                            d.lower_bound !== 0
                     )
 
-                    // For connecting segments, include boundary points
-                    const connectedInterpValues = processedData.map((d: ProcessedTimeseriesDataPoint, i: number) => {
-                        if (interpolatedDataMask[i]) {
-                            return d.value ?? 0
-                        }
-                        if (i < processedData.length - 1 && interpolatedDataMask[i + 1]) {
-                            return d.value ?? 0
-                        }
-                        return null
-                    })
-                    const connectedInterpUpperBounds = processedData.map(
-                        (d: ProcessedTimeseriesDataPoint, i: number) => {
-                            if (interpolatedDataMask[i]) {
-                                return d.upper_bound ?? 0
-                            }
-                            if (i < processedData.length - 1 && interpolatedDataMask[i + 1]) {
-                                return d.upper_bound ?? 0
-                            }
-                            return null
-                        }
-                    )
-                    const connectedInterpLowerBounds = processedData.map(
-                        (d: ProcessedTimeseriesDataPoint, i: number) => {
-                            if (interpolatedDataMask[i]) {
-                                return d.lower_bound ?? 0
-                            }
-                            if (i < processedData.length - 1 && interpolatedDataMask[i + 1]) {
-                                return d.lower_bound ?? 0
-                            }
-                            return null
-                        }
-                    )
+                    // If meaningful data starts after day 1, trim to start from that day
+                    const trimmedData =
+                        firstMeaningfulIndex > 0 ? processedData.slice(firstMeaningfulIndex) : processedData
+
+                    const labels = trimmedData.map((d: ProcessedTimeseriesDataPoint) => d.date)
+                    const values = trimmedData.map((d: ProcessedTimeseriesDataPoint) => d.value)
+                    const upperBounds = trimmedData.map((d: ProcessedTimeseriesDataPoint) => d.upper_bound)
+                    const lowerBounds = trimmedData.map((d: ProcessedTimeseriesDataPoint) => d.lower_bound)
 
                     const datasets: ChartDataset[] = [
-                        // Real upper bounds (solid)
+                        // Upper bounds
                         {
                             label: 'Upper bound',
-                            data: realUpperBounds,
-                            borderColor: 'rgba(200, 200, 200, 1)',
-                            borderWidth: 2,
+                            data: upperBounds,
+                            borderColor: 'rgba(200, 200, 200, 0.8)',
+                            borderWidth: 1,
                             fill: false,
                             tension: 0,
                             pointRadius: 0,
                         },
-                        // Real lower bounds (solid, fill area)
+                        // Lower bounds with fill
                         {
                             label: 'Lower bound',
-                            data: realLowerBounds,
-                            borderColor: 'rgba(200, 200, 200, 1)',
-                            borderWidth: 2,
+                            data: lowerBounds,
+                            borderColor: 'rgba(200, 200, 200, 0.8)',
+                            borderWidth: 1,
                             fill: '-1',
-                            backgroundColor: 'rgba(200, 200, 200, 0.2)',
+                            backgroundColor: 'rgba(200, 200, 200, 0.15)',
                             tension: 0,
                             pointRadius: 0,
                         },
-                        // Real variant data (solid)
+                        // Main variant data
                         {
                             label: variantKey,
-                            data: realValues,
+                            data: values,
                             borderColor: 'rgba(0, 100, 255, 1)',
                             borderWidth: 2,
                             fill: false,
                             tension: 0,
-                            pointRadius: 0,
-                        },
-                        // Interpolated upper bounds (dotted)
-                        {
-                            label: 'Interpolated Upper Bound',
-                            data: connectedInterpUpperBounds,
-                            borderColor: 'rgba(200, 200, 200, 0.7)',
-                            borderWidth: 2,
-                            borderDash: [5, 5],
-                            fill: false,
-                            tension: 0,
-                            pointRadius: 0,
-                        },
-                        // Interpolated lower bounds (dotted, fill area)
-                        {
-                            label: 'Interpolated Lower Bound',
-                            data: connectedInterpLowerBounds,
-                            borderColor: 'rgba(200, 200, 200, 0.7)',
-                            borderWidth: 2,
-                            borderDash: [5, 5],
-                            fill: '-1',
-                            backgroundColor: 'rgba(200, 200, 200, 0.1)',
-                            tension: 0,
-                            pointRadius: 0,
-                        },
-                        // Interpolated variant data (dotted)
-                        {
-                            label: `${variantKey} (interpolated)`,
-                            data: connectedInterpValues,
-                            borderColor: 'rgba(0, 100, 255, 0.7)',
-                            borderDash: [5, 5],
-                            borderWidth: 2,
-                            fill: false,
-                            tension: 0,
-                            pointRadius: 0,
+                            pointRadius: 3,
                         },
                     ]
 
                     return {
                         labels,
                         datasets,
-                        processedData,
+                        processedData: trimmedData,
                     }
                 }
             },

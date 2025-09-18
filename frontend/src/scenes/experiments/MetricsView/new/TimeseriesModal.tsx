@@ -58,12 +58,14 @@ export function TimeseriesModal({
             <div style={{ padding: '16px' }}>
                 {timeseries ? (
                     <div>
-                        {errorSummary && (
+                        {errorSummary && errorSummary.hasIssues && (
                             <div style={{ marginBottom: '16px' }}>
                                 <LemonBanner type="warning">{errorSummary.message}</LemonBanner>
                             </div>
                         )}
-                        {(timeseries.status === 'completed' || timeseries.status === 'partial') &&
+                        {(timeseries.status === 'completed' ||
+                            timeseries.status === 'partial' ||
+                            timeseries.status === 'pending') &&
                         timeseries.timeseries ? (
                             <>
                                 {processedChartData ? (

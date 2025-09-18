@@ -1,3 +1,4 @@
+from datetime import date, timedelta
 from enum import Enum
 from typing import Any, Literal
 
@@ -724,54 +725,84 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
         if not metric_exists:
             raise ValidationError(f"Metric with UUID {metric_uuid} not found in experiment")
 
+        # Calculate complete experiment date range
+        start_date = experiment.start_date.date() if experiment.start_date else experiment.created_at.date()
+        end_date = experiment.end_date.date() if experiment.end_date else date.today()
+
+        # Generate all dates in the experiment range
+        experiment_dates = []
+        current_date = start_date
+        while current_date <= end_date:
+            experiment_dates.append(current_date)
+            current_date += timedelta(days=1)
+
+        # Pre-populate timeline with null values for all experiment dates
+        timeseries: dict[str, Any | None] = {}
+        errors: dict[str, str] = {}
+        for experiment_date in experiment_dates:
+            timeseries[experiment_date.isoformat()] = None
+
         # Query all daily results for this experiment-metric combination
         daily_results = ExperimentDailyResult.objects.filter(
             experiment_id=experiment.id, metric_uuid=metric_uuid
         ).order_by("date")
 
-        if not daily_results.exists():
-            return Response(
-                {"detail": f"No timeseries results found for experiment {experiment.id} and metric {metric_uuid}"},
-                status=404,
-            )
-
-        # Aggregate daily results into timeseries format
-        timeseries = {}
-        errors = {}
+        # Overlay actual data from daily results
         completed_count = 0
         failed_count = 0
         pending_count = 0
+        no_record_count = 0
         latest_computed_at = None
 
-        for daily_result in daily_results:
-            # Convert date to string format (ISO date)
-            date_key = daily_result.date.isoformat()
+        # Create a mapping of existing daily results by date
+        daily_results_by_date = {result.date: result for result in daily_results}
 
-            if daily_result.status == "completed":
-                timeseries[date_key] = daily_result.result
-                completed_count += 1
-            elif daily_result.status == "failed":
-                if daily_result.error_message:
-                    errors[date_key] = daily_result.error_message
-                failed_count += 1
-            elif daily_result.status == "pending":
-                pending_count += 1
+        for experiment_date in experiment_dates:
+            date_key = experiment_date.isoformat()
 
-            # Track latest computed_at
-            if daily_result.computed_at:
-                if latest_computed_at is None or daily_result.computed_at > latest_computed_at:
-                    latest_computed_at = daily_result.computed_at
+            if experiment_date in daily_results_by_date:
+                daily_result = daily_results_by_date[experiment_date]
+
+                if daily_result.status == "completed":
+                    timeseries[date_key] = daily_result.result
+                    completed_count += 1
+                elif daily_result.status == "failed":
+                    if daily_result.error_message:
+                        errors[date_key] = daily_result.error_message
+                    failed_count += 1
+                elif daily_result.status == "pending":
+                    pending_count += 1
+
+                # Track latest computed_at
+                if daily_result.computed_at:
+                    if latest_computed_at is None or daily_result.computed_at > latest_computed_at:
+                        latest_computed_at = daily_result.computed_at
+            else:
+                # No record exists for this date
+                no_record_count += 1
 
         # Determine overall status based on results
-        total_count = completed_count + failed_count + pending_count
-        if pending_count > 0:
+        total_experiment_days = len(experiment_dates)
+        calculated_days = completed_count + failed_count + pending_count
+
+        if pending_count > 0 or no_record_count > 0:
+            # Any days still pending or not yet processed
             overall_status = "pending"
-        elif failed_count == total_count:
+        elif calculated_days == 0:
+            # No days have been calculated yet
+            overall_status = "pending"
+        elif completed_count == 0 and failed_count > 0:
+            # All calculated days have failed
             overall_status = "failed"
-        elif failed_count > 0:
+        elif completed_count > 0 and failed_count > 0:
+            # Some days succeeded, some failed
             overall_status = "partial"
-        else:
+        elif completed_count == total_experiment_days:
+            # All days in the experiment range have been successfully calculated
             overall_status = "completed"
+        else:
+            # Fallback - should not happen with the logic above
+            overall_status = "partial"
 
         # Format response to match frontend expectations
         first_result = daily_results.first()
@@ -780,11 +811,11 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
             "experiment_id": experiment.id,
             "metric_uuid": metric_uuid,
             "status": overall_status,
-            "timeseries": timeseries if timeseries else None,
+            "timeseries": timeseries,  # Always return the complete timeline
             "errors": errors if errors else None,
             "computed_at": latest_computed_at.isoformat() if latest_computed_at else None,
-            "created_at": first_result.created_at.isoformat() if first_result else None,
-            "updated_at": last_result.updated_at.isoformat() if last_result else None,
+            "created_at": first_result.created_at.isoformat() if first_result else experiment.created_at.isoformat(),
+            "updated_at": last_result.updated_at.isoformat() if last_result else experiment.updated_at.isoformat(),
         }
 
         return Response(response_data)
