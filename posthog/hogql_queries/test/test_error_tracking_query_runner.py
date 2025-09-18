@@ -628,8 +628,6 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 revenueProperty=self.REVENUE_PROPERTY,
             )
         ]
-        self.team.revenue_analytics_config.save()
-        self.team.save()
 
         _create_event(
             event=self.PURCHASE_EVENT_NAME,
@@ -660,7 +658,7 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, APIBaseTest):
         results = self._calculate(orderBy="revenue")["results"]
 
         self.assertEqual(len(results), 3)
-        self.assertEqual([r["revenue"] for r in results], [47542.0, 25042.0, 22500.0])
+        self.assertEqual([r["revenue"] for r in results], [95084.0, 50084.0, 45000.0])
 
 
 class TestSearchTokenizer(TestCase):

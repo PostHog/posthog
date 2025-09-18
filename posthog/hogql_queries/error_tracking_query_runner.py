@@ -90,26 +90,14 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
 
         select_from = ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e")
 
-        if self.query.orderBy == "revenue":
-            select_from.next_join = ast.JoinExpr(
-                table=ast.Field(chain=[self.revenue_table]),
-                join_type="LEFT JOIN",
-                alias="r",
-                constraint=ast.JoinConstraint(
-                    constraint_type="ON",
-                    expr=ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["e", self.revenue_entity_key]),
-                        right=ast.Field(chain=["r", self.revenue_key]),
-                    ),
-                ),
-            )
-
         per_issue_per_revenue_entity_select = ast.SelectQuery(
             select=inner_select,
             select_from=select_from,
             where=self.where,
-            group_by=[ast.Field(chain=["issue_id"]), ast.Field(chain=["e", self.revenue_entity_key])],
+            group_by=[
+                ast.Field(chain=["issue_id"]),
+                ast.Field(chain=["e", self.revenue_entity, self.revenue_entity_key]),
+            ],
         )
 
         per_issue_select = ast.SelectQuery(
@@ -252,7 +240,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                         expr=ast.Call(
                             name="argMax",
                             args=[
-                                ast.Field(chain=["r", "revenue"]),
+                                ast.Field(chain=[self.revenue_entity, "revenue_analytics", "revenue"]),
                                 ast.Field(chain=["timestamp"]),
                             ],
                         ),
@@ -711,26 +699,12 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         return self.query.filterGroup.values[0].values if self.query.filterGroup else []
 
     @property
-    def revenue_table(self):
-        return (
-            "persons_revenue_analytics"
-            if (self.query.revenueEntity == "person" or self.query.revenueEntity is None)
-            else "groups_revenue_analytics"
-        )
+    def revenue_entity(self):
+        return "person" if self.query.revenueEntity is None else self.query.revenueEntity
 
     @property
     def revenue_entity_key(self):
-        return (
-            "person_id"
-            if (self.query.revenueEntity == "person" or self.query.revenueEntity is None)
-            else f"${self.query.revenueEntity}"
-        )
-
-    @property
-    def revenue_key(self):
-        return (
-            "person_id" if (self.query.revenueEntity == "person" or self.query.revenueEntity is None) else "group_key"
-        )
+        return "id" if (self.query.revenueEntity == "person" or self.query.revenueEntity is None) else "key"
 
 
 def search_tokenizer(query: str) -> list[str]:

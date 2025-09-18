@@ -9,11 +9,16 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
+import { GroupTypeIndex } from '~/types'
 
 import { revenueAnalyticsLogic } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
 
 import { issuesDataNodeLogic } from '../../logics/issuesDataNodeLogic'
-import { ErrorTrackingQueryRevenueEntity, issueQueryOptionsLogic } from './issueQueryOptionsLogic'
+import {
+    ErrorTrackingQueryOrderBy,
+    ErrorTrackingQueryRevenueEntity,
+    issueQueryOptionsLogic,
+} from './issueQueryOptionsLogic'
 
 const labels = {
     last_seen: 'Last seen',
@@ -24,9 +29,11 @@ const labels = {
     revenue: 'Revenue',
 }
 
+type GroupOptions = Record<`group_${GroupTypeIndex}`, string>
+
 export const IssueQueryOptions = (): JSX.Element => {
-    const { groupTypesRaw } = useValues(groupsModel)
-    const { orderBy, orderDirection, revenuePeriod } = useValues(issueQueryOptionsLogic)
+    const { groupTypes } = useValues(groupsModel)
+    const { orderBy, orderDirection, revenuePeriod, revenueEntity } = useValues(issueQueryOptionsLogic)
     const { setOrderBy, setRevenueEntity, setOrderDirection, setRevenuePeriod } = useActions(issueQueryOptionsLogic)
     const { hasRevenueTables, hasRevenueEvents } = useValues(revenueAnalyticsLogic)
     const hasRevenueSorting = useFeatureFlag('ERROR_TRACKING_REVENUE_SORTING')
@@ -37,6 +44,13 @@ export const IssueQueryOptions = (): JSX.Element => {
         setOrderBy('revenue')
         setRevenueEntity(entity)
     }
+
+    const groupOptions = Object.fromEntries(
+        Array.from(groupTypes.values()).map(({ group_type, group_type_index }) => [
+            `group_${group_type_index}`,
+            group_type,
+        ])
+    ) as GroupOptions
 
     return (
         <span className="flex items-center justify-between gap-2 self-end">
@@ -78,9 +92,10 @@ export const IssueQueryOptions = (): JSX.Element => {
                                                   label: 'Persons',
                                                   onClick: () => onSelectRevenueEntity('person'),
                                               },
-                                              ...groupTypesRaw.map(({ group_type, group_type_index }) => ({
-                                                  label: capitalizeFirstLetter(group_type),
-                                                  onClick: () => onSelectRevenueEntity(`group_${group_type_index}`),
+                                              ...Object.entries(groupOptions).map(([value, label]) => ({
+                                                  label: capitalizeFirstLetter(label),
+                                                  onClick: () =>
+                                                      onSelectRevenueEntity(value as ErrorTrackingQueryRevenueEntity),
                                               })),
                                           ],
                                       }),
@@ -88,7 +103,7 @@ export const IssueQueryOptions = (): JSX.Element => {
                         ]}
                     >
                         <LemonButton size="small" type="secondary">
-                            {labels[orderBy]}
+                            {sortByLabel(orderBy, revenueEntity, groupOptions)}
                         </LemonButton>
                     </LemonMenu>
 
@@ -151,4 +166,18 @@ const Reload = (): JSX.Element => {
             {responseLoading ? 'Cancel' : 'Reload'}
         </LemonButton>
     )
+}
+
+const sortByLabel = (
+    orderBy: ErrorTrackingQueryOrderBy,
+    revenueEntity: ErrorTrackingQueryRevenueEntity,
+    groupOptions: Record<string, string>
+): string => {
+    if (orderBy === 'revenue' && revenueEntity) {
+        const entity = revenueEntity === 'person' ? 'person' : groupOptions[revenueEntity]
+
+        return `Revenue (by ${entity})`
+    }
+
+    return labels[orderBy]
 }
