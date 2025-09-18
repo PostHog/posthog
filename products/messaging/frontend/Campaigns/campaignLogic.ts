@@ -72,7 +72,7 @@ const NEW_CAMPAIGN: HogFlow = {
     updated_at: '',
 }
 
-function getTemplatingError(value: string, templating: 'liquid' | 'hog'): string | undefined {
+function getTemplatingError(value: string, templating?: 'liquid' | 'hog'): string | undefined {
     if (templating === 'liquid' && typeof value === 'string') {
         try {
             LiquidRenderer.parse(value)
@@ -207,21 +207,22 @@ export const campaignLogic = kea<campaignLogicType>([
                         } else if (action.type === 'function_email') {
                             // special case for function_email which has nested email inputs, so basic hog input validation is not enough
                             // TODO: modify email/native_email input type to flatten email inputs so we don't need this special case
-                            const emailValue = action.config.inputs?.email?.value
+                            const emailValue = action.config.inputs?.email?.value as any | undefined
+                            const emailTemplating = action.config.inputs?.email?.templating
 
                             const emailTemplateErrors: Partial<EmailTemplate> = {
-                                html: !emailValue.html
+                                html: !emailValue?.html
                                     ? 'HTML is required'
-                                    : getTemplatingError(emailValue.html, emailValue.templating),
-                                subject: !emailValue.subject
+                                    : getTemplatingError(emailValue?.html, emailTemplating),
+                                subject: !emailValue?.subject
                                     ? 'Subject is required'
-                                    : getTemplatingError(emailValue.subject, emailValue.templating),
-                                from: !emailValue.from.email
+                                    : getTemplatingError(emailValue?.subject, emailTemplating),
+                                from: !emailValue?.from?.email
                                     ? 'From is required'
-                                    : getTemplatingError(emailValue.from.email, emailValue.templating),
-                                to: !emailValue.to.email
+                                    : getTemplatingError(emailValue?.from?.email, emailTemplating),
+                                to: !emailValue?.to?.email
                                     ? 'To is required'
-                                    : getTemplatingError(emailValue.to.email, emailValue.templating),
+                                    : getTemplatingError(emailValue?.to?.email, emailTemplating),
                             }
 
                             const combinedErrors = Object.values(emailTemplateErrors)
