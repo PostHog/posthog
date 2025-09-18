@@ -5,7 +5,6 @@ import { IconPlus } from '@posthog/icons'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { getAppContext } from 'lib/utils/getAppContext'
 
 import { AccessControlLevel, AccessControlResourceType, ReplayTabs } from '~/types'
 
@@ -25,9 +24,6 @@ export function SavedSessionRecordingPlaylistsEmptyState(): JSX.Element {
                 <AccessControlAction
                     resourceType={AccessControlResourceType.SessionRecording}
                     minAccessLevel={AccessControlLevel.Editor}
-                    userAccessLevel={
-                        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording]
-                    }
                 >
                     <LemonButton
                         type="primary"
