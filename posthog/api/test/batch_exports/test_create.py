@@ -10,56 +10,17 @@ from django.test.client import Client as HttpClient
 from asgiref.sync import async_to_sync
 from rest_framework import status
 
-from posthog.api.test.batch_exports.conftest import cleanup_temporal_schedules, describe_schedule, start_test_worker
+from posthog.api.test.batch_exports.conftest import describe_schedule
 from posthog.api.test.batch_exports.fixtures import create_organization
 from posthog.api.test.batch_exports.operations import create_batch_export
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 from posthog.batch_exports.models import BatchExport
-from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.codec import EncryptionCodec
 
 pytestmark = [
     pytest.mark.django_db,
 ]
-
-
-@pytest.fixture
-def organization():
-    return create_organization("Test Org")
-
-
-@pytest.fixture
-def team(organization):
-    return create_team(organization)
-
-
-@pytest.fixture
-def user(organization):
-    return create_user("test@user.com", "Test User", organization)
-
-
-@pytest.fixture(scope="module")
-def temporal():
-    """Return a TemporalClient instance."""
-    client = sync_connect()
-    yield client
-
-
-@pytest.fixture(scope="module", autouse=True)
-def temporal_worker(temporal):
-    """Use a module scoped fixture to start a Temporal Worker.
-
-    This saves a lot of time, as waiting for the worker to stop takes a while.
-    """
-    with start_test_worker(temporal):
-        yield
-
-
-@pytest.fixture(autouse=True)
-def cleanup():
-    client = sync_connect()
-    cleanup_temporal_schedules(client)
 
 
 @pytest.mark.parametrize("interval", ["hour", "day", "every 5 minutes"])
