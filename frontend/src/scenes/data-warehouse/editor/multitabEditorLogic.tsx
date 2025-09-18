@@ -48,7 +48,7 @@ import { draftsLogic } from './draftsLogic'
 import { editorSceneLogic } from './editorSceneLogic'
 import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import type { multitabEditorLogicType } from './multitabEditorLogicType'
-import { outputPaneLogic } from './outputPaneLogic'
+import { outputPaneLogic, OutputTab } from './outputPaneLogic'
 import {
     aiSuggestionOnAccept,
     aiSuggestionOnAcceptText,
@@ -1034,6 +1034,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 !searchParams.open_view &&
                 !searchParams.open_insight &&
                 !searchParams.open_draft &&
+                !searchParams.output_tab &&
                 !hashParams.q &&
                 !hashParams.view &&
                 !hashParams.insight
@@ -1044,6 +1045,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             let tabAdded = false
 
             const createQueryTab = async (): Promise<void> => {
+                if (searchParams.output_tab) {
+                    outputPaneLogic.actions.setActiveTab(searchParams.output_tab as OutputTab)
+                }
                 if (searchParams.open_draft || (hashParams.draft && !values.queryInput)) {
                     const draftId = searchParams.open_draft || hashParams.draft
                     const draft = values.drafts.find((draft) => {

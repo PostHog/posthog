@@ -242,6 +242,7 @@ export enum ProductKey {
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
     LINKS = 'links',
+    EMBEDDED_ANALYTICS = 'embedded_analytics',
 }
 
 type ProductKeyUnion = `${ProductKey}`
