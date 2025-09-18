@@ -161,7 +161,6 @@ If your component doesn't respect that interface you can instead expose a functi
 ```tsx
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessControlResourceType, AccessControlLevel } from '~/types'
-import { getAppContext } from 'lib/utils/getAppContext'
 
 // Automatically sets `disabled` and `disabledReason` on the child
 <AccessControlAction
@@ -172,7 +171,17 @@ import { getAppContext } from 'lib/utils/getAppContext'
     <LemonButton>My button</LemonButton>
 </AccessControlAction>
 
-// Manually sets the values
+// If you wanna fallback to the global access level for the logged-in user
+// then you don't need to pass the userAccessLevel prop
+// since we'll infer it from `getAppContext()`
+<AccessControlAction
+    resourceType={AccessControlResourceType.YourResource}
+    minAccessLevel={AccessControlLevel.Editor}
+>
+    <LemonButton>My button</LemonButton>
+</AccessControlAction>
+
+// Manually sets the values for custom component
 <AccessControlAction
     resourceType={AccessControlResourceType.YourResource}
     minAccessLevel={AccessControlLevel.Editor}
@@ -202,7 +211,6 @@ function YourResourceList() {
             <AccessControlAction
                 resourceType={AccessControlResourceType.YourResource}
                 minAccessLevel={AccessControlLevel.Editor}
-                userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.YourResource]}
             >
                 <LemonButton type="primary" onClick={() => router.actions.push('/your-resources/new')}>
                     New Resource

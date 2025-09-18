@@ -50,7 +50,6 @@ import { IconAction, IconGridView, IconListView, IconTableChart } from 'lib/lemo
 import { isNonEmptyObject } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { useSummarizeInsight } from 'scenes/insights/summarizeInsight'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -568,7 +567,6 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
         <AccessControlAction
             resourceType={AccessControlResourceType.Insight}
             minAccessLevel={AccessControlLevel.Editor}
-            userAccessLevel={getAppContext()?.resource_access_control?.[AccessControlResourceType.Insight]}
         >
             <LemonButton
                 type="primary"
