@@ -46,7 +46,7 @@ class SessionMomentsLLMAnalyzer:
         # Generate videos
         asset_ids = await self._generate_videos_for_moments(moments)
         # Analyze videos with LLM
-        results = await self._analyze_moment_videos_with_llm(asset_ids, "Please analyze the session moments.")
+        results = await self._analyze_moment_videos_with_llm(asset_ids)
         return results
 
     async def _generate_videos_for_moments(self, moments: list[SessionMomentInput]) -> dict[str, int]:
