@@ -18,6 +18,10 @@ export interface SurveyCreationSchema {
     description: string
     type: SurveyType
     linked_flag_id?: number
+    /**
+     * Questions to be included in the survey. All surveys must have at least one question.
+     * @default [{ type: "open", question: "What can we do to improve our product?", description: "", descriptionContentType: "text" }]
+     */
     questions: SurveyQuestionSchema[]
     should_launch?: boolean
     conditions?: SurveyDisplayConditionsSchema

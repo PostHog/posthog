@@ -24017,6 +24017,15 @@
                     "type": "string"
                 },
                 "questions": {
+                    "default": [
+                        {
+                            "description": "",
+                            "descriptionContentType": "text",
+                            "question": "What can we do to improve our product?",
+                            "type": "open"
+                        }
+                    ],
+                    "description": "Questions to be included in the survey",
                     "items": {
                         "$ref": "#/definitions/SurveyQuestionSchema"
                     },

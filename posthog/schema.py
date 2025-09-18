@@ -10703,7 +10703,20 @@ class SurveyCreationSchema(BaseModel):
     iteration_frequency_days: Optional[float] = None
     linked_flag_id: Optional[float] = None
     name: str
-    questions: list[SurveyQuestionSchema]
+    questions: Optional[list[SurveyQuestionSchema]] = Field(
+        default_factory=lambda: [
+            SurveyQuestionSchema.model_validate(v)
+            for v in [
+                {
+                    "description": "",
+                    "descriptionContentType": "text",
+                    "question": "What can we do to improve our product?",
+                    "type": "open",
+                }
+            ]
+        ],
+        description="Questions to be included in the survey",
+    )
     responses_limit: Optional[float] = None
     should_launch: Optional[bool] = None
     start_date: Optional[str] = None
