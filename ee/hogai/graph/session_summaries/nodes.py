@@ -60,7 +60,8 @@ class SessionSummarizationNode(AssistantNode):
     async def _stream_progress(self, progress_message: str) -> None:
         """Push summarization progress as reasoning messages"""
         content = prepare_reasoning_progress_message(progress_message)
-        await self._stream_reasoning(content=content)
+        if content:
+            await self._write_reasoning(content=content)
 
     async def _stream_notebook_content(self, content: dict, state: AssistantState, partial: bool = True) -> None:
         """Stream TipTap content directly to a notebook if notebook_id is present in state."""

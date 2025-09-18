@@ -1,5 +1,5 @@
 from abc import ABC
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any, Generic, Literal, Union, cast
 from uuid import UUID
 
@@ -69,7 +69,7 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
         raise NotImplementedError
 
     @property
-    def _writer(self) -> StreamWriter | None:
+    def _writer(self) -> StreamWriter | Callable[[Any], None]:
         if self.writer:
             return self.writer
         try:
@@ -135,7 +135,7 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
         """
         Writes a message to the stream writer.
         """
-        if self._writer and self.node_name:
+        if self.node_name:
             self._writer(self._message_to_langgraph_update(message, self.node_name))
 
     async def _write_reasoning(self, content: str, substeps: list[str] | None = None):

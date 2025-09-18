@@ -69,6 +69,8 @@ class DeepResearchNode(BaseAssistantNode[DeepResearchState, PartialDeepResearchS
             notebook_update_message = await self._llm_chunk_to_notebook_update_message(chunk, context)
             await self._write_message(notebook_update_message)
 
+            await self._write_message(notebook_update_message)
+
         if not notebook_update_message:
             raise ValueError("No notebook update message found.")
 
