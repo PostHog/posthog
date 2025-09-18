@@ -3,8 +3,12 @@ import asyncio
 from dataclasses import dataclass
 from math import ceil
 
+from django.conf import settings
+
 import structlog
-from google import genai
+import posthoganalytics
+from google.genai.types import Blob, Content, Part
+from posthoganalytics.ai.gemini import genai
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.constants import VIDEO_EXPORT_TASK_QUEUE
@@ -155,14 +159,18 @@ class SessionMomentsLLMAnalyzer:
             # TODO: Remove after testing, storing for debugging
             with open(f"video_{moment_id}.mp4", "wb") as f:
                 f.write(video_bytes)
+            # TODO: Use GeminiProvider instead (just add a regular call method)
+            api_key = settings.GEMINI_API_KEY
+            if not api_key:
+                raise ValueError("GEMINI_API_KEY is not set in environment or settings")
             # Get response from LLM
-            client = genai.Client()
+            client = genai.Client(api_key=api_key, posthog_client=posthoganalytics.default_client)
             response = client.models.generate_content(
                 model="models/gemini-2.5-flash",
-                contents=genai.types.Content(
+                contents=Content(
                     parts=[
-                        genai.types.Part(inline_data=genai.types.Blob(data=video_bytes, mime_type="video/mp4")),
-                        genai.types.Part(text=self.prompt),
+                        Part(inline_data=Blob(data=video_bytes, mime_type="video/mp4")),
+                        Part(text=self.prompt),
                     ]
                 ),
             )
