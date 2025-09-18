@@ -1,6 +1,8 @@
 use rdkafka::consumer::{BaseConsumer, Consumer, ConsumerContext, Rebalance};
+use rdkafka::util::Timeout;
 use rdkafka::{ClientContext, TopicPartitionList};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::runtime::Handle;
 use tokio::sync::mpsc;
 use tracing::{error, info, warn};
@@ -179,38 +181,57 @@ impl ConsumerContext for StatefulConsumerContext {
             Rebalance::Assign(partitions) => {
                 info!("Assigned {} partitions", partitions.count());
 
-                // Get the position for all assigned partitions
-                // position() returns the next offset to be fetched
-                let positions = match base_consumer.position() {
-                    Ok(pos) => pos,
+                // Create a new TopicPartitionList to query committed offsets
+                let mut query_tpl = TopicPartitionList::new();
+                for elem in partitions.elements() {
+                    query_tpl.add_partition(elem.topic(), elem.partition());
+                }
+
+                // Get the committed offsets for all assigned partitions
+                // This tells us where the consumer group last committed
+                let committed_offsets = match base_consumer
+                    .committed_offsets(query_tpl, Timeout::After(Duration::from_millis(5000)))
+                {
+                    Ok(offsets) => {
+                        info!("Successfully fetched committed offsets");
+                        offsets
+                    }
                     Err(e) => {
-                        error!("Failed to get consumer position after assignment: {}", e);
+                        warn!("Failed to fetch committed offsets: {} - partitions will start from configured offset reset policy", e);
                         TopicPartitionList::new()
                     }
                 };
 
-                // Build partition assignments with actual positions
+                // Build partition assignments with committed offsets
                 let mut partition_assignments = Vec::new();
                 for elem in partitions.elements() {
                     let topic = elem.topic();
                     let partition_num = elem.partition();
 
-                    // Find the position for this partition
-                    let offset = positions
+                    // Try to find the committed offset for this partition
+                    let offset = committed_offsets
                         .elements()
                         .into_iter()
                         .find(|e| e.topic() == topic && e.partition() == partition_num)
                         .and_then(|e| match e.offset() {
-                            rdkafka::Offset::Offset(off) => {
+                            rdkafka::Offset::Offset(off) if off >= 0 => {
                                 info!(
-                                    "Partition {}-{}: starting from position {}",
+                                    "Partition {}-{}: resuming from committed offset {}",
                                     topic, partition_num, off
                                 );
                                 Some(off)
                             }
+                            rdkafka::Offset::Invalid => {
+                                // No committed offset exists - new consumer group or partition
+                                info!(
+                                    "Partition {}-{}: no committed offset, will use auto.offset.reset policy",
+                                    topic, partition_num
+                                );
+                                None
+                            }
                             other => {
-                                warn!(
-                                    "Partition {}-{}: unexpected position type: {:?}",
+                                info!(
+                                    "Partition {}-{}: offset type {:?}, will use auto.offset.reset policy",
                                     topic, partition_num, other
                                 );
                                 None
