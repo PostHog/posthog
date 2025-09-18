@@ -10,7 +10,7 @@ tasks:
     tools:
         desc: Install development tools
         cmds:
-            - go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+            - go install github.com/golangci/golangci-lint/cmd/golangci-lint/v2@latest
             - go install golang.org/x/vuln/cmd/govulncheck@latest
             - go install golang.org/x/tools/cmd/goimports@latest
 
