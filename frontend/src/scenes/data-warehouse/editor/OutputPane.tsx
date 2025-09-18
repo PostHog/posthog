@@ -257,21 +257,14 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
     )
 }
 
-export function OutputPane(): JSX.Element {
+export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
     const { editingView } = useValues(multitabEditorLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const {
-        sourceQuery,
-        exportContext,
-        editorKey,
-        editingInsight,
-        updateInsightButtonEnabled,
-        showLegacyFilters,
-        queryInput,
-    } = useValues(multitabEditorLogic)
+    const { sourceQuery, exportContext, editingInsight, updateInsightButtonEnabled, showLegacyFilters, queryInput } =
+        useValues(multitabEditorLogic)
     const { saveAsInsight, updateInsight, setSourceQuery, runQuery, shareTab } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
@@ -612,7 +605,7 @@ export function OutputPane(): JSX.Element {
                     saveAsInsight={saveAsInsight}
                     queryId={queryId}
                     pollResponse={pollResponse}
-                    editorKey={editorKey}
+                    tabId={tabId}
                     setProgress={setProgress}
                     progress={queryId ? progressCache[queryId] : undefined}
                 />
@@ -745,7 +738,7 @@ const Content = ({
     rows,
     isDarkModeOn,
     vizKey,
-    editorKey,
+    tabId,
     setSourceQuery,
     exportContext,
     saveAsInsight,
@@ -787,7 +780,7 @@ const Content = ({
         return (
             <TabScroller>
                 <div className="px-6 py-4 border-t">
-                    <QueryInfo codeEditorKey={editorKey} />
+                    <QueryInfo tabId={tabId} />
                 </div>
             </TabScroller>
         )

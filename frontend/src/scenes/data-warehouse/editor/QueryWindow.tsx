@@ -297,7 +297,7 @@ export function QueryWindow({ onSetMonacoAndEditor, tabId }: QueryWindowProps): 
                     },
                 }}
             />
-            <InternalQueryWindow />
+            <InternalQueryWindow tabId={tabId} />
             <QueryHistoryModal />
         </div>
     )
@@ -347,7 +347,7 @@ function RunButton(): JSX.Element {
     )
 }
 
-function InternalQueryWindow(): JSX.Element | null {
+function InternalQueryWindow({ tabId }: { tabId: string }): JSX.Element | null {
     const { finishedLoading } = useValues(multitabEditorLogic)
 
     // NOTE: hacky way to avoid flicker loading
@@ -355,5 +355,5 @@ function InternalQueryWindow(): JSX.Element | null {
         return null
     }
 
-    return <OutputPane />
+    return <OutputPane tabId={tabId} />
 }
