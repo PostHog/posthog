@@ -304,22 +304,20 @@ class BaseAssistant(ABC):
 
     async def _init_or_update_state(self):
         config = self._get_config()
+
         snapshot = await self._graph.aget_state(config)
-        last_recorded_dt: datetime | None = None
+        saved_state = validate_state_update(snapshot.values, self._state_type)
+        last_recorded_dt = saved_state.start_dt
 
         # If the graph previously hasn't reset the state, it is an interrupt. We resume from the point of interruption.
-        if snapshot.next:
-            saved_state = validate_state_update(snapshot.values, self._state_type)
-            last_recorded_dt = saved_state.start_dt
-
-            if self._latest_message and saved_state.graph_status == "interrupted":
-                self._state = saved_state
-                await self._graph.aupdate_state(
-                    config,
-                    self.get_resumed_state(),
-                )
-                # Return None to indicate that we want to continue the execution from the interrupted point.
-                return None
+        if snapshot.next and self._latest_message and saved_state.graph_status == "interrupted":
+            self._state = saved_state
+            await self._graph.aupdate_state(
+                config,
+                self.get_resumed_state(),
+            )
+            # Return None to indicate that we want to continue the execution from the interrupted point.
+            return None
 
         initial_state = self.get_initial_state()
         if self._initial_state:

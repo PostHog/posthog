@@ -36,7 +36,9 @@ def normalize_ai_anthropic_message(message: AIMessage) -> AssistantMessage:
 
 
 def get_thinking_from_assistant_message(message: AssistantMessage) -> list[dict[str, Any]]:
-    return message.meta.thinking if message.meta and message.meta.thinking else []
+    if message.meta and message.meta.thinking:
+        return message.meta.thinking.copy()
+    return []
 
 
 def add_cache_control(message: BaseMessage) -> BaseMessage:
