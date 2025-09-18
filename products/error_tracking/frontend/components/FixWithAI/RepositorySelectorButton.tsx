@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
-import { IconGitRepository } from 'node_modules/@posthog/icons/dist'
 import { useEffect } from 'react'
 
+import { IconGitRepository } from '@posthog/icons'
 import { LemonSelect, Popover } from '@posthog/lemon-ui'
 
 import { GitHubRepositoryPicker, useRepositories } from 'lib/integrations/GitHubIntegrationHelpers'
@@ -41,13 +41,65 @@ export function RepositorySelectorButton(): JSX.Element {
                     className="px-3 min-w-0 flex-1"
                     tooltip="Click to select repository"
                 >
-                    <IconGitRepository className="text-muted-alt flex-shrink-0" />
+                    <IconGitRepository className="flex-shrink-0" />
                     <span className="truncate font-medium">
                         {repository ? repository.split('/').pop() : 'Select repository...'}
                     </span>
                 </ButtonPrimitive>
             </Popover>
         </>
+    )
+}
+
+function RepositoryPickerPopover(): JSX.Element {
+    const { getIntegrationsByKind } = useValues(integrationsLogic)
+    const githubIntegrations = getIntegrationsByKind(['github'])
+
+    const { integrationId, repository } = useValues(fixWithAiLogic)
+    const { setRepository, setIntegrationId, setRepositoryPopoverVisible } = useActions(fixWithAiLogic)
+
+    const handleIntegrationChange = (id: number | undefined): void => {
+        if (!id) {
+            return
+        }
+
+        setIntegrationId(id)
+        setRepository('')
+    }
+
+    const handleRepositoryChange = (repo: string): void => {
+        setRepository(repo)
+        setRepositoryPopoverVisible(false)
+    }
+
+    return (
+        <div className="flex flex-col gap-3 p-3 min-w-[300px]">
+            <div>
+                <label className="block text-sm font-medium mb-1">GitHub Integration</label>
+                <LemonSelect
+                    value={integrationId}
+                    onChange={handleIntegrationChange}
+                    options={githubIntegrations.map((integration: any) => ({
+                        value: integration.id,
+                        label: `${integration.display_name} (${integration.config?.account?.name || 'GitHub'})`,
+                    }))}
+                    placeholder="Select GitHub integration..."
+                    fullWidth
+                />
+            </div>
+
+            {integrationId && (
+                <div>
+                    <label className="block text-sm font-medium mb-1">Repository</label>
+                    <GitHubRepositoryPicker
+                        integrationId={integrationId!}
+                        value={repository ?? ''}
+                        onChange={handleRepositoryChange}
+                        keepParentPopoverOpenOnClick
+                    />
+                </div>
+            )}
+        </div>
     )
 }
 
@@ -67,58 +119,4 @@ function DefaultRepositoryPicker({ integrationId }: { integrationId: number }): 
     }, [options, release, setRepository])
 
     return <></>
-}
-
-function RepositoryPickerPopover(): JSX.Element {
-    const { getIntegrationsByKind } = useValues(integrationsLogic)
-    const githubIntegrations = getIntegrationsByKind(['github'])
-
-    const { integrationId, repository } = useValues(fixWithAiLogic)
-    const { setRepository, setIntegrationId, setRepositoryPopoverVisible } = useActions(fixWithAiLogic)
-
-    const handleIntegrationChange = (id: number | undefined): void => {
-        if (!id) {
-            return
-        }
-
-        setIntegrationId(id)
-        setRepository('')
-    }
-
-    const setRepositoryAndClosePopover = (repo: string): void => {
-        setRepository(repo)
-        setRepositoryPopoverVisible(false)
-    }
-
-    return (
-        <div className="p-3 min-w-[300px]">
-            <div className="space-y-3">
-                <div>
-                    <label className="block text-sm font-medium mb-1">GitHub Integration</label>
-                    <LemonSelect
-                        value={integrationId}
-                        onChange={handleIntegrationChange}
-                        options={githubIntegrations.map((integration: any) => ({
-                            value: integration.id,
-                            label: `${integration.display_name} (${integration.config?.account?.name || 'GitHub'})`,
-                        }))}
-                        placeholder="Select GitHub integration..."
-                        fullWidth
-                    />
-                </div>
-
-                {integrationId && (
-                    <div>
-                        <label className="block text-sm font-medium mb-1">Repository</label>
-                        <GitHubRepositoryPicker
-                            integrationId={integrationId!}
-                            value={repository ?? ''}
-                            onChange={setRepositoryAndClosePopover}
-                            keepParentPopoverOpenOnClick
-                        />
-                    </div>
-                )}
-            </div>
-        </div>
-    )
 }
