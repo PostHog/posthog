@@ -102,7 +102,7 @@ function generateTerminalExample(
   -H "Authorization: Bearer $POSTHOG_PERSONAL_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{
-    "variables": {
+    "variables_values": {
 ${generateVariablesJson(variables)}
     }
   }'`
@@ -124,7 +124,7 @@ headers = {
 }
 
 payload = {
-    "variables": {
+    "variables_values": {
 ${generateVariablesJson(variables)}
     }
 }
@@ -148,7 +148,7 @@ const headers = {
 };
 
 const payload = {
-    "variables": {
+    "variables_values": {
 ${generateVariablesJson(variables)}
     }
 };
@@ -250,12 +250,30 @@ export function QueryEndpoint(): JSX.Element {
             return
         }
 
+        const transformedVariables =
+            variablesForInsight.length > 0
+                ? {
+                      variables: variablesForInsight.reduce(
+                          (acc, variable, index) => {
+                              acc[`var_${index}`] = {
+                                  variableId: variable.id,
+                                  code_name: variable.code_name,
+                                  value: variable.value || variable.default_value,
+                              }
+                              return acc
+                          },
+                          {} as Record<string, { variableId: string; code_name: string; value: any }>
+                      ),
+                  }
+                : {}
+
         createQueryEndpoint({
             name: queryEndpointName,
             description: queryEndpointDescription || '',
             query: {
                 kind: NodeKind.HogQLQuery,
                 query: sqlQuery,
+                variables_values: transformedVariables,
             },
         })
     }
