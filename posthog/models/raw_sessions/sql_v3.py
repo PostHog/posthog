@@ -2,39 +2,62 @@ from django.conf import settings
 
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 
-DISTRIBUTED_TABLE_BASE_NAME_V3 = "raw_sessions_v3"
+"""Raw sessions table v3
+
+This is a clickhouse materialized view that aggregates events into sessions, based on the session ID.
+
+All events with the same session ID will be aggregated into approximately one row per session ID, which can greatly
+reduce the amount of data that needs to be read from disk for session-based queries.
+
+It's not guaranteed that clickhouse will merge all events for a session into a single row, so any queries against this
+table should always aggregate again on session_id (the HogQL session table will do this automatically, so HogQL users
+don't need to consider this).
+
+Upgrades over v2:
+* Uses the UUIDv7ToDateTime function in the ORDER BY clause, which was not available when we built v2
+* Has a property map for storing lower-tier ad ids, making it easier to add new ad ids in the future
+* Stores presence of ad ids separately from the value, so e.g. channel type calculations can be done with reading the actual (long) gclids and fbclids, just a boolean
+* Parses JSON only once per event rather than once per column per event
+* Removes a lot of deprecated fields that are no longer used
+"""
+
+TABLE_BASE_NAME_V3 = "raw_sessions_v3"
 
 
-def SHARDED_RAW_SESSIONS_DATA_TABLE_V3():
-    return f"sharded_{DISTRIBUTED_TABLE_BASE_NAME_V3}"
+def DISTRIBUTED_RAW_SESSIONS_TABLE_V3():
+    return TABLE_BASE_NAME_V3
 
 
-def WRITABLE_RAW_SESSIONS_DATA_TABLE_V3():
-    return f"writable_{DISTRIBUTED_TABLE_BASE_NAME_V3}"
+def SHARDED_RAW_SESSIONS_TABLE_V3():
+    return f"sharded_{TABLE_BASE_NAME_V3}"
+
+
+def WRITABLE_RAW_SESSIONS_TABLE_V3():
+    return f"writable_{TABLE_BASE_NAME_V3}"
 
 
 def TRUNCATE_RAW_SESSIONS_TABLE_SQL_V3():
-    return f"TRUNCATE TABLE IF EXISTS {SHARDED_RAW_SESSIONS_DATA_TABLE_V3()}"
+    return f"TRUNCATE TABLE IF EXISTS {SHARDED_RAW_SESSIONS_TABLE_V3()}"
 
 
 def DROP_RAW_SESSION_SHARDED_TABLE_SQL_V3():
-    return f"DROP TABLE IF EXISTS {SHARDED_RAW_SESSIONS_DATA_TABLE_V3()}"
+    return f"DROP TABLE IF EXISTS {SHARDED_RAW_SESSIONS_TABLE_V3()}"
 
 
 def DROP_RAW_SESSION_DISTRIBUTED_TABLE_SQL_V3():
-    return f"DROP TABLE IF EXISTS {DISTRIBUTED_TABLE_BASE_NAME_V3}"
+    return f"DROP TABLE IF EXISTS {DISTRIBUTED_RAW_SESSIONS_TABLE_V3()}"
 
 
 def DROP_RAW_SESSION_WRITABLE_TABLE_SQL_V3():
-    return f"DROP TABLE IF EXISTS {WRITABLE_RAW_SESSIONS_DATA_TABLE_V3()}"
+    return f"DROP TABLE IF EXISTS {WRITABLE_RAW_SESSIONS_TABLE_V3()}"
 
 
 def DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL_V3():
-    return f"DROP TABLE IF EXISTS {DISTRIBUTED_TABLE_BASE_NAME_V3}_mv"
+    return f"DROP TABLE IF EXISTS {TABLE_BASE_NAME_V3}_mv"
 
 
 def DROP_RAW_SESSION_VIEW_SQL_V3():
-    return f"DROP VIEW IF EXISTS {DISTRIBUTED_TABLE_BASE_NAME_V3}_v"
+    return f"DROP VIEW IF EXISTS {TABLE_BASE_NAME_V3}_v"
 
 
 # if updating these column definitions
@@ -87,12 +110,19 @@ CREATE TABLE IF NOT EXISTS {table_name}
     entry_gclid AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
     entry_gad_source AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
     entry_fbclid AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-    -- for lower-tier ad ids, just put them in a map
-    entry_ad_ids_map AggregateFunction(argMin, Map(String, Nullable(String)), DateTime64(6, 'UTC')),
+
+    -- for channel type calculation, it's enough to know if these were present
+    entry_has_gclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
+    entry_has_fbclid AggregateFunction(argMin, Boolean, DateTime64(6, 'UTC')),
+
+    -- for lower-tier ad ids, just put them in a map, and set of the ones present
+    entry_ad_ids_map AggregateFunction(argMin, Map(String, String), DateTime64(6, 'UTC')),
+    entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
 
     -- Count pageview, autocapture, and screen events for providing totals.
     -- Use uniq instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
     -- events being inserted multiple times to be deduped later, but that can trigger multiple rows here.
+    -- Additionally, idempotency is useful for backfilling, as we can just reinsert the same events without worrying.
     pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
     autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
     screen_uniq AggregateFunction(uniq, Nullable(UUID)),
@@ -105,7 +135,7 @@ CREATE TABLE IF NOT EXISTS {table_name}
 
 
 def RAW_SESSIONS_DATA_TABLE_ENGINE_V3():
-    return AggregatingMergeTree(DISTRIBUTED_TABLE_BASE_NAME_V3, replication_scheme=ReplicationScheme.SHARDED)
+    return AggregatingMergeTree(TABLE_BASE_NAME_V3, replication_scheme=ReplicationScheme.SHARDED)
 
 
 def RAW_SESSIONS_TABLE_SQL_V3():
@@ -125,7 +155,7 @@ ORDER BY (
 )
 """
     ).format(
-        table_name=SHARDED_RAW_SESSIONS_DATA_TABLE_V3(),
+        table_name=SHARDED_RAW_SESSIONS_TABLE_V3(),
         engine=RAW_SESSIONS_DATA_TABLE_ENGINE_V3(),
     )
 
@@ -213,8 +243,8 @@ tupleElement(p, '_kx') as _kx,
 tupleElement(p, 'irclid') as irclid
 """
 
-AD_IDS = """
-map(
+AD_IDS_MAP = """
+CAST(mapFilter((k, v) -> v IS NOT NULL, map(
     'gclsrc', gclsrc,
     'dclid', dclid,
     'gbraid', gbraid,
@@ -230,7 +260,27 @@ map(
     'sccid', sccid,
     '_kx', _kx,
     'irclid', irclid
-)
+)) AS Map(String, String))
+"""
+
+AD_IDS_SET = """
+CAST(arrayFilter(x -> x IS NOT NULL, [
+    if(gclsrc IS NOT NULL, 'gclsrc', NULL),
+    if(dclid IS NOT NULL, 'dclid', NULL),
+    if(gbraid IS NOT NULL, 'gbraid', NULL),
+    if(wbraid IS NOT NULL, 'wbraid', NULL),
+    if(msclkid IS NOT NULL, 'msclkid', NULL),
+    if(twclid IS NOT NULL, 'twclid', NULL),
+    if(li_fat_id IS NOT NULL, 'li_fat_id', NULL),
+    if(mc_cid IS NOT NULL, 'mc_cid', NULL),
+    if(igshid IS NOT NULL, 'igshid', NULL),
+    if(ttclid IS NOT NULL, 'ttclid', NULL),
+    if(epik IS NOT NULL, 'epik', NULL),
+    if(qclid IS NOT NULL, 'qclid', NULL),
+    if(sccid IS NOT NULL, 'sccid', NULL),
+    if(_kx IS NOT NULL, '_kx', NULL),
+    if(irclid IS NOT NULL, 'irclid', NULL)
+]) AS Array(String))
 """
 
 
@@ -294,8 +344,14 @@ SELECT
     initializeAggregation('argMinState', gclid, timestamp) as entry_gclid,
     initializeAggregation('argMinState', gad_source, timestamp) as entry_gad_source,
     initializeAggregation('argMinState', fbclid, timestamp) as entry_fbclid,
+
+    -- has gclid/fbclid for reading fewer bytes when calculating channel type
+    initializeAggregation('argMinState', gclid IS NOT NULL, timestamp) as entry_has_gclid,
+    initializeAggregation('argMinState', fbclid IS NOT NULL, timestamp) as entry_has_fbclid,
+
     -- other ad ids
-    initializeAggregation('argMinState', ({AD_IDS}), timestamp) as entry_ad_ids_map,
+    initializeAggregation('argMinState', ({AD_IDS_MAP}), timestamp) as entry_ad_ids_map,
+    initializeAggregation('argMinState', ({AD_IDS_SET}), timestamp) as entry_ad_ids_set,
 
     -- counts
     initializeAggregation('uniqState', if(event='$pageview', uuid, NULL)) as pageview_uniq,
@@ -305,7 +361,13 @@ SELECT
     -- perf
     initializeAggregation('uniqUpToState(1)', if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to
 FROM parsed_events
-""".format(database=settings.CLICKHOUSE_DATABASE, where=where, PROPERTIES=PROPERTIES, AD_IDS=AD_IDS)
+""".format(
+        database=settings.CLICKHOUSE_DATABASE,
+        where=where,
+        PROPERTIES=PROPERTIES,
+        AD_IDS_MAP=AD_IDS_MAP,
+        AD_IDS_SET=AD_IDS_SET,
+    )
 
 
 def RAW_SESSION_TABLE_MV_SELECT_SQL_V3(where="TRUE"):
@@ -369,8 +431,14 @@ SELECT
     initializeAggregation('argMinState', gclid, timestamp) as entry_gclid,
     initializeAggregation('argMinState', gad_source, timestamp) as entry_gad_source,
     initializeAggregation('argMinState', fbclid, timestamp) as entry_fbclid,
+
+    -- has gclid/fbclid for reading fewer bytes when calculating channel type
+    initializeAggregation('argMinState', gclid IS NOT NULL, timestamp) as entry_has_gclid,
+    initializeAggregation('argMinState', fbclid IS NOT NULL, timestamp) as entry_has_fbclid,
+
     -- other ad ids
-    initializeAggregation('argMinState', ({AD_IDS}), timestamp) as entry_ad_ids_map,
+    initializeAggregation('argMinState', ({AD_IDS_MAP}), timestamp) as entry_ad_ids_map,
+    initializeAggregation('argMinState', ({AD_IDS_SET}), timestamp) as entry_ad_ids_set,
 
     -- counts
     initializeAggregation('uniqState', if(event='$pageview', uuid, NULL)) as pageview_uniq,
@@ -384,7 +452,8 @@ FROM parsed_events
         database=settings.CLICKHOUSE_DATABASE,
         where=where,
         PROPERTIES=PROPERTIES,
-        AD_IDS=AD_IDS,
+        AD_IDS_MAP=AD_IDS_MAP,
+        AD_IDS_SET=AD_IDS_SET,
     )
 
 
@@ -395,8 +464,8 @@ TO {database}.{target_table}
 AS
 {select_sql}
 """.format(
-        table_name=f"{DISTRIBUTED_TABLE_BASE_NAME_V3}_mv",
-        target_table=WRITABLE_RAW_SESSIONS_DATA_TABLE_V3(),
+        table_name=f"{TABLE_BASE_NAME_V3}_mv",
+        target_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
         database=settings.CLICKHOUSE_DATABASE,
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(),
     )
@@ -408,7 +477,7 @@ ALTER TABLE {table_name}
 MODIFY QUERY
 {select_sql}
 """.format(
-        table_name=f"{DISTRIBUTED_TABLE_BASE_NAME_V3}_mv",
+        table_name=f"{TABLE_BASE_NAME_V3}_mv",
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(),
     )
 )
@@ -420,9 +489,9 @@ MODIFY QUERY
 
 def WRITABLE_RAW_SESSIONS_TABLE_SQL_V3():
     return RAW_SESSIONS_TABLE_BASE_SQL_V3.format(
-        table_name=WRITABLE_RAW_SESSIONS_DATA_TABLE_V3(),
+        table_name=WRITABLE_RAW_SESSIONS_TABLE_V3(),
         engine=Distributed(
-            data_table=SHARDED_RAW_SESSIONS_DATA_TABLE_V3(),
+            data_table=SHARDED_RAW_SESSIONS_TABLE_V3(),
             # shard via session_id so that all events for a session are on the same shard
             sharding_key="cityHash64(session_id_v7)",
         ),
@@ -434,9 +503,9 @@ def WRITABLE_RAW_SESSIONS_TABLE_SQL_V3():
 
 def DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3():
     return RAW_SESSIONS_TABLE_BASE_SQL_V3.format(
-        table_name=DISTRIBUTED_TABLE_BASE_NAME_V3,
+        table_name=DISTRIBUTED_RAW_SESSIONS_TABLE_V3(),
         engine=Distributed(
-            data_table=SHARDED_RAW_SESSIONS_DATA_TABLE_V3(),
+            data_table=SHARDED_RAW_SESSIONS_TABLE_V3(),
             sharding_key="cityHash64(session_id_v7)",
         ),
     )
@@ -447,7 +516,7 @@ def DISTRIBUTED_RAW_SESSIONS_TABLE_SQL_V3():
 # debugging
 RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL_V3 = (
     lambda: f"""
-CREATE OR REPLACE VIEW {DISTRIBUTED_TABLE_BASE_NAME_V3}_v AS
+CREATE OR REPLACE VIEW {TABLE_BASE_NAME_V3}_v AS
 SELECT
     session_id_v7,
     UUIDv7ToDateTime(session_id_v7) as session_timestamp,
@@ -492,7 +561,12 @@ SELECT
     argMinMerge(entry_gclid) as entry_gclid,
     argMinMerge(entry_gad_source) as entry_gad_source,
     argMinMerge(entry_fbclid) as entry_fbclid,
+
+    argMinMerge(entry_has_gclid) as entry_has_gclid,
+    argMinMerge(entry_has_fbclid) as entry_has_fbclid,
+
     argMinMerge(entry_ad_ids_map) as entry_ad_ids_map,
+    argMinMerge(entry_ad_ids_set) as entry_ad_ids_set,
 
     -- counts
     uniqMerge(pageview_uniq) as pageview_uniq,
@@ -501,7 +575,7 @@ SELECT
 
     -- perf
     uniqUpToMerge(1)(page_screen_autocapture_uniq_up_to) as page_screen_autocapture_uniq_up_to
-FROM {settings.CLICKHOUSE_DATABASE}.{DISTRIBUTED_TABLE_BASE_NAME_V3}
+FROM {settings.CLICKHOUSE_DATABASE}.{DISTRIBUTED_RAW_SESSIONS_TABLE_V3()}
 GROUP BY session_id_v7, team_id
 """
 )

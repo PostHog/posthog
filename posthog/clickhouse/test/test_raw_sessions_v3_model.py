@@ -326,16 +326,26 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
         # assert that it's close to now, allowing for a small margin of error because we're running this on CI in the cloud somewhere with preempting
         assert abs((max_inserted_at - now).total_seconds()) < 10
 
-    def test_ad_ids_map(self):
+    def test_ad_ids_map_and_set(self):
         distinct_id = create_distinct_id()
         session_id = create_session_id()
+
+        present_ad_id = "irclid"
+        missing_ad_id = "wbraid"
+        value = "test_irclid"
+
         _create_event(
             team=self.team,
             event="$pageview",
             distinct_id=distinct_id,
-            properties={"$session_id": session_id, "irclid": "test_irclid"},
+            properties={"$session_id": session_id, present_ad_id: value},
             timestamp="2024-03-08",
         )
 
         result = self.select_by_session_id(session_id)
-        assert result[0]["entry_ad_ids_map"]["irclid"] == "test_irclid"
+
+        assert result[0]["entry_ad_ids_map"][present_ad_id] == value
+        assert missing_ad_id not in result[0]["entry_ad_ids_map"].keys()
+
+        assert present_ad_id in result[0]["entry_ad_ids_set"]
+        assert missing_ad_id not in result[0]["entry_ad_ids_set"]
