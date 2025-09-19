@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -76,7 +77,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
     @staticmethod
     def _event_predicates(
-        entities: list[EventsNode | ActionsNode | DataWarehouseNode | str], team: Team
+        entities: Iterable[EventsNode | ActionsNode | DataWarehouseNode | str], team: Team
     ) -> list[ast.Expr]:
         event_exprs: list[ast.Expr] = []
 

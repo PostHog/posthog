@@ -562,9 +562,10 @@ class SessionRecordingViewSet(
                     )
 
                 # we don't want to pass add_events_to_property_queries into the model validation
-                allow_event_property_expansion = request.GET.pop("add_events_to_property_queries", "0") == "1"
+                params = request.GET.dict()
+                allow_event_property_expansion = params.pop("add_events_to_property_queries", "0") == "1"
                 with tracer.start_as_current_span("convert_filters"):
-                    query = filter_from_params_to_query(request.GET.dict())
+                    query = filter_from_params_to_query(params)
 
                 if query.comment_text:
                     with tracer.start_as_current_span("search_comments"):
