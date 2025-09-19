@@ -2558,7 +2558,55 @@
   tupleElement(p, 'gclid') as gclid,
   tupleElement(p, 'gad_source') as gad_source,
   tupleElement(p, 'fbclid') as fbclid,
-  tupleElement(p, 'gclsrc') as gclsrc,tupleElement(p, 'dclid') as dclid,tupleElement(p, 'gbraid') as gbraid,tupleElement(p, 'wbraid') as wbraid,tupleElement(p, 'msclkid') as msclkid,tupleElement(p, 'twclid') as twclid,tupleElement(p, 'li_fat_id') as li_fat_id,tupleElement(p, 'mc_cid') as mc_cid,tupleElement(p, 'igshid') as igshid,tupleElement(p, 'ttclid') as ttclid,tupleElement(p, 'epik') as epik,tupleElement(p, 'qclid') as qclid,tupleElement(p, 'sccid') as sccid,tupleElement(p, '_kx') as _kx,tupleElement(p, 'irclid') as irclid
+  tupleElement(p, 'gclsrc') as gclsrc,
+  tupleElement(p, 'dclid') as dclid,
+  tupleElement(p, 'gbraid') as gbraid,
+  tupleElement(p, 'wbraid') as wbraid,
+  tupleElement(p, 'msclkid') as msclkid,
+  tupleElement(p, 'twclid') as twclid,
+  tupleElement(p, 'li_fat_id') as li_fat_id,
+  tupleElement(p, 'mc_cid') as mc_cid,
+  tupleElement(p, 'igshid') as igshid,
+  tupleElement(p, 'ttclid') as ttclid,
+  tupleElement(p, 'epik') as epik,
+  tupleElement(p, 'qclid') as qclid,
+  tupleElement(p, 'sccid') as sccid,
+  tupleElement(p, '_kx') as _kx,
+  tupleElement(p, 'irclid') as irclid,
+  CAST(mapFilter((k, v) -> v IS NOT NULL, map(
+  'gclsrc', gclsrc,
+  'dclid', dclid,
+  'gbraid', gbraid,
+  'wbraid', wbraid,
+  'msclkid', msclkid,
+  'twclid', twclid,
+  'li_fat_id', li_fat_id,
+  'mc_cid', mc_cid,
+  'igshid', igshid,
+  'ttclid', ttclid,
+  'epik', epik,
+  'qclid', qclid,
+  'sccid', sccid,
+  '_kx', _kx,
+  'irclid', irclid
+  )) AS Map(String, String)) as ad_ids_map,
+  CAST(arrayFilter(x -> x IS NOT NULL, [
+  if(gclsrc IS NOT NULL, 'gclsrc', NULL),
+  if(dclid IS NOT NULL, 'dclid', NULL),
+  if(gbraid IS NOT NULL, 'gbraid', NULL),
+  if(wbraid IS NOT NULL, 'wbraid', NULL),
+  if(msclkid IS NOT NULL, 'msclkid', NULL),
+  if(twclid IS NOT NULL, 'twclid', NULL),
+  if(li_fat_id IS NOT NULL, 'li_fat_id', NULL),
+  if(mc_cid IS NOT NULL, 'mc_cid', NULL),
+  if(igshid IS NOT NULL, 'igshid', NULL),
+  if(ttclid IS NOT NULL, 'ttclid', NULL),
+  if(epik IS NOT NULL, 'epik', NULL),
+  if(qclid IS NOT NULL, 'qclid', NULL),
+  if(sccid IS NOT NULL, 'sccid', NULL),
+  if(_kx IS NOT NULL, '_kx', NULL),
+  if(irclid IS NOT NULL, 'irclid', NULL)
+  ]) AS Array(String)) as ad_ids_set
   ,
           -- attribution properties from non-pageview/screen events should be deprioritized, so make the timestamp +/- 1 year so they sort last
           if (event = '$pageview' OR event = '$screen', timestamp, timestamp + toIntervalYear(1)) as pageview_prio_timestamp_min,
@@ -2617,16 +2665,8 @@
       initializeAggregation('argMinState', fbclid IS NOT NULL, pageview_prio_timestamp_min) as entry_has_fbclid,
   
       -- other ad ids
-      initializeAggregation('argMinState', (
-  CAST(mapFilter((k, v) -> v IS NOT NULL, map(
-  'gclsrc', gclsrc,'dclid', dclid,'gbraid', gbraid,'wbraid', wbraid,'msclkid', msclkid,'twclid', twclid,'li_fat_id', li_fat_id,'mc_cid', mc_cid,'igshid', igshid,'ttclid', ttclid,'epik', epik,'qclid', qclid,'sccid', sccid,'_kx', _kx,'irclid', irclid
-  )) AS Map(String, String))
-  ), pageview_prio_timestamp_min) as entry_ad_ids_map,
-      initializeAggregation('argMinState', (
-  CAST(arrayFilter(x -> x IS NOT NULL, [
-  if(gclsrc IS NOT NULL, 'gclsrc', NULL),if(dclid IS NOT NULL, 'dclid', NULL),if(gbraid IS NOT NULL, 'gbraid', NULL),if(wbraid IS NOT NULL, 'wbraid', NULL),if(msclkid IS NOT NULL, 'msclkid', NULL),if(twclid IS NOT NULL, 'twclid', NULL),if(li_fat_id IS NOT NULL, 'li_fat_id', NULL),if(mc_cid IS NOT NULL, 'mc_cid', NULL),if(igshid IS NOT NULL, 'igshid', NULL),if(ttclid IS NOT NULL, 'ttclid', NULL),if(epik IS NOT NULL, 'epik', NULL),if(qclid IS NOT NULL, 'qclid', NULL),if(sccid IS NOT NULL, 'sccid', NULL),if(_kx IS NOT NULL, '_kx', NULL),if(irclid IS NOT NULL, 'irclid', NULL)
-  ]) AS Array(String))
-  ), pageview_prio_timestamp_min) as entry_ad_ids_set,
+      initializeAggregation('argMinState', ad_ids_map, pageview_prio_timestamp_min) as entry_ad_ids_map,
+      initializeAggregation('argMinState', ad_ids_set, pageview_prio_timestamp_min) as entry_ad_ids_set,
   
       -- channel type
       initializeAggregation('argMinState', tuple(utm_source, utm_medium, utm_campaign, referring_domain, gclid IS NOT NULL, fbclid IS NOT NULL, gad_source), pageview_prio_timestamp_min) as entry_channel_type_properties,
