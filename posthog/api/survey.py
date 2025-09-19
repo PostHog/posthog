@@ -1292,12 +1292,12 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # Find the question with the matching ID
             for question in survey.questions:
                 if question.get("id", None) == question_id:
-                    question_text = question.get("question", None)
+                    question_text = question.get("question")
                     break
         elif survey.questions and question_index is not None:
             # Fallback to question index if question_id is not provided
             if 0 <= question_index < len(survey.questions):
-                question_text = survey.questions[question_index].get("question", None)
+                question_text = survey.questions[question_index].get("question")
 
         if question_text is None:
             raise exceptions.ValidationError("the text of the question is required")
