@@ -64,3 +64,25 @@ class TestConversationSerializers(APIBaseTest):
 
             # Second message should be the AssistantToolCallMessage with UI payload
             self.assertEqual(filtered_messages[1]["ui_payload"], {"some": "data"})
+
+    def test_get_messages_handles_validation_errors(self):
+        """Gracefully fall back to an empty list when the stored state fails validation."""
+        conversation = Conversation.objects.create(
+            user=self.user, team=self.team, title="Conversation with invalid state", type=Conversation.Type.ASSISTANT
+        )
+
+        # Use an invalid payload to trigger a Pydantic validation error on AssistantState.model_validate
+        invalid_snapshot = type("Snapshot", (), {"values": {"messages": [{"not": "a valid message"}]}})()
+
+        with patch("langgraph.graph.state.CompiledStateGraph.aget_state", new_callable=AsyncMock) as mock_get_state:
+            mock_get_state.return_value = invalid_snapshot
+
+            data = ConversationSerializer(
+                conversation,
+                context={
+                    "team": self.team,
+                    "user": self.user,
+                },
+            ).data
+
+        self.assertEqual(data["messages"], [])
