@@ -124,7 +124,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
                 last_refresh=datetime.now().isoformat(),
                 next_allowed_client_refresh=datetime.now().isoformat(),
                 timezone="UTC",
-                results=ActorsPropertyTaxonomyResponse(**kwargs),
+                results=[ActorsPropertyTaxonomyResponse(**kwargs)],
             )
 
     def test_retrieve_entity_properties_person(self):
