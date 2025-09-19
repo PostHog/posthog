@@ -24392,6 +24392,9 @@
                 "hasOpenChoice": {
                     "type": "boolean"
                 },
+                "id": {
+                    "type": "string"
+                },
                 "link": {
                     "type": "string"
                 },
