@@ -49,7 +49,9 @@ export function SampledSessionsModal({
             },
         ])
         // Override the default time range to 90 days
-        eventsQuery.source.after = '-90d'
+        if ('after' in eventsQuery.source) {
+            eventsQuery.source.after = '-90d'
+        }
         return combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: eventsQuery }).url
     }
 

@@ -36,17 +36,17 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element {
     if (experimentResult) {
         const variantKey = step.breakdown_value
         if (variantKey === 'control') {
-            stepsEventData = experimentResult.baseline.steps_event_data[stepIndex]
+            stepsEventData = experimentResult.baseline.step_sessions[stepIndex]
             if (stepIndex > 0) {
-                prevStepsEventData = experimentResult.baseline?.steps_event_data[stepIndex - 1] as
+                prevStepsEventData = experimentResult.baseline?.step_sessions[stepIndex - 1] as
                     | SessionData[]
                     | undefined
             }
         } else {
             const variantResult = experimentResult.variant_results?.find((v: any) => v.key === variantKey)
-            stepsEventData = variantResult.steps_event_data[stepIndex] as SessionData[] | undefined
+            stepsEventData = variantResult.step_sessions[stepIndex] as SessionData[] | undefined
             if (stepIndex > 0) {
-                prevStepsEventData = variantResult.steps_event_data[stepIndex - 1] as SessionData[] | undefined
+                prevStepsEventData = variantResult.step_sessions[stepIndex - 1] as SessionData[] | undefined
             }
         }
     }
