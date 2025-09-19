@@ -105,11 +105,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             gathered_exprs += event_where_exprs
 
         for p in self.event_properties:
-            event_enriched_event_property_exprs = property_to_expr(
-                self.with_team_events_added(p, self._team),
-                team=self._team,
-                scope="replay",
-            )
+            event_enriched_event_property_exprs = self.with_team_events_added(p, self._team)
             gathered_exprs.append(event_enriched_event_property_exprs)
 
         for p in self.group_properties:
