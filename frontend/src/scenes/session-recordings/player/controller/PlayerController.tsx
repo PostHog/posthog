@@ -123,8 +123,8 @@ export function Screenshot({ className }: { className?: string }): JSX.Element {
     )
 }
 
-export function PlayerController(): JSX.Element {
-    const { playlistLogic, logicProps } = useValues(sessionRecordingPlayerLogic)
+export function PlayerController({ playerIsHovering }: { playerIsHovering: boolean }): JSX.Element {
+    const { playlistLogic, logicProps, hoverModeIsEnabled } = useValues(sessionRecordingPlayerLogic)
     const { isCinemaMode } = useValues(playerSettingsLogic)
 
     const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
@@ -135,7 +135,17 @@ export function PlayerController(): JSX.Element {
     })
 
     return (
-        <div className="bg-surface-primary flex flex-col select-none">
+        <div
+            className={cn(
+                'flex flex-col select-none',
+                hoverModeIsEnabled ? 'absolute bottom-0 left-0 right-0 transition-all duration-150 ease-out' : '',
+                hoverModeIsEnabled && playerIsHovering
+                    ? 'opacity-100 bg-surface-primary pointer-events-auto'
+                    : hoverModeIsEnabled
+                      ? 'opacity-0 pointer-events-none'
+                      : 'bg-surface-primary'
+            )}
+        >
             <Seekbar />
             <div className="w-full px-2 py-1 relative flex items-center justify-between" ref={ref}>
                 <Timestamp size={size} />

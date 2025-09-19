@@ -43,6 +43,7 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
         closeTwoFactorSetupModal: true,
         toggleDisable2FAModal: (open: boolean) => ({ open }),
         toggleBackupCodesModal: (open: boolean) => ({ open }),
+        setSetupCallOngoing: (ongoing: boolean) => ({ ongoing }),
     }),
     reducers({
         isTwoFactorSetupModalOpen: [
@@ -78,6 +79,15 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
                 clearGeneralError: () => null,
             },
         ],
+        setupCallState: [
+            { isOngoing: false } as { isOngoing: boolean },
+            {
+                setSetupCallOngoing: (_, { ongoing }) => ({ isOngoing: ongoing }),
+                startSetupSuccess: (state) => ({ ...state, isOngoing: false }),
+                startSetupFailure: (state) => ({ ...state, isOngoing: false }),
+                closeTwoFactorSetupModal: (state) => ({ ...state, isOngoing: false }),
+            },
+        ],
         status: [
             null as TwoFactorStatus | null,
             {
@@ -97,12 +107,22 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
     }),
     selectors({
         is2FAEnabled: [(s) => [s.status], (status): boolean => !!status?.is_enabled],
+        canSwitchOrg: [(s) => [s.user], (user): boolean => (user?.organizations || []).length > 1],
     }),
-    loaders(() => ({
+    loaders(({ values, actions }) => ({
         startSetup: [
             null as { secret: string; success: boolean } | null,
             {
                 openTwoFactorSetupModal: async (_, breakpoint) => {
+                    const { isOngoing } = values.setupCallState
+
+                    if (isOngoing) {
+                        return values.startSetup
+                    }
+
+                    // We need this to prevent triggering the setup API call multiple times, which breaks the flow
+                    actions.setSetupCallOngoing(true)
+
                     breakpoint()
                     const response = await api.get('api/users/@me/two_factor_start_setup/')
                     return response
@@ -153,12 +173,13 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
         disable2FA: async () => {
             try {
                 await api.create<any>('api/users/@me/two_factor_disable/')
-                lemonToast.success('2FA disabled successfully')
+                lemonToast.success('2FA disabled successfully. The page will reload.')
                 actions.loadStatus()
 
-                // Refresh user and members
-                actions.loadUser()
-                actions.loadAllMembers()
+                // Reload to avoid breaking calls on the page if enforce_2fa=True
+                setTimeout(() => {
+                    window.location.reload()
+                }, 3000)
             } catch (e) {
                 const { code, detail } = e as Record<string, any>
                 actions.setGeneralError(code, detail)
@@ -177,7 +198,14 @@ export const twoFactorLogic = kea<twoFactorLogicType>([
     afterMount(({ actions, values }) => {
         actions.loadStatus()
 
-        if (values.user && values.user.organization?.enforce_2fa && !values.user.is_2fa_enabled) {
+        if (
+            values.user &&
+            values.user.organization?.enforce_2fa &&
+            !values.user.is_2fa_enabled &&
+            !values.user.is_impersonated &&
+            !values.user.has_social_auth &&
+            !values.user.has_sso_enforcement
+        ) {
             actions.openTwoFactorSetupModal(true)
         }
     }),

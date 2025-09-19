@@ -49,7 +49,8 @@ from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.helpers import find_last_ui_context
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import BaseState, BaseStateWithMessages
+from ee.hogai.utils.types.base import AssistantNodeName, BaseState, BaseStateWithMessages
+from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
     ROOT_BILLING_CONTEXT_ERROR_PROMPT,
@@ -302,6 +303,10 @@ class RootNode(RootNodeUIContextMixin):
     Determines the maximum number of tool calls allowed in a single generation.
     """
     CONVERSATION_WINDOW_SIZE = 64000
+
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.ROOT
 
     async def get_reasoning_message(
         self, input: BaseState, default_message: Optional[str] = None
@@ -643,6 +648,10 @@ class RootNode(RootNodeUIContextMixin):
 
 
 class RootNodeTools(AssistantNode):
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.ROOT_TOOLS
+
     async def get_reasoning_message(
         self, input: BaseState, default_message: Optional[str] = None
     ) -> ReasoningMessage | None:
