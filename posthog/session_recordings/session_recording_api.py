@@ -599,9 +599,13 @@ class SessionRecordingViewSet(
             posthoganalytics.capture_exception(
                 e,
                 distinct_id=user_distinct_id,
-                properties={"replay_feature": "listing_recordings", "unfiltered_query": request.GET.dict()},
+                properties={
+                    "replay_feature": "listing_recordings",
+                    "unfiltered_query": request.GET.dict(),
+                    "error_should_alert": True,
+                },
             )
-            return Response({"error": str(e)}, status=500)
+            return Response({"error": "An internal server error occurred. Please try again later."}, status=500)
 
     @extend_schema(
         exclude=True,
