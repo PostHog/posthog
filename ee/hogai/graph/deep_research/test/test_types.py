@@ -1,17 +1,20 @@
 from typing import cast
 
 from posthog.test.base import BaseTest
+from unittest.mock import Mock
 
 from parameterized import parameterized
 from pydantic import ValidationError
 
 from posthog.schema import (
     AssistantMessage,
+    AssistantTrendsQuery,
     DeepResearchNotebook,
     DeepResearchType,
     HumanMessage,
     PlanningStepStatus,
     TaskExecutionItem,
+    TaskExecutionStatus,
 )
 
 from ee.hogai.graph.deep_research.types import (
@@ -21,7 +24,7 @@ from ee.hogai.graph.deep_research.types import (
     PartialDeepResearchState,
     _SharedDeepResearchState,
 )
-from ee.hogai.utils.types.base import TaskResult
+from ee.hogai.utils.types.base import InsightArtifact, TaskResult
 
 """
 Test suite for type system consistency across multi-node deep research workflow.
@@ -104,21 +107,21 @@ class TestTaskResult(BaseTest):
         self.assertEqual(result.status, "completed")
         self.assertEqual(result.artifacts, [])
 
-    # def test_task_result_with_artifacts(self):
-    #     """Should create task result with artifacts."""
-    #     mock_query = Mock(spec=AssistantTrendsQuery)
-    #     artifact = InsightArtifact(id=None, task_id="artifact-1", query=mock_query, content="Test artifact")
+    def test_task_result_with_artifacts(self):
+        """Should create task result with artifacts."""
+        mock_query = Mock(spec=AssistantTrendsQuery)
+        artifact = InsightArtifact(id=None, task_id="artifact-1", query=mock_query, content="Test artifact")
 
-    #     result = TaskResult(
-    #         id="task-1",
-    #         description="Test task",
-    #         result="Task completed",
-    #         status=TaskExecutionStatus.COMPLETED,
-    #         artifacts=[artifact],
-    #     )
+        result = TaskResult(
+            id="task-1",
+            description="Test task",
+            result="Task completed",
+            status=TaskExecutionStatus.COMPLETED,
+            artifacts=[artifact],
+        )
 
-    #     self.assertEqual(len(result.artifacts), 1)
-    #     self.assertEqual(result.artifacts[0].task_id, "artifact-1")
+        self.assertEqual(len(result.artifacts), 1)
+        self.assertEqual(result.artifacts[0].task_id, "artifact-1")
 
     @parameterized.expand(
         [
