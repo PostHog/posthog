@@ -101,18 +101,15 @@ impl From<&RawEvent> for TimestampKey {
             .unwrap_or_else(|| chrono::Utc::now().timestamp_millis() as u64);
 
         let distinct_id = extract_distinct_id(raw_event);
-        let token = raw_event
-            .token
-            .clone()
-            .unwrap_or_else(|| {
-                tracing::warn!(
-                    "Event missing token - event: {}, uuid: {:?}, distinct_id: {}",
-                    raw_event.event,
-                    raw_event.uuid,
-                    distinct_id
-                );
-                UNKNOWN_STR.to_string()
-            });
+        let token = raw_event.token.clone().unwrap_or_else(|| {
+            tracing::warn!(
+                "Event missing token - event: {}, uuid: {:?}, distinct_id: {}",
+                raw_event.event,
+                raw_event.uuid,
+                distinct_id
+            );
+            UNKNOWN_STR.to_string()
+        });
 
         Self::new(timestamp, distinct_id, token, raw_event.event.clone())
     }
@@ -173,18 +170,15 @@ impl From<&RawEvent> for UuidKey {
             .unwrap_or_else(|| UNKNOWN_STR.to_string());
 
         let distinct_id = extract_distinct_id(raw_event);
-        let token = raw_event
-            .token
-            .clone()
-            .unwrap_or_else(|| {
-                tracing::warn!(
-                    "Event missing token - event: {}, uuid: {:?}, distinct_id: {}",
-                    raw_event.event,
-                    raw_event.uuid,
-                    distinct_id
-                );
-                UNKNOWN_STR.to_string()
-            });
+        let token = raw_event.token.clone().unwrap_or_else(|| {
+            tracing::warn!(
+                "Event missing token - event: {}, uuid: {:?}, distinct_id: {}",
+                raw_event.event,
+                raw_event.uuid,
+                distinct_id
+            );
+            UNKNOWN_STR.to_string()
+        });
 
         Self::new(uuid, distinct_id, token, raw_event.event.clone())
     }

@@ -74,6 +74,27 @@ pub struct MessageCompletion {
     pub processing_duration_ms: u64,
 }
 
+/// Handle for partition async processing task
+struct PartitionProcessorHandle {
+    /// Handle to the completion processing task
+    processor_handle: JoinHandle<()>,
+    /// Shutdown signal for graceful cleanup
+    shutdown_tx: tokio::sync::oneshot::Sender<()>,
+}
+
+impl PartitionProcessorHandle {
+    /// Gracefully shutdown the processor asynchronously
+    async fn shutdown(self) {
+        // Send shutdown signal
+        let _ = self.shutdown_tx.send(());
+        debug!("Sent shutdown signal to partition processor");
+
+        // Wait for the processor to finish
+        let _ = self.processor_handle.await;
+        debug!("Partition processor shutdown complete");
+    }
+}
+
 /// Per-partition tracker that manages its own completion processing
 struct PartitionTracker {
     /// Channel to send completion signals
@@ -82,26 +103,25 @@ struct PartitionTracker {
     last_committed_offset: Arc<RwLock<i64>>,
     /// Number of messages currently in-flight for this partition
     in_flight_count: Arc<AtomicU64>,
-    /// Handle to the completion processing task
-    _processor_handle: JoinHandle<()>,
-    /// Shutdown signal for graceful cleanup
-    shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,
+    /// Handle to the processor task
+    processor_handle: Option<PartitionProcessorHandle>,
 }
 
-impl Drop for PartitionTracker {
-    fn drop(&mut self) {
-        // Send shutdown signal if available
-        if let Some(shutdown_tx) = self.shutdown_tx.take() {
-            let _ = shutdown_tx.send(());
-            debug!("Sent shutdown signal to PartitionTracker completion processor");
+impl PartitionTracker {
+    /// Shutdown the tracker and its processor asynchronously
+    async fn shutdown(mut self) {
+        // First force clear in-flight messages
+        self.force_clear_inflight();
+
+        // Then shutdown the processor if it exists
+        if let Some(handle) = self.processor_handle.take() {
+            handle.shutdown().await;
         }
-        // The JoinHandle will be dropped, which will wait for task completion
-        // The channel will be closed when completion_tx is dropped
-        debug!("Dropping PartitionTracker - waiting for completion processor to finish");
     }
 }
 
 impl PartitionTracker {
+    /// Create a new partition tracker with its processor task
     fn new(
         topic: String,
         partition: i32,
@@ -199,6 +219,19 @@ impl PartitionTracker {
                     .increment(1);
 
                     let gap_size = offset - (*last_committed + 1);
+
+                    // Log details if gap is large
+                    if gap_size > 1000 {
+                        // Get the 10 smallest pending offsets for debugging
+                        let mut pending_offsets: Vec<i64> = pending_completions.keys().copied().collect();
+                        pending_offsets.sort_unstable();
+                        let smallest_10: Vec<i64> = pending_offsets.into_iter().take(10).collect();
+
+                        warn!(
+                            "Large gap detected in partition {}-{}: gap_size={}, current_offset={}, last_committed={}, smallest_10_pending={:?}",
+                            topic, partition, gap_size, offset, *last_committed, smallest_10
+                        );
+                    }
 
                     // Emit gap metrics
                     metrics::gauge!(PARTITION_OFFSET_GAP_SIZE,
@@ -302,8 +335,10 @@ impl PartitionTracker {
             completion_tx,
             last_committed_offset,
             in_flight_count,
-            _processor_handle: processor_handle,
-            shutdown_tx: Some(shutdown_tx),
+            processor_handle: Some(PartitionProcessorHandle {
+                processor_handle,
+                shutdown_tx,
+            }),
         }
     }
 
@@ -381,6 +416,17 @@ struct PartitionTrackingInfo {
 }
 
 impl PartitionTrackingInfo {
+    /// Create a new tracking info
+    fn new(state: PartitionState) -> Self {
+        Self {
+            state,
+            tracker: None,
+            initial_offset: None,
+        }
+    }
+}
+
+impl PartitionTrackingInfo {
     /// Transition to a new state with validation
     fn transition_to(&mut self, new_state: PartitionState) -> Result<()> {
         // Validate state transitions
@@ -388,26 +434,16 @@ impl PartitionTrackingInfo {
             // Valid transitions
             (PartitionState::Active, PartitionState::Fenced) => {}
             (PartitionState::Fenced, PartitionState::Revoked) => {
-                // Force clear any in-flight messages and clean up tracker when revoking
-                if let Some(tracker) = &self.tracker {
-                    tracker.force_clear_inflight();
-                }
-                self.tracker = None;
+                // Tracker cleanup will be handled by InFlightTracker
             }
             (PartitionState::Fenced, PartitionState::Active) => {
-                // Unfencing - clean tracker for fresh start
-                if let Some(tracker) = &self.tracker {
-                    tracker.force_clear_inflight();
-                }
-                self.tracker = None;
+                // Unfencing - tracker cleanup will be handled by InFlightTracker
             }
             (PartitionState::Revoked, PartitionState::Active) => {
                 // Reactivating after revocation
-                self.tracker = None;
             }
             (PartitionState::Active, PartitionState::Revoked) => {
-                // Direct revocation from active (e.g., during fast rebalance)
-                self.tracker = None;
+                // Direct revocation - tracker cleanup will be handled by InFlightTracker
             }
             // No-op transitions (already in target state)
             (current, target) if current == target => {
@@ -457,6 +493,16 @@ impl InFlightTracker {
             global_stats: Arc::new(GlobalStats::new()),
             in_flight_semaphore: Arc::new(Semaphore::new(max_in_flight)),
         }
+    }
+
+    /// Internal helper to create a new partition tracker
+    fn create_partition_tracker(
+        &self,
+        topic: String,
+        partition: i32,
+        initial_offset: Option<i64>,
+    ) -> PartitionTracker {
+        PartitionTracker::new(topic, partition, self.global_stats.clone(), initial_offset)
     }
 
     /// Track a message and return an AckableMessage that owns the permit
@@ -630,7 +676,7 @@ impl InFlightTracker {
         false
     }
 
-    /// Fence partitions immediately (non-blocking) to stop accepting new messages
+    /// Fence partitions immediately to stop accepting new messages
     pub async fn fence_partitions(&self, partitions_to_fence: &[Partition]) {
         let mut partitions = self.partitions.write().await;
 
@@ -661,14 +707,8 @@ impl InFlightTracker {
                 }
             } else {
                 // Create new entry as fenced for unknown partition
-                partitions.insert(
-                    partition.clone(),
-                    PartitionTrackingInfo {
-                        state: PartitionState::Fenced,
-                        tracker: None,
-                        initial_offset: None,
-                    },
-                );
+                let info = PartitionTrackingInfo::new(PartitionState::Fenced);
+                partitions.insert(partition.clone(), info);
                 info!(
                     "Created new fenced entry for partition {}:{}",
                     partition.topic(),
@@ -690,6 +730,22 @@ impl InFlightTracker {
             );
 
             if let Some(partition_info) = partitions.get_mut(partition) {
+                // Clean up the tracker before transitioning state
+                // We spawn the shutdown in a blocking thread pool to avoid blocking the async runtime
+                if let Some(tracker) = partition_info.tracker.take() {
+                    debug!(
+                        "Shutting down tracker for partition {}:{}",
+                        partition.topic(),
+                        partition.partition_number()
+                    );
+                    let handle = tokio::runtime::Handle::current();
+                    tokio::task::spawn_blocking(move || {
+                        handle.block_on(tracker.shutdown());
+                    })
+                    .await
+                    .expect("Failed to shutdown tracker");
+                }
+
                 match partition_info.transition_to(PartitionState::Revoked) {
                     Ok(()) => {
                         info!(
@@ -730,13 +786,23 @@ impl InFlightTracker {
             );
 
             if let Some(partition_info) = partitions.get_mut(partition.partition()) {
+                // Clean up any existing tracker before creating new one
+                if let Some(tracker) = partition_info.tracker.take() {
+                    debug!("Cleaning up existing tracker before reactivation");
+                    let handle = tokio::runtime::Handle::current();
+                    tokio::task::spawn_blocking(move || {
+                        handle.block_on(tracker.shutdown());
+                    })
+                    .await
+                    .expect("Failed to shutdown tracker");
+                }
+
                 match partition_info.transition_to(PartitionState::Active) {
                     Ok(()) => {
                         // Create a new tracker for this partition with the initial offset from Kafka
-                        let tracker = PartitionTracker::new(
+                        let tracker = self.create_partition_tracker(
                             partition.topic().to_string(),
                             partition.partition_number(),
-                            self.global_stats.clone(),
                             partition.offset(),
                         );
                         partition_info.tracker = Some(tracker);
@@ -760,21 +826,16 @@ impl InFlightTracker {
                 }
             } else {
                 // Create new entry for unknown partition with tracker
-                let tracker = PartitionTracker::new(
+                let tracker = self.create_partition_tracker(
                     partition.topic().to_string(),
                     partition.partition_number(),
-                    self.global_stats.clone(),
                     partition.offset(),
                 );
 
-                partitions.insert(
-                    partition.partition().clone(),
-                    PartitionTrackingInfo {
-                        state: PartitionState::Active,
-                        tracker: Some(tracker),
-                        initial_offset: partition.offset(),
-                    },
-                );
+                let mut info = PartitionTrackingInfo::new(PartitionState::Active);
+                info.tracker = Some(tracker);
+                info.initial_offset = partition.offset();
+                partitions.insert(partition.partition().clone(), info);
                 info!(
                     "Created new active entry for partition {}:{} with initial offset {:?}",
                     partition.topic(),
@@ -846,7 +907,45 @@ impl InFlightTracker {
         self.global_stats.memory_usage.store(0, Ordering::SeqCst);
 
         let mut partitions = self.partitions.write().await;
+        // Collect all trackers to shutdown
+        let trackers: Vec<_> = partitions
+            .iter_mut()
+            .filter_map(|(_, info)| info.tracker.take())
+            .collect();
+
+        // Clear partitions immediately
         partitions.clear();
+        drop(partitions); // Release the lock before doing async work
+
+        // Shutdown all trackers asynchronously
+        for tracker in trackers {
+            tracker.shutdown().await;
+        }
+    }
+
+    /// Graceful shutdown - clean up all partition processors
+    pub async fn shutdown(&self) {
+        let mut partitions = self.partitions.write().await;
+
+        // Collect all trackers with their partition info for logging
+        let trackers_to_shutdown: Vec<_> = partitions
+            .iter_mut()
+            .filter_map(|(partition, info)| {
+                debug!("Shutting down partition {:?}", partition);
+                info.tracker.take()
+            })
+            .collect();
+
+        // Clear partitions immediately
+        partitions.clear();
+        drop(partitions); // Release the lock before doing async work
+
+        // Shutdown all trackers asynchronously
+        for tracker in trackers_to_shutdown {
+            tracker.shutdown().await;
+        }
+
+        info!("InFlightTracker shutdown complete");
     }
 }
 
