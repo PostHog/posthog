@@ -588,10 +588,7 @@ function TaskExecutionAnswer({ message }: TaskExecutionAnswerProps): JSX.Element
                                     <IconCheck className="text-success size-3.5" />
                                 )}
                                 {task.status === TaskExecutionStatus.InProgress && (
-                                    <img
-                                        src="https://res.cloudinary.com/dmukukwp6/image/upload/loading_bdba47912e.gif"
-                                        className="size-7 -m-1" // At the "native" size-6 (24px), the icons are a tad too small
-                                    />
+                                    <div className="size-3 rounded-full bg-border animate-pulse" />
                                 )}
                                 {task.status === TaskExecutionStatus.Pending && (
                                     <div className="size-3 rounded-full bg-border" />

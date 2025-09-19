@@ -33,14 +33,15 @@ from ee.hogai.graph.deep_research.planner.prompts import (
     WRITE_RESULT_FAILED_TOOL_RESULT,
     WRITE_RESULT_TOOL_RESULT,
 )
-from ee.hogai.graph.deep_research.types import DeepResearchSingleTaskResult, DeepResearchState, DeepResearchTodo
+from ee.hogai.graph.deep_research.types import DeepResearchState, DeepResearchTodo
 from ee.hogai.utils.types import InsightArtifact
+from ee.hogai.utils.types.base import TaskResult
 
 
-def _create_test_artifact(id: str, description: str, sql_query: str = "SELECT 1"):
+def _create_test_artifact(task_id: str, description: str, sql_query: str = "SELECT 1"):
     """Helper to create InsightArtifact for testing"""
     hogql_query = AssistantHogQLQuery(query=sql_query)
-    return InsightArtifact(id=id, description=description, query=hogql_query)
+    return InsightArtifact(id=None, task_id=task_id, content=description, query=hogql_query)
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -466,7 +467,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
             (
                 "with_artifacts",
                 [
-                    DeepResearchSingleTaskResult(
+                    TaskResult(
                         id="1",
                         description="Task 1",
                         result="Result",
@@ -478,7 +479,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
             (
                 "no_artifacts",
                 [
-                    DeepResearchSingleTaskResult(
+                    TaskResult(
                         id="1",
                         description="Task 1",
                         result="Result",
@@ -509,7 +510,13 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
     async def test_execute_tasks_tool(self):
         """Test execute_tasks tool execution returns tasks"""
         tasks = [
-            TaskExecutionItem(id="1", description="Test task", prompt="Test prompt", status=TaskExecutionStatus.PENDING)
+            TaskExecutionItem(
+                id="1",
+                description="Test task",
+                prompt="Test prompt",
+                status=TaskExecutionStatus.PENDING,
+                task_type="create_insight",
+            )
         ]
         tool_calls = [AssistantToolCall(id="test_1", name="execute_tasks", args={"tasks": tasks})]
         state = self._create_state(
@@ -559,9 +566,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
             todos=[DeepResearchTodo(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
             task_results=[
-                DeepResearchSingleTaskResult(
-                    id="1", description="Task", result="Result", status=TaskExecutionStatus.COMPLETED
-                )
+                TaskResult(id="1", description="Task", result="Result", status=TaskExecutionStatus.COMPLETED)
             ],
         )
 
@@ -589,7 +594,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
             todos=[DeepResearchTodo(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
             task_results=[
-                DeepResearchSingleTaskResult(
+                TaskResult(
                     id="1",
                     description="Task",
                     result="Result",
@@ -616,7 +621,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
             todos=[DeepResearchTodo(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
             task_results=[
-                DeepResearchSingleTaskResult(
+                TaskResult(
                     id="1",
                     description="Task",
                     result="Result",
@@ -646,9 +651,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
             todos=[DeepResearchTodo(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
             task_results=[
-                DeepResearchSingleTaskResult(
-                    id="1", description="Task", result="Result", status=TaskExecutionStatus.COMPLETED
-                )
+                TaskResult(id="1", description="Task", result="Result", status=TaskExecutionStatus.COMPLETED)
             ],
         )
 
@@ -665,9 +668,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
             messages=[self._create_assistant_message_with_tool_calls(tool_calls)],
             todos=[DeepResearchTodo(id=1, description="Test", status=PlanningStepStatus.PENDING, priority="high")],
             task_results=[
-                DeepResearchSingleTaskResult(
-                    id="1", description="Task", result="Result", status=TaskExecutionStatus.COMPLETED
-                )
+                TaskResult(id="1", description="Task", result="Result", status=TaskExecutionStatus.COMPLETED)
             ],
         )
 
@@ -681,7 +682,11 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
                 "with_tasks",
                 [
                     TaskExecutionItem(
-                        id="1", description="Test", prompt="Test prompt", status=TaskExecutionStatus.PENDING
+                        id="1",
+                        description="Test",
+                        prompt="Test prompt",
+                        status=TaskExecutionStatus.PENDING,
+                        task_type="create_insight",
                     )
                 ],
                 "task_executor",

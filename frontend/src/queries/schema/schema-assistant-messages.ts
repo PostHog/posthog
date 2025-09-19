@@ -163,6 +163,7 @@ export interface TaskExecutionItem {
     status: TaskExecutionStatus
     artifact_ids?: string[]
     progress_text?: string
+    task_type: string
 }
 
 export interface TaskExecutionMessage extends BaseAssistantMessage {
