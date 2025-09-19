@@ -99,7 +99,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         # Django session, PostHog user, PostHog team, PostHog org membership,
         # instance setting check, person and distinct id
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(9):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
             self.assertEqual(response["results"][0]["event"], "event_name")
 
@@ -127,7 +127,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         # Django session, PostHog user, PostHog team, PostHog org membership,
         # look up if rate limit is enabled (cached after first lookup), instance
         # setting (poe, rate limit), person and distinct id
-        expected_queries = 11
+        expected_queries = 10
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(
