@@ -47,7 +47,7 @@ class HogQLGeneratorMixin(AssistantContextMixin):
         hogql_context = HogQLContext(team=self._team, database=database, enable_select_queries=True)
         return hogql_context
 
-    async def _construct_system_prompt(self) -> ChatPromptTemplate:
+    async def _construct_system_prompt(self, absolute_sql_dates: bool = False) -> ChatPromptTemplate:
         database = await database_sync_to_async(self._get_database)()
         hogql_context = self._get_default_hogql_context(database)
 
@@ -56,18 +56,22 @@ class HogQLGeneratorMixin(AssistantContextMixin):
             self._aget_core_memory_text(),
         )
 
+        partial_kwargs = {
+            "sql_expressions_docs": SQL_EXPRESSIONS_DOCS,
+            "sql_supported_functions_docs": SQL_SUPPORTED_FUNCTIONS_DOCS,
+            "sql_supported_aggregations_docs": SQL_SUPPORTED_AGGREGATIONS_DOCS,
+            "schema_description": schema_description,
+            "core_memory": core_memory,
+            # Forcing absolute dates in SQL generation (e.g. for Deep Research reports generation)
+            "absolute_sql_dates_section": self._get_absolute_sql_dates_section() if absolute_sql_dates else "",
+        }
+
         prompt = ChatPromptTemplate.from_messages(
             [
                 ("system", HOGQL_GENERATOR_SYSTEM_PROMPT),
             ],
             template_format="mustache",
-        ).partial(
-            sql_expressions_docs=SQL_EXPRESSIONS_DOCS,
-            sql_supported_functions_docs=SQL_SUPPORTED_FUNCTIONS_DOCS,
-            sql_supported_aggregations_docs=SQL_SUPPORTED_AGGREGATIONS_DOCS,
-            schema_description=schema_description,
-            core_memory=core_memory,
-        )
+        ).partial(**partial_kwargs)
 
         return prompt
 
@@ -75,6 +79,27 @@ class HogQLGeneratorMixin(AssistantContextMixin):
         result = parse_pydantic_structured_output(SchemaGeneratorOutput[str])(output)  # type: ignore
         cleaned_query = result.query.rstrip(";").strip() if result.query else ""
         return SQLSchemaGeneratorOutput(query=AssistantHogQLQuery(query=cleaned_query))
+
+    def _get_absolute_sql_dates_section(self) -> str:
+        return """<sql_dates_policy>
+- Do NOT use relative functions: now(), now64(), today(), yesterday(), tomorrow(),
+  dateAdd/dateSub, addDays/addHours/... subtractDays/subtractHours/..., INTERVAL arithmetic.
+- Replace them with absolute literals
+  Emit:
+    - dates:     toDate('YYYY-MM-DD')
+    - datetimes: toDateTime('YYYY-MM-DD HH:MM:SS')
+- If the prompt implies windows relative to now (e.g. "last 7 days", "this month"), compute bounds
+  from current time and emit **constants only**. Examples:
+    - toStartOfWeek(now())            -> toDate('YYYY-MM-DD')      # Monday 00:00
+    - toStartOfMonth(now())           -> toDate('YYYY-MM-01')
+    - now() - INTERVAL 7 DAY          -> toDateTime('YYYY-MM-DD HH:MM:SS')
+    - addHours(now(), 2)              -> toDateTime('YYYY-MM-DD HH:MM:SS')
+- If a start-of-* function is used, compute it first, then freeze it:
+    - toStartOfWeek(now()) - INTERVAL 8 WEEK
+      -> toDate('YYYY-MM-DD') where date = start_of_week(current_time) - 8 weeks
+- Keep semantics identical to the relative form (week starts Monday; midnight for date-only).
+</sql_dates_policy>
+"""
 
     @database_sync_to_async(thread_sensitive=False)
     def _quality_check_output(self, output: SQLSchemaGeneratorOutput):

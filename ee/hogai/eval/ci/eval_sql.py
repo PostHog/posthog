@@ -699,3 +699,129 @@ Important points:
         data=all_cases,
         pytestconfig=pytestconfig,
     )
+
+
+@pytest.mark.django_db
+async def eval_sql_absolute_dates(call_root_for_insight_generation, pytestconfig):
+    """Test SQL generation with absolute dates, used in Deep Research reports generation."""
+
+    # Create a wrapper that calls the fixture with absolute_sql_dates=True
+    async def callable_with_absolute_dates(query_with_extra_context: str | tuple[str, str]):
+        return await call_root_for_insight_generation(query_with_extra_context, absolute_sql_dates=True)
+
+    all_cases: list[EvalCase] = [
+        ### Absolute dates
+        EvalCase(
+            input="What are the top 10 countries by number of users in the last 7 days? Use SQL",
+            expected=PlanAndQueryOutput(
+                plan="""
+Query to find the top 10 countries by number of users in the last 7 days:
+- FROM: events table
+- WHERE: timestamp >= toDateTime('YYYY-MM-DD HH:MM:SS') AND timestamp < toDateTime('YYYY-MM-DD HH:MM:SS') (absolute date range for last 7 days)
+- GROUP BY: properties.$geoip_country_name
+- SELECT: properties.$geoip_country_name, count(distinct person_id) as user_count
+- ORDER BY: user_count DESC
+- LIMIT: 10
+""",
+                query=AssistantHogQLQuery(
+                    query="""
+SELECT properties.$geoip_country_name as country, count(distinct person_id) as user_count
+FROM events
+WHERE timestamp >= toDateTime('2025-09-08 11:50:06') AND timestamp < toDateTime('2025-09-15 11:50:06')
+GROUP BY country
+ORDER BY user_count DESC
+LIMIT 10
+"""
+                ),
+            ),
+        ),
+        EvalCase(
+            input="Show me daily active users from January 1st to January 31st, 2024 using SQL",
+            expected=PlanAndQueryOutput(
+                plan="""
+Query to show daily active users from January 1st to January 31st, 2024:
+- FROM: events table
+- WHERE: timestamp >= toDateTime('2024-01-01 00:00:00') AND timestamp <= toDateTime('2024-01-31 23:59:59')
+- GROUP BY: toDate(timestamp) to get daily aggregation
+- SELECT: date, count(distinct person_id) as daily_active_users
+- ORDER BY: date
+""",
+                query=AssistantHogQLQuery(
+                    query="""
+SELECT toDate(timestamp) as date, count(distinct person_id) as daily_active_users
+FROM events
+WHERE timestamp >= toDateTime('2024-01-01 00:00:00') AND timestamp <= toDateTime('2024-01-31 23:59:59')
+GROUP BY date
+ORDER BY date
+"""
+                ),
+            ),
+        ),
+        EvalCase(
+            input="Show me the top 5 pages by pageviews in the last 14 days using SQL",
+            expected=PlanAndQueryOutput(
+                plan="""
+Query to show top 5 pages by pageviews in the last 14 days:
+- FROM: events table
+- WHERE: event = '$pageview' AND timestamp >= toDateTime('YYYY-MM-DD HH:MM:SS') AND timestamp < toDateTime('YYYY-MM-DD HH:MM:SS') (absolute date range for last 14 days)
+- GROUP BY: properties.$current_url
+- SELECT: properties.$current_url, count() as pageview_count
+- ORDER BY: pageview_count DESC
+- LIMIT: 5
+""",
+                query=AssistantHogQLQuery(
+                    query="""
+SELECT properties.$current_url AS page_url, count() AS pageview_count
+FROM events
+WHERE event = '$pageview'
+  AND timestamp >= toDateTime('2025-09-01 00:00:00')
+  AND timestamp < toDateTime('2025-09-15 11:50:06')
+GROUP BY page_url
+ORDER BY pageview_count DESC
+LIMIT 5
+"""
+                ),
+            ),
+        ),
+    ]
+
+    await MaxPublicEval(
+        experiment_name="sql-absolute-dates",
+        task=callable_with_absolute_dates,
+        scores=[
+            QueryKindSelection(expected=NodeKind.HOG_QL_QUERY),
+            PlanCorrectness(
+                query_kind=NodeKind.HOG_QL_QUERY,
+                evaluation_criteria="""
+1. A plan must define a clear intent for the SQL query to be generated, including which tables/entities are being queried, what filters are being applied, and what is being returned.
+2. Compare tables, entities, filters, aggregations, group by clauses, and any other SQL elements mentioned in the 'expected plan' and 'output plan'.
+3. Check if the outlined query in 'output plan' can answer the user's question according to the 'expected plan'.
+4. If 'expected plan' mentions specific joins, aggregations, or window functions, check if 'output plan' includes similar operations, and heavily penalize if they are not present or significantly different.
+5. If 'expected plan' mentions specific time range filters, check if 'output plan' includes similar time range filters, and heavily penalize if they are not present or different.
+6. Heavily penalize if the 'output plan' contains any excessive operations not present in the 'expected plan' that would change the meaning of the query.
+""",
+            ),
+            QueryAndPlanAlignment(
+                query_kind=NodeKind.HOG_QL_QUERY,
+                json_schema=SQL_SCHEMA,
+                evaluation_criteria="""
+Most importantly, evaluate the `query` field, containing the generated HogQL.
+HogQL is simply an SQL flavor derived from ClickHouse SQL, with some PostHog-specific syntax.
+The most important piece of PostHog-specific syntax is easy access to JSON properties, which is done using `.`, like so: `SELECT properties.$browser FROM events`.
+It's also possible to access nested tables, such the `events` table has a `person` field that actually points to the related row in the `persons` table (the concrete field on `events` is `person_id`).
+This means the following syntax is valid and useful too: `SELECT person.properties.foo.bar FROM events`.
+The other standard table is `sessions`, which contains data of the session the event belongs to (though events can be outside of a session as well).
+
+Important points:
+- The generated query should use `person_id` or `person.id` for any aggregation on unique users, should NOT be using `distinct_id` or properties.
+- $identify generally should not be used, as they're mostly for internal purposes, and not useful for insights. A more useful event (or no event filter) should be used.
+- For session duration, `session.$session_duration` should be used instead of things like `properties.$session_duration`.
+- For temporal policy testing: When the input mentions "last X days", the query should use absolute dates with `toDateTime('YYYY-MM-DD HH:MM:SS')` instead of relative functions like `now() - INTERVAL X DAY`. The query should create a proper date range with both start and end timestamps, and the specific dates should be approximately correct based on the current date.""",
+            ),
+            HogQLQuerySyntaxCorrectness(),
+            TimeRangeRelevancy(query_kind=NodeKind.HOG_QL_QUERY),
+            RetryEfficiency(),
+        ],
+        data=all_cases,
+        pytestconfig=pytestconfig,
+    )

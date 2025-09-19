@@ -68,7 +68,9 @@ class DeepResearchAssistantGraph(BaseAssistantGraph[DeepResearchState]):
         """
         Add the core task executor node that handles task execution.
         """
-        compiled_insights_subgraph = InsightsAssistantGraph(self._team, self._user).compile_full_graph()
+        compiled_insights_subgraph = InsightsAssistantGraph(self._team, self._user).compile_full_graph(
+            absolute_sql_dates=True
+        )
         executor_node = TaskExecutorNode(self._team, self._user, compiled_insights_subgraph)
         self.add_node(DeepResearchNodeName.TASK_EXECUTOR, executor_node)
         self.add_edge(DeepResearchNodeName.TASK_EXECUTOR, next_node)

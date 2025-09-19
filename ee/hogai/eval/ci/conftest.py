@@ -35,30 +35,32 @@ EVAL_USER_FULL_NAME = "Karen Smith"
 def call_root_for_insight_generation(demo_org_team_user):
     # This graph structure will first get a plan, then generate the SQL query.
 
-    insights_subgraph = (
-        # Insights subgraph without query execution, so we only create the queries
-        InsightsAssistantGraph(demo_org_team_user[1], demo_org_team_user[2])
-        .add_query_creation_flow(next_node=AssistantNodeName.END)
-        .compile()
-    )
-    graph = (
-        AssistantGraph(demo_org_team_user[1], demo_org_team_user[2])
-        .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-        .add_root(
-            path_map={
-                "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
-                "root": AssistantNodeName.END,
-                "search_documentation": AssistantNodeName.END,
-                "end": AssistantNodeName.END,
-            }
+    async def callable(
+        query_with_extra_context: str | tuple[str, str], absolute_sql_dates: bool = False
+    ) -> PlanAndQueryOutput:
+        # Create the graph with the specified absolute_sql_dates parameter
+        insights_subgraph = (
+            # Insights subgraph without query execution, so we only create the queries
+            InsightsAssistantGraph(demo_org_team_user[1], demo_org_team_user[2])
+            .add_query_creation_flow(next_node=AssistantNodeName.END, absolute_sql_dates=absolute_sql_dates)
+            .compile()
         )
-        .add_node(AssistantNodeName.INSIGHTS_SUBGRAPH, insights_subgraph)
-        .add_edge(AssistantNodeName.INSIGHTS_SUBGRAPH, AssistantNodeName.END)
-        # TRICKY: We need to set a checkpointer here because async tests create a new event loop.
-        .compile(checkpointer=DjangoCheckpointer())
-    )
-
-    async def callable(query_with_extra_context: str | tuple[str, str]) -> PlanAndQueryOutput:
+        graph = (
+            AssistantGraph(demo_org_team_user[1], demo_org_team_user[2])
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_root(
+                path_map={
+                    "insights": AssistantNodeName.INSIGHTS_SUBGRAPH,
+                    "root": AssistantNodeName.END,
+                    "search_documentation": AssistantNodeName.END,
+                    "end": AssistantNodeName.END,
+                }
+            )
+            .add_node(AssistantNodeName.INSIGHTS_SUBGRAPH, insights_subgraph)
+            .add_edge(AssistantNodeName.INSIGHTS_SUBGRAPH, AssistantNodeName.END)
+            # TRICKY: We need to set a checkpointer here because async tests create a new event loop.
+            .compile(checkpointer=DjangoCheckpointer())
+        )
         # If query_with_extra_context is a tuple, the first element is the query, the second is the extra context
         # in case there's an ask_user tool call.
         query = query_with_extra_context[0] if isinstance(query_with_extra_context, tuple) else query_with_extra_context
