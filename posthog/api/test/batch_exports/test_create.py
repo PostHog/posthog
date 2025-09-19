@@ -781,10 +781,58 @@ def test_creating_databricks_batch_export_fails_if_integration_is_missing(
     )
     assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
-    assert "integration_id" in response.json()["detail"]
     assert response.json() == {
         "type": "validation_error",
         "code": "invalid_input",
         "detail": "integration_id is required for Databricks batch exports",
         "attr": "destination",
     }
+
+
+def test_creating_databricks_batch_export_fails_if_integration_is_invalid(
+    client: HttpClient, temporal, organization, team, user, enable_databricks
+):
+    """Test that creating a Databricks batch export fails if the integration is invalid.
+
+    Using integrations is the preferred way to handle credentials for batch exports going forward.
+
+    In this case, the integration is missing the client_secret.
+    """
+
+    integration = Integration.objects.create(
+        team=team,
+        kind=Integration.IntegrationKind.DATABRICKS,
+        integration_id=str(team.pk),
+        config={"server_hostname": "my-server-hostname"},
+        sensitive_config={"client_id": "my-client-id"},
+        created_by=user,
+    )
+
+    destination_data = {
+        "type": "Databricks",
+        "config": {
+            # "server_hostname": "my-server-hostname",
+            "http_path": "my-http-path",
+            # "client_id": "my-client-id",
+            # "client_secret": "my-client-secret",
+            "catalog": "my-catalog",
+            "schema": "my-schema",
+            "table_name": "my-table-name",
+            "integration_id": integration.pk,
+        },
+    }
+
+    batch_export_data = {
+        "name": "my-databricks-destination",
+        "destination": destination_data,
+        "interval": "hour",
+    }
+
+    client.force_login(user)
+    response = create_batch_export(
+        client,
+        team.pk,
+        batch_export_data,
+    )
+    assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    assert response.json()["detail"] == "Databricks integration is not valid: 'client_secret' missing"

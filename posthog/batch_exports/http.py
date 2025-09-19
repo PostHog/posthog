@@ -46,7 +46,7 @@ from posthog.batch_exports.service import (
 )
 from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun, Team, User
 from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
-from posthog.models.integration import Integration
+from posthog.models.integration import DatabricksIntegration, DatabricksIntegrationError, Integration
 from posthog.models.signals import model_activity_signal
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
@@ -420,8 +420,11 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 integration = Integration.objects.get(id=config.get("integration_id"), team_id=team_id)
             except Integration.DoesNotExist:
                 raise serializers.ValidationError("Integration not found")
-            if integration.kind != Integration.IntegrationKind.DATABRICKS:
-                raise serializers.ValidationError("The provided integration is not a Databricks Integration")
+            # try instantiate the integration to check if it's valid
+            try:
+                DatabricksIntegration(integration)
+            except DatabricksIntegrationError as e:
+                raise serializers.ValidationError(str(e))
         return destination_attrs
 
     def create(self, validated_data: dict) -> BatchExport:
