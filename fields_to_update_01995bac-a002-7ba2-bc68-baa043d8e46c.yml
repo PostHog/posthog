@@ -1,28 +1,28 @@
-- path: key_actions[1].events[1].abandonment
+- path: key_actions.1.events.1.abandonment
   current_value: true
   new_value: null
-- path: key_actions[1].events[1].confusion
+- path: key_actions.1.events.1.confusion
   current_value: false
   new_value: null
-- path: key_actions[1].events[1].description
+- path: key_actions.1.events.1.description
   current_value: Blocking store path exception rendered Error tracking unusable
   new_value: null
-- path: key_actions[1].events[1].exception
+- path: key_actions.1.events.1.exception
   current_value: blocking
   new_value: null
-- path: segment_outcomes[1].success
+- path: segment_outcomes.1.success
   current_value: false
   new_value: null
-- path: segment_outcomes[1].summary
+- path: segment_outcomes.1.summary
   current_value: Error tracking page threw blocking exception, user abandoned and
-    focused on replay instead
+      focused on replay instead
   new_value: null
-- path: segments[1].name
+- path: segments.1.name
   current_value: Error-tracking failure and fallback to replay
   new_value: null
 - path: session_outcome.description
   current_value: Session showcased broad feature exploration but a blocking Error-tracking
-    bug prevented intended usage of that key tool
+      bug prevented intended usage of that key tool
   new_value: null
 - path: session_outcome.success
   current_value: false
