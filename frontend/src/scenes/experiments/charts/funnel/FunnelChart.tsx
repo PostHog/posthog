@@ -2,6 +2,7 @@ import '../../../funnels/Funnel.scss'
 
 import { createContext, useContext, useMemo } from 'react'
 
+import { NewExperimentQueryResponse } from '~/queries/schema/schema-general'
 import {
     ChartParams,
     FunnelStepReference,
@@ -21,8 +22,8 @@ export interface FunnelChartProps extends ChartParams {
     hiddenLegendBreakdowns?: string[]
     /** Disable baseline for experiments */
     disableBaseline?: boolean
-    /** Experiment result containing sampled session IDs */
-    experimentResult?: any
+    /** Experiment result data */
+    experimentResult: NewExperimentQueryResponse
 }
 
 export interface FunnelChartDataContext {
@@ -30,7 +31,7 @@ export interface FunnelChartDataContext {
     stepsWithConversionMetrics: FunnelStepWithConversionMetrics[]
     steps: FunnelStepWithNestedBreakdown[]
     hasFunnelResults: boolean
-    experimentResult?: any
+    experimentResult: NewExperimentQueryResponse
 }
 
 const FunnelChartDataContext = createContext<FunnelChartDataContext | null>(null)

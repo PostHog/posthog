@@ -35,10 +35,10 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element {
     if (experimentResult) {
         const variantKey = step.breakdown_value
         if (variantKey === 'control') {
-            sessionData = experimentResult.baseline.step_sessions[stepIndex]
+            sessionData = experimentResult.baseline.step_sessions?.[stepIndex]
         } else {
             const variantResult = experimentResult.variant_results?.find((v: any) => v.key === variantKey)
-            sessionData = variantResult.step_sessions[stepIndex] as SessionData[] | undefined
+            sessionData = variantResult?.step_sessions?.[stepIndex] as SessionData[] | undefined
         }
     }
     const handleClick = (): void => {
