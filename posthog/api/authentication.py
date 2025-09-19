@@ -165,6 +165,18 @@ class LoginSerializer(serializers.Serializer):
 
         request = self.context["request"]
         was_authenticated_before_login_attempt = bool(getattr(request, "user", None) and request.user.is_authenticated)
+
+        # Initialize axes handler for brute force protection
+        from axes.handlers.cache import AxesCacheHandler
+
+        handler = AxesCacheHandler()
+
+        # Check if axes has locked out this IP/user before attempting authentication
+        if handler.is_locked(request, credentials={"username": validated_data["email"]}):
+            from axes.exceptions import AxesBackendPermissionDenied
+
+            raise AxesBackendPermissionDenied("Account locked: too many login attempts.")
+
         user = cast(
             Optional[User],
             authenticate(
@@ -175,6 +187,8 @@ class LoginSerializer(serializers.Serializer):
         )
 
         if not user:
+            # Record the failed attempt with axes
+            handler.user_login_failed(None, credentials={"username": validated_data["email"]}, request=request)
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
         # We still let them log in if is_email_verified is null so existing users don't get locked out
@@ -194,6 +208,9 @@ class LoginSerializer(serializers.Serializer):
             raise TwoFactorRequired()
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+
+        # Log successful authentication with axes
+        handler.user_logged_in(None, user=user, request=request)
 
         # Trigger login notification (password, no-2FA) and skip re-auth
         if not was_authenticated_before_login_attempt:
@@ -242,6 +259,16 @@ class LoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     serializer_class = LoginSerializer
     permission_classes = (permissions.AllowAny,)
     # NOTE: Throttling is handled by the `axes` package
+
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Override to handle axes lockout exceptions."""
+        try:
+            return super().create(request, *args, **kwargs)
+        except Exception as e:
+            # Check if this is an axes lockout exception
+            if e.__class__.__name__ == "AxesBackendPermissionDenied":
+                return axes_locked_out(request)
+            raise
 
 
 class TwoFactorSerializer(serializers.Serializer):

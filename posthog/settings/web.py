@@ -161,7 +161,7 @@ WSGI_APPLICATION = "posthog.wsgi.application"
 # Authentication
 
 AUTHENTICATION_BACKENDS: list[str] = [
-    "axes.backends.AxesBackend",
+    "axes.backends.AxesStandaloneBackend",
     "social_core.backends.github.GithubOAuth2",
     "social_core.backends.gitlab.GitLabOAuth2",
     "django.contrib.auth.backends.ModelBackend",
