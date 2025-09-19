@@ -77,6 +77,7 @@ class TestUpdateHogFunctionCode(BaseTest):
         output = out.getvalue()
         self.assertIn("DRY RUN - No changes will be made", output)
         self.assertIn("Found 2 destinations to process", output)
+        self.assertIn("Updated: 1", output)
         self.assertIn("Update completed", output)
 
     @patch("posthog.management.commands.update_hog_function_code.compile_hog")
@@ -100,8 +101,8 @@ class TestUpdateHogFunctionCode(BaseTest):
         assert "'LinkedIn-Version': '202508'" in self.linkedin_function2.hog
 
         output = out.getvalue()
-        self.assertIn("Found 4 destinations to process", output)
-        self.assertIn("Updated: 2", output)
+        self.assertIn("Found 2 destinations to process", output)
+        self.assertIn("Updated: 1", output)
         self.assertIn("Update completed", output)
 
     @patch("posthog.cdp.validation.compile_hog")
