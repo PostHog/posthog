@@ -382,7 +382,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
             "1",
         )
 
-    def test_autocapture_does_not_set_initial_url(self):
+    def test_autocapture_does_not_set_attribution_when_pageview_present(self):
         distinct_id = create_distinct_id()
         session_id = create_session_id()
 
@@ -393,6 +393,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
             properties={
                 "$session_id": session_id,
                 "$current_url": "/1",
+                "utm_source": "source1",
             },
             timestamp="2024-03-08",
         )
@@ -403,6 +404,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
             properties={
                 "$session_id": session_id,
                 "$current_url": "/2",
+                "utm_source": "source2",
             },
             timestamp="2024-03-09",
         )
@@ -410,4 +412,29 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
         result = self.select_by_session_id(session_id)
 
         assert result[0]["entry_url"] == "/2"
+        assert result[0]["end_url"] == "/2"
         assert result[0]["urls"] == ["/2"]
+        assert result[0]["entry_utm_source"] == "source2"
+
+    def test_autocapture_does_set_attribution_when_only_event(self):
+        distinct_id = create_distinct_id()
+        session_id = create_session_id()
+
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id=distinct_id,
+            properties={
+                "$session_id": session_id,
+                "$current_url": "/1",
+                "utm_source": "source1",
+            },
+            timestamp="2024-03-08",
+        )
+
+        result = self.select_by_session_id(session_id)
+
+        assert result[0]["entry_url"] == "/1"
+        assert result[0]["end_url"] == "/1"
+        assert result[0]["urls"] == []
+        assert result[0]["entry_utm_source"] == "source1"

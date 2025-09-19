@@ -263,7 +263,10 @@ WITH parsed_events AS (
         inserted_at,
         event,
         uuid,
-        {PROPERTIES}
+        {PROPERTIES},
+        -- attribution properties from non-pageview/screen events should be deprioritized, so make the timestamp +/- 1 year so they sort last
+        if (event = '$pageview' OR event = '$screen', timestamp, timestamp + toIntervalYear(1)) as pageview_prio_timestamp_min,
+        if (event = '$pageview' OR event = '$screen', timestamp, timestamp - toIntervalYear(1)) as pageview_prio_timestamp_max
     FROM {database}.sharded_events
     WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
     AND {where}
@@ -282,8 +285,8 @@ SELECT
 
     -- urls - only update if the event is a pageview or screen
     if(current_url IS NOT NULL AND (event = '$pageview' OR event = '$screen'), [current_url], []) AS urls,
-    initializeAggregation('argMinState', if(event = '$pageview' OR event = '$screen', current_url, NULL), timestamp) as entry_url,
-    initializeAggregation('argMaxState', if(event = '$pageview' OR event = '$screen', current_url, NULL), timestamp) as end_url,
+    initializeAggregation('argMinState', current_url, pageview_prio_timestamp_min) as entry_url,
+    initializeAggregation('argMaxState', current_url, pageview_prio_timestamp_max) as end_url,
     initializeAggregation('argMaxState', external_click_url, timestamp) as last_external_click_url,
 
     -- device
@@ -303,26 +306,26 @@ SELECT
     initializeAggregation('argMinState', geoip_time_zone, timestamp) as geoip_time_zone,
 
     -- attribution
-    initializeAggregation('argMinState', referring_domain, timestamp) as entry_referring_domain,
-    initializeAggregation('argMinState', utm_source, timestamp) as entry_utm_source,
-    initializeAggregation('argMinState', utm_campaign, timestamp) as entry_utm_campaign,
-    initializeAggregation('argMinState', utm_medium, timestamp) as entry_utm_medium,
-    initializeAggregation('argMinState', utm_term, timestamp) as entry_utm_term,
-    initializeAggregation('argMinState', utm_content, timestamp) as entry_utm_content,
-    initializeAggregation('argMinState', gclid, timestamp) as entry_gclid,
-    initializeAggregation('argMinState', gad_source, timestamp) as entry_gad_source,
-    initializeAggregation('argMinState', fbclid, timestamp) as entry_fbclid,
+    initializeAggregation('argMinState', referring_domain, pageview_prio_timestamp_min) as entry_referring_domain,
+    initializeAggregation('argMinState', utm_source, pageview_prio_timestamp_min) as entry_utm_source,
+    initializeAggregation('argMinState', utm_campaign, pageview_prio_timestamp_min) as entry_utm_campaign,
+    initializeAggregation('argMinState', utm_medium, pageview_prio_timestamp_min) as entry_utm_medium,
+    initializeAggregation('argMinState', utm_term, pageview_prio_timestamp_min) as entry_utm_term,
+    initializeAggregation('argMinState', utm_content, pageview_prio_timestamp_min) as entry_utm_content,
+    initializeAggregation('argMinState', gclid, pageview_prio_timestamp_min) as entry_gclid,
+    initializeAggregation('argMinState', gad_source, pageview_prio_timestamp_min) as entry_gad_source,
+    initializeAggregation('argMinState', fbclid, pageview_prio_timestamp_min) as entry_fbclid,
 
     -- has gclid/fbclid for reading fewer bytes when calculating channel type
-    initializeAggregation('argMinState', gclid IS NOT NULL, timestamp) as entry_has_gclid,
-    initializeAggregation('argMinState', fbclid IS NOT NULL, timestamp) as entry_has_fbclid,
+    initializeAggregation('argMinState', gclid IS NOT NULL, pageview_prio_timestamp_min) as entry_has_gclid,
+    initializeAggregation('argMinState', fbclid IS NOT NULL, pageview_prio_timestamp_min) as entry_has_fbclid,
 
     -- other ad ids
-    initializeAggregation('argMinState', ({AD_IDS_MAP}), timestamp) as entry_ad_ids_map,
-    initializeAggregation('argMinState', ({AD_IDS_SET}), timestamp) as entry_ad_ids_set,
+    initializeAggregation('argMinState', ({AD_IDS_MAP}), pageview_prio_timestamp_min) as entry_ad_ids_map,
+    initializeAggregation('argMinState', ({AD_IDS_SET}), pageview_prio_timestamp_min) as entry_ad_ids_set,
 
     -- channel type
-    initializeAggregation('argMinState', tuple(utm_source, utm_medium, utm_campaign, referring_domain, gclid IS NOT NULL, fbclid IS NOT NULL, gad_source), timestamp) as entry_channel_type_properties,
+    initializeAggregation('argMinState', tuple(utm_source, utm_medium, utm_campaign, referring_domain, gclid IS NOT NULL, fbclid IS NOT NULL, gad_source), pageview_prio_timestamp_min) as entry_channel_type_properties,
 
 
     -- counts
