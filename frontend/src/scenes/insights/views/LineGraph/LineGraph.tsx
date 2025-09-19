@@ -610,6 +610,12 @@ export function LineGraph_({
                 includeInvisible: true, // Only important for log scale, where 0 values are always below the minimum
             },
             plugins: {
+                crosshair: {
+                    enabled: true,
+                    snap: { enabled: false },
+                    sync: { enabled: false },
+                    zoom: { enabled: false },
+                },
                 stacked100: { enable: isPercentStackView, precision: 1 },
                 datalabels: {
                     color: 'white',
