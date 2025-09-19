@@ -105,7 +105,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         team: Team,
         query: RecordingsQuery,
         hogql_query_modifiers: Optional[HogQLQueryModifiers],
-        allow_event_property_expansion: bool,
+        allow_event_property_expansion: bool = False,
         **_,
     ):
         # TRICKY: we need to make sure we init test account filters only once,

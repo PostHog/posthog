@@ -5,7 +5,7 @@ from posthog.schema import ActionsNode, DataWarehouseNode, EventsNode, HogQLQuer
 
 from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
-from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.query import execute_hogql_query, tracer
 
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import MathAvailability, legacy_entity_to_node
 from posthog.models import Entity, EventProperty, Team
@@ -58,7 +58,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         self,
         team: Team,
         query: RecordingsQuery,
-        allow_event_property_expansion: bool,
+        allow_event_property_expansion: bool = False,
         hogql_query_modifiers: Optional[HogQLQueryModifiers] = None,
     ):
         super().__init__(team, query)
@@ -340,6 +340,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             return None
 
     @staticmethod
+    @tracer.start_as_current_span("ReplayFiltersEventsSubQuery.with_team_events_added")
     def with_team_events_added(p: AnyPropertyFilter, team: Team) -> ast.Expr:
         """
         We support property only filters because users expect it, but unlike insights

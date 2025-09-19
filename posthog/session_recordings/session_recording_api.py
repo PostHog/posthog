@@ -564,7 +564,7 @@ class SessionRecordingViewSet(
                     )
 
                 with tracer.start_as_current_span("convert_filters"):
-                    query = filter_from_params_to_query(**request.GET.dict())
+                    query = filter_from_params_to_query({**request.GET.dict()})
 
                 if query.comment_text:
                     with tracer.start_as_current_span("search_comments"):
@@ -601,7 +601,7 @@ class SessionRecordingViewSet(
                 distinct_id=user_distinct_id,
                 properties={"replay_feature": "listing_recordings", "unfiltered_query": request.GET.dict()},
             )
-            return Response({"error": "An internal error has occurred. Please try again later."}, status=500)
+            return Response({"error": str(e)}, status=500)
 
     @extend_schema(
         exclude=True,
