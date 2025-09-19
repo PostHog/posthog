@@ -10,11 +10,14 @@ import { useEffect, useState } from 'react'
 import {
     IconBalance,
     IconCollapse,
+    IconCopy,
     IconExpand,
     IconGlobe,
     IconInfo,
     IconLaptop,
     IconPlus,
+    IconPlusSmall,
+    IconRewind,
     IconRewindPlay,
     IconServer,
     IconTrash,
@@ -28,10 +31,12 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
+import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
+import { SceneFile } from 'lib/components/Scenes/SceneFile'
+import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -42,6 +47,7 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Lettermark, LettermarkColor } from 'lib/lemon-ui/Lettermark'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { alphabet, capitalizeFirstLetter } from 'lib/utils'
 import { ProductIntentContext, addProductIntent } from 'lib/utils/product-intents'
 import { FeatureFlagPermissions } from 'scenes/FeatureFlagPermissions'
@@ -52,8 +58,6 @@ import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { concatWithPunctuation } from 'scenes/insights/utils'
 import { useMaxTool } from 'scenes/max/useMaxTool'
-import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
-import { NotebookNodeType } from 'scenes/notebooks/types'
 import { SceneExport } from 'scenes/sceneTypes'
 import { SURVEY_CREATED_SOURCE } from 'scenes/surveys/constants'
 import { captureMaxAISurveyCreationException } from 'scenes/surveys/utils'
@@ -61,6 +65,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -99,6 +104,8 @@ import { FeatureFlagStatusIndicator } from './FeatureFlagStatusIndicator'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { FeatureFlagLogicProps, featureFlagLogic, getRecordingFilterForFlagVariant } from './featureFlagLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from './featureFlagsLogic'
+
+const RESOURCE_TYPE = 'feature_flag'
 
 // Utility function to create MaxTool configuration for feature flag survey creation
 export function createMaxToolSurveyConfig(
@@ -195,7 +202,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         featureFlagLoading,
         featureFlagMissing,
         isEditingFlag,
-        newCohortLoading,
         activeTab,
         accessDeniedToFeatureFlag,
         multivariateEnabled,
@@ -210,6 +216,8 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
         createStaticCohort,
         setFeatureFlagFilters,
         setActiveTab,
+        updateFlag,
+        saveFeatureFlag,
     } = useActions(featureFlagLogic)
 
     const { earlyAccessFeaturesList } = useValues(featureFlagLogic)
@@ -614,89 +622,6 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                             buttons={
                                 <>
                                     <div className="flex items-center gap-2">
-                                        <More
-                                            loading={newCohortLoading}
-                                            overlay={
-                                                <>
-                                                    {featureFlags[FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION] && (
-                                                        <>
-                                                            <LemonButton
-                                                                loading={newCohortLoading}
-                                                                onClick={() => {
-                                                                    createStaticCohort()
-                                                                }}
-                                                                fullWidth
-                                                            >
-                                                                Create Cohort
-                                                            </LemonButton>
-                                                            <LemonDivider />
-                                                        </>
-                                                    )}
-
-                                                    <LemonButton
-                                                        to={urls.featureFlagDuplicate(featureFlag.id)}
-                                                        fullWidth
-                                                    >
-                                                        <span>Duplicate feature flag</span>
-                                                    </LemonButton>
-
-                                                    {openMax && (
-                                                        <LemonButton
-                                                            data-attr="create-survey"
-                                                            fullWidth
-                                                            onClick={openMax}
-                                                        >
-                                                            Create survey
-                                                        </LemonButton>
-                                                    )}
-                                                    <LemonDivider />
-                                                    <AccessControlAction
-                                                        resourceType={AccessControlResourceType.FeatureFlag}
-                                                        minAccessLevel={AccessControlLevel.Editor}
-                                                        userAccessLevel={featureFlag.user_access_level}
-                                                    >
-                                                        <LemonButton
-                                                            data-attr={
-                                                                featureFlag.deleted
-                                                                    ? 'restore-feature-flag'
-                                                                    : 'delete-feature-flag'
-                                                            }
-                                                            status="danger"
-                                                            fullWidth
-                                                            onClick={() => {
-                                                                featureFlag.deleted
-                                                                    ? restoreFeatureFlag(featureFlag)
-                                                                    : deleteFeatureFlag(featureFlag)
-                                                            }}
-                                                            disabledReason={
-                                                                !featureFlag.can_edit
-                                                                    ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
-                                                                    : (featureFlag.features?.length || 0) > 0
-                                                                      ? 'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag'
-                                                                      : (featureFlag.experiment_set?.length || 0) > 0
-                                                                        ? 'This feature flag is linked to an experiment. Delete the experiment to delete this flag'
-                                                                        : (featureFlag.surveys?.length || 0) > 0
-                                                                          ? 'This feature flag is linked to a survey. Delete the survey to delete this flag'
-                                                                          : null
-                                                            }
-                                                        >
-                                                            {featureFlag.deleted ? 'Restore' : 'Delete'} feature flag
-                                                        </LemonButton>
-                                                    </AccessControlAction>
-                                                </>
-                                            }
-                                        />
-
-                                        <LemonDivider vertical />
-
-                                        <NotebookSelectButton
-                                            resource={{
-                                                type: NotebookNodeType.FeatureFlag,
-                                                attrs: { id: featureFlag.id },
-                                            }}
-                                            type="secondary"
-                                        />
-
                                         <AccessControlAction
                                             resourceType={AccessControlResourceType.FeatureFlag}
                                             minAccessLevel={AccessControlLevel.Editor}
@@ -723,6 +648,96 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 </>
                             }
                         />
+
+                        <ScenePanel>
+                            <ScenePanelMetaInfo>
+                                {hasAvailableFeature(AvailableFeature.TAGGING) && (
+                                    <SceneTags
+                                        onSave={(tags) => {
+                                            const updatedFlag = { ...featureFlag, tags }
+                                            updateFlag(updatedFlag)
+                                            saveFeatureFlag(updatedFlag)
+                                        }}
+                                        canEdit
+                                        tags={featureFlag.tags}
+                                        tagsAvailable={tags.filter((tag: string) => !featureFlag.tags?.includes(tag))}
+                                        dataAttrKey={RESOURCE_TYPE}
+                                    />
+                                )}
+
+                                <SceneFile dataAttrKey={RESOURCE_TYPE} />
+                            </ScenePanelMetaInfo>
+                            <ScenePanelDivider />
+                            <ScenePanelActions>
+                                <ButtonPrimitive
+                                    onClick={() => {
+                                        router.actions.push(urls.featureFlagDuplicate(featureFlag.id))
+                                    }}
+                                    menuItem
+                                    data-attr={`${RESOURCE_TYPE}-duplicate`}
+                                >
+                                    <IconCopy />
+                                    Duplicate
+                                </ButtonPrimitive>
+                                <SceneAddToNotebookDropdownMenu dataAttrKey={RESOURCE_TYPE} />
+                                {featureFlags[FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION] && (
+                                    <ButtonPrimitive
+                                        menuItem
+                                        data-attr={`${RESOURCE_TYPE}-create-cohort`}
+                                        onClick={() => createStaticCohort()}
+                                    >
+                                        <IconPlusSmall />
+                                        Create cohort
+                                    </ButtonPrimitive>
+                                )}
+                                {openMax && (
+                                    <ButtonPrimitive
+                                        menuItem
+                                        data-attr={`${RESOURCE_TYPE}-create-survey`}
+                                        onClick={() => openMax()}
+                                    >
+                                        <IconPlusSmall />
+                                        Create survey
+                                    </ButtonPrimitive>
+                                )}
+
+                                <ScenePanelDivider />
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.FeatureFlag}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                >
+                                    {({ disabledReason }) => (
+                                        <ButtonPrimitive
+                                            menuItem
+                                            variant="danger"
+                                            disabled={!!disabledReason}
+                                            {...(disabledReason && { tooltip: disabledReason })}
+                                            data-attr={
+                                                featureFlag.deleted ? 'restore-feature-flag' : 'delete-feature-flag'
+                                            }
+                                            onClick={() => {
+                                                featureFlag.deleted
+                                                    ? restoreFeatureFlag(featureFlag)
+                                                    : deleteFeatureFlag(featureFlag)
+                                            }}
+                                            disabledReasons={{
+                                                "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator.":
+                                                    !featureFlag.can_edit,
+                                                'This feature flag is in use with an early access feature. Delete the early access feature to delete this flag':
+                                                    (featureFlag.features?.length || 0) > 0,
+                                                'This feature flag is linked to an experiment. Delete the experiment to delete this flag':
+                                                    (featureFlag.experiment_set?.length || 0) > 0,
+                                                'This feature flag is linked to a survey. Delete the survey to delete this flag':
+                                                    (featureFlag.surveys?.length || 0) > 0,
+                                            }}
+                                        >
+                                            {featureFlag.deleted ? <IconRewind /> : <IconTrash />}
+                                            {featureFlag.deleted ? 'Restore' : 'Delete'} feature flag
+                                        </ButtonPrimitive>
+                                    )}
+                                </AccessControlAction>
+                            </ScenePanelActions>
+                        </ScenePanel>
                         <SceneContent>
                             {earlyAccessFeature && earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && (
                                 <LemonBanner type="info">

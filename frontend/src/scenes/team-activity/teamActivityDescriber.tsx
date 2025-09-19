@@ -355,6 +355,7 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
         }
         return { description: [<>{recordCanvasAfter ? 'enabled' : 'disabled'} canvas recording in session replay</>] }
     },
+    session_recording_retention_period: createSimpleValueHandler('session replay data retention'),
 
     // Survey config
     surveys_opt_in: createBooleanToggleHandler('surveys'),

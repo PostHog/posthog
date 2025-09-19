@@ -90,6 +90,7 @@ class AssistantContextualTool(StrEnum):
     SEARCH_DOCS = "search_docs"
     SEARCH_INSIGHTS = "search_insights"
     SESSION_SUMMARIZATION = "session_summarization"
+    CREATE_DASHBOARD = "create_dashboard"
 
 
 class AssistantDateRange(BaseModel):
@@ -919,6 +920,11 @@ class DateRange(BaseModel):
 
 class DatetimeDay(RootModel[datetime]):
     root: datetime
+
+
+class DeepResearchType(StrEnum):
+    PLANNING = "planning"
+    REPORT = "report"
 
 
 class DefaultChannelTypes(StrEnum):
@@ -3627,6 +3633,16 @@ class Day(RootModel[int]):
     root: int
 
 
+class DeepResearchNotebook(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    category: Literal["deep_research"] = "deep_research"
+    notebook_id: str
+    notebook_type: Optional[DeepResearchType] = None
+    title: str
+
+
 class ElementPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4132,8 +4148,11 @@ class NotebookUpdateMessage(BaseModel):
         extra="forbid",
     )
     content: ProsemirrorJSONContent
+    conversation_notebooks: Optional[list[DeepResearchNotebook]] = None
+    current_run_notebooks: Optional[list[DeepResearchNotebook]] = None
     id: Optional[str] = None
     notebook_id: str
+    notebook_type: Literal["deep_research"] = "deep_research"
     tool_calls: Optional[list[AssistantToolCall]] = None
     type: Literal["ai/notebook"] = "ai/notebook"
 
@@ -4870,6 +4889,7 @@ class SurveyQuestionSchema(BaseModel):
     descriptionContentType: Optional[SurveyQuestionDescriptionContentType] = None
     display: Optional[Display1] = None
     hasOpenChoice: Optional[bool] = None
+    id: Optional[str] = None
     link: Optional[str] = None
     lowerBoundLabel: Optional[str] = None
     optional: Optional[bool] = None
@@ -4898,6 +4918,7 @@ class TaskExecutionItem(BaseModel):
     progress_text: Optional[str] = None
     prompt: str
     status: TaskExecutionStatus
+    task_type: str
 
 
 class TaskExecutionMessage(BaseModel):
