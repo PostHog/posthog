@@ -31,7 +31,11 @@ from posthog.api.utils import DECIDE_REQUEST_DATA_CACHE_KEY
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.exceptions import generate_exception_response
+from posthog.exceptions import (
+    RequestParsingError,
+    UnspecifiedCompressionFallbackParsingError,
+    generate_exception_response,
+)
 from posthog.geoip import get_geoip_properties
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Notebook, Team, User
 from posthog.models.activity_logging.utils import activity_storage
@@ -403,9 +407,24 @@ class ShortCircuitMiddleware:
                     http_referer=request.headers.get("referer"),
                     http_user_agent=request.headers.get("user-agent"),
                 )
+                parsing_error = None
                 if not hasattr(request, DECIDE_REQUEST_DATA_CACHE_KEY):
-                    setattr(request, DECIDE_REQUEST_DATA_CACHE_KEY, load_data_from_request(request))
+                    try:
+                        setattr(request, DECIDE_REQUEST_DATA_CACHE_KEY, load_data_from_request(request))
+                    except (RequestParsingError, UnspecifiedCompressionFallbackParsingError) as error:
+                        # Cache the error but continue to rate limiting
+                        parsing_error = error
+                        setattr(request, DECIDE_REQUEST_DATA_CACHE_KEY, None)
+
                 if self.decide_throttler.allow_request(request, None):
+                    # If there was a parsing error, return it now (after rate limiting)
+                    if parsing_error:
+                        return cors_response(
+                            request,
+                            generate_exception_response(
+                                "decide", f"Malformed request data: {parsing_error}", code="malformed_data"
+                            ),
+                        )
                     return get_decide(request)
                 else:
                     return cors_response(
