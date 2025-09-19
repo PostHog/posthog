@@ -324,7 +324,7 @@ def setup_partitioning(
             return pa_table
 
     partition_result = append_partition_key_to_table(
-        table=pa_table,
+        table_or_batch=pa_table,
         partition_count=partition_count,
         partition_size=partition_size,
         partition_keys=partition_keys,
