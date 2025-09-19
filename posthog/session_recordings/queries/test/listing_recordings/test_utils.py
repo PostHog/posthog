@@ -30,10 +30,15 @@ def create_event(
     )
 
 
-def filter_recordings_by(team: Team, recordings_filter: dict | None = None) -> SessionRecordingQueryResult:
+def filter_recordings_by(
+    team: Team, recordings_filter: dict | None = None, allow_event_property_expansion: bool = False
+) -> SessionRecordingQueryResult:
     the_query = RecordingsQuery.model_validate(query_as_params_to_dict(recordings_filter or {}))
     session_recording_list_instance = SessionRecordingListFromQuery(
-        query=the_query, team=team, hogql_query_modifiers=None
+        query=the_query,
+        team=team,
+        hogql_query_modifiers=None,
+        allow_event_property_expansion=allow_event_property_expansion,
     )
     return session_recording_list_instance.run()
 

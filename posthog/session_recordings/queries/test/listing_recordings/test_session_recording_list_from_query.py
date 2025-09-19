@@ -16,7 +16,7 @@ from unittest.mock import ANY
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
-from parameterized import parameterized
+from parameterized import parameterized, parameterized_class
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
@@ -44,8 +44,12 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from ee.clickhouse.models.test.test_cohort import get_person_ids_by_cohort_id
 
 
+@parameterized_class([{"allow_event_property_expansion": True}, {"allow_event_property_expansion": False}])
 @freeze_time("2021-01-01T13:46:23")
 class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
+    # set by parameterized_class decorator
+    allow_event_property_expansion: bool
+
     def setUp(self):
         super().setUp()
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
@@ -70,7 +74,11 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
 
     # wrap the util so we don't have to pass the team every time
     def _filter_recordings_by(self, recordings_filter: dict | None = None) -> SessionRecordingQueryResult:
-        return filter_recordings_by(team=self.team, recordings_filter=recordings_filter)
+        return filter_recordings_by(
+            team=self.team,
+            recordings_filter=recordings_filter,
+            allow_event_property_expansion=self.allow_event_property_expansion,
+        )
 
     # wrap the util so we don't have to pass team every time
     def _assert_query_matches_session_ids(
