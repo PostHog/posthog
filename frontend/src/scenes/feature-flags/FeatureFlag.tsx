@@ -703,7 +703,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
 
                                 <ScenePanelDivider />
                                 <AccessControlAction
-                                    resourceType={AccessControlResourceType.Notebook}
+                                    resourceType={AccessControlResourceType.FeatureFlag}
                                     minAccessLevel={AccessControlLevel.Editor}
                                 >
                                     {({ disabledReason }) => (
