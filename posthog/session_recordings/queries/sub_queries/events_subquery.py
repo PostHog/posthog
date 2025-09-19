@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta
 from typing import Optional
 
+import posthoganalytics
+
 from posthog.schema import ActionsNode, DataWarehouseNode, EventsNode, HogQLQueryModifiers, RecordingsQuery
 
 from posthog.hogql import ast
@@ -350,28 +352,34 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         we can load the events for a given property from postgres and convert a property only filter
         into an event and property filter
         """
-        property_type = p.type
-        if property_type is None or property_type != "event":
-            raise ValueError("property must be of type event")
+        try:
+            property_type = p.type
+            if property_type is None or property_type != "event":
+                raise ValueError("property must be of type event")
 
-        events_that_have_the_property = EventProperty.objects.filter(team_id=team.id, property=p.key).values_list(
-            "event", flat=True
-        )
-
-        if not events_that_have_the_property:
-            # If no events have this property, just  return the property expression itself
-            return property_to_expr(p, team=team, scope="replay")
-
-        entities = []
-        for event_name in events_that_have_the_property:
-            entity = EventsNode(
-                event=event_name,
-                name=event_name,
-                properties=[p],  # Attach the original property filter
+            events_that_have_the_property = EventProperty.objects.filter(team_id=team.id, property=p.key).values_list(
+                "event", flat=True
             )
-            entities.append(entity)
 
-        event_exprs = ReplayFiltersEventsSubQuery._event_predicates(entities, team)
+            if not events_that_have_the_property:
+                # If no events have this property, just  return the property expression itself
+                return property_to_expr(p, team=team, scope="replay")
 
-        # Combine all with OR: ((event = '$pageview' AND ...) OR(event='$pageleave' AND...))
-        return ast.Or(exprs=event_exprs)
+            entities = []
+            for event_name in events_that_have_the_property:
+                entity = EventsNode(
+                    event=event_name,
+                    name=event_name,
+                    properties=[p],  # Attach the original property filter
+                )
+                entities.append(entity)
+
+            event_exprs = ReplayFiltersEventsSubQuery._event_predicates(entities, team)
+
+            # Combine all with OR: ((event = '$pageview' AND ...) OR(event='$pageleave' AND...))
+            return ast.Or(exprs=event_exprs)
+        except Exception as e:
+            posthoganalytics.capture_exception(e, properties={"replay_feature": "with_team_events_added"})
+            # we can return this transformation here because this is what was always run in the past
+            # so if _that_ is going to fail nothing this method can do could change it
+            return property_to_expr(p, team=team, scope="replay")
