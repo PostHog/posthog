@@ -43,12 +43,9 @@ export class PlaywrightSetup {
     }
 
     /**
-     * Internal method to call the Django setup endpoint
+     * Call the Django setup endpoint
      */
-    private async callSetupEndpoint(
-        setupType: string,
-        options: PlaywrightSetupOptions = {}
-    ): Promise<TestSetupResponse> {
+    async callSetupEndpoint(setupType: string, options: PlaywrightSetupOptions = {}): Promise<TestSetupResponse> {
         const { data = {}, throwOnError = true, baseURL } = options
         const url = `${baseURL || this.baseURL}/api/setup_test/${setupType}/`
 
@@ -155,7 +152,7 @@ export async function createTestWorkspace(
     data?: Record<string, any>
 ): Promise<TestSetupResponse> {
     const playwrightSetup = createPlaywrightSetup(request)
-    return playwrightSetup['callSetupEndpoint'](setupType, { data })
+    return playwrightSetup.callSetupEndpoint(setupType, { data })
 }
 
 // Re-export types for convenience
