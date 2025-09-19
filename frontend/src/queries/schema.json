@@ -23593,11 +23593,6 @@
                 "computedAs": {
                     "$ref": "#/definitions/StickinessComputationMode"
                 },
-                "detailedResultsAggregationType": {
-                    "description": "detailed results table",
-                    "enum": ["total", "average", "median"],
-                    "type": "string"
-                },
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType"
                 },

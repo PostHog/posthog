@@ -2501,12 +2501,6 @@ class StickinessComputationMode(StrEnum):
     CUMULATIVE = "cumulative"
 
 
-class DetailedResultsAggregationType(StrEnum):
-    TOTAL = "total"
-    AVERAGE = "average"
-    MEDIAN = "median"
-
-
 class StickinessFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -2686,6 +2680,12 @@ class TimelineEntry(BaseModel):
     events: list[EventType]
     recording_duration_s: Optional[float] = Field(default=None, description="Duration of the recording in seconds.")
     sessionId: Optional[str] = Field(default=None, description="Session ID. None means out-of-session events")
+
+
+class DetailedResultsAggregationType(StrEnum):
+    TOTAL = "total"
+    AVERAGE = "average"
+    MEDIAN = "median"
 
 
 class TrendsFilterLegacy(BaseModel):
@@ -4744,9 +4744,6 @@ class StickinessFilter(BaseModel):
         extra="forbid",
     )
     computedAs: Optional[StickinessComputationMode] = None
-    detailedResultsAggregationType: Optional[DetailedResultsAggregationType] = Field(
-        default=None, description="detailed results table"
-    )
     display: Optional[ChartDisplayType] = None
     hiddenLegendIndexes: Optional[list[int]] = None
     resultCustomizationBy: Optional[ResultCustomizationBy] = Field(

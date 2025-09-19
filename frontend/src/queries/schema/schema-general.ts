@@ -1461,8 +1461,6 @@ export type StickinessFilter = {
     resultCustomizations?:
         | Record<string, ResultCustomizationByValue>
         | Record<numerical_key, ResultCustomizationByPosition>
-    /** detailed results table */
-    detailedResultsAggregationType?: 'total' | 'average' | 'median'
 }
 
 export const STICKINESS_FILTER_PROPERTIES = new Set<keyof StickinessFilter>([

@@ -235,9 +235,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 if (isTrendsQuery(querySource)) {
                     return querySource.trendsFilter?.detailedResultsAggregationType as AggregationType | undefined
                 }
-                if (isStickinessQuery(querySource)) {
-                    return querySource.stickinessFilter?.detailedResultsAggregationType as AggregationType | undefined
-                }
             },
         ],
         funnelsFilter: [(s) => [s.querySource], (q) => (isFunnelsQuery(q) ? q.funnelsFilter : null)],
