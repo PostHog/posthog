@@ -460,6 +460,15 @@ wheels = [
 ]
 
 [[package]]
+name = "boltons"
+version = "25.0.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/63/54/71a94d8e02da9a865587fb3fff100cb0fc7aa9f4d5ed9ed3a591216ddcc7/boltons-25.0.0.tar.gz", hash = "sha256:e110fbdc30b7b9868cb604e3f71d4722dd8f4dcb4a5ddd06028ba8f1ab0b5ace", size = 246294, upload-time = "2025-02-03T05:57:59.129Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/45/7f/0e961cf3908bc4c1c3e027de2794f867c6c89fb4916fc7dba295a0e80a2d/boltons-25.0.0-py3-none-any.whl", hash = "sha256:dc9fb38bf28985715497d1b54d00b62ea866eca3938938ea9043e254a3a6ca62", size = 194210, upload-time = "2025-02-03T05:57:56.705Z" },
+]
+
+[[package]]
 name = "boto3"
 version = "1.28.16"
 source = { registry = "https://pypi.org/simple" }
@@ -1900,6 +1909,18 @@ wheels = [
 ]
 
 [[package]]
+name = "face"
+version = "24.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "boltons" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ac/79/2484075a8549cd64beae697a8f664dee69a5ccf3a7439ee40c8f93c1978a/face-24.0.0.tar.gz", hash = "sha256:611e29a01ac5970f0077f9c577e746d48c082588b411b33a0dd55c4d872949f6", size = 62732, upload-time = "2024-11-02T05:24:26.095Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e9/47/21867c2e5fd006c8d36a560df9e32cb4f1f566b20c5dd41f5f8a2124f7de/face-24.0.0-py3-none-any.whl", hash = "sha256:0e2c17b426fa4639a4e77d1de9580f74a98f4869ba4c7c8c175b810611622cd3", size = 54742, upload-time = "2024-11-02T05:24:24.939Z" },
+]
+
+[[package]]
 name = "faker"
 version = "17.5.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2087,6 +2108,20 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/37/5f/543dc54c82842376139748226e5aa61eb95093992f63dd495af9c6b4f076/giturlparse-0.12.0.tar.gz", hash = "sha256:c0fff7c21acc435491b1779566e038757a205c1ffdcb47e4f81ea52ad8c3859a", size = 14907, upload-time = "2023-09-24T07:22:36.795Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/dd/94/c6ff3388b8e3225a014e55aed957188639aa0966443e0408d38f0c9614a7/giturlparse-0.12.0-py2.py3-none-any.whl", hash = "sha256:412b74f2855f1da2fefa89fd8dde62df48476077a72fc19b62039554d27360eb", size = 15752, upload-time = "2023-09-24T07:22:35.465Z" },
+]
+
+[[package]]
+name = "glom"
+version = "24.11.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "attrs" },
+    { name = "boltons" },
+    { name = "face" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/05/89/b57cfbc448189426f2e01b244fbe9226b059ef5423a9d49c1d335a1f1026/glom-24.11.0.tar.gz", hash = "sha256:4325f96759a912044af7b6c6bd0dba44ad8c1eb6038aab057329661d2021bb27", size = 195120, upload-time = "2024-11-02T23:17:50.405Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9c/a2/75fd80784ec33da8d39cf885e8811a4fbc045a90db5e336b8e345e66dbb2/glom-24.11.0-py3-none-any.whl", hash = "sha256:991db7fcb4bfa9687010aa519b7b541bbe21111e70e58fdd2d7e34bbaa2c1fbd", size = 102690, upload-time = "2024-11-02T23:17:46.468Z" },
 ]
 
 [[package]]
@@ -4097,6 +4132,7 @@ dependencies = [
     { name = "emoji" },
     { name = "fastavro" },
     { name = "geoip2" },
+    { name = "glom" },
     { name = "google-ads" },
     { name = "google-cloud-bigquery" },
     { name = "google-genai" },
@@ -4326,6 +4362,7 @@ requires-dist = [
     { name = "emoji", specifier = "==2.14.1" },
     { name = "fastavro", specifier = ">=1.12.0" },
     { name = "geoip2", specifier = "==4.6.0" },
+    { name = "glom", specifier = ">=24.11.0" },
     { name = "google-ads", specifier = "==26.1.0" },
     { name = "google-cloud-bigquery", specifier = "==3.26" },
     { name = "google-genai", specifier = "==1.10.0" },
