@@ -34,7 +34,11 @@ from posthog.sync import database_sync_to_async
 from ee.hogai.graph.base import BaseAssistantNode
 from ee.hogai.graph.graph import AssistantCompiledStateGraph
 from ee.hogai.utils.exceptions import GenerationCanceled
-from ee.hogai.utils.helpers import extract_content_from_ai_message, should_output_assistant_message
+from ee.hogai.utils.helpers import (
+    extract_content_from_ai_message,
+    extract_stream_update,
+    should_output_assistant_message,
+)
 from ee.hogai.utils.state import (
     GraphMessageUpdateTuple,
     GraphTaskStartedUpdateTuple,
@@ -323,18 +327,15 @@ class BaseAssistant(ABC):
     async def _node_to_reasoning_message(
         self, node_name: MaxNodeName, input: AssistantMaxGraphState
     ) -> Optional[ReasoningMessage]:
+        if node_name not in self.THINKING_NODES:
+            return None
         async_callable = self._graph.aget_reasoning_message_by_node_name.get(node_name)
         if async_callable:
             return await async_callable(input, self._last_reasoning_headline or "")
         return None
 
     async def _process_update(self, update: Any) -> list[BaseModel] | None:
-        if update[1] == "custom":
-            # Custom streams come from a tool call
-            # If it's a LangGraph-based chunk, we remove the first two elements, which are "custom" and the parent graph namespace
-            update = update[2]
-
-        update = update[1:]  # we remove the first element, which is the node/subgraph node name
+        update = extract_stream_update(update)
         if is_state_update(update):
             _, new_state = update
             self._state = validate_state_update(new_state, self._state_type)
@@ -393,10 +394,12 @@ class BaseAssistant(ABC):
         # Check for commentary in tool call chunks first
         if commentary := self._extract_commentary_from_tool_call_chunk(langchain_message):
             return AssistantMessage(content=commentary)
+
         # Check for reasoning content first (for all nodes that support it)
-        if reasoning := langchain_message.additional_kwargs.get("reasoning"):
-            if reasoning_headline := self._chunk_reasoning_headline(reasoning):
-                return ReasoningMessage(content=reasoning_headline)
+        if node_name in self.THINKING_NODES:
+            if reasoning := langchain_message.additional_kwargs.get("reasoning"):
+                if reasoning_headline := self._chunk_reasoning_headline(reasoning):
+                    return ReasoningMessage(content=reasoning_headline)
 
         # Only process streaming nodes
         if node_name not in self.STREAMING_NODES:

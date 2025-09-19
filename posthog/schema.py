@@ -4870,6 +4870,7 @@ class SurveyQuestionSchema(BaseModel):
     descriptionContentType: Optional[SurveyQuestionDescriptionContentType] = None
     display: Optional[Display1] = None
     hasOpenChoice: Optional[bool] = None
+    id: Optional[str] = None
     link: Optional[str] = None
     lowerBoundLabel: Optional[str] = None
     optional: Optional[bool] = None
@@ -4898,6 +4899,7 @@ class TaskExecutionItem(BaseModel):
     progress_text: Optional[str] = None
     prompt: str
     status: TaskExecutionStatus
+    task_type: str
 
 
 class TaskExecutionMessage(BaseModel):
