@@ -1,0 +1,34 @@
+running 2 tests
+test test_deduplication_with_different_events ... FAILED
+test test_basic_deduplication ... FAILED
+
+failures:
+
+---- test_deduplication_with_different_events stdout ----
+Creating Kafka admin client for broker: localhost:9092
+Creating 2 topics
+Sending create topics request to Kafka...
+Topic test_dedup_events_f32632f5-d74c-4d74-981a-674b04aec820 result: InvalidPartitions
+Topic test_dedup_events_output_3b85212f-d977-4db6-8af6-46d5adc472aa result: InvalidPartitions
+Creating producer for topic: test_dedup_events_f32632f5-d74c-4d74-981a-674b04aec820
+Producing 3 events to topic test_dedup_events_f32632f5-d74c-4d74-981a-674b04aec820
+Error: Failed to send message: KafkaError (Message production error: InvalidPartitions (Broker: Invalid number of partitions))
+
+---- test_basic_deduplication stdout ----
+Starting test_basic_deduplication
+Acquiring test mutex...
+Test mutex acquired
+Test topics: input=test_dedup_input_f0ee1e6c-3f96-4b8d-90d9-6c11d50b0ab3, output=test_dedup_output_1670aa82-4e57-45ea-b794-72996b940a29, group=test_group_08484950-962b-4ce8-9195-de872296f277
+Creating Kafka topics...
+Creating Kafka admin client for broker: localhost:9092
+Creating 2 topics
+Sending create topics request to Kafka...
+Topic test_dedup_input_f0ee1e6c-3f96-4b8d-90d9-6c11d50b0ab3 result: InvalidPartitions
+Topic test_dedup_output_1670aa82-4e57-45ea-b794-72996b940a29 result: InvalidPartitions
+Topics created successfully
+Creating Kafka Deduplicator service...
+Service initialized
+Producing 5 duplicate events for user_123...
+Creating producer for topic: test_dedup_input_f0ee1e6c-3f96-4b8d-90d9-6c11d50b0ab3
+Producing 5 events to topic test_dedup_input_f0ee1e6c-3f96-4b8d-90d9-6c11d50b0ab3
+Error: Failed to send message: KafkaError (Message production error: InvalidPartitions (Broker: Invalid number of partitions))

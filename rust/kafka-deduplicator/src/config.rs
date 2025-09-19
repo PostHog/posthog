@@ -98,6 +98,9 @@ pub struct Config {
     #[envconfig(default = "3")]
     pub max_concurrent_checkpoints: usize,
 
+    #[envconfig(default = "200")]
+    pub checkpoint_gate_interval_millis: u64,
+
     #[envconfig(default = "/tmp/checkpoints")]
     pub local_checkpoint_dir: String,
 
@@ -263,6 +266,10 @@ impl Config {
     /// Get cleanup interval as Duration
     pub fn cleanup_interval(&self) -> Duration {
         Duration::from_secs(self.cleanup_interval_secs)
+    }
+
+    pub fn checkpoint_gate_interval(&self) -> Duration {
+        Duration::from_millis(self.checkpoint_gate_interval_millis)
     }
 
     /// Get S3 timeout as Duration
