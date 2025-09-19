@@ -397,11 +397,11 @@ class RootNode(RootNodeUIContextMixin):
         # Mark the longest default prefix as cacheable
         add_cache_control(system_prompts[-1])
 
-        message = self._get_model(
+        message = await self._get_model(
             state,
             config,
             extra_tools=["retrieve_billing_information"] if should_add_billing_tool else [],
-        ).invoke(
+        ).ainvoke(
             system_prompts + history,
             config,
         )

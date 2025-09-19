@@ -232,7 +232,7 @@ def extract_content_from_ai_message(response: BaseMessage) -> str:
                 text_parts.append(content_item["text"])
             elif isinstance(content_item, str):
                 text_parts.append(content_item)
-        return "\n".join(text_parts)
+        return "".join(text_parts)
     return str(response.content)
 
 
@@ -272,3 +272,20 @@ def extract_stream_update(update: Any) -> Any:
 
     update = update[1:]  # we remove the first element, which is the node/subgraph node name
     return update
+
+
+def extract_thinking_content_from_ai_message(response: BaseMessage) -> list[dict[str, Any]] | None:
+    """
+    Extracts the Anthropic thinking from a BaseMessage.
+    """
+    if not isinstance(response.content, list):
+        return None
+    thinking_parts: list[dict[str, Any]] = []
+    for content_item in response.content:
+        if (
+            isinstance(content_item, dict)
+            and "type" in content_item
+            and content_item["type"] in ("thinking", "redacted_thinking")
+        ):
+            thinking_parts.append(content_item)
+    return thinking_parts if thinking_parts else None
