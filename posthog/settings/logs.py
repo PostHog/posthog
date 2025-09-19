@@ -94,7 +94,5 @@ LOGGING = {
         "posthog.caching.warming": {"level": "INFO"},
         "boto3": {"level": "WARN"},  # boto3 logs are noisy
         "botocore": {"level": "WARN"},  # botocore logs are noisy
-        "azure.core.pipeline.policies.http_logging_policy": {"level": "WARN"},  # Azure SDK HTTP logs are too verbose
-        "openai": {"level": "WARN"},  # OpenAI SDK logs can be verbose
     },
 }
