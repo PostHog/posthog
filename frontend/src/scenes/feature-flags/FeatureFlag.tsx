@@ -693,7 +693,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 {openMax && (
                                     <ButtonPrimitive
                                         menuItem
-                                        data-attr={`${RESOURCE_TYPE}-add-to-notebook`}
+                                        data-attr={`${RESOURCE_TYPE}-create-survey`}
                                         onClick={() => openMax()}
                                     >
                                         <IconPlusSmall />
