@@ -117,6 +117,15 @@ class DeepResearchAssistant(BaseAssistant):
                 return True
         return False
 
+    def _should_persist_commentary_message(self, node_name: MaxNodeName) -> bool:
+        """Persist complete commentary lines emitted by planner/task executor tools."""
+        if isinstance(node_name, DeepResearchNodeName):
+            return node_name in {
+                DeepResearchNodeName.PLANNER,
+                DeepResearchNodeName.TASK_EXECUTOR,
+            }
+        return False
+
     def get_initial_state(self) -> DeepResearchState:
         if self._latest_message:
             return DeepResearchState(

@@ -398,8 +398,17 @@ class BaseAssistant(ABC):
         node_name = cast(MaxNodeName, langgraph_state["langgraph_node"])
 
         # Check for commentary in tool call chunks first
-        if commentary := self._extract_commentary_from_tool_call_chunk(langchain_message):
-            return AssistantMessage(content=commentary)
+        if extracted := self._extract_commentary_from_tool_call_chunk(langchain_message):
+            commentary_text, is_complete = extracted
+            message = AssistantMessage(content=commentary_text)
+            try:
+                if is_complete and self._should_persist_commentary_message(node_name):
+                    await self._persist_stream_message(node_name, message)
+            except Exception as e:
+                logger.warning("Failed to persist streamed commentary", error=str(e))
+            if is_complete:
+                return None
+            return message
         # Check for reasoning content first (for all nodes that support it)
         if reasoning := langchain_message.additional_kwargs.get("reasoning"):
             if reasoning_headline := self._chunk_reasoning_headline(reasoning):
@@ -442,6 +451,10 @@ class BaseAssistant(ABC):
 
     def _should_persist_stream_message(self, message: BaseModel, node_name: MaxNodeName) -> bool:
         """Subclasses can opt-in to persisting specific streamed messages."""
+        return False
+
+    def _should_persist_commentary_message(self, node_name: MaxNodeName) -> bool:
+        """Subclasses can opt-in to persisting completed commentary messages."""
         return False
 
     def _chunk_reasoning_headline(self, reasoning: dict[str, Any]) -> Optional[str]:
@@ -505,11 +518,13 @@ class BaseAssistant(ABC):
                 self._reasoning_headline_chunk += summary_text_chunk
                 return None
 
-    def _extract_commentary_from_tool_call_chunk(self, langchain_message: AIMessageChunk) -> Optional[str]:
+    def _extract_commentary_from_tool_call_chunk(
+        self, langchain_message: AIMessageChunk
+    ) -> Optional[tuple[str, bool, Optional[str], Optional[int]]]:
         """Extract commentary from tool call chunks.
 
-        Handles partial JSON parsing for "commentary": "some text" patterns
-        Returns the commentary content when a complete or partial one is found.
+        Handles partial JSON parsing for "commentary": "some text" patterns.
+        Returns a tuple (text, is_complete) when commentary is found.
         """
         if not langchain_message.tool_call_chunks:
             return None
@@ -551,12 +566,12 @@ class BaseAssistant(ABC):
                         commentary = value_buffer[:closing_quote_idx]
                         # Reset buffer for next commentary
                         self._commentary_chunk = None
-                        return commentary
+                        return commentary, True
                     else:
                         # Partial commentary - return what we have so far
                         # But only if there's actual content
                         if value_buffer:
-                            return value_buffer
+                            return value_buffer, False
 
         return None
 
