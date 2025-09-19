@@ -78,8 +78,6 @@ export const manualCosts: ModelRow[] = [
         cost: {
             prompt_token: 0.000003,
             completion_token: 0.000015,
-            cache_read_token: 3e-7,
-            cache_write_token: 0.00000375,
         },
     },
     // google gen ai
