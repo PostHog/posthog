@@ -2383,6 +2383,15 @@ class SessionAttributionGroupBy(StrEnum):
     INITIAL_URL = "InitialURL"
 
 
+class SessionData(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    distinct_id: str
+    event_uuid: str
+    session_id: str
+
+
 class SessionEventsItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3778,7 +3787,7 @@ class ExperimentStatsBase(BaseModel):
     number_of_samples: int
     numerator_denominator_sum_product: Optional[float] = None
     step_counts: Optional[list[int]] = None
-    steps_event_data: Optional[list[list[list[str]]]] = None
+    step_sessions: Optional[list[list[SessionData]]] = None
     sum: float
     sum_squares: float
 
@@ -3793,7 +3802,7 @@ class ExperimentStatsBaseValidated(BaseModel):
     number_of_samples: int
     numerator_denominator_sum_product: Optional[float] = None
     step_counts: Optional[list[int]] = None
-    steps_event_data: Optional[list[list[list[str]]]] = None
+    step_sessions: Optional[list[list[SessionData]]] = None
     sum: float
     sum_squares: float
     validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
@@ -3813,7 +3822,7 @@ class ExperimentVariantResultBayesian(BaseModel):
     numerator_denominator_sum_product: Optional[float] = None
     significant: Optional[bool] = None
     step_counts: Optional[list[int]] = None
-    steps_event_data: Optional[list[list[list[str]]]] = None
+    step_sessions: Optional[list[list[SessionData]]] = None
     sum: float
     sum_squares: float
     validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None
@@ -3833,7 +3842,7 @@ class ExperimentVariantResultFrequentist(BaseModel):
     p_value: Optional[float] = None
     significant: Optional[bool] = None
     step_counts: Optional[list[int]] = None
-    steps_event_data: Optional[list[list[list[str]]]] = None
+    step_sessions: Optional[list[list[SessionData]]] = None
     sum: float
     sum_squares: float
     validation_failures: Optional[list[ExperimentStatsValidationFailure]] = None

@@ -11800,15 +11800,10 @@
                     },
                     "type": "array"
                 },
-                "steps_event_data": {
+                "step_sessions": {
                     "items": {
                         "items": {
-                            "items": {
-                                "type": "string"
-                            },
-                            "maxItems": 3,
-                            "minItems": 3,
-                            "type": "array"
+                            "$ref": "#/definitions/SessionData"
                         },
                         "type": "array"
                     },
@@ -11848,15 +11843,10 @@
                     },
                     "type": "array"
                 },
-                "steps_event_data": {
+                "step_sessions": {
                     "items": {
                         "items": {
-                            "items": {
-                                "type": "string"
-                            },
-                            "maxItems": 3,
-                            "minItems": 3,
-                            "type": "array"
+                            "$ref": "#/definitions/SessionData"
                         },
                         "type": "array"
                     },
@@ -12047,15 +12037,10 @@
                     },
                     "type": "array"
                 },
-                "steps_event_data": {
+                "step_sessions": {
                     "items": {
                         "items": {
-                            "items": {
-                                "type": "string"
-                            },
-                            "maxItems": 3,
-                            "minItems": 3,
-                            "type": "array"
+                            "$ref": "#/definitions/SessionData"
                         },
                         "type": "array"
                     },
@@ -12119,15 +12104,10 @@
                     },
                     "type": "array"
                 },
-                "steps_event_data": {
+                "step_sessions": {
                     "items": {
                         "items": {
-                            "items": {
-                                "type": "string"
-                            },
-                            "maxItems": 3,
-                            "minItems": 3,
-                            "type": "array"
+                            "$ref": "#/definitions/SessionData"
                         },
                         "type": "array"
                     },
@@ -23062,6 +23042,22 @@
                 }
             },
             "required": ["columns", "hogql", "results", "types"],
+            "type": "object"
+        },
+        "SessionData": {
+            "additionalProperties": false,
+            "properties": {
+                "distinct_id": {
+                    "type": "string"
+                },
+                "event_uuid": {
+                    "type": "string"
+                },
+                "session_id": {
+                    "type": "string"
+                }
+            },
+            "required": ["distinct_id", "session_id", "event_uuid"],
             "type": "object"
         },
         "SessionEventsItem": {
