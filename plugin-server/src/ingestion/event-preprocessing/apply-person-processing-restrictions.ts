@@ -1,7 +1,7 @@
 import { IncomingEventWithTeam } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
 import { success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
-import { SyncPreprocessingStep } from '../processing-pipeline'
+import { SyncProcessingStep } from '../processing-pipeline'
 
 function applyPersonProcessingRestrictions(
     eventWithTeam: IncomingEventWithTeam,
@@ -28,7 +28,7 @@ function applyPersonProcessingRestrictions(
 // TODO: Refactor this to use just headers and the team before parsing the event
 export function createApplyPersonProcessingRestrictionsStep<T extends { eventWithTeam: IncomingEventWithTeam }>(
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
-): SyncPreprocessingStep<T, T> {
+): SyncProcessingStep<T, T> {
     return function applyPersonProcessingRestrictionsStep(input) {
         const { eventWithTeam } = input
         applyPersonProcessingRestrictions(eventWithTeam, eventIngestionRestrictionManager)

@@ -2,7 +2,7 @@ import { ingestionOverflowingMessagesTotal } from '../../main/ingestion-queues/b
 import { EventHeaders } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
 import { redirect, success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
-import { SyncPreprocessingStep } from '../processing-pipeline'
+import { SyncProcessingStep } from '../processing-pipeline'
 
 export type ForceOverflowDecision = {
     shouldRedirect: boolean
@@ -37,7 +37,7 @@ function applyForceOverflowRestrictions(
 export function createApplyForceOverflowRestrictionsStep<T extends { headers: EventHeaders }>(
     eventIngestionRestrictionManager: EventIngestionRestrictionManager,
     overflowConfig: OverflowConfig
-): SyncPreprocessingStep<T, T> {
+): SyncProcessingStep<T, T> {
     return function applyForceOverflowRestrictionsStep(input) {
         const { headers } = input
 

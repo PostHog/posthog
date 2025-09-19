@@ -3,13 +3,16 @@ import {
     PipelineStepResultType,
     isSuccessResult,
 } from '../worker/ingestion/event-pipeline/pipeline-step-result'
+import { AsyncProcessingStep } from './processing-pipeline'
 
 export type BatchProcessingResult<T> = PipelineStepResult<T>[]
+
+export type BatchProcessingStep<T, U> = (values: T[]) => Promise<BatchProcessingResult<U>>
 
 export class BatchProcessingPipeline<T> {
     constructor(private resultPromise: Promise<BatchProcessingResult<T>>) {}
 
-    pipe<U>(step: (values: T[]) => Promise<BatchProcessingResult<U>>): BatchProcessingPipeline<U> {
+    pipe<U>(step: BatchProcessingStep<T, U>): BatchProcessingPipeline<U> {
         const nextResultPromise = this.resultPromise.then(async (currentResults) => {
             const successfulValues = currentResults.filter(isSuccessResult).map((result) => result.value)
 
@@ -28,7 +31,7 @@ export class BatchProcessingPipeline<T> {
         return new BatchProcessingPipeline(nextResultPromise)
     }
 
-    pipeConcurrently<U>(stepConstructor: (value: T) => Promise<PipelineStepResult<U>>): BatchProcessingPipeline<U> {
+    pipeConcurrently<U>(stepConstructor: AsyncProcessingStep<T, U>): BatchProcessingPipeline<U> {
         const nextResultPromise = this.resultPromise.then(async (currentResults) => {
             return Promise.all(
                 currentResults.map(async (result) =>

@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { AsyncPreprocessingStep, SyncPreprocessingStep } from '../../ingestion/processing-pipeline'
+import { AsyncProcessingStep, SyncProcessingStep } from '../../ingestion/processing-pipeline'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { dlq, drop, redirect, success } from './event-pipeline/pipeline-step-result'
@@ -66,7 +66,7 @@ describe('ResultHandlingPipeline', () => {
     describe('pipe() - synchronous steps', () => {
         it('should execute step when result is success', async () => {
             const initialValue = { count: 1 }
-            const step: SyncPreprocessingStep<typeof initialValue, { count: number }> = (input) => {
+            const step: SyncProcessingStep<typeof initialValue, { count: number }> = (input) => {
                 return success({ count: input.count + 1 })
             }
 
@@ -77,10 +77,10 @@ describe('ResultHandlingPipeline', () => {
 
         it('should handle drop result and return null', async () => {
             const initialValue = { count: 1 }
-            const dropStep: SyncPreprocessingStep<typeof initialValue, { count: number }> = () => {
+            const dropStep: SyncProcessingStep<typeof initialValue, { count: number }> = () => {
                 return drop('test drop reason')
             }
-            const secondStep: SyncPreprocessingStep<{ count: number }, { count: number }> = jest.fn((input) => {
+            const secondStep: SyncProcessingStep<{ count: number }, { count: number }> = jest.fn((input) => {
                 return success({ count: input.count + 1 })
             })
 
@@ -100,10 +100,10 @@ describe('ResultHandlingPipeline', () => {
 
         it('should handle redirect result and return null', async () => {
             const initialValue = { count: 1 }
-            const redirectStep: SyncPreprocessingStep<typeof initialValue, { count: number }> = () => {
+            const redirectStep: SyncProcessingStep<typeof initialValue, { count: number }> = () => {
                 return redirect('test redirect', 'overflow-topic', true, false)
             }
-            const secondStep: SyncPreprocessingStep<{ count: number }, { count: number }> = jest.fn((input) => {
+            const secondStep: SyncProcessingStep<{ count: number }, { count: number }> = jest.fn((input) => {
                 return success({ count: input.count + 1 })
             })
 
@@ -128,10 +128,10 @@ describe('ResultHandlingPipeline', () => {
         it('should handle dlq result and return null', async () => {
             const initialValue = { count: 1 }
             const testError = new Error('test error')
-            const dlqStep: SyncPreprocessingStep<typeof initialValue, { count: number }> = () => {
+            const dlqStep: SyncProcessingStep<typeof initialValue, { count: number }> = () => {
                 return dlq('test dlq reason', testError)
             }
-            const secondStep: SyncPreprocessingStep<{ count: number }, { count: number }> = jest.fn((input) => {
+            const secondStep: SyncProcessingStep<{ count: number }, { count: number }> = jest.fn((input) => {
                 return success({ count: input.count + 1 })
             })
 
@@ -153,7 +153,7 @@ describe('ResultHandlingPipeline', () => {
 
         it('should handle dlq result without error and create default error', async () => {
             const initialValue = { count: 1 }
-            const dlqStep: SyncPreprocessingStep<typeof initialValue, { count: number }> = () => {
+            const dlqStep: SyncProcessingStep<typeof initialValue, { count: number }> = () => {
                 return dlq('test dlq reason')
             }
 
@@ -175,15 +175,15 @@ describe('ResultHandlingPipeline', () => {
         it('should chain multiple synchronous steps successfully', async () => {
             const initialValue = { count: 0 }
 
-            const step1: SyncPreprocessingStep<typeof initialValue, { count: number }> = (input) => {
+            const step1: SyncProcessingStep<typeof initialValue, { count: number }> = (input) => {
                 return success({ count: input.count + 1 })
             }
 
-            const step2: SyncPreprocessingStep<{ count: number }, { count: number; doubled: number }> = (input) => {
+            const step2: SyncProcessingStep<{ count: number }, { count: number; doubled: number }> = (input) => {
                 return success({ count: input.count, doubled: input.count * 2 })
             }
 
-            const step3: SyncPreprocessingStep<{ count: number; doubled: number }, { final: string }> = (input) => {
+            const step3: SyncProcessingStep<{ count: number; doubled: number }, { final: string }> = (input) => {
                 return success({ final: `count: ${input.count}, doubled: ${input.doubled}` })
             }
 
@@ -200,7 +200,7 @@ describe('ResultHandlingPipeline', () => {
     describe('pipeAsync() - mixed sync/async steps', () => {
         it('should execute async step and return result', async () => {
             const initialValue = { count: 1 }
-            const asyncStep: AsyncPreprocessingStep<typeof initialValue, { count: number }> = async (input) => {
+            const asyncStep: AsyncProcessingStep<typeof initialValue, { count: number }> = async (input) => {
                 await new Promise((resolve) => setTimeout(resolve, 1))
                 return success({ count: input.count + 1 })
             }
@@ -213,10 +213,10 @@ describe('ResultHandlingPipeline', () => {
 
         it('should not execute async step when sync result is failure', async () => {
             const initialValue = { count: 1 }
-            const dropStep: SyncPreprocessingStep<typeof initialValue, { count: number }> = () => {
+            const dropStep: SyncProcessingStep<typeof initialValue, { count: number }> = () => {
                 return drop('initial drop')
             }
-            const asyncStep: AsyncPreprocessingStep<{ count: number }, { executed: boolean }> = jest.fn(async () => {
+            const asyncStep: AsyncProcessingStep<{ count: number }, { executed: boolean }> = jest.fn(async () => {
                 await Promise.resolve()
                 return success({ executed: true })
             })
@@ -235,7 +235,7 @@ describe('ResultHandlingPipeline', () => {
     describe('redirect result with default parameters', () => {
         it('should use default preserveKey and awaitAck when not specified', async () => {
             const initialValue = { count: 1 }
-            const redirectStep: SyncPreprocessingStep<typeof initialValue, { count: number }> = () => {
+            const redirectStep: SyncProcessingStep<typeof initialValue, { count: number }> = () => {
                 return redirect('test redirect', 'overflow-topic')
             }
 
@@ -506,7 +506,7 @@ describe('Integration tests', () => {
             timestamp: string
         }
 
-        const parseStep: SyncPreprocessingStep<EventInput, ParsedEvent> = (input) => {
+        const parseStep: SyncProcessingStep<EventInput, ParsedEvent> = (input) => {
             if (input.rawEvent === 'invalid') {
                 return drop('Invalid event format')
             }
@@ -516,7 +516,7 @@ describe('Integration tests', () => {
             })
         }
 
-        const validateStep: AsyncPreprocessingStep<ParsedEvent, ValidatedEvent> = async (input) => {
+        const validateStep: AsyncProcessingStep<ParsedEvent, ValidatedEvent> = async (input) => {
             await new Promise((resolve) => setTimeout(resolve, 1))
             if (input.userId === 'blocked') {
                 return redirect('User blocked', 'blocked-events-topic')
@@ -527,7 +527,7 @@ describe('Integration tests', () => {
             })
         }
 
-        const processStep: SyncPreprocessingStep<ValidatedEvent, ProcessedEvent> = (input) => {
+        const processStep: SyncProcessingStep<ValidatedEvent, ProcessedEvent> = (input) => {
             return success({
                 ...input,
                 timestamp: '2023-01-01T00:00:00Z',
@@ -549,16 +549,16 @@ describe('Integration tests', () => {
     })
 
     it('should handle pipeline failure at different stages', async () => {
-        const parseStep: SyncPreprocessingStep<{ rawEvent: string }, { parsed: boolean }> = () => {
+        const parseStep: SyncProcessingStep<{ rawEvent: string }, { parsed: boolean }> = () => {
             return success({ parsed: true })
         }
 
-        const validateStep: AsyncPreprocessingStep<{ parsed: boolean }, { validated: boolean }> = async () => {
+        const validateStep: AsyncProcessingStep<{ parsed: boolean }, { validated: boolean }> = async () => {
             await Promise.resolve()
             return dlq('Validation failed', new Error('Invalid data'))
         }
 
-        const processStep: SyncPreprocessingStep<{ validated: boolean }, { processed: boolean }> = jest.fn(() => {
+        const processStep: SyncProcessingStep<{ validated: boolean }, { processed: boolean }> = jest.fn(() => {
             return success({ processed: true })
         })
 

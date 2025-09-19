@@ -5,7 +5,7 @@ import { normalizeEvent } from '../../utils/event'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { drop, success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
-import { SyncPreprocessingStep } from '../processing-pipeline'
+import { SyncProcessingStep } from '../processing-pipeline'
 
 function parseKafkaMessage(message: Message): IncomingEvent | null {
     try {
@@ -21,7 +21,7 @@ function parseKafkaMessage(message: Message): IncomingEvent | null {
     }
 }
 
-export function createParseKafkaMessageStep<T extends { message: Message }>(): SyncPreprocessingStep<
+export function createParseKafkaMessageStep<T extends { message: Message }>(): SyncProcessingStep<
     T,
     T & { event: IncomingEvent }
 > {

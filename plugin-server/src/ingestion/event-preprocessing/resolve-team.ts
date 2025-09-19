@@ -4,7 +4,7 @@ import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
 import { EventHeaders, Hub, IncomingEvent, IncomingEventWithTeam } from '../../types'
 import { tokenOrTeamPresentCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { drop, success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
-import { AsyncPreprocessingStep } from '../processing-pipeline'
+import { AsyncProcessingStep } from '../processing-pipeline'
 
 async function resolveTeam(
     hub: Pick<Hub, 'teamManager'>,
@@ -51,7 +51,7 @@ async function resolveTeam(
 
 export function createResolveTeamStep<T extends { message: Message; headers: EventHeaders; event: IncomingEvent }>(
     hub: Hub
-): AsyncPreprocessingStep<T, T & { eventWithTeam: IncomingEventWithTeam }> {
+): AsyncProcessingStep<T, T & { eventWithTeam: IncomingEventWithTeam }> {
     return async function resolveTeamStep(input) {
         const { message, headers, event } = input
 

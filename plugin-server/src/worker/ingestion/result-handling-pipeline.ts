@@ -1,11 +1,15 @@
 import { Message } from 'node-rdkafka'
 
-import { BatchProcessingPipeline, BatchProcessingResult } from '../../ingestion/batch-processing-pipeline'
 import {
-    AsyncPreprocessingStep,
+    BatchProcessingPipeline,
+    BatchProcessingResult,
+    BatchProcessingStep,
+} from '../../ingestion/batch-processing-pipeline'
+import {
+    AsyncProcessingStep,
     ProcessingPipeline,
     ProcessingResult,
-    SyncPreprocessingStep,
+    SyncProcessingStep,
 } from '../../ingestion/processing-pipeline'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
@@ -102,12 +106,12 @@ export class ResultHandlingPipeline<T> extends BaseResultHandlingPipeline<T> {
         super(originalMessage, config)
     }
 
-    pipe<U>(step: SyncPreprocessingStep<T, U>, _stepName?: string): ResultHandlingPipeline<U> {
+    pipe<U>(step: SyncProcessingStep<T, U>, _stepName?: string): ResultHandlingPipeline<U> {
         const newPipeline = this.pipeline.pipe(step)
         return new ResultHandlingPipeline(newPipeline, this.originalMessage, this.config)
     }
 
-    pipeAsync<U>(step: AsyncPreprocessingStep<T, U>, _stepName?: string): ResultHandlingPipeline<U> {
+    pipeAsync<U>(step: AsyncProcessingStep<T, U>, _stepName?: string): ResultHandlingPipeline<U> {
         const newPipeline = this.pipeline.pipeAsync(step)
         return new ResultHandlingPipeline(newPipeline, this.originalMessage, this.config)
     }
@@ -136,16 +140,13 @@ export class BatchResultHandlingPipeline<T> {
         private config: PipelineConfig
     ) {}
 
-    pipe<U>(
-        step: (values: T[]) => Promise<BatchProcessingResult<U>>,
-        _stepName?: string
-    ): BatchResultHandlingPipeline<U> {
+    pipe<U>(step: BatchProcessingStep<T, U>, _stepName?: string): BatchResultHandlingPipeline<U> {
         const newPipeline = this.pipeline.pipe(step)
         return new BatchResultHandlingPipeline(newPipeline, this.originalMessages, this.config)
     }
 
     pipeConcurrently<U>(
-        stepConstructor: (value: T) => Promise<ProcessingResult<U>>,
+        stepConstructor: AsyncProcessingStep<T, U>,
         _stepName?: string
     ): BatchResultHandlingPipeline<U> {
         const newPipeline = this.pipeline.pipeConcurrently(stepConstructor)

@@ -7,16 +7,14 @@ import {
 
 export type ProcessingResult<T> = PipelineStepResult<T>
 
-export type SyncPreprocessingStep<T, U> = (value: T) => ProcessingResult<U>
+export type SyncProcessingStep<T, U> = (value: T) => ProcessingResult<U>
 
-export type AsyncPreprocessingStep<T, U> = (value: T) => Promise<ProcessingResult<U>>
-
-export type PreprocessingStep<T, U> = SyncPreprocessingStep<T, U> | AsyncPreprocessingStep<T, U>
+export type AsyncProcessingStep<T, U> = (value: T) => Promise<ProcessingResult<U>>
 
 export class ProcessingPipeline<T> {
     constructor(private resultPromise: Promise<ProcessingResult<T>>) {}
 
-    pipe<U>(step: SyncPreprocessingStep<T, U>): ProcessingPipeline<U> {
+    pipe<U>(step: SyncProcessingStep<T, U>): ProcessingPipeline<U> {
         const stepName = step.name || 'anonymousStep'
         const nextResultPromise = this.resultPromise.then(async (currentResult) => {
             if (!isSuccessResult(currentResult)) {
@@ -29,7 +27,7 @@ export class ProcessingPipeline<T> {
         return new ProcessingPipeline(nextResultPromise)
     }
 
-    pipeAsync<U>(step: AsyncPreprocessingStep<T, U>): ProcessingPipeline<U> {
+    pipeAsync<U>(step: AsyncProcessingStep<T, U>): ProcessingPipeline<U> {
         const stepName = step.name || 'anonymousAsyncStep'
         const nextResultPromise = this.resultPromise.then(async (currentResult) => {
             if (!isSuccessResult(currentResult)) {

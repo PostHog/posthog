@@ -2,7 +2,7 @@ import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
 import { EventHeaders } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
 import { drop, success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
-import { SyncPreprocessingStep } from '../processing-pipeline'
+import { SyncProcessingStep } from '../processing-pipeline'
 
 function applyDropEventsRestrictions(
     eventIngestionRestrictionManager: EventIngestionRestrictionManager,
@@ -16,7 +16,7 @@ function applyDropEventsRestrictions(
 
 export function createApplyDropRestrictionsStep<T extends { headers: EventHeaders }>(
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
-): SyncPreprocessingStep<T, T> {
+): SyncProcessingStep<T, T> {
     return function applyDropRestrictionsStep(input) {
         const { headers } = input
 

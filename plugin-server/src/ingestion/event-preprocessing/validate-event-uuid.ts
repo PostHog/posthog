@@ -3,7 +3,7 @@ import { Hub, IncomingEventWithTeam } from '../../types'
 import { UUID } from '../../utils/utils'
 import { drop, success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
-import { AsyncPreprocessingStep } from '../processing-pipeline'
+import { AsyncProcessingStep } from '../processing-pipeline'
 
 async function isEventUuidValid(eventWithTeam: IncomingEventWithTeam, hub: Pick<Hub, 'db'>): Promise<boolean> {
     const { event, team } = eventWithTeam
@@ -39,7 +39,7 @@ async function isEventUuidValid(eventWithTeam: IncomingEventWithTeam, hub: Pick<
 
 export function createValidateEventUuidStep<T extends { eventWithTeam: IncomingEventWithTeam }>(
     hub: Hub
-): AsyncPreprocessingStep<T, T> {
+): AsyncProcessingStep<T, T> {
     return async function validateEventUuidStep(input) {
         const { eventWithTeam } = input
         const isValid = await isEventUuidValid(eventWithTeam, hub)
