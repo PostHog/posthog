@@ -1,9 +1,11 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { DashboardType } from '~/types'
 
@@ -31,6 +33,7 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
     }),
     actions({
         createNewDashboard: true,
+        handleEditDashboard: () => {},
         onChangeDashboard: (dashboardId: number | string | null) => ({ dashboardId }),
         selectDashboard: (dashboardId: number | null) => ({ dashboardId }),
     }),
@@ -77,6 +80,11 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         },
         createNewDashboard: () => {
             actions.showNewDashboardModal()
+        },
+        handleEditDashboard: () => {
+            if (values.selectedDashboardId) {
+                router.actions.push(urls.dashboard(values.selectedDashboardId))
+            }
         },
         submitNewDashboardSuccessWithResult: ({ result }) => {
             // Dashboard was created with `customer-analytics` tag, refresh and select it

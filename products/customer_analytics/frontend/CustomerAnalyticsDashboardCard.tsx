@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlusSmall } from '@posthog/icons'
+import { IconPencil, IconPlusSmall } from '@posthog/icons'
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 
 import { Dashboard } from 'scenes/dashboard/Dashboard'
@@ -12,7 +12,7 @@ import { customerAnalyticsSceneLogic } from './customerAnalyticsSceneLogic'
 export function CustomerAnalyticsDashboardCard(): JSX.Element {
     const { availableDashboards, availableDashboardsLoading, selectedDashboardId } =
         useValues(customerAnalyticsSceneLogic)
-    const { onChangeDashboard, createNewDashboard } = useActions(customerAnalyticsSceneLogic)
+    const { onChangeDashboard, createNewDashboard, handleEditDashboard } = useActions(customerAnalyticsSceneLogic)
 
     if (availableDashboardsLoading) {
         return <div className="text-center p-8">Loading dashboards...</div>
@@ -56,6 +56,14 @@ export function CustomerAnalyticsDashboardCard(): JSX.Element {
                     placeholder="Select a dashboard"
                     className="min-w-48"
                 />
+                {selectedDashboardId && (
+                    <LemonButton
+                        icon={<IconPencil />}
+                        onClick={handleEditDashboard}
+                        size="small"
+                        tooltip="Edit dashboard"
+                    />
+                )}
             </div>
 
             {selectedDashboardId && (
