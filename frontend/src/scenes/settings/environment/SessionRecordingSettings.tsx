@@ -663,24 +663,32 @@ export function ReplayDataRetentionSettings(): JSX.Element {
 
     const renderOptions = (): LemonSegmentedButtonOption<SessionRecordingRetentionPeriod>[] => {
         const options = [
-            { value: '30d' as SessionRecordingRetentionPeriod, icon: <IconClock />, label: '30 days' },
+            {
+                value: '30d' as SessionRecordingRetentionPeriod,
+                icon: <IconClock />,
+                label: '30 days',
+                'data-attr': 'session-recording-retention-button-30d',
+            },
             {
                 value: '90d' as SessionRecordingRetentionPeriod,
                 icon: <IconHourglass />,
                 label: '90 days',
                 disabledReason: 'Only available on the pay-as-you-go plan',
+                'data-attr': 'session-recording-retention-button-90d',
             },
             {
                 value: '1y' as SessionRecordingRetentionPeriod,
                 icon: <IconCalendar />,
                 label: '1 year (365 days)',
                 disabledReason: 'Only available with the Boost or Scale packages',
+                'data-attr': 'session-recording-retention-button-1y',
             },
             {
                 value: '5y' as SessionRecordingRetentionPeriod,
                 icon: <IconInfinity />,
                 label: '5 years (1825 days)',
                 disabledReason: 'Only available with the Enterprise package',
+                'data-attr': 'session-recording-retention-button-5y',
             },
         ]
 
