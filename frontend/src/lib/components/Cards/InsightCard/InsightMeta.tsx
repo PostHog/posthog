@@ -33,6 +33,7 @@ import { isDataVisualizationNode } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
+    DashboardTile,
     ExporterFormat,
     InsightColor,
     QueryBasedInsightModel,
@@ -63,12 +64,14 @@ interface InsightMetaProps
         | 'filtersOverride'
         | 'variablesOverride'
     > {
+    tile: DashboardTile<QueryBasedInsightModel>
     insight: QueryBasedInsightModel
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
 }
 
 export function InsightMeta({
+    tile,
     insight,
     ribbonColor,
     dashboardId,
@@ -97,6 +100,11 @@ export function InsightMeta({
     const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    // const tileLogicProps = { dashboardId: dashboardId, tileId: tile.id, filtersOverrides: tile.filters_overrides } as TileLogicProps
+    // const logic = tileLogic(tileLogicProps)
+    // const { hasOverrides } = useValues(logic)
+    // console.log('has overrides', hasOverrides)
 
     const otherDashboards = nameSortedDashboards.filter((d) => !dashboards?.includes(d.id))
 
@@ -169,7 +177,13 @@ export function InsightMeta({
             setAreDetailsShown={setAreDetailsShown}
             areDetailsShown={areDetailsShown}
             detailsTooltip="Show insight details, such as creator, last edit, and applied filters."
-            topHeading={<TopHeading query={insight.query} lastRefresh={insight.last_refresh} />}
+            topHeading={
+                <TopHeading
+                    query={insight.query}
+                    lastRefresh={insight.last_refresh}
+                    hasTileOverrides={Object.keys(tile.filters_overrides ?? {}).length > 0}
+                />
+            }
             content={
                 <InsightMetaContent
                     link={urls.insightView(short_id, dashboardId, variablesOverride, filtersOverride)}

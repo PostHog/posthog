@@ -43,6 +43,8 @@ import { ResizeHandle1D, ResizeHandle2D } from '../handles'
 import { InsightMeta } from './InsightMeta'
 
 export interface InsightCardProps extends Resizeable {
+    /** Tile to configure the card */
+    tile: DashboardTile<QueryBasedInsightModel>
     /** Insight to display. */
     insight: QueryBasedInsightModel
     /** id of the dashboard the card is on (when the card is being displayed on a dashboard) **/
@@ -96,6 +98,7 @@ export interface InsightCardProps extends Resizeable {
 
 function InsightCardInternal(
     {
+        tile,
         insight,
         dashboardId,
         ribbonColor,
@@ -220,6 +223,7 @@ function InsightCardInternal(
                 <ErrorBoundary exceptionProps={{ feature: 'insight' }}>
                     <BindLogic logic={insightLogic} props={insightLogicProps}>
                         <InsightMeta
+                            tile={tile}
                             insight={insight}
                             ribbonColor={ribbonColor}
                             dashboardId={dashboardId}

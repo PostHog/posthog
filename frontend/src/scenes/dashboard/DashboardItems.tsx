@@ -149,6 +149,7 @@ export function DashboardItems(): JSX.Element {
                             return (
                                 <InsightCard
                                     key={tile.id}
+                                    tile={tile}
                                     insight={insight}
                                     loadingQueued={loadingQueued}
                                     loading={loading}
