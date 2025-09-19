@@ -1,4 +1,7 @@
+import time
+
 from django.core.management.base import BaseCommand
+from django.core.paginator import Paginator
 
 import structlog
 
@@ -14,7 +17,6 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument(
             "--replace-key",
-            action="replace_key",
             help="The key of the replace option to use",
         )
         parser.add_argument(
@@ -28,10 +30,6 @@ class Command(BaseCommand):
         replace_key = options.get("replace_key", None)
         start_time = time.time()
 
-        if not replace_key:
-            self.stdout.write(self.style.ERROR("No replace key provided"))
-            return
-
         replaceOptions = {
             "linked-api-version-update": {
                 "template_id": "template-linkedin-ads",
@@ -39,6 +37,10 @@ class Command(BaseCommand):
                 "to_string": "'LinkedIn-Version': '202508'",
             }
         }
+
+        if not replace_key or replace_key not in replaceOptions:
+            self.stdout.write(self.style.ERROR(f"Invalid replace key provided: {replace_key}"))
+            return
 
         replaceOption = replaceOptions[replace_key]
 
@@ -74,8 +76,6 @@ class Command(BaseCommand):
         duration = time.time() - start_time
         self.stdout.write(
             self.style.SUCCESS(
-                f"Update completed in {duration:.2f}s. "
-                f"Found: {total_found}, "
-                f"Updated: {updated_count}, "
+                f"Update completed in {duration:.2f}s. " f"Found: {total_found}, " f"Updated: {updated_count}, "
             )
         )
