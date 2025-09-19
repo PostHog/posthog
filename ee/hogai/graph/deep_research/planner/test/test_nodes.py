@@ -22,7 +22,6 @@ from posthog.schema import (
     MultiVisualizationMessage,
     PlanningMessage,
     PlanningStepStatus,
-    TaskExecutionItem,
     TaskExecutionStatus,
 )
 
@@ -33,7 +32,7 @@ from ee.hogai.graph.deep_research.planner.prompts import (
     WRITE_RESULT_FAILED_TOOL_RESULT,
     WRITE_RESULT_TOOL_RESULT,
 )
-from ee.hogai.graph.deep_research.types import DeepResearchState, DeepResearchTodo
+from ee.hogai.graph.deep_research.types import DeepResearchState, DeepResearchTask, DeepResearchTodo
 from ee.hogai.utils.types import InsightArtifact
 from ee.hogai.utils.types.base import TaskResult
 
@@ -510,7 +509,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
     async def test_execute_tasks_tool(self):
         """Test execute_tasks tool execution returns tasks"""
         tasks = [
-            TaskExecutionItem(
+            DeepResearchTask(
                 id="1",
                 description="Test task",
                 prompt="Test prompt",
@@ -681,7 +680,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
             (
                 "with_tasks",
                 [
-                    TaskExecutionItem(
+                    DeepResearchTask(
                         id="1",
                         description="Test",
                         prompt="Test prompt",

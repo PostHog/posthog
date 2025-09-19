@@ -13,13 +13,13 @@ from posthog.schema import (
     DeepResearchType,
     HumanMessage,
     PlanningStepStatus,
-    TaskExecutionItem,
     TaskExecutionStatus,
 )
 
 from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,
     DeepResearchState,
+    DeepResearchTask,
     DeepResearchTodo,
     PartialDeepResearchState,
     _SharedDeepResearchState,
@@ -237,7 +237,7 @@ class TestDeepResearchStates(BaseTest):
         ]
 
         tasks = [
-            TaskExecutionItem(
+            DeepResearchTask(
                 id="task-1",
                 description="Execute analysis",
                 prompt="Analyze the data and generate insights",
@@ -271,7 +271,7 @@ class TestDeepResearchStates(BaseTest):
         )
 
         self.assertEqual(len(cast(list[DeepResearchTodo], state.todos)), 2)
-        self.assertEqual(len(cast(list[TaskExecutionItem], state.tasks)), 1)
+        self.assertEqual(len(cast(list[DeepResearchTask], state.tasks)), 1)
         self.assertEqual(len(state.task_results), 1)
         self.assertEqual(len(state.intermediate_results), 1)
         self.assertEqual(len(state.messages), 2)
