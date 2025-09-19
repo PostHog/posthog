@@ -8,7 +8,7 @@ use crate::kafka::metrics_consts::{MESSAGES_AUTO_NACKED, MESSAGES_COMPLETED};
 use crate::kafka::tracker::{MessageCompletion, MessageHandle};
 
 /// Result of message processing - simple success/failure
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum MessageResult {
     Success,
     Failed(String),

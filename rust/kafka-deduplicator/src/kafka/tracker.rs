@@ -1,7 +1,7 @@
 use anyhow::Result;
 use rdkafka::message::OwnedMessage;
 use rdkafka::Message;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -74,6 +74,13 @@ pub struct MessageCompletion {
     pub processing_duration_ms: u64,
 }
 
+/// Status of a message offset
+#[derive(Debug, Clone, PartialEq)]
+enum OffsetStatus {
+    InFlight,
+    Completed(MessageResult),
+}
+
 /// Handle for partition async processing task
 struct PartitionProcessorHandle {
     /// Handle to the completion processing task
@@ -101,8 +108,10 @@ struct PartitionTracker {
     completion_tx: mpsc::UnboundedSender<MessageCompletion>,
     /// Highest committed offset for this partition (shared with processing task)
     last_committed_offset: Arc<RwLock<i64>>,
-    /// Number of messages currently in-flight for this partition
-    in_flight_count: Arc<AtomicU64>,
+    /// Map of all tracked offsets and their status (in-flight or completed)
+    /// Using BTreeMap keeps offsets sorted for efficient processing
+    /// The length of this map is the in-flight count
+    offset_tracker: Arc<RwLock<BTreeMap<i64, OffsetStatus>>>,
     /// Handle to the processor task
     processor_handle: Option<PartitionProcessorHandle>,
 }
@@ -111,7 +120,7 @@ impl PartitionTracker {
     /// Shutdown the tracker and its processor asynchronously
     async fn shutdown(mut self) {
         // First force clear in-flight messages
-        self.force_clear_inflight();
+        self.force_clear_inflight().await;
 
         // Then shutdown the processor if it exists
         if let Some(handle) = self.processor_handle.take() {
@@ -136,15 +145,14 @@ impl PartitionTracker {
         // represents the last offset that was successfully processed
         let initial_last_committed = initial_offset.map(|o| o - 1).unwrap_or(-1);
         let last_committed_offset = Arc::new(RwLock::new(initial_last_committed));
-        let in_flight_count = Arc::new(AtomicU64::new(0));
+        let offset_tracker = Arc::new(RwLock::new(BTreeMap::new()));
 
         // Clone for the processing task
         let last_committed_clone = last_committed_offset.clone();
-        let in_flight_clone = in_flight_count.clone();
+        let offset_tracker_clone = offset_tracker.clone();
 
         // Spawn dedicated task to process completions for this partition
         let processor_handle = tokio::spawn(async move {
-            let mut pending_completions: HashMap<i64, MessageCompletion> = HashMap::new();
             let mut last_commit_time = Instant::now();
 
             info!(
@@ -158,14 +166,20 @@ impl PartitionTracker {
                     Some(completion) = completion_rx.recv() => {
                 // Save the processing duration before moving completion
                 let processing_duration_ms = completion.processing_duration_ms;
+                let offset = completion.offset;
 
                 // Update global statistics
                 global_stats.message_processed(&completion.result, completion.memory_size);
 
-                // Decrement partition's in-flight count
-                in_flight_clone.fetch_sub(1, Ordering::SeqCst);
+                // Note: Global in-flight count is decremented by message_processed above
 
-                // Process the completion
+                // Update offset tracker to mark as completed
+                {
+                    let mut tracker = offset_tracker_clone.write().await;
+                    tracker.insert(offset, OffsetStatus::Completed(completion.result.clone()));
+                }
+
+                // Process the completion - try to advance last_committed
                 let mut last_committed = last_committed_clone.write().await;
 
                 // Special case: if last_committed is -1 (no initial offset),
@@ -181,19 +195,46 @@ impl PartitionTracker {
                     // Don't update last_commit_time here, let it be updated in the normal flow below
                 }
 
-                if completion.offset == *last_committed + 1 {
-                    *last_committed = completion.offset;
-                    last_commit_time = Instant::now();
+                // Try to advance last_committed by checking the offset_tracker
+                let mut advanced = false;
+                {
+                    let mut tracker = offset_tracker_clone.write().await;
 
-                    // Process any pending completions that can now be committed
-                    loop {
-                        let next_offset = *last_committed + 1;
-                        if let Some(_result) = pending_completions.remove(&next_offset) {
-                            *last_committed = next_offset;
-                        } else {
-                            break;
+                    // Find the smallest offset in the tracker
+                    if let Some(&min_offset) = tracker.keys().next() {
+                        // Check if we can form a contiguous sequence from last_committed
+                        if min_offset <= *last_committed + 1 {
+                            // Start from the next offset we need to commit
+                            let mut current = *last_committed + 1;
+                            let mut offsets_to_remove = Vec::new();
+
+                            // Process all contiguous completed offsets
+                            while let Some(status) = tracker.get(&current) {
+                                match status {
+                                    OffsetStatus::Completed(_) => {
+                                        // This offset is completed, we can advance
+                                        offsets_to_remove.push(current);
+                                        current += 1;
+                                        advanced = true;
+                                    }
+                                    OffsetStatus::InFlight => {
+                                        // This offset is still being processed, stop here
+                                        break;
+                                    }
+                                }
+                            }
+
+                            // Remove all the offsets we've committed
+                            for offset in offsets_to_remove {
+                                tracker.remove(&offset);
+                                *last_committed = offset;
+                                last_commit_time = Instant::now();
+                            }
                         }
                     }
+                }
+
+                if advanced {
 
                     // Emit metrics for successful commit
                     metrics::gauge!(PARTITION_LAST_COMMITTED_OFFSET,
@@ -206,60 +247,79 @@ impl PartitionTracker {
                         "Partition {}-{}: committed offset {}",
                         topic, partition, *last_committed
                     );
-                } else if completion.offset > *last_committed + 1 {
-                    // Out of order - store for later
-                    let offset = completion.offset;
-                    pending_completions.insert(offset, completion);
-
-                    // Increment out-of-order counter
-                    metrics::counter!(OUT_OF_ORDER_COMPLETIONS,
-                        "topic" => topic.clone(),
-                        "partition" => partition.to_string()
-                    )
-                    .increment(1);
-
-                    let gap_size = offset - (*last_committed + 1);
-
-                    // Log details if gap is large
-                    if gap_size > 1000 {
-                        // Get the 10 smallest pending offsets for debugging
-                        let mut pending_offsets: Vec<i64> = pending_completions.keys().copied().collect();
-                        pending_offsets.sort_unstable();
-                        let smallest_10: Vec<i64> = pending_offsets.into_iter().take(10).collect();
-
-                        warn!(
-                            "Large gap detected in partition {}-{}: gap_size={}, current_offset={}, last_committed={}, smallest_10_pending={:?}",
-                            topic, partition, gap_size, offset, *last_committed, smallest_10
-                        );
-                    }
-
-                    // Emit gap metrics
-                    metrics::gauge!(PARTITION_OFFSET_GAP_SIZE,
-                        "topic" => topic.clone(),
-                        "partition" => partition.to_string()
-                    )
-                    .set(gap_size as f64);
-
-                    metrics::counter!(PARTITION_OFFSET_GAP_DETECTED,
-                        "topic" => topic.clone(),
-                        "partition" => partition.to_string()
-                    )
-                    .increment(1);
                 } else {
-                    // completion.offset <= *last_committed - duplicate, ignore
-                    warn!(
-                        "Ignoring duplicate completion for offset {} (last_committed: {})",
-                        completion.offset, *last_committed
-                    );
+                    // Check for gaps and log if significant
+                    let tracker = offset_tracker_clone.read().await;
+
+                    // Find the smallest offset we're tracking
+                    if let Some(&min_offset) = tracker.keys().next() {
+                        if min_offset > *last_committed + 1 {
+                            // We have a gap between last_committed and the smallest tracked offset
+                            let gap_size = min_offset - (*last_committed + 1);
+
+                            if gap_size > 1000 {
+                                // Collect debugging information
+                                let all_offsets: Vec<i64> = tracker.keys().copied().collect();
+                                let smallest_10: Vec<i64> = all_offsets.iter()
+                                    .take(10)
+                                    .copied()
+                                    .collect();
+
+                                let in_flight_offsets: Vec<i64> = tracker.iter()
+                                    .filter(|(_, status)| matches!(status, OffsetStatus::InFlight))
+                                    .map(|(&o, _)| o)
+                                    .take(10)
+                                    .collect();
+
+                                let completed_offsets: Vec<i64> = tracker.iter()
+                                    .filter(|(_, status)| matches!(status, OffsetStatus::Completed(_)))
+                                    .map(|(&o, _)| o)
+                                    .take(10)
+                                    .collect();
+
+                                warn!(
+                                    "Large gap detected in partition {}-{}: gap_size={}, missing_range={}..{}, last_committed={}, smallest_10={:?}, in_flight={:?}, completed={:?}",
+                                    topic, partition, gap_size, *last_committed + 1, min_offset, *last_committed, smallest_10, in_flight_offsets, completed_offsets
+                                );
+                            }
+
+                            // Increment out-of-order counter
+                            metrics::counter!(OUT_OF_ORDER_COMPLETIONS,
+                                "topic" => topic.clone(),
+                                "partition" => partition.to_string()
+                            )
+                            .increment(1);
+
+                            // Emit gap metrics
+                            metrics::gauge!(PARTITION_OFFSET_GAP_SIZE,
+                                "topic" => topic.clone(),
+                                "partition" => partition.to_string()
+                            )
+                            .set(gap_size as f64);
+
+                            metrics::counter!(PARTITION_OFFSET_GAP_DETECTED,
+                                "topic" => topic.clone(),
+                                "partition" => partition.to_string()
+                            )
+                            .increment(1);
+                        }
+                    }
                 }
 
 
                 // Emit metrics for pending completions and processing time
+                let pending_count = {
+                    let tracker = offset_tracker_clone.read().await;
+                    tracker.iter()
+                        .filter(|(_, status)| matches!(status, OffsetStatus::Completed(_)))
+                        .count()
+                };
+
                 metrics::gauge!(PARTITION_PENDING_COMPLETIONS,
                     "topic" => topic.clone(),
                     "partition" => partition.to_string()
                 )
-                .set(pending_completions.len() as f64);
+                .set(pending_count as f64);
 
 
                 metrics::gauge!(PARTITION_SECONDS_SINCE_LAST_COMMIT,
@@ -282,40 +342,51 @@ impl PartitionTracker {
                         let mut channel_messages_processed = 0;
                         while let Ok(completion) = completion_rx.try_recv() {
                             global_stats.message_processed(&completion.result, completion.memory_size);
-                            in_flight_clone.fetch_sub(1, Ordering::SeqCst);
                             channel_messages_processed += 1;
                             warn!("Processed remaining completion during shutdown: offset={}", completion.offset);
                         }
 
-                        // Clear pending_completions and emit metrics for lost messages
-                        let pending_count = pending_completions.len();
-                        if pending_count > 0 {
-                            warn!(
-                                "Dropping {} pending completions for partition {}-{} during revocation",
-                                pending_count, topic, partition
-                            );
+                        // Clear offset_tracker and emit metrics for lost messages
+                        let total_count;
+                        {
+                            let tracker = offset_tracker_clone.read().await;
+                            total_count = tracker.len();
+                            let completed_count = tracker.iter()
+                                .filter(|(_, status)| matches!(status, OffsetStatus::Completed(_)))
+                                .count();
 
-                            // Emit metrics for messages lost during revocation
-                            metrics::counter!(
-                                "partition_messages_lost_during_revocation",
-                                "topic" => topic.clone(),
-                                "partition" => partition.to_string()
-                            ).increment(pending_count as u64);
-
-                            // Log the offset ranges being dropped for debugging
-                            if let (Some(min), Some(max)) = (pending_completions.keys().min(), pending_completions.keys().max()) {
+                            if total_count > 0 {
                                 warn!(
-                                    "Lost pending completions in offset range [{}, {}] for partition {}-{}",
-                                    min, max, topic, partition
+                                    "Dropping {} tracked offsets ({} completed, {} in-flight) for partition {}-{} during revocation",
+                                    total_count, completed_count, total_count - completed_count, topic, partition
                                 );
-                            }
 
-                            pending_completions.clear();
+                                // Emit metrics for messages lost during revocation
+                                metrics::counter!(
+                                    "partition_messages_lost_during_revocation",
+                                    "topic" => topic.clone(),
+                                    "partition" => partition.to_string()
+                                ).increment(total_count as u64);
+
+                                // Log the offset ranges being dropped for debugging
+                                if let (Some(&min), Some(&max)) = (tracker.keys().min(), tracker.keys().max()) {
+                                    warn!(
+                                        "Lost tracked offsets in range [{}, {}] for partition {}-{}",
+                                        min, max, topic, partition
+                                    );
+                                }
+                            }
+                        }
+
+                        // Clear the tracker
+                        {
+                            let mut tracker = offset_tracker_clone.write().await;
+                            tracker.clear();
                         }
 
                         info!(
-                            "Shutdown cleanup complete for partition {}-{}: processed {} channel messages, dropped {} pending completions",
-                            topic, partition, channel_messages_processed, pending_count
+                            "Shutdown cleanup complete for partition {}-{}: processed {} channel messages, dropped {} tracked offsets",
+                            topic, partition, channel_messages_processed, total_count
                         );
 
                         break;
@@ -324,17 +395,15 @@ impl PartitionTracker {
             }
 
             info!(
-                "Completion processor for partition {}-{} stopped, in_flight={}",
-                topic,
-                partition,
-                in_flight_clone.load(Ordering::SeqCst)
+                "Completion processor for partition {}-{} stopped",
+                topic, partition
             );
         });
 
         Self {
             completion_tx,
             last_committed_offset,
-            in_flight_count,
+            offset_tracker,
             processor_handle: Some(PartitionProcessorHandle {
                 processor_handle,
                 shutdown_tx,
@@ -343,20 +412,23 @@ impl PartitionTracker {
     }
 
     /// Get the number of in-flight messages for this partition
-    fn get_in_flight_count(&self) -> usize {
-        self.in_flight_count.load(Ordering::SeqCst) as usize
+    async fn get_in_flight_count(&self) -> usize {
+        let tracker = self.offset_tracker.read().await;
+        tracker.len()
     }
 
     /// Force clear all in-flight messages for this partition
     /// This should only be called when the partition is being revoked
-    fn force_clear_inflight(&self) {
-        let count = self.in_flight_count.swap(0, Ordering::SeqCst);
+    async fn force_clear_inflight(&self) {
+        let mut tracker = self.offset_tracker.write().await;
+        let count = tracker.len();
         if count > 0 {
             warn!(
                 "Force cleared {} in-flight messages during partition revocation",
                 count
             );
-            metrics::counter!(MESSAGES_FORCE_CLEARED).increment(count);
+            metrics::counter!(MESSAGES_FORCE_CLEARED).increment(count as u64);
+            tracker.clear();
         }
     }
 }
@@ -538,8 +610,11 @@ impl InFlightTracker {
                         .as_ref()
                         .expect("Tracker should exist for active partition");
 
-                    // Increment partition's in-flight count
-                    tracker.in_flight_count.fetch_add(1, Ordering::SeqCst);
+                    // Add to offset tracker
+                    {
+                        let mut offset_tracker = tracker.offset_tracker.write().await;
+                        offset_tracker.insert(offset, OffsetStatus::InFlight);
+                    }
 
                     tracker.completion_tx.clone()
                 }
@@ -652,7 +727,7 @@ impl InFlightTracker {
         for (partition_key, partition_tracker_info) in partitions.iter() {
             if let Some(tracker) = &partition_tracker_info.tracker {
                 let last_committed = *tracker.last_committed_offset.read().await;
-                let in_flight = tracker.get_in_flight_count();
+                let in_flight = tracker.get_in_flight_count().await;
 
                 health_reports.push(PartitionHealth {
                     topic: partition_key.topic().to_string(),
@@ -870,7 +945,7 @@ impl InFlightTracker {
                     Partition::new(partition.topic().to_string(), partition.partition_number());
                 if let Some(partition_tracker_info) = partitions_guard.get(&partition_key) {
                     if let Some(tracker) = &partition_tracker_info.tracker {
-                        total_in_flight += tracker.get_in_flight_count();
+                        total_in_flight += tracker.get_in_flight_count().await;
                     }
                 }
             }
@@ -1968,7 +2043,7 @@ mod tests {
             ackables.push((*offset, ackable));
         }
 
-        // Complete in reverse order (worst case for pending_completions)
+        // Complete in reverse order (worst case for offset tracking)
         for (_, ackable) in ackables.into_iter().rev() {
             ackable.ack().await;
             sleep(Duration::from_millis(5)).await;
