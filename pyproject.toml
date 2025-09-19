@@ -58,6 +58,7 @@ dependencies = [
     "google-genai==1.10.0",
     "gspread==6.2.1",
     "gunicorn==20.1.0",
+    "uvicorn==0.34.3",
     "hogql-parser==1.2.0",
     "infi-clickhouse-orm",
     "jsonref==1.1.0",
