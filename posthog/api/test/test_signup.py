@@ -1334,24 +1334,26 @@ class TestInviteSignupAPI(APIBaseTest):
     def test_api_invite_sign_up_where_default_project_is_private(self):
         self.client.logout()
 
-        # Enable advanced permissions feature
-        self.organization.available_product_features = [
+        # Create a separate organization with advanced permissions enabled
+        organization = Organization.objects.create(name="Test Organization")
+        organization.available_product_features = [
             {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
         ]
-        self.organization.save()
+        organization.save()
 
-        # Restrict original team
+        # Create private team (restricted)
+        private_team = Team.objects.create(name="Default project", organization=organization)
         AccessControl.objects.create(
-            team=self.team,
+            team=private_team,
             access_level="none",
             resource="project",
-            resource_id=str(self.team.id),
+            resource_id=str(private_team.id),
         )
         # Create unrestricted team (no access control = default member access)
-        team_2 = Team.objects.create(name="Public project", organization=self.organization)
+        team_2 = Team.objects.create(name="Public project", organization=organization)
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+privatepublic@posthog.com",
-            organization=self.organization,
+            organization=organization,
         )
         response = self.client.post(
             f"/api/signup/{invite.id}/",
@@ -1360,7 +1362,7 @@ class TestInviteSignupAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         user = cast(User, User.objects.order_by("-pk")[0])
         self.assertEqual(user.organization_memberships.count(), 1)
-        self.assertEqual(user.organization, self.organization)
+        self.assertEqual(user.organization, organization)
         self.assertEqual(user.current_team, team_2)
         self.assertEqual(user.team, team_2)
 
