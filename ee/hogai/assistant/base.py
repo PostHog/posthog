@@ -74,7 +74,7 @@ class BaseAssistant(ABC):
     _state: Optional[AssistantMaxGraphState]
     _callback_handler: Optional[BaseCallbackHandler]
     _trace_id: Optional[str | UUID]
-    _custom_update_ids: set[str]
+    _streamed_update_ids: set[str]
     _reasoning_headline_chunk: Optional[str]
     """Like a message chunk, but specifically for the reasoning headline (and just a plain string)."""
     _last_reasoning_headline: Optional[str]
@@ -132,7 +132,9 @@ class BaseAssistant(ABC):
             else None
         )
         self._trace_id = trace_id
-        self._custom_update_ids = set()
+        self._streamed_update_ids = (
+            {self._latest_message.id} if self._latest_message and self._latest_message.id is not None else set()
+        )
         self._reasoning_headline_chunk = None
         self._last_reasoning_headline = None
         self._billing_context = billing_context
@@ -222,16 +224,18 @@ class BaseAssistant(ABC):
                 async for update in generator:
                     if messages := await self._process_update(update):
                         for message in messages:
+                            # Messages with existing IDs must be deduplicated.
+                            # Messages WITHOUT IDs must be streamed because they're progressive.
                             if hasattr(message, "id") and message.id is not None:
-                                if update[1] == "custom":
-                                    # Custom updates come from tool calls, we want to deduplicate the messages sent to the client.
-                                    self._custom_update_ids.add(message.id)
-                                elif message.id in self._custom_update_ids:
+                                if message.id in self._streamed_update_ids:
                                     continue
+                                self._streamed_update_ids.add(message.id)
+
                             if stream_only_assistant_messages and isinstance(
                                 message, get_args(ReasoningMessage | AssistantGenerationStatusEvent)
                             ):
                                 continue
+
                             yield AssistantEventType.MESSAGE, cast(AssistantMessageOrStatusUnion, message)
 
                 # Check if the assistant has requested help.
