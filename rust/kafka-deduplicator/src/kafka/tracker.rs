@@ -173,14 +173,24 @@ impl PartitionTracker {
 
                 // Note: Global in-flight count is decremented by message_processed above
 
+                // Process the completion - try to advance last_committed
+                let mut last_committed = last_committed_clone.write().await;
+
+                // Check if this offset has already been committed
+                // This should never happen in normal operation, but we check as a safeguard
+                if offset <= *last_committed && *last_committed != -1 {
+                    error!(
+                        "BUG: Received completion for already-committed offset {} (last_committed: {}). This indicates a logic error!",
+                        offset, *last_committed
+                    );
+                    continue; // Skip this completion to prevent corruption
+                }
+
                 // Update offset tracker to mark as completed
                 {
                     let mut tracker = offset_tracker_clone.write().await;
                     tracker.insert(offset, OffsetStatus::Completed(completion.result.clone()));
                 }
-
-                // Process the completion - try to advance last_committed
-                let mut last_committed = last_committed_clone.write().await;
 
                 // Special case: if last_committed is -1 (no initial offset),
                 // use the first message's offset to initialize
@@ -414,7 +424,11 @@ impl PartitionTracker {
     /// Get the number of in-flight messages for this partition
     async fn get_in_flight_count(&self) -> usize {
         let tracker = self.offset_tracker.read().await;
-        tracker.len()
+        // Only count messages that are actually in flight, not completed ones
+        tracker
+            .values()
+            .filter(|status| matches!(status, OffsetStatus::InFlight))
+            .count()
     }
 
     /// Force clear all in-flight messages for this partition
