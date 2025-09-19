@@ -1225,7 +1225,7 @@ def variables_override_requested_by_client(
 def tile_filters_override_requested_by_client(request: Request, tile: Optional["DashboardTile"]) -> dict:
     from posthog.auth import SharingAccessTokenAuthentication
 
-    tile_filters = tile.filters_overrides if tile else {}
+    tile_filters = tile.filters_overrides if tile and tile.filters_overrides else {}
     raw_override = request.query_params.get("tile_filters_override")
 
     # Security: Don't allow overrides when accessing via sharing tokens
