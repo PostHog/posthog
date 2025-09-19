@@ -6,7 +6,7 @@ import { LemonButton, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
+import { IconOpenInNew, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
@@ -117,18 +117,20 @@ export function SampledSessionsModal({
             render: (_, session) => {
                 const eventsUrl = getEventsUrlForSession(session.session_id)
                 return (
-                    <Link
-                        to={eventsUrl}
-                        onClick={(e) => {
-                            e.preventDefault()
-                            sceneLogic.actions.newTab(eventsUrl)
-                        }}
-                        subtle
-                        className="font-mono text-xs"
-                        title={`View events for session ${session.session_id}`}
-                    >
-                        {session.session_id}
-                    </Link>
+                    <div className="flex items-center gap-1">
+                        <Link
+                            to={eventsUrl}
+                            onClick={(e) => {
+                                e.preventDefault()
+                                sceneLogic.actions.newTab(eventsUrl)
+                            }}
+                            className="font-mono text-xs whitespace-nowrap"
+                            title={`View events for session ${session.session_id}`}
+                        >
+                            {session.session_id}
+                            <IconOpenInNew style={{ fontSize: 14 }} />
+                        </Link>
+                    </div>
                 )
             },
             width: '40%',
