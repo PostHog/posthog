@@ -96,18 +96,18 @@ class DashboardCreationNode(AssistantNode):
                 for i, query in enumerate(state.search_insights_queries)
             }
 
-            await self._stream_reasoning(content=f"Searching for {len(state.search_insights_queries)} insights")
+            await self._write_reasoning(content=f"Searching for {len(state.search_insights_queries)} insights")
 
             result = await self._search_insights(result, config)
 
-            await self._stream_reasoning(content=f"Found {self._get_found_insight_count(result)} insights")
+            await self._write_reasoning(content=f"Found {self._get_found_insight_count(result)} insights")
 
             left_to_create = {
                 query_id: result[query_id].query for query_id in result.keys() if not result[query_id].found_insight_ids
             }
 
             if left_to_create:
-                await self._stream_reasoning(content=f"Will create {len(left_to_create)} insights")
+                await self._write_reasoning(content=f"Will create {len(left_to_create)} insights")
 
                 result = await self._create_insights(left_to_create, result, config)
 
@@ -260,7 +260,7 @@ class DashboardCreationNode(AssistantNode):
         self, dashboard_name: str, insights: set[int]
     ) -> tuple[Dashboard, list[Insight]]:
         """Create a dashboard and add the insights to it."""
-        await self._stream_reasoning(content="Saving your dashboard")
+        await self._write_reasoning(content="Saving your dashboard")
 
         @database_sync_to_async
         @transaction.atomic
