@@ -115,8 +115,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         setTimedOutQueryId: (id: string | null) => ({ id }),
         setIsIntervalManuallySet: (isIntervalManuallySet: boolean) => ({ isIntervalManuallySet }),
         toggleFormulaMode: true,
-        setDetailedResultsAggregationType: (aggregationType: AggregationType) => ({
-            aggregationType,
+        setDetailedResultsAggregationType: (detailedResultsAggregationType: AggregationType) => ({
+            detailedResultsAggregationType,
         }),
     }),
 
