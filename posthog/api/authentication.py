@@ -164,15 +164,16 @@ class LoginSerializer(serializers.Serializer):
             )
 
         request = self.context["request"]
+        axes_request = getattr(request, "_request", request)
         was_authenticated_before_login_attempt = bool(getattr(request, "user", None) and request.user.is_authenticated)
 
-        # Initialize axes handler for brute force protection
-        from axes.handlers.cache import AxesCacheHandler
+        # Initialize axes handler via proxy so request metadata is populated consistently
+        from axes.handlers.proxy import AxesProxyHandler
 
-        handler = AxesCacheHandler()
+        handler = AxesProxyHandler
 
         # Check if axes has locked out this IP/user before attempting authentication
-        if handler.is_locked(request, credentials={"username": validated_data["email"]}):
+        if handler.is_locked(axes_request, credentials={"username": validated_data["email"]}):
             from axes.exceptions import AxesBackendPermissionDenied
 
             raise AxesBackendPermissionDenied("Account locked: too many login attempts.")
@@ -188,7 +189,7 @@ class LoginSerializer(serializers.Serializer):
 
         if not user:
             # Record the failed attempt with axes
-            handler.user_login_failed(None, credentials={"username": validated_data["email"]}, request=request)
+            handler.user_login_failed(None, credentials={"username": validated_data["email"]}, request=axes_request)
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
         # We still let them log in if is_email_verified is null so existing users don't get locked out
@@ -210,7 +211,7 @@ class LoginSerializer(serializers.Serializer):
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
         # Log successful authentication with axes
-        handler.user_logged_in(None, user=user, request=request)
+        handler.user_logged_in(None, user=user, request=axes_request)
 
         # Trigger login notification (password, no-2FA) and skip re-auth
         if not was_authenticated_before_login_attempt:

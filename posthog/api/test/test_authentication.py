@@ -11,9 +11,11 @@ from django.conf import settings
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.core.cache import cache
-from django.test import RequestFactory
+from django.test import RequestFactory, override_settings
 from django.utils import timezone
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from django_otp.oath import totp
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.util import random_hex
@@ -36,6 +38,22 @@ from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 
 VALID_TEST_PASSWORD = "mighty-strong-secure-1337!!"
+
+
+def generate_rsa_key() -> str:
+    # Generate a new RSA private key
+    private_key = rsa.generate_private_key(
+        public_exponent=65537,
+        key_size=4096,
+    )
+    # Serialize the private key to PEM format
+    pem = private_key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.TraditionalOpenSSL,
+        encryption_algorithm=serialization.NoEncryption(),
+    )
+
+    return pem.decode("utf-8")
 
 
 def totp_str(key):
@@ -237,7 +255,7 @@ class TestLoginAPI(APIBaseTest):
                     "/api/login",
                     {"email": "new_user@posthog.com", "password": "invalid"},
                 )
-                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
                 self.assertEqual(response.json(), self.ERROR_INVALID_CREDENTIALS)
 
                 # Assert user is not logged in
@@ -1071,6 +1089,12 @@ class TestProjectSecretAPIKeyAuthentication(APIBaseTest):
         self.assertEqual(user.team, self.team)
 
 
+@override_settings(
+    OAUTH2_PROVIDER={
+        **settings.OAUTH2_PROVIDER,
+        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
+    }
+)
 class TestOAuthAccessTokenAuthentication(APIBaseTest):
     def setUp(self):
         super().setUp()
