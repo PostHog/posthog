@@ -66,12 +66,14 @@ class OrganizationFeatureFlagView(
             return Response({"error": "Feature flag to copy does not exist."}, status=status.HTTP_400_BAD_REQUEST)
 
         # Check if the user is allowed to edit the flag using new access control
-        from posthog.rbac.user_access_control import UserAccessControl
+        from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
 
         user_access_control = UserAccessControl(request.user, flag_to_copy.team)
         user_access_level = user_access_control.get_user_access_level(flag_to_copy)
 
-        if user_access_level != "editor":
+        if not user_access_level or not access_level_satisfied_for_resource(
+            "feature_flag", user_access_level, "editor"
+        ):
             return Response(
                 {"error": "You do not have permission to copy this flag."}, status=status.HTTP_403_FORBIDDEN
             )

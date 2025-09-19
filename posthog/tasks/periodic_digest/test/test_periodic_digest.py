@@ -647,7 +647,6 @@ class TestPeriodicDigestReport(APIBaseTest):
         # Create a second team in the same organization
         team_2 = Team.objects.create(organization=self.organization, name="Second Team")
         AccessControl.objects.create(team=team_2, access_level="none", resource="project", resource_id=str(team_2.id))
-        team_2.save()
 
         # Create test data for both teams
         with freeze_time("2024-01-15T00:01:00Z"):
@@ -664,7 +663,13 @@ class TestPeriodicDigestReport(APIBaseTest):
         user_2 = self._create_user("test2@posthog.com")
         self.organization.members.add(user_2)
         org_membership = OrganizationMembership.objects.get(organization=self.organization, user=user_2)
-        team_2.explicit_memberships.create(parent_membership=org_membership)
+        AccessControl.objects.create(
+            team=team_2,
+            access_level="member",
+            resource="project",
+            resource_id=str(team_2.id),
+            organization_member=org_membership,
+        )
 
         # Run the periodic digest report task
         send_all_periodic_digest_reports()
