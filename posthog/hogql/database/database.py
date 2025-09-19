@@ -550,9 +550,7 @@ def create_hogql_database(
                 join_function=join_replay_table_to_sessions_table_v2,
             )
             cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events
-        elif (
-            modifiers.sessionTableVersion == SessionTableVersion.V3
-        ):
+        elif modifiers.sessionTableVersion == SessionTableVersion.V3:
             sessions = SessionsTableV3()
             database.sessions = sessions
             events = database.events
@@ -575,7 +573,6 @@ def create_hogql_database(
                 join_function=join_replay_table_to_sessions_table_v3,
             )
             cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events
-
 
     with timings.measure("virtual_fields"):
         _use_virtual_fields(database, modifiers, timings)

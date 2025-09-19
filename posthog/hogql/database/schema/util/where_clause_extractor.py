@@ -360,12 +360,11 @@ class SessionMinTimestampWhereClauseExtractorV2(SessionMinTimestampWhereClauseEx
     )
     time_buffer = ast.Call(name="toIntervalDay", args=[ast.Constant(value=SESSION_BUFFER_DAYS)])
 
+
 class SessionMinTimestampWhereClauseExtractorV3(SessionMinTimestampWhereClauseExtractor):
     timestamp_field = ast.Call(
         name="UUIDv7ToDateTime",
-        args=[
-            ast.Field(chain=["raw_sessions_v3", "session_id_v7"])
-        ],
+        args=[ast.Field(chain=["raw_sessions_v3", "session_id_v7"])],
     )
     time_buffer = ast.Call(name="toIntervalDay", args=[ast.Constant(value=SESSION_BUFFER_DAYS)])
 
@@ -407,7 +406,6 @@ class RewriteTimestampFieldVisitor(CloningVisitor):
         from posthog.hogql.database.schema.sessions_v1 import SessionsTableV1
         from posthog.hogql.database.schema.sessions_v2 import SessionsTableV2
         from posthog.hogql.database.schema.sessions_v3 import SessionsTableV3
-
 
         if node.type and isinstance(node.type, ast.FieldType):
             resolved_field = node.type.resolve_database_field(self.context)
