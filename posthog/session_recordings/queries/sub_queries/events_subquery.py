@@ -23,7 +23,8 @@ from posthog.types import AnyPropertyFilter
 
 
 def negative_event_predicates(
-    team: Team, entities: list[EventsNode | ActionsNode | DataWarehouseNode | str]
+    entities: list[EventsNode | ActionsNode | DataWarehouseNode | str],
+    team: Team,
 ) -> list[ast.Expr]:
     event_exprs: list[ast.Expr] = []
 
@@ -62,16 +63,18 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         super().__init__(team, query)
         self._hogql_query_modifiers = hogql_query_modifiers
 
-    @property
-    def _event_predicates(self) -> list[ast.Expr]:
+    @staticmethod
+    def _event_predicates(
+        entities: list[EventsNode | ActionsNode | DataWarehouseNode | str], team: Team
+    ) -> list[ast.Expr]:
         event_exprs: list[ast.Expr] = []
 
-        for entity in self.entities:
+        for entity in entities:
             # this is always _positive_ operations
             entity_exprs = [_entity_to_expr(entity=entity)]
 
             if entity.properties:
-                entity_exprs.append(property_to_expr(entity.properties, team=self._team, scope="replay_entity"))
+                entity_exprs.append(property_to_expr(entity.properties, team=team, scope="replay_entity"))
 
             event_exprs.append(ast.And(exprs=entity_exprs))
 
@@ -96,11 +99,11 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         takes each filter in the query that can be queried from the events table
         and makes a separate query for each
         this might be slower than the previous approach of having one huge event query
-        but that approach is horribly complex and we keep getting bug reports
+        but that approach is horribly complex, and we keep getting bug reports
         that are avoidable with a simpler approach
         """
         gathered_exprs: list[ast.Expr] = []
-        event_where_exprs = self._event_predicates
+        event_where_exprs = self._event_predicates(self.entities, self._team)
         if event_where_exprs:
             gathered_exprs += event_where_exprs
 
@@ -293,7 +296,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         gathered_exprs: list[ast.Expr] = []
 
-        event_where_exprs = negative_event_predicates(self._team, self.entities)
+        event_where_exprs = negative_event_predicates(self.entities, self._team)
         for expr in event_where_exprs:
             gathered_exprs.append(expr)
 
@@ -347,20 +350,16 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             # If no events have this property, just  return the property expression itself
             return property_to_expr(p, team=team, scope="replay")
 
-        event_exprs = []
+        entities = []
         for event_name in events_that_have_the_property:
-            # Create an EventsNode with the property attached
             entity = EventsNode(
                 event=event_name,
-                name=event_name,  # _entity_to_expr uses entity.name
+                name=event_name,
                 properties=[p],  # Attach the original property filter
             )
+            entities.append(entity)
 
-            # Create the expression: (event =  '$pageview' AND properties.$browser = 'Chrome')
-            entity_expr = _entity_to_expr(entity=entity)
-            property_expr = property_to_expr(p, team=team, scope="replay_entity")
-
-            event_exprs.append(ast.And(exprs=[entity_expr, property_expr]))
+        event_exprs = ReplayFiltersEventsSubQuery._event_predicates(entities, team)
 
         # Combine all with OR: ((event = '$pageview' AND ...) OR(event='$pageleave' AND...))
         return ast.Or(exprs=event_exprs)
