@@ -26,6 +26,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         dry_run = options.get("dry_run", False)
         replace_key = options.get("replace_key", None)
+        start_time = time.time()
 
         if not replace_key:
             self.stdout.write(self.style.ERROR("No replace key provided"))
@@ -46,20 +47,35 @@ class Command(BaseCommand):
         )
 
         updated_count = 0
-        total_found = len(queryset)
-
-        self.stdout.write(f"Found {total_found} destinations to process")
-
-        for destination in queryset:
-            if destination.hog and replaceOption["from_string"] in destination.hog:
-                destination.hog = destination.hog.replace(replaceOption["from_string"], replaceOption["to_string"])
-                destination.bytecode = compile_hog(destination.hog, destination.type)
-                updated_count += 1
-                if not dry_run:
-                    destination.save(update_fields=["hog", "bytecode"])
+        total_found = queryset.count()
+        paginator = Paginator(queryset.order_by("id"), 1000)
 
         if dry_run:
             self.stdout.write(self.style.WARNING("DRY RUN - No changes will be made"))
-            return
 
-        self.stdout.write(self.style.SUCCESS(f"Successfully updated {updated_count} destinations"))
+        self.stdout.write(f"Found {total_found} destinations to process")
+
+        for page_num in paginator.page_range:
+            page = paginator.page(page_num)
+
+            self.stdout.write(
+                f"Processing page {page_num}/{paginator.num_pages} ({len(page.object_list)} destinations)..."
+            )
+
+            for destination in page.object_list:
+                if destination.hog and replaceOption["from_string"] in destination.hog:
+                    destination.hog = destination.hog.replace(replaceOption["from_string"], replaceOption["to_string"])
+                    destination.bytecode = compile_hog(destination.hog, destination.type)
+                    updated_count += 1
+                    if not dry_run:
+                        destination.save(update_fields=["hog", "bytecode"])
+
+        # Output summary
+        duration = time.time() - start_time
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Update completed in {duration:.2f}s. "
+                f"Found: {total_found}, "
+                f"Updated: {updated_count}, "
+            )
+        )
