@@ -1803,4 +1803,4 @@ class DatabricksIntegration:
             self.client_id = self.integration.sensitive_config["client_id"]
             self.client_secret = self.integration.sensitive_config["client_secret"]
         except KeyError as e:
-            raise DatabricksIntegrationError(f"Databricks integration is not valid: '{str(e)}' missing")
+            raise DatabricksIntegrationError(f"Databricks integration is not valid: {str(e)} missing")
