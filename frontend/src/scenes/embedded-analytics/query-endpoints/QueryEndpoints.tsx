@@ -18,19 +18,27 @@ import { QueryEndpointType } from '~/types'
 import { EmbeddedTab } from '../common'
 import { queryEndpointsLogic } from './queryEndpointsLogic'
 
-export function QueryEndpoints(): JSX.Element {
+interface QueryEndpointsProps {
+    tabId: string
+}
+
+interface QueryEndpointsTableProps {
+    tabId: string
+}
+
+export function QueryEndpoints({ tabId }: QueryEndpointsProps): JSX.Element {
     return (
         <>
-            <QueryEndpointsTable />
+            <QueryEndpointsTable tabId={tabId} />
         </>
     )
 }
 
-export const QueryEndpointsTable = (): JSX.Element => {
-    const { setFilters } = useActions(queryEndpointsLogic)
-    const { filters } = useValues(queryEndpointsLogic)
-    const { queryEndpoints, queryEndpointsLoading } = useValues(queryEndpointsLogic)
-    const { deleteQueryEndpoint, deactivateQueryEndpoint } = useActions(queryEndpointLogic)
+export const QueryEndpointsTable = ({ tabId }: QueryEndpointsTableProps): JSX.Element => {
+    const { setFilters } = useActions(queryEndpointsLogic({ tabId }))
+    const { queryEndpoints, queryEndpointsLoading, filters } = useValues(queryEndpointsLogic({ tabId }))
+
+    const { deleteQueryEndpoint, deactivateQueryEndpoint } = useActions(queryEndpointLogic({ tabId }))
 
     const columns: LemonTableColumns<QueryEndpointType> = [
         {

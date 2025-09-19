@@ -1,5 +1,5 @@
 import Fuse from 'fuse.js'
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -20,8 +20,14 @@ export const DEFAULT_FILTERS: QueryEndpointsFilters = {
 
 export type QueryEndpointsFuse = Fuse<QueryEndpointType>
 
+export interface QueryEndpointsLogicProps {
+    tabId: string
+}
+
 export const queryEndpointsLogic = kea<queryEndpointsLogicType>([
     path(['scenes', 'embedded-analytics', 'query-endpoints', 'queryEndpointsLogic']),
+    props({} as QueryEndpointsLogicProps),
+    key((props) => props.tabId),
     actions({
         setFilters: (filters: Partial<QueryEndpointsFilters>) => {
             {

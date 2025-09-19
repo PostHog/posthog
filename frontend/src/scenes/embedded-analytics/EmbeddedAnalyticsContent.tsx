@@ -24,12 +24,12 @@ const EMBEDDED_ANALYTICS_QUERY_ENDPOINTS_PRODUCT_DESCRIPTION =
 const EMBEDDED_ANALYTICS_API_USAGE_PRODUCT_DESCRIPTION =
     'Monitor your API usage and cost. Please note that embedded analytics is in alpha and may not be fully reliable or set in stone.'
 
-export function EmbeddedAnalyticsContent({ tabId }: { tabId?: string }): JSX.Element {
-    const { isEmpty } = useValues(queryEndpointsLogic)
+export function EmbeddedAnalyticsContent({ tabId }: { tabId: string }): JSX.Element {
+    const { isEmpty } = useValues(queryEndpointsLogic({ tabId }))
     const { activeTab } = useValues(embeddedAnalyticsLogic)
     return (
         <BindLogic logic={embeddedAnalyticsLogic} props={{ tabId: tabId }}>
-            {/* <BindLogic logic={queryEndpointsLogic} props={{ tabId: tabId }}> */}
+            <BindLogic logic={queryEndpointsLogic} props={{ tabId: tabId }}>
             <SceneContent className="EmbeddedAnalyticsContent w-full flex flex-col">
                 <EmbeddedAnalyticsTabs />
                 <ProductIntroduction
@@ -67,9 +67,9 @@ export function EmbeddedAnalyticsContent({ tabId }: { tabId?: string }): JSX.Ele
                         </LemonButton>
                     }
                 />
-                <MainContent />
+                <MainContent tabId={tabId} />
             </SceneContent>
-            {/* </BindLogic> */}
+            </BindLogic>
         </BindLogic>
     )
 }
@@ -94,13 +94,13 @@ const EmbeddedAnalyticsTabs = (): JSX.Element => {
     )
 }
 
-const MainContent = (): JSX.Element => {
+const MainContent = ({ tabId }: { tabId: string }): JSX.Element => {
     const { activeTab } = useValues(embeddedAnalyticsLogic)
     const { tiles } = useValues(embeddedAnalyticsLogic)
 
     switch (activeTab) {
         case EmbeddedTab.QUERY_ENDPOINTS:
-            return <QueryEndpoints />
+            return <QueryEndpoints tabId={tabId} />
         case EmbeddedTab.USAGE:
             return (
                 <>

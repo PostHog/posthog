@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, props, reducers } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
@@ -13,12 +13,14 @@ import type { queryEndpointLogicType } from './queryEndpointLogicType'
 
 export type CodeExampleTab = 'terminal' | 'python' | 'nodejs'
 
-export interface QueryEndpointLogicProps {}
+export interface QueryEndpointLogicProps {
+    tabId: string
+}
 
 export const queryEndpointLogic = kea<queryEndpointLogicType>([
-    path(['data-warehouse', 'editor', 'sidebar', 'queryEndpointLogic']),
+    path(['data-warehouse', 'editor', 'output-pane-tabs', 'queryEndpointLogic']),
     props({} as QueryEndpointLogicProps),
-
+    key((props) => props.tabId),
     connect(() => ({
         values: [],
         actions: [queryEndpointsLogic, ['loadQueryEndpoints']],

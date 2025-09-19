@@ -820,7 +820,7 @@ const Content = ({
         return (
             <TabScroller>
                 <div className="px-6 py-4 border-t">
-                    <QueryEndpoint />
+                    <QueryEndpoint tabId={tabId}/>
                 </div>
             </TabScroller>
         )

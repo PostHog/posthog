@@ -167,11 +167,16 @@ interface CodeExamplesProps {
     queryEndpointName: string | null
     variables: Variable[]
     projectId: number | undefined
+    tabId: string
 }
 
-function CodeExamples({ queryEndpointName, variables, projectId }: CodeExamplesProps): JSX.Element {
-    const { setActiveCodeExampleTab } = useActions(queryEndpointLogic)
-    const { activeCodeExampleTab } = useValues(queryEndpointLogic)
+interface QueryEndpointProps {
+    tabId: string
+}
+
+function CodeExamples({ queryEndpointName, variables, projectId, tabId }: CodeExamplesProps): JSX.Element {
+    const { setActiveCodeExampleTab } = useActions(queryEndpointLogic({ tabId }))
+    const { activeCodeExampleTab } = useValues(queryEndpointLogic({ tabId }))
 
     const getCodeExample = (tab: CodeExampleTab): string => {
         switch (tab) {
@@ -231,9 +236,9 @@ function CodeExamples({ queryEndpointName, variables, projectId }: CodeExamplesP
     )
 }
 
-export function QueryEndpoint(): JSX.Element {
-    const { setQueryEndpointName, setQueryEndpointDescription, createQueryEndpoint } = useActions(queryEndpointLogic)
-    const { queryEndpointName, queryEndpointDescription } = useValues(queryEndpointLogic)
+export function QueryEndpoint({ tabId }: QueryEndpointProps): JSX.Element {
+    const { setQueryEndpointName, setQueryEndpointDescription, createQueryEndpoint } = useActions(queryEndpointLogic({ tabId }))
+    const { queryEndpointName, queryEndpointDescription } = useValues(queryEndpointLogic({ tabId }))
 
     const { variablesForInsight } = useValues(variablesLogic)
     const { queryInput } = useValues(multitabEditorLogic)
