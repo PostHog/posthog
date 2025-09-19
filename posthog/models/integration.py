@@ -116,8 +116,7 @@ class Integration(models.Model):
             return dot_get(self.config, "account.name", self.integration_id)
         if self.kind == "email":
             return self.config.get("email", self.integration_id)
-        # TODO
-        if self.kind == "databricks":
+        if self.kind == Integration.IntegrationKind.DATABRICKS.value:
             return dot_get(self.config, "server_hostname", self.integration_id)
 
         return f"ID: {self.integration_id}"
@@ -1767,10 +1766,41 @@ class TwilioIntegration:
         return integration
 
 
+class DatabricksIntegrationError(Exception):
+    """Error raised when the Databricks integration is not valid."""
+
+    pass
+
+
 class DatabricksIntegration:
+    """A Databricks integration.
+
+    The recommended way to connect to Databricks is via OAuth machine-to-machine (M2M) authentication.
+    See: https://docs.databricks.com/aws/en/dev-tools/python-sql-connector#oauth-machine-to-machine-m2m-authentication
+
+    This works quite differently to regular user-to-machine OAuth as it does not require a real-time user sign in and
+    consent flow: Instead, the user creates a service principal and provided us with the client ID and client secret to authenticate.
+
+    Attributes:
+        integration: The integration object.
+        server_hostname: the Server Hostname value for user's all-purpose compute or SQL warehouse.
+        client_id: the service principal's UUID or Application ID value.
+        client_secret: the Secret value for the service principal's OAuth secret.
+    """
+
     integration: Integration
+    server_hostname: str
+    client_id: str
+    client_secret: str
 
     def __init__(self, integration: Integration) -> None:
-        if integration.kind != "databricks":
-            raise Exception("DatabricksIntegration init called with Integration with wrong 'kind'")
+        if integration.kind != Integration.IntegrationKind.DATABRICKS.value:
+            raise DatabricksIntegrationError("Integration provided is not a Databricks integration")
         self.integration = integration
+
+        try:
+            self.server_hostname = self.integration.config["server_hostname"]
+            self.client_id = self.integration.sensitive_config["client_id"]
+            self.client_secret = self.integration.sensitive_config["client_secret"]
+        except KeyError as e:
+            raise DatabricksIntegrationError(f"Databricks integration is not valid: '{str(e)}' missing")

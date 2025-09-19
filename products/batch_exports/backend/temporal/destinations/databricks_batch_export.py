@@ -29,6 +29,7 @@ from posthog.batch_exports.service import (
     BatchExportSchema,
     DatabricksBatchExportInputs,
 )
+from posthog.models.integration import DatabricksIntegration, Integration
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
@@ -57,6 +58,10 @@ NON_RETRYABLE_ERROR_TYPES: list[str] = [
     "DatabricksInsufficientPermissionsError",
     # Raised when the table partition field provided is invalid.
     "DatabricksInvalidPartitionFieldError",
+    # Raised when the Databricks integration is not found.
+    "DatabricksIntegrationNotFoundError",
+    # Raised when the Databricks integration is not valid.
+    "DatabricksIntegrationError",
 ]
 
 DatabricksField = tuple[str, str]
@@ -81,14 +86,18 @@ class DatabricksInvalidPartitionFieldError(Exception):
         super().__init__(f"Invalid table partition field: '{partition_field}'")
 
 
+class DatabricksIntegrationNotFoundError(Exception):
+    """Error raised when the Databricks integration is not found."""
+
+    pass
+
+
 @dataclasses.dataclass(kw_only=True)
 class DatabricksInsertInputs(BatchExportInsertInputs):
     """Inputs for Databricks.
 
-    server_hostname: the Server Hostname value for user's all-purpose compute or SQL warehouse.
+    integration_id: the ID of the Databricks Integration model to use.
     http_path: HTTP Path value for user's all-purpose compute or SQL warehouse.
-    client_id: the service principal's UUID or Application ID value.
-    client_secret: the Secret value for the service principal's OAuth secret.
     catalog: the catalog to use for the export.
     schema: the schema to use for the export.
     table_name: the name of the table to use for the export.
@@ -105,12 +114,8 @@ class DatabricksInsertInputs(BatchExportInsertInputs):
         If None, we will use the default partition by field for the model (if exists)
     """
 
-    # TODO - some of this will go in the integration model once ready
-
-    server_hostname: str
+    integration_id: int
     http_path: str
-    client_id: str
-    client_secret: str
     catalog: str
     schema: str
     table_name: str
@@ -146,12 +151,18 @@ class DatabricksClient:
         self.external_logger = EXTERNAL_LOGGER.bind(server_hostname=server_hostname, http_path=http_path)
 
     @classmethod
-    def from_inputs(cls, inputs: DatabricksInsertInputs) -> t.Self:
+    def from_inputs_and_integration(cls, inputs: DatabricksInsertInputs, integration: DatabricksIntegration) -> t.Self:
+        """Initialize a DatabricksClient from `DatabricksInsertInputs` and `DatabricksIntegration`.
+
+        The config for Databricks is divided between the inputs and the integration model:
+        Anything that could be reused across batch exports is stored in the inputs, whereas anything that is specific to
+        the Databricks instance we're connecting to is stored in the integration model.
+        """
         return cls(
-            server_hostname=inputs.server_hostname,
+            server_hostname=integration.server_hostname,
             http_path=inputs.http_path,
-            client_id=inputs.client_id,
-            client_secret=inputs.client_secret,
+            client_id=integration.client_id,
+            client_secret=integration.client_secret,
             catalog=inputs.catalog,
             schema=inputs.schema,
         )
@@ -754,6 +765,20 @@ def _get_databricks_merge_config(
     return requires_merge, merge_key, update_key
 
 
+async def _get_databricks_integration(inputs: DatabricksInsertInputs) -> DatabricksIntegration:
+    """Get the Databricks integration.
+
+    Raises:
+        DatabricksIntegrationNotFoundError: If the Databricks integration is not found.
+        DatabricksIntegrationError: If the Databricks integration is not valid.
+    """
+    try:
+        integration = await Integration.objects.aget(id=inputs.integration_id, team_id=inputs.team_id)
+    except Integration.DoesNotExist:
+        raise DatabricksIntegrationNotFoundError(f"Databricks integration with id '{inputs.integration_id}' not found")
+    return DatabricksIntegration(integration)
+
+
 class DatabricksConsumer(Consumer):
     """A consumer that uploads data to a Databricks managed volume."""
 
@@ -856,6 +881,8 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
     )
     external_logger = EXTERNAL_LOGGER.bind()
 
+    databricks_integration = await _get_databricks_integration(inputs)
+
     external_logger.info(
         "Batch exporting range %s - %s to Databricks: %s.%s.%s",
         inputs.data_interval_start or "START",
@@ -909,7 +936,9 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
         volume_name = f"stage_{inputs.table_name}_{data_interval_end_str}_{inputs.team_id}"
         volume_path = f"/Volumes/{inputs.catalog}/{inputs.schema}/{volume_name}"
 
-        async with DatabricksClient.from_inputs(inputs).connect() as databricks_client:
+        async with DatabricksClient.from_inputs_and_integration(
+            inputs, databricks_integration
+        ).connect() as databricks_client:
             async with manage_resources(
                 client=databricks_client,
                 volume_name=volume_name,
@@ -1001,15 +1030,12 @@ class DatabricksBatchExportWorkflow(PostHogWorkflow):
             ),
         )
 
+        # should never happen here but check just in case
+        if inputs.integration_id is None:
+            raise DatabricksIntegrationNotFoundError("Databricks integration ID not provided")
+
         insert_inputs = DatabricksInsertInputs(
             team_id=inputs.team_id,
-            server_hostname=inputs.server_hostname,
-            http_path=inputs.http_path,
-            client_id=inputs.client_id,
-            client_secret=inputs.client_secret,
-            catalog=inputs.catalog,
-            schema=inputs.schema,
-            table_name=inputs.table_name,
             data_interval_start=data_interval_start.isoformat() if not should_backfill_from_beginning else None,
             data_interval_end=data_interval_end.isoformat(),
             exclude_events=inputs.exclude_events,
@@ -1021,6 +1047,11 @@ class DatabricksBatchExportWorkflow(PostHogWorkflow):
             batch_export_schema=inputs.batch_export_schema,
             batch_export_id=inputs.batch_export_id,
             destination_default_fields=databricks_default_fields(),
+            integration_id=inputs.integration_id,
+            http_path=inputs.http_path,
+            catalog=inputs.catalog,
+            schema=inputs.schema,
+            table_name=inputs.table_name,
             use_variant_type=inputs.use_variant_type,
             use_automatic_schema_evolution=inputs.use_automatic_schema_evolution,
             table_partition_field=inputs.table_partition_field,

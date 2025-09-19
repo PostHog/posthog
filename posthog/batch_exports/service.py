@@ -103,7 +103,7 @@ class BaseBatchExportInputs:
     backfill_details: BackfillDetails | None = None
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
-    integration_id: str | None = None
+    integration_id: int | None = None
 
     def get_is_backfill(self) -> bool:
         """Needed for backwards compatibility with existing batch exports.
