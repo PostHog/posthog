@@ -24,7 +24,7 @@ export function TileFiltersOverride({ tile }: { tile: DashboardTile<QueryBasedIn
         <div className="space-y-4 tile-filters-override">
             <div>
                 <p className="text-sm text-muted mb-4">
-                    Set custom filters for this tile that will override the dashboard's global filters.
+                    Set custom filters for this tile that will override all other filters.
                 </p>
             </div>
 
