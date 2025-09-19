@@ -19,6 +19,16 @@ from posthog.warehouse.s3 import ensure_bucket_exists
 from posthog.warehouse.types import PartitionSettings
 
 
+def make_schema_nullable(schema: pa.Schema) -> pa.Schema:
+    """Convert all fields in a PyArrow schema to nullable."""
+    nullable_fields = []
+    for field in schema:
+        # Create a new field with the same name and type, but nullable=True
+        nullable_field = pa.field(field.name, field.type, nullable=True, metadata=field.metadata)
+        nullable_fields.append(nullable_field)
+    return pa.schema(nullable_fields)
+
+
 class DeltaSnapshot:
     VALID_UNTIL_COLUMN: str = "_ph_valid_until"
 
@@ -69,7 +79,19 @@ class DeltaSnapshot:
             "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
         }
 
-    # copied from delta_table_helper.py
+    @lru_cache(maxsize=1, condition=lambda result: result is not None)
+    def get_delta_table(self) -> deltalake.DeltaTable | None:
+        delta_uri = self._get_delta_table_uri()
+        storage_options = self._get_credentials()
+
+        if deltalake.DeltaTable.is_deltatable(table_uri=delta_uri, storage_options=storage_options):
+            try:
+                return deltalake.DeltaTable(table_uri=delta_uri, storage_options=storage_options)
+            except Exception as e:
+                capture_exception(e)
+
+        return None
+
     def _evolve_delta_schema(self, schema: pa.Schema) -> deltalake.DeltaTable:
         delta_table = self.get_delta_table()
         if delta_table is None:
@@ -87,19 +109,6 @@ class DeltaSnapshot:
 
         return delta_table
 
-    @lru_cache(maxsize=1, condition=lambda result: result is not None)
-    def get_delta_table(self) -> deltalake.DeltaTable | None:
-        delta_uri = self._get_delta_table_uri()
-        storage_options = self._get_credentials()
-
-        if deltalake.DeltaTable.is_deltatable(table_uri=delta_uri, storage_options=storage_options):
-            try:
-                return deltalake.DeltaTable(table_uri=delta_uri, storage_options=storage_options)
-            except Exception as e:
-                capture_exception(e)
-
-        return None
-
     def snapshot(self, data: pa.RecordBatch):
         delta_table = self.get_delta_table()
         self.schema.add_pyarrow_record_batch(data)
@@ -110,12 +119,10 @@ class DeltaSnapshot:
         if delta_table is None:
             delta_table = deltalake.DeltaTable.create(
                 table_uri=self._get_delta_table_uri(),
-                schema=data.schema,
+                schema=make_schema_nullable(data.schema),
                 storage_options=self._get_credentials(),
                 partition_by=PARTITION_KEY if use_partitioning else None,
             )
-
-        # delta_table = self._evolve_delta_schema(data.schema)
 
         if use_partitioning:
             predicate_ops = [
@@ -133,6 +140,7 @@ class DeltaSnapshot:
 
     def _merge_table(self, delta_table: deltalake.DeltaTable, data: pa.RecordBatch, predicate: str):
         now_micros = int(datetime.now(UTC).timestamp() * 1_000_000)
+
         delta_table.merge(
             source=data,
             source_alias="source",
@@ -158,6 +166,7 @@ class DeltaSnapshot:
         # Insert the updated rows
         delta_table.merge(
             source=data,
+            merge_schema=True,
             source_alias="source",
             target_alias="target",
             predicate=f"source._ph_merge_key = target._ph_merge_key AND target._ph_valid_until IS NULL",
