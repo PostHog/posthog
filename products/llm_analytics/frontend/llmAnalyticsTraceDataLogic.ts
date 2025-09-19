@@ -20,7 +20,7 @@ import {
     findSidebarOccurrences,
     findTraceOccurrences,
 } from './searchUtils'
-import { formatLLMUsage, isLLMTraceEvent, normalizeMessages } from './utils'
+import { formatLLMUsage, getEventType, isLLMTraceEvent, normalizeMessages } from './utils'
 
 export interface TraceDataLogicProps {
     traceId: string
@@ -207,6 +207,23 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
                     return Object.fromEntries(Object.entries(event.properties).filter(([key]) => !key.startsWith('$')))
                 }
                 return undefined
+            },
+        ],
+        availableEventTypes: [
+            (s) => [s.enrichedTree],
+            (enrichedTree: EnrichedTraceTreeNode[]): string[] => {
+                const types = new Set<string>()
+                const addTypesFromTree = (nodes: EnrichedTraceTreeNode[]): void => {
+                    for (const node of nodes) {
+                        types.add(getEventType(node.event))
+                        if (node.children) {
+                            addTypesFromTree(node.children)
+                        }
+                    }
+                }
+                addTypesFromTree(enrichedTree)
+                types.delete('trace')
+                return [...types]
             },
         ],
     }),

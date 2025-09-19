@@ -4,10 +4,20 @@ import { BindLogic, useActions, useValues } from 'kea'
 import React, { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconAIText, IconChat, IconCopy, IconMessage, IconReceipt, IconSearch } from '@posthog/icons'
+import {
+    IconAIText,
+    IconChat,
+    IconCopy,
+    IconListTree as IconFilter,
+    IconMessage,
+    IconReceipt,
+    IconSearch,
+} from '@posthog/icons'
 import {
     LemonButton,
+    LemonCheckbox,
     LemonDivider,
+    LemonDropdown,
     LemonInput,
     LemonSelect,
     LemonTable,
@@ -51,6 +61,7 @@ import {
     formatLLMEventTitle,
     formatLLMLatency,
     formatLLMUsage,
+    getEventType,
     getSessionID,
     hasSessionID,
     isLLMTraceEvent,
@@ -265,6 +276,9 @@ function TraceSidebar({
                         )}
                     </div>
                 )}
+                <div className="mt-2">
+                    <EventTypeFiltersDropdown />
+                </div>
             </div>
             <ul className="overflow-y-auto p-1 *:first:mt-0 overflow-x-hidden">
                 <TreeNode
@@ -329,6 +343,10 @@ const TreeNode = React.memo(function TraceNode({
     const usage = node.displayUsage
     const item = node.event
 
+    const { eventTypeFilters } = useValues(llmAnalyticsTraceLogic)
+    const eventType = getEventType(item)
+    const isCollapsedDueToFilter = eventTypeFilters[eventType] === false
+
     const children = [
         isLLMTraceEvent(item) && item.properties.$ai_is_error && (
             <LemonTag key="error-tag" type="danger">
@@ -360,25 +378,28 @@ const TreeNode = React.memo(function TraceNode({
                 })}
                 className={classNames(
                     'flex flex-col gap-1 p-1 text-xs rounded min-h-8 justify-center hover:!bg-accent-highlight-secondary',
-                    isSelected && '!bg-accent-highlight-secondary'
+                    isSelected && '!bg-accent-highlight-secondary',
+                    isCollapsedDueToFilter && 'min-h-4 min-w-0'
                 )}
             >
                 <div className="flex flex-row items-center gap-1.5">
                     <EventTypeTag event={item} size="small" />
-                    <Tooltip title={formatLLMEventTitle(item)}>
-                        {searchQuery?.trim() ? (
-                            <SearchHighlight
-                                string={formatLLMEventTitle(item)}
-                                substring={searchQuery}
-                                className="flex-1"
-                            />
-                        ) : (
-                            <span className="flex-1 truncate">{formatLLMEventTitle(item)}</span>
-                        )}
-                    </Tooltip>
+                    {!isCollapsedDueToFilter && (
+                        <Tooltip title={formatLLMEventTitle(item)}>
+                            {searchQuery?.trim() ? (
+                                <SearchHighlight
+                                    string={formatLLMEventTitle(item)}
+                                    substring={searchQuery}
+                                    className="flex-1"
+                                />
+                            ) : (
+                                <span className="flex-1 truncate">{formatLLMEventTitle(item)}</span>
+                            )}
+                        </Tooltip>
+                    )}
                 </div>
-                {renderModelRow(item, searchQuery)}
-                {hasChildren && (
+                {!isCollapsedDueToFilter && renderModelRow(item, searchQuery)}
+                {!isCollapsedDueToFilter && hasChildren && (
                     <div className="flex flex-row flex-wrap text-secondary items-center gap-1.5">{children}</div>
                 )}
             </Link>
@@ -737,30 +758,66 @@ const EventContent = React.memo(
 EventContent.displayName = 'EventContent'
 
 function EventTypeTag({ event, size }: { event: LLMTrace | LLMTraceEvent; size?: LemonTagProps['size'] }): JSX.Element {
-    let eventType = 'trace'
+    const eventType = getEventType(event)
     let tagType: LemonTagProps['type'] = 'completion'
 
-    if (isLLMTraceEvent(event)) {
-        switch (event.event) {
-            case '$ai_generation':
-                eventType = 'generation'
-                tagType = 'success'
-                break
-            case '$ai_embedding':
-                eventType = 'embedding'
-                tagType = 'warning'
-                break
-            default:
-                eventType = 'span'
-                tagType = 'default'
-                break
-        }
+    switch (eventType) {
+        case 'generation':
+            tagType = 'success'
+            break
+        case 'embedding':
+            tagType = 'warning'
+            break
+        case 'span':
+            tagType = 'default'
+            break
+        case 'trace':
+            tagType = 'completion'
+            break
     }
 
     return (
         <LemonTag className="uppercase" type={tagType} size={size}>
             {eventType}
         </LemonTag>
+    )
+}
+
+function EventTypeFiltersDropdown(): JSX.Element {
+    const { availableEventTypes } = useValues(llmAnalyticsTraceDataLogic)
+    const { eventTypeFilters } = useValues(llmAnalyticsTraceLogic)
+    const { toggleEventTypeFilter } = useActions(llmAnalyticsTraceLogic)
+
+    if (availableEventTypes.length === 0) {
+        return <></>
+    }
+
+    return (
+        <LemonDropdown
+            placement="bottom-start"
+            maxContentWidth={true}
+            overlay={
+                <div className="p-1">
+                    <div className="text-xs font-medium text-muted mb-1">Expand</div>
+                    <div className="flex flex-col gap-1">
+                        {availableEventTypes.map((eventType: string) => (
+                            <LemonCheckbox
+                                key={eventType}
+                                checked={eventTypeFilters[eventType] ?? true}
+                                onChange={() => toggleEventTypeFilter(eventType)}
+                                label={<span className="capitalize">{eventType}s</span>}
+                                size="small"
+                            />
+                        ))}
+                    </div>
+                </div>
+            }
+            closeOnClickInside={false}
+        >
+            <LemonButton type="secondary" size="xsmall" icon={<IconFilter />}>
+                Options
+            </LemonButton>
+        </LemonDropdown>
     )
 }
 
