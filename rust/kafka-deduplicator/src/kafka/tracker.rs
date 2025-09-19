@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, OwnedSemaphorePermit, RwLock, Semaphore};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::kafka::errors::TrackingError;
 use crate::kafka::message::{AckableMessage, MessageResult};
