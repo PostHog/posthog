@@ -199,7 +199,7 @@ class BaseTaskExecutorNode(BaseAssistantNode[StateT, PartialStateT], Generic[Sta
                         await self._asend_task_execution_message(tasks)
                     elif progress_text:
                         # For single task, send detailed reasoning message
-                        await self._stream_reasoning(content=progress_text)
+                        await self._write_reasoning(content=progress_text)
                     break
 
         self._reasoning_callback = callback

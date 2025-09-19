@@ -1,5 +1,5 @@
 from abc import ABC
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any, Generic, Literal, Union, cast
 from uuid import UUID
 
@@ -68,14 +68,18 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
     async def arun(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
         raise NotImplementedError
 
-    async def _get_writer(self) -> StreamWriter | None:
+    @property
+    def _writer(self) -> StreamWriter | Callable[[Any], None]:
         if self.writer:
             return self.writer
         try:
             self.writer = get_stream_writer()
         except RuntimeError:
             # Not in a LangGraph context (e.g., during testing)
-            return None
+            def noop(*args, **kwargs):
+                pass
+
+            return noop
         return self.writer
 
     async def _is_conversation_cancelled(self, conversation_id: UUID) -> bool:
@@ -127,15 +131,14 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
         """
         return ((), "messages", (message, {"langgraph_node": node_name}))
 
-    async def _write_message(self, message: AssistantMessageUnion, node_name: MaxNodeName | None = None):
+    async def _write_message(self, message: AssistantMessageUnion):
         """
         Writes a message to the stream writer.
         """
-        writer = await self._get_writer()
-        if writer and self.node_name:
-            writer(self._message_to_langgraph_update(message, self.node_name))
+        if self.node_name:
+            self._writer(self._message_to_langgraph_update(message, self.node_name))
 
-    async def _stream_reasoning(self, content: str, substeps: list[str] | None = None):
+    async def _write_reasoning(self, content: str, substeps: list[str] | None = None):
         """
         Streams a reasoning message to the stream writer.
         """
