@@ -17,14 +17,11 @@ const orderedAccessLevels = (resourceType: AccessControlResourceType): AccessCon
 }
 
 export const resourceTypeToString = (resourceType: AccessControlResourceType): string => {
-    if (resourceType === AccessControlResourceType.FeatureFlag) {
-        return 'feature flag'
-    } else if (resourceType === AccessControlResourceType.SessionRecording) {
-        return 'session recording'
+    if (resourceType === AccessControlResourceType.RevenueAnalytics) {
+        return 'revenue analytics resource'
     }
 
-    // The rest are single words
-    return resourceType
+    return resourceType.replace('_', ' ')
 }
 
 export const accessLevelSatisfied = (
@@ -60,6 +57,14 @@ export const getAccessControlDisabledReason = (
     }
 
     return null
+}
+
+export const userHasAccess = (
+    resourceType: AccessControlResourceType,
+    minAccessLevel: AccessControlLevel,
+    userAccessLevel?: AccessControlLevel
+): boolean => {
+    return !getAccessControlDisabledReason(resourceType, minAccessLevel, userAccessLevel)
 }
 
 interface AccessControlActionChildrenProps {

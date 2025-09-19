@@ -48,6 +48,12 @@ const isPostHogTable = (
     return 'type' in table && table.type === 'posthog'
 }
 
+const isSystemTable = (
+    table: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery
+): table is DatabaseSchemaTable => {
+    return 'type' in table && table.type === 'system'
+}
+
 const isViewTable = (
     table: DatabaseSchemaDataWarehouseTable | DatabaseSchemaTable | DataWarehouseSavedQuery
 ): table is DataWarehouseSavedQuery => {
@@ -72,6 +78,7 @@ const FUSE_OPTIONS: Fuse.IFuseOptions<any> = {
 }
 
 const posthogTablesFuse = new Fuse<DatabaseSchemaTable>([], FUSE_OPTIONS)
+const systemTablesFuse = new Fuse<DatabaseSchemaTable>([], FUSE_OPTIONS)
 const dataWarehouseTablesFuse = new Fuse<DatabaseSchemaDataWarehouseTable>([], FUSE_OPTIONS)
 const savedQueriesFuse = new Fuse<DataWarehouseSavedQuery>([], FUSE_OPTIONS)
 const managedViewsFuse = new Fuse<DatabaseSchemaManagedViewTable>([], FUSE_OPTIONS)
@@ -343,6 +350,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 'viewsMapById',
                 'managedViews',
                 'databaseLoading',
+                'systemTables',
+                'systemTablesMap',
             ],
             dataWarehouseViewsLogic,
             ['dataWarehouseSavedQueries', 'dataWarehouseSavedQueryMapById', 'dataWarehouseSavedQueriesLoading'],
@@ -387,6 +396,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 'views',
                 'managed-views',
                 'search-posthog',
+                'search-system',
                 'search-datawarehouse',
                 'search-views',
                 'search-managed-views',
@@ -482,6 +492,20 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 return posthogTables.map((table) => [table, null])
             },
         ],
+        relevantSystemTables: [
+            (s) => [s.systemTables, s.searchTerm],
+            (
+                systemTables: DatabaseSchemaTable[],
+                searchTerm: string
+            ): [DatabaseSchemaTable, FuseSearchMatch[] | null][] => {
+                if (searchTerm) {
+                    return systemTablesFuse
+                        .search(searchTerm)
+                        .map((result) => [result.item, result.matches as FuseSearchMatch[]])
+                }
+                return systemTables.map((table) => [table, null])
+            },
+        ],
         relevantDataWarehouseTables: [
             (s) => [s.dataWarehouseTables, s.searchTerm],
             (
@@ -541,6 +565,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         searchTreeData: [
             (s) => [
                 s.relevantPosthogTables,
+                s.relevantSystemTables,
                 s.relevantDataWarehouseTables,
                 s.relevantSavedQueries,
                 s.relevantManagedViews,
@@ -550,6 +575,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             ],
             (
                 relevantPosthogTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][],
+                relevantSystemTables: [DatabaseSchemaTable, FuseSearchMatch[] | null][],
                 relevantDataWarehouseTables: [DatabaseSchemaDataWarehouseTable, FuseSearchMatch[] | null][],
                 relevantSavedQueries: [DataWarehouseSavedQuery, FuseSearchMatch[] | null][],
                 relevantManagedViews: [DatabaseSchemaManagedViewTable, FuseSearchMatch[] | null][],
@@ -568,6 +594,12 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                 if (relevantPosthogTables.length > 0) {
                     expandedIds.push('search-posthog')
                     sourcesChildren.push(createSourceFolderNode('PostHog', [], relevantPosthogTables, true))
+                }
+
+                // Add System tables
+                if (relevantSystemTables.length > 0) {
+                    expandedIds.push('search-system')
+                    sourcesChildren.push(createSourceFolderNode('System', [], relevantSystemTables, true))
                 }
 
                 // Group data warehouse tables by source type
@@ -647,6 +679,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
         treeData: [
             (s) => [
                 s.posthogTables,
+                s.systemTables,
                 s.dataWarehouseTables,
                 s.dataWarehouseSavedQueries,
                 s.managedViews,
@@ -660,6 +693,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             ],
             (
                 posthogTables: DatabaseSchemaTable[],
+                systemTables: DatabaseSchemaTable[],
                 dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
                 dataWarehouseSavedQueries: DataWarehouseSavedQuery[],
                 managedViews: DatabaseSchemaManagedViewTable[],
@@ -687,6 +721,12 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     // Add PostHog tables
                     if (posthogTables.length > 0) {
                         sourcesChildren.push(createSourceFolderNode('PostHog', posthogTables))
+                    }
+
+                    // Add System tables
+                    if (systemTables.length > 0) {
+                        systemTables.sort((a, b) => a.name.localeCompare(b.name))
+                        sourcesChildren.push(createSourceFolderNode('System', systemTables))
                     }
 
                     // Group data warehouse tables by source type
@@ -850,6 +890,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             (s) => [
                 s.selectedSchema,
                 s.posthogTablesMap,
+                s.systemTablesMap,
                 s.dataWarehouseTablesMap,
                 s.dataWarehouseSavedQueryMapById,
                 s.viewsMapById,
@@ -858,6 +899,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             (
                 selectedSchema,
                 posthogTablesMap,
+                systemTablesMap,
                 dataWarehouseTablesMap,
                 dataWarehouseSavedQueryMapById,
                 viewsMapById,
@@ -870,6 +912,8 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     null
                 if (isPostHogTable(selectedSchema)) {
                     table = posthogTablesMap[selectedSchema.name]
+                } else if (isSystemTable(selectedSchema)) {
+                    table = systemTablesMap[selectedSchema.name]
                 } else if (isDataWarehouseTable(selectedSchema)) {
                     table = dataWarehouseTablesMap[selectedSchema.name]
                 } else if (isManagedViewTable(selectedSchema)) {
@@ -951,6 +995,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
     subscriptions({
         posthogTables: (posthogTables: DatabaseSchemaTable[]) => {
             posthogTablesFuse.setCollection(posthogTables)
+        },
+        systemTables: (systemTables: DatabaseSchemaTable[]) => {
+            systemTablesFuse.setCollection(systemTables)
         },
         dataWarehouseTables: (dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]) => {
             dataWarehouseTablesFuse.setCollection(dataWarehouseTables)

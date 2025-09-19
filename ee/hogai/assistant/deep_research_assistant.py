@@ -16,17 +16,10 @@ from posthog.schema import (
 from posthog.models import Team, User
 
 from ee.hogai.assistant.base import BaseAssistant
-from ee.hogai.graph import (
-    DeepResearchAssistantGraph,
-    FunnelGeneratorNode,
-    RetentionGeneratorNode,
-    SQLGeneratorNode,
-    TrendsGeneratorNode,
-)
+from ee.hogai.graph import DeepResearchAssistantGraph
 from ee.hogai.graph.base import BaseAssistantNode
 from ee.hogai.graph.deep_research.types import DeepResearchNodeName, DeepResearchState, PartialDeepResearchState
-from ee.hogai.graph.taxonomy.types import TaxonomyNodeName
-from ee.hogai.utils.types import AssistantMode, AssistantNodeName, AssistantOutput
+from ee.hogai.utils.types import AssistantMode, AssistantOutput
 from ee.hogai.utils.types.composed import MaxNodeName
 from ee.models import Conversation
 
@@ -68,17 +61,11 @@ class DeepResearchAssistant(BaseAssistant):
 
     @property
     def VISUALIZATION_NODES(self) -> dict[MaxNodeName, type[BaseAssistantNode]]:
-        return {
-            AssistantNodeName.TRENDS_GENERATOR: TrendsGeneratorNode,
-            AssistantNodeName.FUNNEL_GENERATOR: FunnelGeneratorNode,
-            AssistantNodeName.RETENTION_GENERATOR: RetentionGeneratorNode,
-            AssistantNodeName.SQL_GENERATOR: SQLGeneratorNode,
-        }
+        return {}
 
     @property
     def STREAMING_NODES(self) -> set[MaxNodeName]:
         return {
-            TaxonomyNodeName.LOOP_NODE,
             DeepResearchNodeName.ONBOARDING,
             DeepResearchNodeName.PLANNER,
             DeepResearchNodeName.TASK_EXECUTOR,
@@ -87,8 +74,6 @@ class DeepResearchAssistant(BaseAssistant):
     @property
     def VERBOSE_NODES(self) -> set[MaxNodeName]:
         return self.STREAMING_NODES | {
-            AssistantNodeName.ROOT_TOOLS,
-            TaxonomyNodeName.TOOLS_NODE,
             DeepResearchNodeName.PLANNER_TOOLS,
             DeepResearchNodeName.TASK_EXECUTOR,
         }
@@ -96,8 +81,6 @@ class DeepResearchAssistant(BaseAssistant):
     @property
     def THINKING_NODES(self) -> set[MaxNodeName]:
         return {
-            AssistantNodeName.QUERY_PLANNER,
-            TaxonomyNodeName.LOOP_NODE,
             DeepResearchNodeName.ONBOARDING,
             DeepResearchNodeName.NOTEBOOK_PLANNING,
             DeepResearchNodeName.PLANNER,
