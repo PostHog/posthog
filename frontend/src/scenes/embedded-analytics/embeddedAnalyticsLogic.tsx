@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, kea, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -380,14 +380,6 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
             },
         ],
     }),
-
-    listeners(({ actions, values }) => ({
-        setRequestNameFilter: ({ }) => {
-            if (values.requestNameFilter.length > 0) {
-                actions.setRequestNameBreakdownEnabled(true)
-            }
-        },
-    })),
 
     tabAwareActionToUrl(({ values }) => {
         const actionToUrl = ({
