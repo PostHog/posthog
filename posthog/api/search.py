@@ -1,5 +1,5 @@
 import re
-from typing import Any, Literal, TypedDict
+from typing import Any, Literal, TypedDict, cast
 
 from django.db.models import CharField, F, Model, QuerySet, Value
 from django.db.models.functions import Cast, JSONObject
@@ -127,7 +127,7 @@ class SearchViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         else:
             qs = qs.order_by("type", F("_sort_name").asc(nulls_first=True))
 
-        results = list(qs[:LIMIT])
+        results = cast(list[dict[str, Any]], list(qs[:LIMIT]))
         for result in results:
             result.pop("_sort_name", None)
 
