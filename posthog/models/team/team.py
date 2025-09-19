@@ -752,8 +752,6 @@ class Team(UUIDTClassicModel):
         from ee.models.rbac.access_control import AccessControl
         from ee.models.rbac.role import RoleMembership
 
-        # Use the new access control system
-
         # First, check if the team is private
         team_is_private = AccessControl.objects.filter(
             team_id=self.id,

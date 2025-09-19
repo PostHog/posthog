@@ -152,7 +152,6 @@ class UserTeamPermissions:
         if not organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
             return organization_membership.level
 
-        # Use the new access control system
         from ee.models.rbac.access_control import AccessControl
 
         # Check if the team is private

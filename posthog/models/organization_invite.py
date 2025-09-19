@@ -137,7 +137,6 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
                 # if the team doesn't exist, it was probably deleted. We can still continue with the invite.
                 continue
 
-            # Use the new access control system
             AccessControl.objects.create(
                 team=team,
                 resource="project",
