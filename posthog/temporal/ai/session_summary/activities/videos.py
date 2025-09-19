@@ -180,11 +180,11 @@ async def validate_llm_single_session_summary_with_videos_activity(
         )
     # Generate videos and asks LLM to describe them
     # TODO: Enable after testing; Temporary disabling, as video generation surely works
-    description_results = await moments_analyzer.analyze(moments_input=moments_input)
-    with open(f"validation_results_{inputs.session_id}.json", "w") as f:
-        json.dump(description_results, f, indent=4)
-    # with open(f"/Users/woutut/Documents/Code/posthog/validation_results_01995bac-a002-7ba2-bc68-baa043d8e46c.json", "r") as f:
-    #     description_results = json.load(f)
+    # description_results = await moments_analyzer.analyze(moments_input=moments_input)
+    # with open(f"validation_results_{inputs.session_id}.json", "w") as f:
+    #     json.dump(description_results, f, indent=4)
+    with open(f"/Users/woutut/Documents/Code/posthog/validation_results_01995bac-a002-7ba2-bc68-baa043d8e46c.json", "r") as f:
+        description_results = json.load(f)
     # TODO: Update the summary with the description results
     # Generate prompt for video validation
     validation_prompt = generate_video_validation_prompt(
