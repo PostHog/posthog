@@ -74,6 +74,9 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         event_exprs: list[ast.Expr] = []
 
         for entity in entities:
+            if isinstance(entity, DataWarehouseNode) or isinstance(entity, str):
+                continue
+
             # this is always _positive_ operations
             entity_exprs = [_entity_to_expr(entity=entity)]
 
@@ -353,9 +356,12 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         into an event and property filter
         """
         try:
-            property_type = p.type
+            property_type = getattr(p, "type", None)
             if property_type is None or property_type != "event":
-                raise ValueError("property must be of type event")
+                # something unexpected has been passed to us,
+                # but we would always have called property_to_expr before
+                # so let's just do that
+                return property_to_expr(p, team=team, scope="replay")
 
             events_that_have_the_property = EventProperty.objects.filter(team_id=team.id, property=p.key).values_list(
                 "event", flat=True
