@@ -1804,3 +1804,31 @@ class DatabricksIntegration:
             self.client_secret = self.integration.sensitive_config["client_secret"]
         except KeyError as e:
             raise DatabricksIntegrationError(f"Databricks integration is not valid: {str(e)} missing")
+
+    # TODO - should we perform some kind of validation against the Databricks API to ensure the integration is valid?
+    # (like is done above in integration_from_keys)
+    @classmethod
+    def integration_from_config(
+        cls, team_id: int, server_hostname: str, client_id: str, client_secret: str, created_by: User | None = None
+    ) -> Integration:
+        config = {
+            "server_hostname": server_hostname,
+        }
+        sensitive_config = {
+            "client_id": client_id,
+            "client_secret": client_secret,
+        }
+        integration, _ = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.DATABRICKS.value,
+            defaults={
+                "config": config,
+                "sensitive_config": sensitive_config,
+                "created_by": created_by,
+            },
+        )
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration

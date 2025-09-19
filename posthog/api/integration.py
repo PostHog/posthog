@@ -20,6 +20,7 @@ from posthog.api.utils import action
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
     ClickUpIntegration,
+    DatabricksIntegration,
     EmailIntegration,
     GitHubIntegration,
     GoogleAdsIntegration,
@@ -112,7 +113,22 @@ class IntegrationSerializer(serializers.ModelSerializer):
             instance = twilio.integration_from_keys()
             return instance
 
-        # TODO: add Databricks here
+        elif validated_data["kind"] == "databricks":
+            config = validated_data.get("config", {})
+            server_hostname = config.get("server_hostname")
+            client_id = config.get("client_id")
+            client_secret = config.get("client_secret")
+            if not (server_hostname and client_id and client_secret):
+                raise ValidationError("Server hostname, client ID, and client secret must be provided")
+
+            instance = DatabricksIntegration.integration_from_config(
+                team_id=team_id,
+                server_hostname=server_hostname,
+                client_id=client_id,
+                client_secret=client_secret,
+                created_by=request.user,
+            )
+            return instance
 
         elif validated_data["kind"] in OauthIntegration.supported_kinds:
             try:
