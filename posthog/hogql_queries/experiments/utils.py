@@ -68,9 +68,9 @@ def get_new_variant_results(sorted_results: list[tuple]) -> list[ExperimentStats
         elif len(result) == 6:
             # Funnel metrics with sampled session IDs
             base_stats["step_counts"] = result[4]
-            base_stats["steps_event_data"] = [
-                [(entity_id, sid, uuid) for entity_id, sid, uuid in session_id_event_uuid_tuple]
-                for session_id_event_uuid_tuple in result[5]
+            base_stats["step_sessions"] = [
+                [(distinct_id, session_id, event_uuid) for distinct_id, session_id, event_uuid in step_sessions]
+                for step_sessions in result[5]
             ]
 
         # Ratio metrics

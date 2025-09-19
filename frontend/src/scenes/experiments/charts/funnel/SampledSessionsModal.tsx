@@ -12,14 +12,14 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { urls } from 'scenes/urls'
 
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind, SessionData } from '~/queries/schema/schema-general'
 import { ActivityTab, PropertyFilterType, PropertyOperator } from '~/types'
 
 interface SampledSessionsModalProps {
     isOpen: boolean
     onClose: () => void
-    stepsEventData: Array<[string, string, string]>
-    prevStepsEventData: Array<[string, string, string]>
+    stepsEventData: SessionData[]
+    prevStepsEventData: SessionData[]
     stepName: string
     variant: string
 }
@@ -55,7 +55,7 @@ export function SampledSessionsModal({
 
     // Get all unique session IDs - memoized to prevent recreating on each render
     const allSessionIds = useMemo(() => {
-        return Array.from(new Set(stepsEventData.concat(prevStepsEventData).map((s) => s[1])))
+        return Array.from(new Set(stepsEventData.concat(prevStepsEventData).map((s) => s.session_id)))
     }, [stepsEventData, prevStepsEventData])
 
     // Check recording availability for all sessions
@@ -110,13 +110,12 @@ export function SampledSessionsModal({
         })
     }
 
-    const columns: LemonTableColumns<[string, string, string]> = [
+    const columns: LemonTableColumns<SessionData> = [
         {
             title: 'Session',
             key: 'sessionId',
-            render: (_, sutuple) => {
-                const sessionId = sutuple[1]
-                const eventsUrl = getEventsUrlForSession(sessionId)
+            render: (_, session) => {
+                const eventsUrl = getEventsUrlForSession(session.session_id)
                 return (
                     <Link
                         to={eventsUrl}
@@ -126,9 +125,9 @@ export function SampledSessionsModal({
                         }}
                         subtle
                         className="font-mono text-xs"
-                        title={`View events for session ${sessionId}`}
+                        title={`View events for session ${session.session_id}`}
                     >
-                        {sessionId}
+                        {session.session_id}
                     </Link>
                 )
             },
@@ -137,8 +136,8 @@ export function SampledSessionsModal({
         {
             title: 'Recording',
             key: 'recording',
-            render: (_, sutuple) => {
-                const sessionInfo = recordingAvailability.get(sutuple[1])
+            render: (_, session) => {
+                const sessionInfo = recordingAvailability.get(session.session_id)
                 const hasRecording = sessionInfo?.hasRecording || false
 
                 if (loading) {
@@ -151,7 +150,7 @@ export function SampledSessionsModal({
                             size="small"
                             type="secondary"
                             icon={<IconPlayCircle />}
-                            onClick={() => openSessionRecording(sutuple[1], sutuple[2])}
+                            onClick={() => openSessionRecording(session.session_id, session.event_uuid)}
                         >
                             View recording
                         </LemonButton>
