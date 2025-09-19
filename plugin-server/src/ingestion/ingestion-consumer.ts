@@ -36,6 +36,7 @@ import { BatchProcessingPipeline } from './batch-processing-pipeline'
 import { deduplicateEvents } from './deduplication/events'
 import { DeduplicationRedis, createDeduplicationRedis } from './deduplication/redis-client'
 import {
+    createApplyCookielessProcessingStep,
     createApplyDropRestrictionsStep,
     createApplyForceOverflowRestrictionsStep,
     createApplyPersonProcessingRestrictionsStep,
@@ -213,7 +214,9 @@ export class IngestionConsumer {
 
             try {
                 // Create the inner batch processing pipeline
-                const innerPipeline = BatchProcessingPipeline.of(messages).pipeConcurrently(this.preprocessingPipeline)
+                const innerPipeline = BatchProcessingPipeline.of(messages)
+                    .pipeConcurrently(this.preprocessingPipeline)
+                    .pipe(createApplyCookielessProcessingStep(this.hub))
 
                 // Wrap it in the result handling pipeline
                 const pipeline = BatchResultHandlingPipeline.of(innerPipeline, messages, pipelineConfig)
@@ -328,10 +331,7 @@ export class IngestionConsumer {
                 preprocessedEvents.map((x) => x.event)
             )
         )
-        const postCookielessMessages = await this.runInstrumented('cookielessProcessing', () =>
-            this.hub.cookielessManager.doBatch(preprocessedEvents.map((x) => x.eventWithTeam))
-        )
-        const eventsPerDistinctId = this.groupEventsByDistinctId(postCookielessMessages)
+        const eventsPerDistinctId = this.groupEventsByDistinctId(preprocessedEvents.map((x) => x.eventWithTeam))
 
         // Check if hogwatcher should be used (using the same sampling logic as in the transformer)
         const shouldRunHogWatcher = Math.random() < this.hub.CDP_HOG_WATCHER_SAMPLE_RATE

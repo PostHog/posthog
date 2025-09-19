@@ -26,6 +26,7 @@ import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/db/error'
 import { TeamManager } from '../../utils/team-manager'
 import { UUID7, bufferToUint32ArrayLE, uint32ArrayLEToBuffer } from '../../utils/utils'
+import { PipelineStepResult, drop, success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
 import { compareTimestamps } from '../../worker/ingestion/timestamp-comparison'
 import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../../worker/ingestion/timestamps'
 import { RedisHelpers } from './redis-helpers'
@@ -275,7 +276,7 @@ export class CookielessManager {
         return buf
     }
 
-    async doBatch(events: IncomingEventWithTeam[]): Promise<IncomingEventWithTeam[]> {
+    async doBatch(events: IncomingEventWithTeam[]): Promise<PipelineStepResult<IncomingEventWithTeam>[]> {
         if (this.config.disabled) {
             // cookieless is globally disabled, don't do any processing just drop all cookieless events
             return this.dropAllCookielessEvents(events, 'cookieless_globally_disabled')
@@ -296,15 +297,20 @@ export class CookielessManager {
         }
     }
 
-    private async doBatchInner(events: IncomingEventWithTeam[]): Promise<IncomingEventWithTeam[]> {
+    private async doBatchInner(events: IncomingEventWithTeam[]): Promise<PipelineStepResult<IncomingEventWithTeam>[]> {
         const hashCache: Record<string, Buffer> = {}
+
+        // Track results for each input event - initialize all as success, will be overwritten if dropped
+        const results: PipelineStepResult<IncomingEventWithTeam>[] = events.map((event) => success(event))
 
         // do a first pass just to extract properties and compute the base hash for stateful cookieless events
         const eventsWithStatus: EventWithStatus[] = []
-        for (const { event, team, message, headers } of events) {
+        for (let i = 0; i < events.length; i++) {
+            const { event, team, message, headers } = events[i]
+
             if (!event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
                 // push the event as is, we don't need to do anything with it, but preserve the ordering
-                eventsWithStatus.push({ event, team, message, headers })
+                eventsWithStatus.push({ event, team, message, headers, originalIndex: i })
                 continue
             }
 
@@ -318,6 +324,7 @@ export class CookielessManager {
                         drop_cause: 'cookieless_disallowed_event',
                     })
                     .inc()
+                results[i] = drop('Event type not supported in cookieless mode')
                 continue
             }
             if (
@@ -331,6 +338,7 @@ export class CookielessManager {
                         drop_cause: 'cookieless_stateless_disallowed_identify',
                     })
                     .inc()
+                results[i] = drop('$identify not supported in stateless cookieless mode')
                 continue
             }
 
@@ -345,6 +353,7 @@ export class CookielessManager {
                         drop_cause: 'cookieless_team_disabled',
                     })
                     .inc()
+                results[i] = drop('Cookieless disabled for team')
                 continue
             }
             const timestamp = event.timestamp ?? event.sent_at ?? event.now
@@ -356,6 +365,7 @@ export class CookielessManager {
                         drop_cause: 'cookieless_no_timestamp',
                     })
                     .inc()
+                results[i] = drop('Missing timestamp')
                 continue
             }
 
@@ -388,6 +398,7 @@ export class CookielessManager {
                               : 'cookieless_missing_host',
                     })
                     .inc()
+                results[i] = drop(!userAgent ? 'Missing user agent' : !ip ? 'Missing IP' : 'Missing host')
                 continue
             }
 
@@ -408,6 +419,7 @@ export class CookielessManager {
                 team,
                 message,
                 headers,
+                originalIndex: i,
                 firstPass: {
                     timestampMs,
                     eventTimeZone,
@@ -422,7 +434,7 @@ export class CookielessManager {
 
         // early exit if we don't need to do anything
         if (!eventsWithStatus.some((e) => e.firstPass)) {
-            return eventsWithStatus
+            return results
         }
 
         // Do a second pass to see what `identifiesRedisKey`s we need to load from redis for stateful events.
@@ -612,13 +624,19 @@ export class CookielessManager {
             )
         }
 
-        // remove the extra processing state from the returned object
-        return eventsWithStatus.map(({ event, team, message, headers }) => ({ event, team, message, headers }))
+        // Update results with successfully processed events
+        for (const { event, team, message, headers, originalIndex } of eventsWithStatus) {
+            results[originalIndex] = success({ event, team, message, headers })
+        }
+
+        return results
     }
 
-    dropAllCookielessEvents(events: IncomingEventWithTeam[], dropCause: string): IncomingEventWithTeam[] {
-        const nonCookielessEvents: IncomingEventWithTeam[] = []
-        for (const incomingEvent of events) {
+    dropAllCookielessEvents(
+        events: IncomingEventWithTeam[],
+        dropCause: string
+    ): PipelineStepResult<IncomingEventWithTeam>[] {
+        return events.map((incomingEvent) => {
             if (incomingEvent.event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
                 eventDroppedCounter
                     .labels({
@@ -626,11 +644,11 @@ export class CookielessManager {
                         drop_cause: dropCause,
                     })
                     .inc()
+                return drop(dropCause)
             } else {
-                nonCookielessEvents.push(incomingEvent)
+                return success(incomingEvent)
             }
-        }
-        return nonCookielessEvents
+        })
     }
 }
 
@@ -639,6 +657,7 @@ type EventWithStatus = {
     event: PipelineEvent
     team: Team
     headers: EventHeaders
+    originalIndex: number
     // Store temporary processing state. Nest the passes to make type-checking easier
     firstPass?: {
         timestampMs: number

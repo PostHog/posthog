@@ -13,6 +13,7 @@ import { closeHub, createHub } from '../../utils/db/hub'
 import { PostgresUse } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
 import { UUID7 } from '../../utils/utils'
+import { isSuccessResult } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
 import {
     COOKIELESS_MODE_FLAG_PROPERTY,
     COOKIELESS_SENTINEL_VALUE,
@@ -282,8 +283,9 @@ describe('CookielessManager', () => {
             headers: { token?: string; distinct_id?: string; timestamp?: string } = {}
         ): Promise<PipelineEvent | undefined> {
             const response = await hub.cookielessManager.doBatch([{ event, team, message, headers }])
-            expect(response.length).toBeLessThanOrEqual(1)
-            return response[0]?.event
+            expect(response.length).toBe(1)
+            const result = response[0]
+            return isSuccessResult(result) ? result.value.event : undefined
         }
 
         async function processEventWithHeaders(
@@ -294,10 +296,11 @@ describe('CookielessManager', () => {
             headers: { token?: string; distinct_id?: string; timestamp?: string }
         }> {
             const response = await hub.cookielessManager.doBatch([{ event, team, message, headers }])
-            expect(response.length).toBeLessThanOrEqual(1)
+            expect(response.length).toBe(1)
+            const result = response[0]
             return {
-                event: response[0]?.event,
-                headers: response[0]?.headers || {},
+                event: isSuccessResult(result) ? result.value.event : undefined,
+                headers: isSuccessResult(result) ? result.value.headers || {} : {},
             }
         }
 
