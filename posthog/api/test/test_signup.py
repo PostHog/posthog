@@ -1334,6 +1334,12 @@ class TestInviteSignupAPI(APIBaseTest):
     def test_api_invite_sign_up_where_default_project_is_private(self):
         self.client.logout()
 
+        # Enable advanced permissions feature
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS}
+        ]
+        self.organization.save()
+
         # Restrict original team
         AccessControl.objects.create(
             team=self.team,
@@ -1342,7 +1348,7 @@ class TestInviteSignupAPI(APIBaseTest):
             resource_id=str(self.team.id),
         )
         # Create unrestricted team (no access control = default member access)
-        team = Team.objects.create(name="Public project", organization=self.organization)
+        team_2 = Team.objects.create(name="Public project", organization=self.organization)
         invite: OrganizationInvite = OrganizationInvite.objects.create(
             target_email="test+privatepublic@posthog.com",
             organization=self.organization,
@@ -1355,8 +1361,8 @@ class TestInviteSignupAPI(APIBaseTest):
         user = cast(User, User.objects.order_by("-pk")[0])
         self.assertEqual(user.organization_memberships.count(), 1)
         self.assertEqual(user.organization, self.organization)
-        self.assertEqual(user.current_team, team)
-        self.assertEqual(user.team, team)
+        self.assertEqual(user.current_team, team_2)
+        self.assertEqual(user.team, team_2)
 
     def test_api_invite_signup_invite_has_private_project_access(self):
         self.client.logout()
