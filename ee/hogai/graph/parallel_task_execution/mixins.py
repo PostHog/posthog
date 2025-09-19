@@ -23,7 +23,7 @@ from ee.hogai.graph.insights.nodes import InsightSearchNode
 from ee.hogai.graph.parallel_task_execution.prompts import AGENT_TASK_PROMPT_TEMPLATE
 from ee.hogai.utils.helpers import extract_stream_update
 from ee.hogai.utils.state import is_task_started_update, is_value_update
-from ee.hogai.utils.types.base import (
+from ee.hogai.utils.types import (
     AnyAssistantGeneratedQuery,
     AssistantMessageUnion,
     AssistantState,

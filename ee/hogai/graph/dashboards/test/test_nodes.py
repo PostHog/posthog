@@ -124,9 +124,6 @@ class TestDashboardCreationExecutorNode:
         assert "No tasks to execute" in str(exc_info.value)
 
 
-# TestDashboardInsightCreationTaskExecutorNode removed - functionality merged into TestDashboardCreationExecutorNode
-
-
 class TestDashboardCreationNode:
     @pytest.fixture(autouse=True)
     def setup_method(self):
