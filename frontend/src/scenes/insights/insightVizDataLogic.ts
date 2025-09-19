@@ -231,12 +231,12 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],
         detailedResultsAggregationType: [
             (s) => [s.querySource],
-            (querySource) => {
+            (querySource): AggregationType | undefined => {
                 if (isTrendsQuery(querySource)) {
-                    return querySource.trendsFilter?.detailedResultsAggregationType
+                    return querySource.trendsFilter?.detailedResultsAggregationType as AggregationType | undefined
                 }
                 if (isStickinessQuery(querySource)) {
-                    return querySource.stickinessFilter?.detailedResultsAggregationType
+                    return querySource.stickinessFilter?.detailedResultsAggregationType as AggregationType | undefined
                 }
             },
         ],
