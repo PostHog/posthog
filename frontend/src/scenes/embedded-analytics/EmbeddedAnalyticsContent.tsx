@@ -26,7 +26,7 @@ const EMBEDDED_ANALYTICS_API_USAGE_PRODUCT_DESCRIPTION =
 
 export function EmbeddedAnalyticsContent({ tabId }: { tabId: string }): JSX.Element {
     const { isEmpty } = useValues(queryEndpointsLogic({ tabId }))
-    const { activeTab } = useValues(embeddedAnalyticsLogic)
+    const { activeTab } = useValues(embeddedAnalyticsLogic({ tabId }))
     return (
         <BindLogic logic={embeddedAnalyticsLogic} props={{ tabId: tabId }}>
             <BindLogic logic={queryEndpointsLogic} props={{ tabId: tabId }}>

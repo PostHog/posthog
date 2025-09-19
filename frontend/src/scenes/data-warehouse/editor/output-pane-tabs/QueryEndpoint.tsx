@@ -8,6 +8,7 @@ import {
     LemonTableColumns,
     LemonTabs,
     LemonTag,
+    LemonTextArea,
     lemonToast,
 } from '@posthog/lemon-ui'
 
@@ -20,6 +21,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 
 import { multitabEditorLogic } from '../multitabEditorLogic'
 import { CodeExampleTab, queryEndpointLogic } from './queryEndpointLogic'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 
 const variablesColumns: LemonTableColumns<Variable> = [
     {
@@ -239,7 +241,8 @@ function CodeExamples({ queryEndpointName, variables, projectId, tabId }: CodeEx
 export function QueryEndpoint({ tabId }: QueryEndpointProps): JSX.Element {
     const { setQueryEndpointName, setQueryEndpointDescription, createQueryEndpoint } = useActions(queryEndpointLogic({ tabId }))
     const { queryEndpointName, queryEndpointDescription } = useValues(queryEndpointLogic({ tabId }))
-
+    
+    const { currentProject } = useValues(projectLogic)
     const { variablesForInsight } = useValues(variablesLogic)
     const { queryInput } = useValues(multitabEditorLogic)
 
@@ -281,8 +284,6 @@ export function QueryEndpoint({ tabId }: QueryEndpointProps): JSX.Element {
         })
     }
 
-    const { currentProject } = useValues(projectLogic)
-
     return (
         <div className="space-y-4">
             <div className="flex flex-row items-center gap-2">
@@ -296,22 +297,27 @@ export function QueryEndpoint({ tabId }: QueryEndpointProps): JSX.Element {
                     <br />
                     Once created, you will get a URL that you can make an API request to from your own code.
                 </p>
-                <LemonInput
-                    type="text"
-                    placeholder="Query name"
-                    onChange={setQueryEndpointName}
-                    value={queryEndpointName || ''}
-                    className="w-1/3"
-                />
-                <LemonInput
-                    type="text"
-                    placeholder="Query description"
-                    size="large"
-                    onChange={setQueryEndpointDescription}
-                    value={queryEndpointDescription || ''}
-                    className="w-1/3"
-                />
-                <LemonButton type="primary" onClick={handleCreateQueryEndpoint} icon={<IconCode2 />}>
+                <LemonField.Pure label="Query name">
+                    <LemonInput
+                        id={`query-endpoint-name-${tabId}`}
+                        type="text"
+                        onChange={setQueryEndpointName}
+                        value={queryEndpointName || ''}
+                        className="w-1/3"
+                    />
+                </LemonField.Pure>
+ 
+                <LemonField.Pure label="Query description">
+                    <LemonTextArea
+                        minRows={1}
+                        maxRows={3}
+                        onChange={setQueryEndpointDescription}
+                        value={queryEndpointDescription || ''}
+                        className="w-1/3"
+                    />
+                </LemonField.Pure>
+
+                <LemonButton type="primary" onClick={handleCreateQueryEndpoint} icon={<IconCode2 />} size='medium'>
                     Create query endpoint
                 </LemonButton>
             </div>
@@ -321,7 +327,7 @@ export function QueryEndpoint({ tabId }: QueryEndpointProps): JSX.Element {
                 <LemonTable
                     columns={variablesColumns}
                     dataSource={variablesForInsight}
-                    emptyState="No variables defined on the query."
+                    emptyState="No variables used in the query."
                 />
             </div>
 
@@ -329,6 +335,7 @@ export function QueryEndpoint({ tabId }: QueryEndpointProps): JSX.Element {
                 queryEndpointName={queryEndpointName}
                 variables={variablesForInsight}
                 projectId={currentProject?.id}
+                tabId={tabId}
             />
         </div>
     )
