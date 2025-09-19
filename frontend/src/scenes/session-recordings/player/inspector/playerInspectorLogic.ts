@@ -733,7 +733,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
         stateLogItems: [
             (s) => [s.start, s.sessionPlayerData, s.windowNumberForID],
-            (start, sessionPlayerData, windowNumberForID): InspectorListItemDoctor[] => {
+            (start, sessionPlayerData, windowNumberForID): InspectorListItemStateLog[] => {
                 if (!start) {
                     return []
                 }
