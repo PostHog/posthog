@@ -2011,6 +2011,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     id="t1",
                     prompt="Write a summary",
                     status=TaskExecutionStatus.IN_PROGRESS,
+                    task_type="summary",
                 )
             ]
         )

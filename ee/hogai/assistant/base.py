@@ -520,9 +520,7 @@ class BaseAssistant(ABC):
                 self._reasoning_headline_chunk += summary_text_chunk
                 return None
 
-    def _extract_commentary_from_tool_call_chunk(
-        self, langchain_message: AIMessageChunk
-    ) -> Optional[tuple[str, bool, Optional[str], Optional[int]]]:
+    def _extract_commentary_from_tool_call_chunk(self, langchain_message: AIMessageChunk) -> Optional[tuple[str, bool]]:
         """Extract commentary from tool call chunks.
 
         Handles partial JSON parsing for "commentary": "some text" patterns.
@@ -568,7 +566,10 @@ class BaseAssistant(ABC):
                         commentary = value_buffer[:closing_quote_idx]
                         # Reset buffer for next commentary
                         self._commentary_chunk = None
-                        return commentary, True
+                        return (
+                            commentary,
+                            True,
+                        )
                     else:
                         # Partial commentary - return what we have so far
                         # But only if there's actual content
