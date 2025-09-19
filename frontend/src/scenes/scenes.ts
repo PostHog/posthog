@@ -57,6 +57,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Cohort]: { projectBased: true, name: 'Cohort', defaultDocsPath: '/docs/data/cohorts' },
     [Scene.Cohorts]: { projectBased: true, name: 'Cohorts', defaultDocsPath: '/docs/data/cohorts' },
     [Scene.CustomCss]: { projectBased: true, name: 'Custom CSS' },
+    [Scene.CustomerAnalytics]: { projectBased: true, name: 'Customer analytics' },
     [Scene.Dashboard]: {
         projectBased: true,
         activityScope: ActivityScope.DASHBOARD,
