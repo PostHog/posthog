@@ -36,6 +36,7 @@ class AggregationAxisFormat(StrEnum):
     DURATION_MS = "duration_ms"
     PERCENTAGE = "percentage"
     PERCENTAGE_SCALED = "percentage_scaled"
+    CURRENCY = "currency"
 
 
 class AlertCalculationInterval(StrEnum):
@@ -339,7 +340,8 @@ class AssistantTrendsFilter(BaseModel):
             " miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this"
             " option only if you are sure that the values are in miliseconds. `percentage` - adds a percentage sign to"
             " the value, e.g., `50` becomes `50%`. `percentage_scaled` - formats the value as a percentage scaled to"
-            " 0-100, e.g., `0.5` becomes `50%`."
+            " 0-100, e.g., `0.5` becomes `50%`. `currency` - formats the value as a currency, e.g., `1000` becomes"
+            " `$1,000`."
         ),
     )
     aggregationAxisPostfix: Optional[str] = Field(
@@ -873,6 +875,7 @@ class DatabaseSchemaSource(BaseModel):
 
 class DatabaseSchemaTableType(StrEnum):
     POSTHOG = "posthog"
+    SYSTEM = "system"
     DATA_WAREHOUSE = "data_warehouse"
     VIEW = "view"
     BATCH_EXPORT = "batch_export"
@@ -3598,6 +3601,17 @@ class DatabaseSchemaPostHogTable(BaseModel):
     type: Literal["posthog"] = "posthog"
 
 
+class DatabaseSchemaSystemTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: dict[str, DatabaseSchemaField]
+    id: str
+    name: str
+    row_count: Optional[float] = None
+    type: Literal["system"] = "system"
+
+
 class DatabaseSchemaTableCommon(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4856,6 +4870,7 @@ class SurveyQuestionSchema(BaseModel):
     descriptionContentType: Optional[SurveyQuestionDescriptionContentType] = None
     display: Optional[Display1] = None
     hasOpenChoice: Optional[bool] = None
+    id: Optional[str] = None
     link: Optional[str] = None
     lowerBoundLabel: Optional[str] = None
     optional: Optional[bool] = None
@@ -4956,6 +4971,34 @@ class TestCachedBasicQueryResponse(BaseModel):
     )
     results: list
     timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class TraceQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    offset: Optional[int] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[LLMTrace]
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
     )
@@ -6762,6 +6805,44 @@ class CachedTeamTaxonomyQueryResponse(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[TeamTaxonomyItem]
+    timezone: str
+    timings: Optional[list[QueryTiming]] = Field(
+        default=None, description="Measured timings for different parts of the query generation process"
+    )
+
+
+class CachedTraceQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: Optional[datetime] = None
+    calculation_trigger: Optional[str] = Field(
+        default=None, description="What triggered the calculation of the query, leave empty if user/immediate"
+    )
+    columns: Optional[list[str]] = None
+    error: Optional[str] = Field(
+        default=None,
+        description="Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+    )
+    hasMore: Optional[bool] = None
+    hogql: Optional[str] = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: datetime
+    limit: Optional[int] = None
+    modifiers: Optional[HogQLQueryModifiers] = Field(
+        default=None, description="Modifiers used when performing the query"
+    )
+    next_allowed_client_refresh: datetime
+    offset: Optional[int] = None
+    query_metadata: Optional[dict[str, Any]] = None
+    query_status: Optional[QueryStatus] = Field(
+        default=None, description="Query status indicates whether next to the provided data, a query is still running."
+    )
+    resolved_date_range: Optional[ResolvedDateRangeResponse] = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[LLMTrace]
     timezone: str
     timings: Optional[list[QueryTiming]] = Field(
         default=None, description="Measured timings for different parts of the query generation process"
@@ -8934,6 +9015,32 @@ class MultipleBreakdownOptions(BaseModel):
     values: list[BreakdownItem]
 
 
+class NamedQueryRunRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    client_query_id: Optional[str] = Field(
+        default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
+    )
+    filters_override: Optional[DashboardFilter] = None
+    refresh: Optional[RefreshType] = Field(
+        default=RefreshType.BLOCKING,
+        description=(
+            "Whether results should be calculated sync or async, and how much to rely on the cache:\n- `'blocking'` -"
+            " calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in"
+            " the cache\n- `'async'` - kick off background calculation (returning immediately with a query status),"
+            " UNLESS there are very fresh results in the cache\n- `'lazy_async'` - kick off background calculation,"
+            " UNLESS there are somewhat fresh results in the cache\n- `'force_blocking'` - calculate synchronously,"
+            " even if fresh results are already cached\n- `'force_async'` - kick off background calculation, even if"
+            " fresh results are already cached\n- `'force_cache'` - return cached data or a cache miss; always"
+            " completes immediately as it never calculates Background calculation can be tracked using the"
+            " `query_status` response field."
+        ),
+    )
+    variables_override: Optional[dict[str, dict[str, Any]]] = None
+    variables_values: Optional[dict[str, Any]] = None
+
+
 class PathsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -10336,7 +10443,7 @@ class QueryResponseAlternative68(BaseModel):
     )
 
 
-class QueryResponseAlternative69(BaseModel):
+class QueryResponseAlternative70(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -10772,7 +10879,6 @@ class TraceQuery(BaseModel):
         extra="forbid",
     )
     dateRange: Optional[DateRange] = None
-    filterTestAccounts: Optional[bool] = None
     kind: Literal["TraceQuery"] = "TraceQuery"
     modifiers: Optional[HogQLQueryModifiers] = Field(
         default=None, description="Modifiers used when performing the query"
@@ -10801,7 +10907,7 @@ class TraceQuery(BaseModel):
             ]
         ]
     ] = Field(default=None, description="Properties configurable in the interface")
-    response: Optional[TracesQueryResponse] = None
+    response: Optional[TraceQueryResponse] = None
     tags: Optional[QueryLogTags] = None
     traceId: str
     version: Optional[float] = Field(default=None, description="version of the node, used for schema migrations")
@@ -11830,6 +11936,16 @@ class MaxRecordingUniversalFilters(BaseModel):
             " default or allow specification of an explicit order direction here"
         ),
     )
+
+
+class NamedQueryRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+    name: Optional[str] = None
+    query: Optional[HogQLQuery] = None
 
 
 class PropertyGroupFilter(BaseModel):
@@ -13433,6 +13549,7 @@ class QueryResponseAlternative62(BaseModel):
         str,
         Union[
             DatabaseSchemaPostHogTable,
+            DatabaseSchemaSystemTable,
             DatabaseSchemaDataWarehouseTable,
             DatabaseSchemaViewTable,
             DatabaseSchemaManagedViewTable,
@@ -13508,7 +13625,7 @@ class QueryResponseAlternative(
             QueryResponseAlternative66,
             QueryResponseAlternative67,
             QueryResponseAlternative68,
-            QueryResponseAlternative69,
+            QueryResponseAlternative70,
         ]
     ]
 ):
@@ -13576,7 +13693,7 @@ class QueryResponseAlternative(
         QueryResponseAlternative66,
         QueryResponseAlternative67,
         QueryResponseAlternative68,
-        QueryResponseAlternative69,
+        QueryResponseAlternative70,
     ]
 
 
@@ -13618,6 +13735,7 @@ class DatabaseSchemaQueryResponse(BaseModel):
         str,
         Union[
             DatabaseSchemaPostHogTable,
+            DatabaseSchemaSystemTable,
             DatabaseSchemaDataWarehouseTable,
             DatabaseSchemaViewTable,
             DatabaseSchemaManagedViewTable,
@@ -14769,8 +14887,9 @@ class SourceConfig(BaseModel):
         extra="forbid",
     )
     betaSource: Optional[bool] = None
-    caption: Union[str, Any]
+    caption: Optional[Union[str, Any]] = None
     disabledReason: Optional[str] = None
+    docsUrl: Optional[str] = None
     existingSource: Optional[bool] = None
     featureFlag: Optional[str] = None
     fields: list[

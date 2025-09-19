@@ -67,3 +67,21 @@ pub const CLEANUP_DURATION_HISTOGRAM: &str = "cleanup_duration_seconds";
 
 /// Histogram for bytes freed during cleanup
 pub const CLEANUP_BYTES_FREED_HISTOGRAM: &str = "cleanup_bytes_freed";
+
+/// Histogram for checkpoint size in bytes
+pub const CHECKPOINT_SIZE_HISTOGRAM: &str = "checkpoint_size_bytes";
+
+/// Histogram for checkpoint file count
+pub const CHECKPOINT_FILE_COUNT_HISTOGRAM: &str = "checkpoint_file_count";
+
+/// Histogram for checkpoint duration in seconds
+pub const CHECKPOINT_DURATION_HISTOGRAM: &str = "checkpoint_duration_seconds";
+
+/// Counter for checkpoint worker status
+pub const CHECKPOINT_WORKER_STATUS_COUNTER: &str = "checkpoint_worker_status";
+
+/// Counter for the number of checkpoint directories found
+pub const CHECKPOINT_CLEANER_DIRS_FOUND: &str = "checkpoint_cleaner_dirs_found";
+
+/// Counter for the number of checkpoint directories deleted
+pub const CHECKPOINT_CLEANER_DELETE_ATTEMPTS: &str = "checkpoint_cleaner_delete_attempts";

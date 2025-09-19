@@ -36,12 +36,12 @@ export const manifest: ProductManifest = {
     },
     redirects: {
         '/messaging': '/messaging/campaigns',
-        '/messaging/campaigns/new': '/messaging/campaigns/new/overview',
+        '/messaging/campaigns/new': '/messaging/campaigns/new/workflow',
     },
     urls: {
         messaging: (tab?: MessagingSceneTab): string => `/messaging/${tab || 'campaigns'}`,
-        messagingCampaign: (id: string, tab?: string): string => `/messaging/campaigns/${id}/${tab || 'overview'}`,
-        messagingCampaignNew: (): string => '/messaging/campaigns/new/overview',
+        messagingCampaign: (id: string, tab?: string): string => `/messaging/campaigns/${id}/${tab || 'workflow'}`,
+        messagingCampaignNew: (): string => '/messaging/campaigns/new/workflow',
         messagingLibraryMessage: (id: string): string => `/messaging/library/messages/${id}`,
         messagingLibraryTemplate: (id?: string): string => `/messaging/library/templates/${id}`,
         messagingLibraryTemplateNew: (): string => '/messaging/library/templates/new',
