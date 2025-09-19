@@ -1,6 +1,5 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
@@ -28,8 +27,6 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             ['newDashboardModalVisible'],
             teamLogic,
             ['currentTeamId'],
-            router,
-            ['location'],
         ],
     }),
     actions({
@@ -92,9 +89,6 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             } else {
                 actions.selectDashboard(dashboardId as number | null)
             }
-        },
-        [router.actionTypes.locationChanged]: () => {
-            actions.loadCustomerDashboards()
         },
     })),
     afterMount(({ actions }) => {
