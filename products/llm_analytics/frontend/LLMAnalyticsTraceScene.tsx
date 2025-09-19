@@ -29,6 +29,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
+import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
@@ -483,6 +484,7 @@ function EventContentDisplay({
     output: unknown
     raisedError?: boolean
 }): JSX.Element {
+    const { searchQuery } = useValues(llmAnalyticsTraceLogic)
     if (!input && !output) {
         // If we have no data here we should not render anything
         // In future plan to point docs to show how to add custom trace events
@@ -493,7 +495,7 @@ function EventContentDisplay({
             inputDisplay={
                 <div className="p-2 text-xs border rounded bg-[var(--color-bg-fill-secondary)]">
                     {isObject(input) ? (
-                        <JSONViewer src={input} collapsed={4} />
+                        <HighlightedJSONViewer src={input} collapsed={4} searchQuery={searchQuery} />
                     ) : (
                         <span className="font-mono">{JSON.stringify(input ?? null)}</span>
                     )}
@@ -509,7 +511,7 @@ function EventContentDisplay({
                     )}
                 >
                     {isObject(output) ? (
-                        <JSONViewer src={output} collapsed={4} />
+                        <HighlightedJSONViewer src={output} collapsed={4} searchQuery={searchQuery} />
                     ) : (
                         <span className="font-mono">{JSON.stringify(output ?? null)}</span>
                     )}
