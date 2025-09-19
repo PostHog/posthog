@@ -242,6 +242,8 @@ def cast_assistant_query(
         return RetentionQuery(**query.model_dump())
     elif query.kind == "HogQLQuery":
         return HogQLQuery(**query.model_dump())
+    else:
+        raise ValueError(f"Unsupported query type: {query.kind}")
 
 
 def build_insight_url(team: Team, id: str) -> str:
