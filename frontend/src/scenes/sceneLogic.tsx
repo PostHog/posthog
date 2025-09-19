@@ -378,7 +378,7 @@ export const sceneLogic = kea<sceneLogicType>([
             },
         ],
         lastSetScenePayload: [
-            null as Record<string, any> | null,
+            {} as Record<string, any>,
             {
                 setScene: (_, { sceneId, sceneKey, tabId, params }) => ({ sceneId, sceneKey, tabId, params }),
             },
