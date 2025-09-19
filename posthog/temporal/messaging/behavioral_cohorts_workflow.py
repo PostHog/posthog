@@ -114,7 +114,7 @@ async def get_unique_conditions_activity(inputs: BehavioralCohortsWorkflowInputs
             else:
                 current_limit = page_size
 
-            query = f"""
+            query = """
                 SELECT DISTINCT
                     team_id,
                     cohort_id,
@@ -122,8 +122,10 @@ async def get_unique_conditions_activity(inputs: BehavioralCohortsWorkflowInputs
                 FROM behavioral_cohorts_matches
                 WHERE {where_clause}
                 ORDER BY team_id, cohort_id, condition
-                LIMIT {current_limit} OFFSET {offset}
-            """
+                LIMIT %(limit)s OFFSET %(offset)s
+            """.format(where_clause=where_clause)
+            
+            query_params = {**params, "limit": current_limit, "offset": offset}
 
             with tags_context(
                 team_id=inputs.team_id,
