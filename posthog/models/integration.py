@@ -77,6 +77,7 @@ class Integration(models.Model):
         TWILIO = "twilio"
         CLICKUP = "clickup"
         VERCEL = "vercel"
+        DATABRICKS = "databricks"
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
@@ -115,6 +116,8 @@ class Integration(models.Model):
             return dot_get(self.config, "account.name", self.integration_id)
         if self.kind == "email":
             return self.config.get("email", self.integration_id)
+        if self.kind == Integration.IntegrationKind.DATABRICKS.value:
+            return dot_get(self.config, "server_hostname", self.integration_id)
 
         return f"ID: {self.integration_id}"
 
@@ -1733,6 +1736,74 @@ class TwilioIntegration:
                     "auth_token": self.integration.sensitive_config["auth_token"],
                 },
                 "created_by": self.integration.created_by,
+            },
+        )
+        if integration.errors:
+            integration.errors = ""
+            integration.save()
+
+        return integration
+
+
+class DatabricksIntegrationError(Exception):
+    """Error raised when the Databricks integration is not valid."""
+
+    pass
+
+
+class DatabricksIntegration:
+    """A Databricks integration.
+
+    The recommended way to connect to Databricks is via OAuth machine-to-machine (M2M) authentication.
+    See: https://docs.databricks.com/aws/en/dev-tools/python-sql-connector#oauth-machine-to-machine-m2m-authentication
+
+    This works quite differently to regular user-to-machine OAuth as it does not require a real-time user sign in and
+    consent flow: Instead, the user creates a service principal and provided us with the client ID and client secret to authenticate.
+
+    Attributes:
+        integration: The integration object.
+        server_hostname: the Server Hostname value for user's all-purpose compute or SQL warehouse.
+        client_id: the service principal's UUID or Application ID value.
+        client_secret: the Secret value for the service principal's OAuth secret.
+    """
+
+    integration: Integration
+    server_hostname: str
+    client_id: str
+    client_secret: str
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != Integration.IntegrationKind.DATABRICKS.value:
+            raise DatabricksIntegrationError("Integration provided is not a Databricks integration")
+        self.integration = integration
+
+        try:
+            self.server_hostname = self.integration.config["server_hostname"]
+            self.client_id = self.integration.sensitive_config["client_id"]
+            self.client_secret = self.integration.sensitive_config["client_secret"]
+        except KeyError as e:
+            raise DatabricksIntegrationError(f"Databricks integration is not valid: {str(e)} missing")
+
+    # TODO - should we perform some kind of validation against the Databricks API to ensure the integration is valid?
+    # (like is done above in integration_from_keys)
+    @classmethod
+    def integration_from_config(
+        cls, team_id: int, server_hostname: str, client_id: str, client_secret: str, created_by: User | None = None
+    ) -> Integration:
+        config = {
+            "server_hostname": server_hostname,
+        }
+        sensitive_config = {
+            "client_id": client_id,
+            "client_secret": client_secret,
+        }
+        integration, _ = Integration.objects.update_or_create(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.DATABRICKS.value,
+            defaults={
+                "config": config,
+                "sensitive_config": sensitive_config,
+                "created_by": created_by,
             },
         )
         if integration.errors:
