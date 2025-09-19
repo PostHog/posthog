@@ -2,7 +2,7 @@ use anyhow::Result;
 use rdkafka::message::OwnedMessage;
 use rdkafka::Message;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, OwnedSemaphorePermit, RwLock, Semaphore};
@@ -82,8 +82,6 @@ struct PartitionTracker {
     last_committed_offset: Arc<RwLock<i64>>,
     /// Number of messages currently in-flight for this partition
     in_flight_count: Arc<AtomicU64>,
-    /// Flag indicating if partition is under backpressure due to too many pending completions
-    is_backpressured: Arc<AtomicBool>,
     /// Handle to the completion processing task
     _processor_handle: JoinHandle<()>,
     /// Shutdown signal for graceful cleanup
@@ -119,12 +117,10 @@ impl PartitionTracker {
         let initial_last_committed = initial_offset.map(|o| o - 1).unwrap_or(-1);
         let last_committed_offset = Arc::new(RwLock::new(initial_last_committed));
         let in_flight_count = Arc::new(AtomicU64::new(0));
-        let is_backpressured = Arc::new(AtomicBool::new(false));
 
         // Clone for the processing task
         let last_committed_clone = last_committed_offset.clone();
         let in_flight_clone = in_flight_count.clone();
-        let backpressure_clone = is_backpressured.clone();
 
         // Spawn dedicated task to process completions for this partition
         let processor_handle = tokio::spawn(async move {
@@ -224,40 +220,6 @@ impl PartitionTracker {
                     );
                 }
 
-                // Apply backpressure if pending completions exceed threshold
-                const MAX_PENDING_BEFORE_BACKPRESSURE: usize = 5000;
-                const BACKPRESSURE_CLEAR_THRESHOLD: usize = 1000;
-
-                let pending_count = pending_completions.len();
-                let currently_backpressured = backpressure_clone.load(Ordering::SeqCst);
-
-                if !currently_backpressured && pending_count >= MAX_PENDING_BEFORE_BACKPRESSURE {
-                    // Enable backpressure
-                    backpressure_clone.store(true, Ordering::SeqCst);
-                    warn!(
-                        "Partition {}-{}: Enabling backpressure - {} pending completions (last_committed={}, waiting for={})",
-                        topic, partition, pending_count, *last_committed, *last_committed + 1
-                    );
-
-                    metrics::counter!(
-                        "partition_backpressure_enabled",
-                        "topic" => topic.clone(),
-                        "partition" => partition.to_string()
-                    ).increment(1);
-                } else if currently_backpressured && pending_count <= BACKPRESSURE_CLEAR_THRESHOLD {
-                    // Clear backpressure
-                    backpressure_clone.store(false, Ordering::SeqCst);
-                    info!(
-                        "Partition {}-{}: Clearing backpressure - pending completions down to {}",
-                        topic, partition, pending_count
-                    );
-
-                    metrics::counter!(
-                        "partition_backpressure_cleared",
-                        "topic" => topic.clone(),
-                        "partition" => partition.to_string()
-                    ).increment(1);
-                }
 
                 // Emit metrics for pending completions and processing time
                 metrics::gauge!(PARTITION_PENDING_COMPLETIONS,
@@ -266,12 +228,6 @@ impl PartitionTracker {
                 )
                 .set(pending_completions.len() as f64);
 
-                // Also emit backpressure state metric
-                metrics::gauge!(
-                    "partition_backpressure_active",
-                    "topic" => topic.clone(),
-                    "partition" => partition.to_string()
-                ).set(if backpressure_clone.load(Ordering::SeqCst) { 1.0 } else { 0.0 });
 
                 metrics::gauge!(PARTITION_SECONDS_SINCE_LAST_COMMIT,
                     "topic" => topic.clone(),
@@ -346,7 +302,6 @@ impl PartitionTracker {
             completion_tx,
             last_committed_offset,
             in_flight_count,
-            is_backpressured,
             _processor_handle: processor_handle,
             shutdown_tx: Some(shutdown_tx),
         }
@@ -355,11 +310,6 @@ impl PartitionTracker {
     /// Get the number of in-flight messages for this partition
     fn get_in_flight_count(&self) -> usize {
         self.in_flight_count.load(Ordering::SeqCst) as usize
-    }
-
-    /// Check if the partition is currently under backpressure
-    fn is_backpressured(&self) -> bool {
-        self.is_backpressured.load(Ordering::SeqCst)
     }
 
     /// Force clear all in-flight messages for this partition
@@ -541,14 +491,6 @@ impl InFlightTracker {
                         .tracker
                         .as_ref()
                         .expect("Tracker should exist for active partition");
-
-                    // Check if partition is under backpressure
-                    if tracker.is_backpressured() {
-                        return Err(TrackingError::PartitionBackpressured {
-                            topic,
-                            partition,
-                        });
-                    }
 
                     // Increment partition's in-flight count
                     tracker.in_flight_count.fetch_add(1, Ordering::SeqCst);

@@ -13,8 +13,6 @@ pub enum TrackingError {
         partition: i32,
         state: PartitionState,
     },
-    /// Message received for partition that is under backpressure
-    PartitionBackpressured { topic: String, partition: i32 },
 }
 
 impl fmt::Display for TrackingError {
@@ -34,12 +32,6 @@ impl fmt::Display for TrackingError {
                 write!(
                     f,
                     "Message for inactive partition {topic}-{partition} (state: {state:?}). Partition must be active to process messages.",
-                )
-            }
-            TrackingError::PartitionBackpressured { topic, partition } => {
-                write!(
-                    f,
-                    "Partition {topic}-{partition} is under backpressure. Too many pending completions awaiting sequential processing."
                 )
             }
         }

@@ -104,7 +104,15 @@ impl From<&RawEvent> for TimestampKey {
         let token = raw_event
             .token
             .clone()
-            .unwrap_or_else(|| UNKNOWN_STR.to_string());
+            .unwrap_or_else(|| {
+                tracing::warn!(
+                    "Event missing token - event: {}, uuid: {:?}, distinct_id: {}",
+                    raw_event.event,
+                    raw_event.uuid,
+                    distinct_id
+                );
+                UNKNOWN_STR.to_string()
+            });
 
         Self::new(timestamp, distinct_id, token, raw_event.event.clone())
     }
@@ -168,7 +176,15 @@ impl From<&RawEvent> for UuidKey {
         let token = raw_event
             .token
             .clone()
-            .unwrap_or_else(|| UNKNOWN_STR.to_string());
+            .unwrap_or_else(|| {
+                tracing::warn!(
+                    "Event missing token - event: {}, uuid: {:?}, distinct_id: {}",
+                    raw_event.event,
+                    raw_event.uuid,
+                    distinct_id
+                );
+                UNKNOWN_STR.to_string()
+            });
 
         Self::new(uuid, distinct_id, token, raw_event.event.clone())
     }
@@ -258,7 +274,14 @@ fn extract_distinct_id(raw_event: &RawEvent) -> String {
                 )
             }
         })
-        .unwrap_or_else(|| UNKNOWN_STR.to_string())
+        .unwrap_or_else(|| {
+            tracing::warn!(
+                "Event missing distinct_id - event: {}, uuid: {:?}",
+                raw_event.event,
+                raw_event.uuid
+            );
+            UNKNOWN_STR.to_string()
+        })
 }
 
 #[cfg(test)]

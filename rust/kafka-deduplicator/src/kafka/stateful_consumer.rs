@@ -49,7 +49,8 @@ impl StatefulKafkaConsumer {
         offset_reset_policy: String,
     ) -> Result<Self> {
         let tracker = Arc::new(InFlightTracker::with_capacity(max_in_flight_messages));
-        let context = StatefulConsumerContext::new(rebalance_handler, tracker.clone(), offset_reset_policy);
+        let context =
+            StatefulConsumerContext::new(rebalance_handler, tracker.clone(), offset_reset_policy);
 
         let consumer: StreamConsumer<StatefulConsumerContext> =
             config.create_with_context(context)?;

@@ -404,7 +404,8 @@ mod tests {
     async fn test_partition_assignment_callback() {
         let handler = Arc::new(TestRebalanceHandler::default());
         let tracker = Arc::new(crate::kafka::InFlightTracker::new());
-        let context = StatefulConsumerContext::new(handler.clone(), tracker, "earliest".to_string());
+        let context =
+            StatefulConsumerContext::new(handler.clone(), tracker, "earliest".to_string());
         let consumer = create_test_consumer(Arc::new(TestRebalanceHandler::default()));
         let partitions = create_test_partition_list();
 
@@ -429,7 +430,8 @@ mod tests {
     async fn test_partition_revocation_callback() {
         let handler = Arc::new(TestRebalanceHandler::default());
         let tracker = Arc::new(crate::kafka::InFlightTracker::new());
-        let context = StatefulConsumerContext::new(handler.clone(), tracker, "earliest".to_string());
+        let context =
+            StatefulConsumerContext::new(handler.clone(), tracker, "earliest".to_string());
         let partitions = create_test_partition_list();
 
         // Simulate pre_rebalance with revocation
@@ -454,7 +456,8 @@ mod tests {
     async fn test_rebalance_error_handling() {
         let handler = Arc::new(TestRebalanceHandler::default());
         let tracker = Arc::new(crate::kafka::InFlightTracker::new());
-        let context = StatefulConsumerContext::new(handler.clone(), tracker, "earliest".to_string());
+        let context =
+            StatefulConsumerContext::new(handler.clone(), tracker, "earliest".to_string());
 
         // Simulate rebalance error
         let error = rdkafka::error::KafkaError::ConsumerCommit(
@@ -504,7 +507,8 @@ mod tests {
     async fn test_context_with_tracker_partition_revocation() {
         let handler = Arc::new(TestRebalanceHandler::default());
         let tracker = Arc::new(crate::kafka::InFlightTracker::new());
-        let context = StatefulConsumerContext::new(handler.clone(), tracker.clone(), "earliest".to_string());
+        let context =
+            StatefulConsumerContext::new(handler.clone(), tracker.clone(), "earliest".to_string());
         let consumer = create_test_consumer(Arc::new(TestRebalanceHandler::default()));
 
         // Assign partition first
@@ -608,7 +612,8 @@ mod tests {
     async fn test_context_with_tracker_partition_assignment() {
         let handler = Arc::new(TestRebalanceHandler::default());
         let tracker = Arc::new(crate::kafka::InFlightTracker::new());
-        let context = StatefulConsumerContext::new(handler.clone(), tracker.clone(), "earliest".to_string());
+        let context =
+            StatefulConsumerContext::new(handler.clone(), tracker.clone(), "earliest".to_string());
         let consumer = create_test_consumer(Arc::new(TestRebalanceHandler::default()));
 
         // Initially fence some partitions
@@ -672,7 +677,8 @@ mod tests {
         // Test that the simplified constructor works correctly
         let handler = Arc::new(TestRebalanceHandler::default());
         let tracker = Arc::new(crate::kafka::InFlightTracker::new());
-        let context = StatefulConsumerContext::new(handler.clone(), tracker, "earliest".to_string());
+        let context =
+            StatefulConsumerContext::new(handler.clone(), tracker, "earliest".to_string());
         let consumer = create_test_consumer(Arc::new(TestRebalanceHandler::default()));
 
         let partitions = create_test_partition_list();
