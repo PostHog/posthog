@@ -314,12 +314,9 @@ class User(AbstractUser, UUIDTClassicModel):
             membership = OrganizationMembership.objects.create(user=self, organization=organization, level=level)
 
             self.current_organization = organization
-            if (
-                not organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
-                or level >= OrganizationMembership.Level.ADMIN
-            ):
+            if not organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
                 # If project access control is NOT applicable, simply prefer open projects just in case
-                self.current_team = organization.teams.order_by("access_control", "id").first()
+                self.current_team = organization.teams.order_by("id").first()
             else:
                 from posthog.rbac.user_access_control import UserAccessControl
 
