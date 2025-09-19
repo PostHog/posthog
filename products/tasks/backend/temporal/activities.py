@@ -8,8 +8,6 @@ from temporalio import activity
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.logger import get_logger
 
-from .inputs import TaskProcessingInputs
-
 logger = get_logger(__name__)
 
 
@@ -51,68 +49,6 @@ async def get_github_integration_token(team_id: int, task_id: str) -> str:
     except Exception as e:
         logger.exception(f"Error getting GitHub integration token for team {team_id}, task {task_id}: {str(e)}")
         return ""
-
-
-@activity.defn
-async def process_task_moved_to_todo_activity(inputs: TaskProcessingInputs) -> str:
-    """
-    Background processing activity when a task is moved to TODO status.
-    This is where you can add any background work you want to happen when
-    a card moves to the todo column. Examples:
-    - Send notifications
-    - Update external systems
-    - Generate reports
-    - Process dependencies
-    - Log analytics events
-    """
-    bind_contextvars(
-        task_id=inputs.task_id,
-        team_id=inputs.team_id,
-        status_change=f"{inputs.previous_status} -> {inputs.new_status}",
-    )
-
-    logger.info(f"Starting background processing for issue {inputs.task_id}")
-
-    try:
-        # Import Issue model inside the activity to avoid Django apps loading issues
-        from django.apps import apps
-
-        Task = apps.get_model("tasks", "Task")
-
-        # Get the task from the database
-        task = await database_sync_to_async(Task.objects.get)(id=inputs.task_id, team_id=inputs.team_id)
-
-        # Verify the task is still in todo status
-        if task.status != "todo":
-            logger.warning(f"Task {inputs.task_id} is no longer in todo status, skipping processing")
-            return f"Task status changed, skipping processing"
-
-        # TODO: Add your actual background processing logic here
-        # Examples:
-
-        # 1. Send a notification
-        logger.info(f"Task '{task.title}' moved to TODO - sending notifications...")
-
-        # 2. Update external systems
-        logger.info(f"Updating external tracking systems for task {inputs.task_id}...")
-
-        # 3. Log analytics event
-        logger.info(f"Logging analytics event for todo transition...")
-
-        # 4. Process any automated tasks
-        logger.info(f"Running automated processing for task type: {task.origin_product}")
-
-        # For now, just log the successful processing
-        logger.info(f"Successfully processed task {inputs.task_id} moved to TODO")
-
-        return f"Successfully processed task {inputs.task_id} background tasks"
-
-    except Exception as e:
-        if "DoesNotExist" in str(type(e)):
-            logger.exception(f"Task {inputs.task_id} not found in team {inputs.team_id}")
-        else:
-            logger.exception(f"Error processing task {inputs.task_id}: {str(e)}")
-        raise
 
 
 @activity.defn

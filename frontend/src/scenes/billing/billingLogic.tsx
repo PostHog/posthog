@@ -545,7 +545,7 @@ export const billingLogic = kea<billingLogicType>([
                 const platformAndSupportProduct = billing?.products?.find(
                     (product) => product.type === ProductKey.PLATFORM_AND_SUPPORT
                 )
-                return !!billingPlan && !billing?.trial && !!platformAndSupportProduct && !showCreditCTAHero
+                return !!billingPlan && !!platformAndSupportProduct && !showCreditCTAHero
             },
         ],
         isManagedAccount: [
