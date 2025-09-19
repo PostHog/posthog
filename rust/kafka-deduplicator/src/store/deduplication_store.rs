@@ -8,9 +8,10 @@ use rocksdb::{ColumnFamilyDescriptor, Options};
 use tracing::info;
 
 use crate::metrics::MetricsHelper;
-use crate::rocksdb::{metrics_consts::*, store::RocksDbStore};
+use crate::metrics_const::*;
+use crate::rocksdb::store::RocksDbStore;
 
-use super::keys::{TimestampKey, UuidKey};
+use super::keys::{TimestampKey, UuidIndexKey, UuidKey};
 use super::metadata::{TimestampMetadata, UuidMetadata};
 
 const UNKNOWN_STR: &str = "unknown";
@@ -122,7 +123,7 @@ impl DeduplicationStore {
     /// Handle timestamp-based deduplication
     fn handle_timestamp_dedup(&self, raw_event: &RawEvent) -> Result<bool> {
         let key = TimestampKey::from(raw_event);
-        let key_bytes = key.as_ref().to_vec();
+        let key_bytes: Vec<u8> = (&key).into();
 
         // Check if this is a duplicate
         let existing_metadata = self.store.get(Self::TIMESTAMP_CF, &key_bytes)?;
@@ -142,9 +143,9 @@ impl DeduplicationStore {
 
             // Log the duplicate
             info!(
-                "Timestamp duplicate: {} for key {}, Similarity: {:.2}",
+                "Timestamp duplicate: {} for key {:?}, Similarity: {:.2}",
                 metadata.get_metrics_summary(),
-                key.get_formatted_key(),
+                key,
                 similarity.overall_score
             );
 
@@ -157,14 +158,38 @@ impl DeduplicationStore {
                 .increment(1);
 
             self.metrics
-                .histogram("timestamp_dedup_unique_uuids")
+                .histogram(TIMESTAMP_DEDUP_UNIQUE_UUIDS_HISTOGRAM)
                 .with_label("lib", &lib_name)
                 .record(metadata.seen_uuids.len() as f64);
 
             self.metrics
-                .histogram("timestamp_dedup_similarity_score")
+                .histogram(TIMESTAMP_DEDUP_SIMILARITY_SCORE_HISTOGRAM)
                 .with_label("lib", &lib_name)
                 .record(similarity.overall_score);
+
+            self.metrics
+                .histogram(TIMESTAMP_DEDUP_DIFFERENT_FIELDS_HISTOGRAM)
+                .with_label("lib", &lib_name)
+                .record(similarity.different_field_count as f64);
+
+            self.metrics
+                .histogram(TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM)
+                .with_label("lib", &lib_name)
+                .record(similarity.different_property_count as f64);
+
+            self.metrics
+                .histogram(TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM)
+                .with_label("lib", &lib_name)
+                .record(similarity.properties_similarity);
+
+            // Emit counters for specific fields that differ
+            for (field_name, _, _) in &similarity.different_fields {
+                self.metrics
+                    .counter(TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER)
+                    .with_label("lib", &lib_name)
+                    .with_label("field", field_name)
+                    .increment(1);
+            }
 
             // Store updated metadata
             let serialized = bincode::serde::encode_to_vec(&metadata, bincode::config::standard())
@@ -197,7 +222,7 @@ impl DeduplicationStore {
     /// Handle UUID-based deduplication
     fn handle_uuid_dedup(&self, raw_event: &RawEvent) -> Result<bool> {
         let key = UuidKey::from(raw_event);
-        let key_bytes = key.as_ref().to_vec();
+        let key_bytes: Vec<u8> = (&key).into();
 
         // Extract timestamp for indexing
         let timestamp = raw_event
@@ -224,9 +249,9 @@ impl DeduplicationStore {
 
             // Log the duplicate
             info!(
-                "UUID duplicate: {} for key {}",
+                "UUID duplicate: {} for key {:?}",
                 metadata.get_metrics_summary(),
-                key.get_formatted_key()
+                key
             );
 
             // Emit metrics
@@ -239,19 +264,43 @@ impl DeduplicationStore {
                 .increment(1);
 
             self.metrics
-                .histogram("uuid_dedup_timestamp_variance_ms")
+                .histogram(UUID_DEDUP_TIMESTAMP_VARIANCE_HISTOGRAM)
                 .with_label("lib", &lib_name)
                 .record(metadata.get_timestamp_variance() as f64);
 
             self.metrics
-                .histogram("uuid_dedup_unique_timestamps")
+                .histogram(UUID_DEDUP_UNIQUE_TIMESTAMPS_HISTOGRAM)
                 .with_label("lib", &lib_name)
                 .record(metadata.seen_timestamps.len() as f64);
 
             self.metrics
-                .histogram("uuid_dedup_similarity_score")
+                .histogram(UUID_DEDUP_SIMILARITY_SCORE_HISTOGRAM)
                 .with_label("lib", &lib_name)
                 .record(similarity.overall_score);
+
+            self.metrics
+                .histogram(UUID_DEDUP_DIFFERENT_FIELDS_HISTOGRAM)
+                .with_label("lib", &lib_name)
+                .record(similarity.different_field_count as f64);
+
+            self.metrics
+                .histogram(UUID_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM)
+                .with_label("lib", &lib_name)
+                .record(similarity.different_property_count as f64);
+
+            self.metrics
+                .histogram(UUID_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM)
+                .with_label("lib", &lib_name)
+                .record(similarity.properties_similarity);
+
+            // Emit counters for specific fields that differ
+            for (field_name, _, _) in &similarity.different_fields {
+                self.metrics
+                    .counter(UUID_DEDUP_FIELD_DIFFERENCES_COUNTER)
+                    .with_label("lib", &lib_name)
+                    .with_label("field", field_name)
+                    .increment(1);
+            }
 
             // Store updated metadata
             let serialized = bincode::serde::encode_to_vec(&metadata, bincode::config::standard())
@@ -271,13 +320,12 @@ impl DeduplicationStore {
             .put_batch(Self::UUID_CF, vec![(&key_bytes, &serialized)])?;
 
         // Also store in timestamp index for cleanup
-        // Key format: timestamp:uuid_key (this allows range deletion by timestamp)
-        let index_key = format!("{}:{}", timestamp, key.get_formatted_key());
-        let index_key_bytes = index_key.as_bytes();
+        let index_key = UuidIndexKey::new(timestamp, key_bytes.clone());
+        let index_key_bytes: Vec<u8> = index_key.into();
         // Value is just the UUID key bytes for reference
         self.store.put_batch(
             Self::UUID_TIMESTAMP_INDEX_CF,
-            vec![(index_key_bytes, &key_bytes)],
+            vec![(&index_key_bytes, &key_bytes)],
         )?;
 
         // Track new UUID combination
@@ -304,76 +352,128 @@ impl DeduplicationStore {
 
         // Clean up old entries from timestamp CF (they're timestamp-prefixed so easy to clean)
         let cf = self.store.get_cf_handle(Self::TIMESTAMP_CF)?;
-        let mut iter = self.store.db.iterator_cf(&cf, rocksdb::IteratorMode::Start);
 
-        let cleanup_timestamp = if let Some(Ok((first_key, _))) = iter.next() {
+        // Get first key
+        let mut first_iter = self.store.db.iterator_cf(&cf, rocksdb::IteratorMode::Start);
+        let (first_key_bytes, first_timestamp) = if let Some(Ok((first_key, _))) = first_iter.next()
+        {
             let first_key_parsed: TimestampKey = first_key.as_ref().try_into()?;
-            let first_timestamp = first_key_parsed.timestamp;
-
-            // Get current time in milliseconds
-            let now = chrono::Utc::now().timestamp_millis() as u64;
-
-            // Calculate the time range of data we have
-            let time_range = now.saturating_sub(first_timestamp);
-
-            // Calculate how much of the time range to clean up (percentage)
-            let cleanup_duration = (time_range as f64 * cleanup_percentage) as u64;
-
-            // Calculate the cutoff timestamp
-            let cleanup_timestamp = first_timestamp + cleanup_duration;
-
-            info!(
-                "Store {}:{} - Cleaning up {}% of time range. First: {}, Now: {}, Cutoff: {}",
-                self.topic,
-                self.partition,
-                (cleanup_percentage * 100.0) as u32,
-                first_timestamp,
-                now,
-                cleanup_timestamp
-            );
-
-            let first_key_bytes: Vec<u8> = first_key_parsed.into();
-            let last_key_bytes: Vec<u8> = format!("{cleanup_timestamp}:").as_bytes().to_vec();
-
-            self.store.delete_range(
-                Self::TIMESTAMP_CF,
-                first_key_bytes.as_ref(),
-                last_key_bytes.as_ref(),
-            )?;
-
-            cleanup_timestamp
+            (first_key.to_vec(), first_key_parsed.timestamp)
         } else {
             // No data to clean up
             return Ok(0);
         };
+        drop(first_iter);
 
-        // Clean up UUID records using the timestamp index
+        // Get last key to understand the time range
+        let mut last_iter = self.store.db.iterator_cf(&cf, rocksdb::IteratorMode::End);
+        let last_timestamp = if let Some(Ok((last_key, _))) = last_iter.next() {
+            let last_key_parsed: TimestampKey = last_key.as_ref().try_into()?;
+            last_key_parsed.timestamp
+        } else {
+            // Should not happen if we have a first key, but handle gracefully
+            first_timestamp
+        };
+        drop(last_iter);
 
-        // Delete UUID keys individually as we iterate through the timestamp index
+        // Calculate the time range of data we have
+        let time_range = last_timestamp.saturating_sub(first_timestamp);
+
+        if time_range == 0 {
+            info!(
+                "Store {}:{} - All data has same timestamp {}, skipping cleanup",
+                self.topic, self.partition, first_timestamp
+            );
+            return Ok(0);
+        }
+
+        // Calculate how much of the time range to clean up (percentage)
+        let cleanup_duration = (time_range as f64 * cleanup_percentage) as u64;
+
+        // Calculate the cutoff timestamp
+        let cleanup_timestamp = first_timestamp + cleanup_duration;
+
+        info!(
+            "Store {}:{} - Cleaning up {}% of time range. First: {}, Last: {}, Cutoff: {}",
+            self.topic,
+            self.partition,
+            (cleanup_percentage * 100.0) as u32,
+            first_timestamp,
+            last_timestamp,
+            cleanup_timestamp
+        );
+
+        // Make sure we have something to delete
+        if cleanup_timestamp <= first_timestamp {
+            info!(
+                "Store {}:{} - No data old enough to clean up",
+                self.topic, self.partition
+            );
+            return Ok(0);
+        }
+
+        // Create an end key with the cleanup timestamp and empty strings for other fields
+        // This ensures all keys with timestamps less than cleanup_timestamp are deleted
+        let end_key = TimestampKey::new(
+            cleanup_timestamp,
+            String::new(),
+            String::new(),
+            String::new(),
+        );
+        let last_key_bytes: Vec<u8> = (&end_key).into();
+
+        self.store.delete_range(
+            Self::TIMESTAMP_CF,
+            first_key_bytes.as_ref(),
+            last_key_bytes.as_ref(),
+        )?;
+
+        // Collect UUID keys to delete first (minimize iterator lifetime)
         let index_cf = self.store.get_cf_handle(Self::UUID_TIMESTAMP_INDEX_CF)?;
-        let mut index_iter = self
-            .store
-            .db
-            .iterator_cf(&index_cf, rocksdb::IteratorMode::Start);
+        let mut uuid_keys_to_delete = Vec::new();
+        let mut kept_count = 0;
 
-        while let Some(Ok((index_key, uuid_key_bytes))) = index_iter.next() {
-            // Check if this key is within our cleanup range
-            let index_key_str = std::str::from_utf8(&index_key).unwrap_or("");
-            if let Some(timestamp_str) = index_key_str.split(':').next() {
-                if let Ok(timestamp) = timestamp_str.parse::<u64>() {
+        {
+            // Scope the iterator to release lock quickly
+            let mut index_iter = self
+                .store
+                .db
+                .iterator_cf(&index_cf, rocksdb::IteratorMode::Start);
+
+            while let Some(Ok((index_key, uuid_key_bytes))) = index_iter.next() {
+                // Check if this key is within our cleanup range
+                if let Some(timestamp) = UuidIndexKey::parse_timestamp(&index_key) {
                     if timestamp >= cleanup_timestamp {
+                        kept_count += 1;
                         break; // We've reached keys that shouldn't be deleted
                     }
-
-                    // Delete the UUID record individually
-                    self.store.delete(Self::UUID_CF, &uuid_key_bytes)?;
+                    // Collect UUID key for batch deletion
+                    uuid_keys_to_delete.push(uuid_key_bytes.to_vec());
                 }
+            }
+        } // Iterator dropped here, releasing read lock
+
+        // Now delete UUID keys in batches
+        let deleted_count = uuid_keys_to_delete.len();
+        if !uuid_keys_to_delete.is_empty() {
+            const BATCH_SIZE: usize = 1000;
+            for chunk in uuid_keys_to_delete.chunks(BATCH_SIZE) {
+                let mut batch = rocksdb::WriteBatch::default();
+                for key in chunk {
+                    batch.delete_cf(&self.store.get_cf_handle(Self::UUID_CF)?, key);
+                }
+                self.store.db.write(batch)?;
             }
         }
 
+        info!(
+            "Store {}:{} - UUID cleanup: deleted {} records, keeping {} records",
+            self.topic, self.partition, deleted_count, kept_count
+        );
+
         // Now delete the index entries themselves using range delete (this is efficient as it's timestamp-prefixed)
-        let index_start = "0:".as_bytes().to_vec();
-        let index_end = format!("{cleanup_timestamp}:").as_bytes().to_vec();
+        let index_start = UuidIndexKey::range_start();
+        let index_end = UuidIndexKey::range_end(cleanup_timestamp);
         self.store.delete_range(
             Self::UUID_TIMESTAMP_INDEX_CF,
             index_start.as_ref(),
@@ -452,6 +552,8 @@ impl DeduplicationStore {
     pub fn update_metrics(&self) -> Result<()> {
         self.store.update_db_metrics(Self::TIMESTAMP_CF)?;
         self.store.update_db_metrics(Self::UUID_CF)?;
+        self.store
+            .update_db_metrics(Self::UUID_TIMESTAMP_INDEX_CF)?;
         Ok(())
     }
 
@@ -476,6 +578,7 @@ impl DeduplicationStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::keys::{UuidIndexKey, UuidKey};
     use tempfile::TempDir;
 
     fn create_test_store(max_capacity: Option<u64>) -> (DeduplicationStore, TempDir) {
@@ -598,22 +701,25 @@ mod tests {
 
         // Verify that the timestamp index was created
         let timestamp_ms = crate::utils::timestamp::parse_timestamp(timestamp).unwrap();
-        let uuid_key = format!("{uuid}:user1:token1:test_event");
-        let index_key = format!("{timestamp_ms}:{uuid_key}");
+
+        // Create the UuidKey to match the format used in the code
+        let uuid_key = UuidKey::from(&event);
+        let uuid_key_bytes: Vec<u8> = (&uuid_key).into();
+
+        // Create the index key using the UuidIndexKey struct
+        let index_key_struct = UuidIndexKey::new(timestamp_ms, uuid_key_bytes.clone());
+        let index_key: Vec<u8> = index_key_struct.into();
 
         // Check that the index entry exists
         let index_value = store
             .store
-            .get(
-                DeduplicationStore::UUID_TIMESTAMP_INDEX_CF,
-                index_key.as_bytes(),
-            )
+            .get(DeduplicationStore::UUID_TIMESTAMP_INDEX_CF, &index_key)
             .unwrap();
         assert!(index_value.is_some());
 
-        // Verify the index value points to the UUID key
+        // Verify the index value points to the UUID key bytes
         let stored_uuid_key = index_value.unwrap();
-        assert_eq!(stored_uuid_key, uuid_key.as_bytes());
+        assert_eq!(stored_uuid_key, uuid_key_bytes);
     }
 
     #[test]
@@ -660,10 +766,11 @@ mod tests {
         assert!(store.handle_event_with_raw(&event3).unwrap()); // New timestamp
 
         // Verify UUID metadata tracks all timestamps
-        let uuid_key = format!("{uuid}:user1:token1:test_event");
+        let uuid_key = UuidKey::from(&event1);
+        let uuid_key_bytes: Vec<u8> = (&uuid_key).into();
         let metadata_bytes = store
             .store
-            .get(DeduplicationStore::UUID_CF, uuid_key.as_bytes())
+            .get(DeduplicationStore::UUID_CF, &uuid_key_bytes)
             .unwrap()
             .unwrap();
         let metadata: UuidMetadata =
@@ -907,9 +1014,10 @@ mod tests {
 
         // Verify timestamp tracking worked
         let timestamp_key = TimestampKey::from(&event);
+        let timestamp_key_bytes: Vec<u8> = (&timestamp_key).into();
         let timestamp_metadata = store
             .store
-            .get(DeduplicationStore::TIMESTAMP_CF, timestamp_key.as_ref())
+            .get(DeduplicationStore::TIMESTAMP_CF, &timestamp_key_bytes)
             .unwrap();
         assert!(timestamp_metadata.is_some());
     }

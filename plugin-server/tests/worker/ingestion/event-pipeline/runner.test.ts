@@ -166,6 +166,7 @@ describe('EventPipelineRunner', () => {
                 fetchPerson: jest.fn(),
             },
             eventsToDropByToken: createEventsToDropByToken('drop_token:drop_id,drop_token_all:*'),
+            TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: 0.0,
         }
 
         const personsStoreForBatch = new BatchWritingPersonsStoreForBatch(
@@ -181,9 +182,9 @@ describe('EventPipelineRunner', () => {
             hub,
             pluginEvent,
             undefined,
-            undefined,
             personsStoreForBatch,
-            groupStoreForBatch
+            groupStoreForBatch,
+            undefined // headers
         )
 
         jest.mocked(processPersonsStep).mockResolvedValue(
@@ -431,9 +432,9 @@ describe('EventPipelineRunner', () => {
                     hub,
                     heatmapEvent,
                     undefined,
-                    undefined,
                     personsStore,
-                    groupStoreForBatch
+                    groupStoreForBatch,
+                    undefined // headers
                 )
 
                 const heatmapPreIngestionEvent = {

@@ -82,13 +82,6 @@ from posthog.queries.trends.lifecycle_actors import LifecycleActors
 from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.util import get_earliest_timestamp
 from posthog.renderers import SafeJSONRenderer
-from posthog.tasks.calculate_cohort import (
-    calculate_cohort_from_list,
-    increment_version_and_enqueue_calculate_cohort,
-    insert_cohort_from_feature_flag,
-    insert_cohort_from_insight_filter,
-    insert_cohort_from_query,
-)
 from posthog.utils import format_query_params_absolute_url
 
 
@@ -269,6 +262,12 @@ class CohortSerializer(serializers.ModelSerializer):
         return value
 
     def _handle_static(self, cohort: Cohort, context: dict, validated_data: dict) -> None:
+        from posthog.tasks.calculate_cohort import (
+            insert_cohort_from_feature_flag,
+            insert_cohort_from_insight_filter,
+            insert_cohort_from_query,
+        )
+
         request = self.context["request"]
         if request.FILES.get("csv"):
             self._calculate_static_by_csv(request.FILES["csv"], cohort)
@@ -301,6 +300,8 @@ class CohortSerializer(serializers.ModelSerializer):
         elif cohort.query is not None:
             raise ValidationError("Cannot create a dynamic cohort with a query. Set is_static to true.")
         else:
+            from posthog.tasks.calculate_cohort import increment_version_and_enqueue_calculate_cohort
+
             increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=request.user)
 
         report_user_action(request.user, "cohort created", cohort.get_analytics_metadata())
@@ -389,6 +390,8 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def _validate_and_process_ids(self, ids: list[str], id_type: str, cohort: Cohort) -> None:
         """Final validation and task scheduling"""
+        from posthog.tasks.calculate_cohort import calculate_cohort_from_list
+
         if not ids:
             raise ValidationError({"csv": [CSVConfig.ErrorMessages.NO_VALID_IDS]})
 
@@ -397,6 +400,10 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def _handle_csv_errors(self, e: Exception, cohort: Cohort) -> None:
         """Centralized error handling with consistent exception capture"""
+
+        # Reset calculating flag on error
+        cohort.is_calculating = False
+        cohort.save(update_fields=["is_calculating"])
 
         if isinstance(e, UnicodeDecodeError):
             raise ValidationError({"csv": [CSVConfig.ErrorMessages.ENCODING_ERROR]})
@@ -412,6 +419,10 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def _calculate_static_by_csv(self, file, cohort: Cohort) -> None:
         """Main orchestration method for CSV processing - clear high-level flow"""
+        # Set calculating flag immediately so UI shows loading state
+        cohort.is_calculating = True
+        cohort.save(update_fields=["is_calculating"])
+
         try:
             first_row, reader = self._parse_csv_file(file)
 
@@ -587,6 +598,8 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.save()
 
         if not deleted_state:
+            from posthog.tasks.calculate_cohort import increment_version_and_enqueue_calculate_cohort
+
             if cohort.is_static:
                 # You can't update a static cohort using the trend/stickiness thing
                 if request.FILES.get("csv"):
@@ -822,7 +835,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         ]
         if len(uuids) == 0:
             raise ValidationError("No valid users to add to cohort")
-        cohort.insert_users_list_by_uuid(uuids, team_id=self.team_id, insert_in_clickhouse=True)
+        cohort.insert_users_list_by_uuid(uuids, team_id=self.team_id)
         log_activity(
             organization_id=cast(UUIDT, self.organization_id),
             team_id=self.team_id,
@@ -957,7 +970,7 @@ def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
         f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} where team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
         {"cohort_id": cohort.pk, "team_id": team_id},
     )
-    cohort.insert_users_list_by_uuid(items=[str(id[0]) for id in ids], team_id=team_id)
+    cohort.insert_users_list_by_uuid_into_pg_only(items=[str(id[0]) for id in ids], team_id=team_id)
 
 
 def insert_cohort_query_actors_into_ch(cohort: Cohort, *, team: Team):
@@ -1154,18 +1167,14 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
                     capture_exception(err)
 
                 if len(uuids_to_add_to_cohort) >= batchsize:
-                    cohort.insert_users_list_by_uuid(
-                        uuids_to_add_to_cohort, insert_in_clickhouse=True, batchsize=batchsize, team_id=team_id
-                    )
+                    cohort.insert_users_list_by_uuid(uuids_to_add_to_cohort, batchsize=batchsize, team_id=team_id)
                     uuids_to_add_to_cohort = []
 
             start += batchsize
             batch_of_persons = queryset[start : start + batchsize]
 
         if len(uuids_to_add_to_cohort) > 0:
-            cohort.insert_users_list_by_uuid(
-                uuids_to_add_to_cohort, insert_in_clickhouse=True, batchsize=batchsize, team_id=team_id
-            )
+            cohort.insert_users_list_by_uuid(uuids_to_add_to_cohort, batchsize=batchsize, team_id=team_id)
 
     except Exception as err:
         if settings.DEBUG or settings.TEST:

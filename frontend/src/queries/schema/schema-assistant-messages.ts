@@ -1,6 +1,7 @@
 import type { MaxBillingContext } from 'scenes/max/maxBillingContextLogic'
 import type { MaxUIContext } from 'scenes/max/maxTypes'
 
+import type { Category, NotebookInfo } from '~/types'
 import { InsightShortId } from '~/types'
 
 import {
@@ -126,6 +127,9 @@ export interface NotebookUpdateMessage extends BaseAssistantMessage {
     type: AssistantMessageType.Notebook
     notebook_id: string
     content: ProsemirrorJSONContent
+    notebook_type?: Category
+    conversation_notebooks?: NotebookInfo[]
+    current_run_notebooks?: NotebookInfo[]
     tool_calls?: AssistantToolCall[]
 }
 
@@ -159,6 +163,7 @@ export interface TaskExecutionItem {
     status: TaskExecutionStatus
     artifact_ids?: string[]
     progress_text?: string
+    task_type: string
 }
 
 export interface TaskExecutionMessage extends BaseAssistantMessage {
@@ -227,9 +232,11 @@ export type AssistantContextualTool =
     | 'find_error_tracking_impactful_issue_event_list'
     | 'experiment_results_summary'
     | 'create_survey'
+    | 'analyze_survey_responses'
     | 'search_docs'
     | 'search_insights'
     | 'session_summarization'
+    | 'create_dashboard'
 
 /** Exact possible `urls` keys for the `navigate` tool. */
 // Extracted using the following Claude Code prompt, then tweaked manually:

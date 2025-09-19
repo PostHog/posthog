@@ -103,6 +103,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         pollRealtimeSnapshots: true,
         stopRealtimePolling: true,
         setTrackedWindow: (windowId: string | null) => ({ windowId }),
+        setRecordingReportedLoaded: true,
     }),
     reducers(() => ({
         isNotFound: [
@@ -111,6 +112,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 loadRecordingMeta: () => false,
                 loadRecordingMetaSuccess: () => false,
                 loadRecordingMetaFailure: () => true,
+            },
+        ],
+        reportedLoaded: [
+            false,
+            {
+                setRecordingReportedLoaded: () => true,
             },
         ],
         trackedWindow: [
@@ -411,7 +418,8 @@ AND properties.$lib != 'web'`
 
         reportUsageIfFullyLoaded: (_, breakpoint) => {
             breakpoint()
-            if (values.fullyLoaded) {
+            if (values.fullyLoaded && !values.reportedLoaded) {
+                actions.setRecordingReportedLoaded()
                 actions.reportRecordingLoaded(values.sessionPlayerData, values.sessionPlayerMetaData)
             }
         },
@@ -526,6 +534,7 @@ AND properties.$lib != 'web'`
                 bufferedToTime,
                 fullyLoaded,
                 sessionRecordingId,
+                sessionRetentionPeriodDays: meta?.retention_period_days ?? null,
             }),
         ],
 

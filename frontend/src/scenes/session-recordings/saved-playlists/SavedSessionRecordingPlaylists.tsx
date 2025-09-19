@@ -4,6 +4,7 @@ import { useActions, useValues } from 'kea'
 import { IconCalendar, IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonDivider, LemonInput, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -13,7 +14,6 @@ import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { IconArrowUp } from 'lib/lemon-ui/icons'
 import { isObject } from 'lib/utils'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { SavedSessionRecordingPlaylistsEmptyState } from 'scenes/session-recordings/saved-playlists/SavedSessionRecordingPlaylistsEmptyState'
 import { urls } from 'scenes/urls'
 
@@ -161,17 +161,16 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
             dataIndex: 'pinned',
             render: function Render(pinned, { short_id }) {
                 return (
-                    <LemonButton
-                        size="small"
-                        onClick={() => updatePlaylist(short_id, { pinned: !pinned })}
-                        icon={pinned ? <IconPinFilled /> : <IconPin />}
-                        accessControl={{
-                            resourceType: AccessControlResourceType.SessionRecording,
-                            minAccessLevel: AccessControlLevel.Editor,
-                            userAccessLevel:
-                                getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
-                        }}
-                    />
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.SessionRecording}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonButton
+                            size="small"
+                            onClick={() => updatePlaylist(short_id, { pinned: !pinned })}
+                            icon={pinned ? <IconPinFilled /> : <IconPin />}
+                        />
+                    </AccessControlAction>
                 )
             },
         },
@@ -210,40 +209,35 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                     <More
                         overlay={
                             <>
-                                <LemonButton
-                                    onClick={() => duplicatePlaylist(playlist)}
-                                    fullWidth
-                                    data-attr="duplicate-playlist"
-                                    loading={playlistsLoading}
-                                    accessControl={{
-                                        resourceType: AccessControlResourceType.SessionRecording,
-                                        minAccessLevel: AccessControlLevel.Editor,
-                                        userAccessLevel:
-                                            getAppContext()?.resource_access_control?.[
-                                                AccessControlResourceType.SessionRecording
-                                            ],
-                                    }}
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.SessionRecording}
+                                    minAccessLevel={AccessControlLevel.Editor}
                                 >
-                                    Duplicate
-                                </LemonButton>
+                                    <LemonButton
+                                        onClick={() => duplicatePlaylist(playlist)}
+                                        fullWidth
+                                        data-attr="duplicate-playlist"
+                                        loading={playlistsLoading}
+                                    >
+                                        Duplicate
+                                    </LemonButton>
+                                </AccessControlAction>
+
                                 <LemonDivider />
 
-                                <LemonButton
-                                    status="danger"
-                                    onClick={() => deletePlaylist(playlist)}
-                                    fullWidth
-                                    loading={playlistsLoading}
-                                    accessControl={{
-                                        resourceType: AccessControlResourceType.SessionRecording,
-                                        minAccessLevel: AccessControlLevel.Editor,
-                                        userAccessLevel:
-                                            getAppContext()?.resource_access_control?.[
-                                                AccessControlResourceType.SessionRecording
-                                            ],
-                                    }}
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.SessionRecording}
+                                    minAccessLevel={AccessControlLevel.Editor}
                                 >
-                                    Delete collection
-                                </LemonButton>
+                                    <LemonButton
+                                        status="danger"
+                                        onClick={() => deletePlaylist(playlist)}
+                                        fullWidth
+                                        loading={playlistsLoading}
+                                    >
+                                        Delete collection
+                                    </LemonButton>
+                                </AccessControlAction>
                             </>
                         }
                     />
@@ -253,8 +247,8 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
     ]
 
     return (
-        <div className="deprecated-space-y-4">
-            <div className="flex justify-between gap-2 mb-2 items-center flex-wrap">
+        <>
+            <div className="flex justify-between gap-2 items-center flex-wrap">
                 <LemonInput
                     type="search"
                     placeholder="Search for collections"
@@ -326,6 +320,6 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                     nouns={['playlist', 'playlists']}
                 />
             )}
-        </div>
+        </>
     )
 }

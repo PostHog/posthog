@@ -7,7 +7,7 @@ import { IconPlus, IconX } from '@posthog/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
-import { HogFlowFilters } from '../filters/HogFlowFilters'
+import { HogFlowPropertyFilters } from '../filters/HogFlowFilters'
 import { hogFlowEditorLogic } from '../hogFlowEditorLogic'
 import { HogFlow, HogFlowAction } from '../types'
 import { StepSchemaErrors } from './components/StepSchemaErrors'
@@ -99,10 +99,13 @@ export function StepConditionalBranchConfiguration({
                         />
                     </div>
 
-                    <HogFlowFilters
+                    <HogFlowPropertyFilters
+                        actionId={`${action.id}.${index}`}
                         filters={condition.filters ?? {}}
                         setFilters={(filters) =>
-                            setConditions(conditions.map((condition, i) => (i === index ? { filters } : condition)))
+                            setConditions(
+                                conditions.map((condition, i) => (i === index ? { filters: filters ?? {} } : condition))
+                            )
                         }
                         typeKey={`campaign-trigger-${index}`}
                     />

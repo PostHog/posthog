@@ -41,6 +41,7 @@ __all__ = [
     "MailJetSource",
     "MetaAdsSource",
     "MongoDBSource",
+    "RedditAdsSource",
     "MSSQLSource",
     "MySQLSource",
     "PolarSource",

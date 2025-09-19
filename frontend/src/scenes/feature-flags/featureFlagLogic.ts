@@ -5,6 +5,7 @@ import { router, urlToAction } from 'kea-router'
 
 import api, { PaginatedResponse } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { sum, toParams } from 'lib/utils'
@@ -346,6 +347,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             defaults: {
                 ...NEW_FLAG,
                 ensure_experience_continuity: values.currentTeam?.flags_persistence_default || false,
+                _should_create_usage_dashboard: true,
             },
             errors: ({ key, filters, is_remote_configuration }) => {
                 return {
@@ -1000,11 +1002,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         submitFeatureFlagFailure: async () => {
-            // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
-            setTimeout(
-                () => document.querySelector(`.Field--error`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }),
-                1
-            )
+            scrollToFormError()
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
