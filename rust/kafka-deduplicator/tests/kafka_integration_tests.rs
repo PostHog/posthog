@@ -140,6 +140,7 @@ fn create_stateful_kafka_consumer_with_pool(
         10,
         Duration::from_secs(1),
         shutdown_rx,
+        "earliest".to_string(),
     )?;
 
     kafka_consumer.inner_consumer().subscribe(&[topic])?;
@@ -363,6 +364,7 @@ async fn test_partition_aware_message_filtering() -> Result<()> {
         10,
         Duration::from_secs(5),
         shutdown_rx,
+        "earliest".to_string(),
     )?;
 
     // Subscribe to the topic
@@ -460,6 +462,7 @@ async fn test_graceful_shutdown_with_in_flight_messages() -> Result<()> {
         10,
         Duration::from_secs(1),
         shutdown_rx,
+        "earliest".to_string(),
     )?;
 
     kafka_consumer.inner_consumer().subscribe(&[&test_topic])?;
@@ -531,6 +534,7 @@ async fn test_factory_method_integration() -> Result<()> {
         5,
         Duration::from_secs(5),
         shutdown_rx1,
+        "earliest".to_string(),
     )?;
 
     let (_, shutdown_rx2) = tokio::sync::oneshot::channel();
@@ -543,6 +547,7 @@ async fn test_factory_method_integration() -> Result<()> {
         10,
         Duration::from_secs(2),
         shutdown_rx2,
+        "earliest".to_string(),
     )?;
 
     // Verify consumers were created successfully
@@ -655,6 +660,7 @@ async fn test_rebalance_barrier_with_fencing() -> Result<()> {
         5, // limit in-flight messages
         Duration::from_secs(5),
         shutdown_rx,
+        "earliest".to_string(),
     )?;
 
     kafka_consumer.inner_consumer().subscribe(&[&test_topic])?;

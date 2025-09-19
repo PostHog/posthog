@@ -31,12 +31,15 @@ pub struct StatefulConsumerContext {
     rt_handle: Handle,
     /// Channel to send rebalance events to async worker
     rebalance_tx: mpsc::UnboundedSender<RebalanceEvent>,
+    /// The auto.offset.reset policy (earliest, latest, or none)
+    offset_reset_policy: String,
 }
 
 impl StatefulConsumerContext {
     pub fn new(
         rebalance_handler: Arc<dyn RebalanceHandler>,
         tracker: Arc<InFlightTracker>,
+        offset_reset_policy: String,
     ) -> Self {
         // Create channel for rebalance events
         let (tx, rx) = mpsc::unbounded_channel();
@@ -53,6 +56,7 @@ impl StatefulConsumerContext {
             tracker,
             rt_handle: Handle::current(),
             rebalance_tx: tx,
+            offset_reset_policy,
         }
     }
 
@@ -223,11 +227,49 @@ impl ConsumerContext for StatefulConsumerContext {
                             }
                             rdkafka::Offset::Invalid => {
                                 // No committed offset exists - new consumer group or partition
+                                // We need to determine the actual starting position based on auto.offset.reset
                                 info!(
-                                    "Partition {}-{}: no committed offset, will use auto.offset.reset policy",
-                                    topic, partition_num
+                                    "Partition {}-{}: no committed offset, using {} policy",
+                                    topic, partition_num, self.offset_reset_policy
                                 );
-                                None
+
+                                // Fetch watermarks to get the actual starting position
+                                match base_consumer.fetch_watermarks(topic, partition_num, Duration::from_millis(5000)) {
+                                    Ok((low, high)) => {
+                                        let initial_offset = match self.offset_reset_policy.as_str() {
+                                            "earliest" => {
+                                                info!(
+                                                    "Partition {}-{}: starting from earliest (low watermark: {})",
+                                                    topic, partition_num, low
+                                                );
+                                                Some(low)
+                                            }
+                                            "latest" => {
+                                                info!(
+                                                    "Partition {}-{}: starting from latest (high watermark: {})",
+                                                    topic, partition_num, high
+                                                );
+                                                Some(high)
+                                            }
+                                            _ => {
+                                                // "none" or unknown - don't set initial offset
+                                                info!(
+                                                    "Partition {}-{}: policy is '{}', no initial offset set",
+                                                    topic, partition_num, self.offset_reset_policy
+                                                );
+                                                None
+                                            }
+                                        };
+                                        initial_offset
+                                    }
+                                    Err(e) => {
+                                        warn!(
+                                            "Partition {}-{}: failed to fetch watermarks: {} - tracker will initialize on first message",
+                                            topic, partition_num, e
+                                        );
+                                        None
+                                    }
+                                }
                             }
                             other => {
                                 info!(
@@ -362,7 +404,7 @@ mod tests {
     async fn test_partition_assignment_callback() {
         let handler = Arc::new(TestRebalanceHandler::default());
         let tracker = Arc::new(crate::kafka::InFlightTracker::new());
-        let context = StatefulConsumerContext::new(handler.clone(), tracker);
+        let context = StatefulConsumerContext::new(handler.clone(), tracker, "earliest".to_string());
         let consumer = create_test_consumer(Arc::new(TestRebalanceHandler::default()));
         let partitions = create_test_partition_list();
 
@@ -387,7 +429,7 @@ mod tests {
     async fn test_partition_revocation_callback() {
         let handler = Arc::new(TestRebalanceHandler::default());
         let tracker = Arc::new(crate::kafka::InFlightTracker::new());
-        let context = StatefulConsumerContext::new(handler.clone(), tracker);
+        let context = StatefulConsumerContext::new(handler.clone(), tracker, "earliest".to_string());
         let partitions = create_test_partition_list();
 
         // Simulate pre_rebalance with revocation
@@ -412,7 +454,7 @@ mod tests {
     async fn test_rebalance_error_handling() {
         let handler = Arc::new(TestRebalanceHandler::default());
         let tracker = Arc::new(crate::kafka::InFlightTracker::new());
-        let context = StatefulConsumerContext::new(handler.clone(), tracker);
+        let context = StatefulConsumerContext::new(handler.clone(), tracker, "earliest".to_string());
 
         // Simulate rebalance error
         let error = rdkafka::error::KafkaError::ConsumerCommit(
@@ -437,7 +479,7 @@ mod tests {
     async fn test_commit_callback_success() {
         let handler = Arc::new(TestRebalanceHandler::default());
         let tracker = Arc::new(crate::kafka::InFlightTracker::new());
-        let context = StatefulConsumerContext::new(handler, tracker);
+        let context = StatefulConsumerContext::new(handler, tracker, "earliest".to_string());
         let partitions = create_test_partition_list();
 
         // Test successful commit - should not panic
@@ -448,7 +490,7 @@ mod tests {
     async fn test_commit_callback_failure() {
         let handler = Arc::new(TestRebalanceHandler::default());
         let tracker = Arc::new(crate::kafka::InFlightTracker::new());
-        let context = StatefulConsumerContext::new(handler, tracker);
+        let context = StatefulConsumerContext::new(handler, tracker, "earliest".to_string());
         let partitions = create_test_partition_list();
 
         // Test failed commit - should not panic
@@ -462,7 +504,7 @@ mod tests {
     async fn test_context_with_tracker_partition_revocation() {
         let handler = Arc::new(TestRebalanceHandler::default());
         let tracker = Arc::new(crate::kafka::InFlightTracker::new());
-        let context = StatefulConsumerContext::new(handler.clone(), tracker.clone());
+        let context = StatefulConsumerContext::new(handler.clone(), tracker.clone(), "earliest".to_string());
         let consumer = create_test_consumer(Arc::new(TestRebalanceHandler::default()));
 
         // Assign partition first
@@ -566,7 +608,7 @@ mod tests {
     async fn test_context_with_tracker_partition_assignment() {
         let handler = Arc::new(TestRebalanceHandler::default());
         let tracker = Arc::new(crate::kafka::InFlightTracker::new());
-        let context = StatefulConsumerContext::new(handler.clone(), tracker.clone());
+        let context = StatefulConsumerContext::new(handler.clone(), tracker.clone(), "earliest".to_string());
         let consumer = create_test_consumer(Arc::new(TestRebalanceHandler::default()));
 
         // Initially fence some partitions
@@ -630,7 +672,7 @@ mod tests {
         // Test that the simplified constructor works correctly
         let handler = Arc::new(TestRebalanceHandler::default());
         let tracker = Arc::new(crate::kafka::InFlightTracker::new());
-        let context = StatefulConsumerContext::new(handler.clone(), tracker);
+        let context = StatefulConsumerContext::new(handler.clone(), tracker, "earliest".to_string());
         let consumer = create_test_consumer(Arc::new(TestRebalanceHandler::default()));
 
         let partitions = create_test_partition_list();

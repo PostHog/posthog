@@ -181,6 +181,7 @@ impl KafkaDeduplicatorService {
             self.config.max_in_flight_messages,
             self.config.commit_interval(),
             shutdown_rx,
+            self.config.kafka_consumer_offset_reset.clone(),
         )
         .with_context(|| {
             format!(

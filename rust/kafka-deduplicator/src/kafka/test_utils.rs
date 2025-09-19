@@ -11,7 +11,7 @@ pub fn create_test_consumer<H: RebalanceHandler + 'static>(
     handler: Arc<H>,
 ) -> BaseConsumer<StatefulConsumerContext> {
     let tracker = Arc::new(InFlightTracker::new());
-    let context = StatefulConsumerContext::new(handler, tracker);
+    let context = StatefulConsumerContext::new(handler, tracker, "earliest".to_string());
 
     let consumer: BaseConsumer<StatefulConsumerContext> = ClientConfig::new()
         .set("bootstrap.servers", "localhost:9092")

@@ -207,6 +207,7 @@ async fn test_consumer_error_recovery() -> Result<()> {
         10,
         Duration::from_secs(5),
         shutdown_rx,
+        "earliest".to_string(),
     )?;
 
     consumer.inner_consumer().subscribe(&[&test_topic])?;
@@ -269,6 +270,7 @@ async fn test_consumer_processing_delay_resilience() -> Result<()> {
         20, // Higher concurrency to handle slow processing
         Duration::from_secs(5),
         shutdown_rx,
+        "earliest".to_string(),
     )?;
 
     consumer.inner_consumer().subscribe(&[&test_topic])?;
@@ -335,6 +337,7 @@ async fn test_consumer_failure_notification() -> Result<()> {
         10,
         Duration::from_secs(5),
         shutdown_rx,
+        "earliest".to_string(),
     )?;
 
     consumer.inner_consumer().subscribe(&[&test_topic])?;
