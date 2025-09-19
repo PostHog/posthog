@@ -364,6 +364,10 @@ class AssistantNodeName(StrEnum):
     SESSION_SUMMARIZATION = "session_summarization"
     DASHBOARD_CREATION = "dashboard_creation"
     DASHBOARD_CREATION_EXECUTOR = "dashboard_creation_executor"
+    HOGQL_GENERATOR = "hogql_generator"
+    HOGQL_GENERATOR_TOOLS = "hogql_generator_tools"
+    SESSION_REPLAY_FILTER = "session_replay_filter"
+    SESSION_REPLAY_FILTER_OPTIONS_TOOLS = "session_replay_filter_options_tools"
 
 
 class AssistantMode(StrEnum):

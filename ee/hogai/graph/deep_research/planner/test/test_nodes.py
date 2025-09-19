@@ -16,11 +16,12 @@ from posthog.schema import (
     AssistantMessage,
     AssistantToolCall,
     AssistantToolCallMessage,
+    DeepResearchNotebook,
+    DeepResearchType,
     HumanMessage,
     MultiVisualizationMessage,
     PlanningMessage,
     PlanningStepStatus,
-    TaskExecutionItem,
     TaskExecutionStatus,
 )
 
@@ -31,7 +32,7 @@ from ee.hogai.graph.deep_research.planner.prompts import (
     WRITE_RESULT_FAILED_TOOL_RESULT,
     WRITE_RESULT_TOOL_RESULT,
 )
-from ee.hogai.graph.deep_research.types import DeepResearchState, DeepResearchTodo
+from ee.hogai.graph.deep_research.types import DeepResearchState, DeepResearchTask, DeepResearchTodo
 from ee.hogai.utils.types import InsightArtifact
 from ee.hogai.utils.types.base import TaskResult
 
@@ -59,8 +60,17 @@ class TestDeepResearchPlannerNode(BaseTest):
             "task_results": [],
             "intermediate_results": [],
             "previous_response_id": None,
-            "notebook_short_id": None,
+            "conversation_notebooks": [],
+            "current_run_notebooks": [
+                DeepResearchNotebook(
+                    notebook_id="test_notebook", notebook_type=DeepResearchType.PLANNING, title="Test Planning Notebook"
+                )
+            ]
+            if kwargs.get("needs_notebook", True)
+            else None,
         }
+        # Remove needs_notebook from kwargs before updating
+        kwargs.pop("needs_notebook", None)
         defaults.update(kwargs)
         return DeepResearchState(**defaults)
 
@@ -88,7 +98,7 @@ class TestDeepResearchPlannerNode(BaseTest):
         mock_serializer_instance.from_json_to_markdown.return_value = "# Test notebook"
         mock_serializer.return_value = mock_serializer_instance
 
-        state = self._create_state(notebook_short_id="test_notebook")
+        state = self._create_state()
 
         with (
             patch.object(self.node, "_aget_core_memory", return_value="Test core memory") as _mock_core_memory,
@@ -124,7 +134,7 @@ class TestDeepResearchPlannerNode(BaseTest):
             return None
 
         mock_notebook_get.side_effect = async_none
-        state = self._create_state(notebook_short_id="nonexistent")
+        state = self._create_state()
 
         with self.assertRaises(ValueError) as cm:
             await self.node.arun(state, self.config)
@@ -323,8 +333,17 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
             "task_results": [],
             "intermediate_results": [],
             "previous_response_id": None,
-            "notebook_short_id": None,
+            "conversation_notebooks": [],
+            "current_run_notebooks": [
+                DeepResearchNotebook(
+                    notebook_id="test_notebook", notebook_type=DeepResearchType.PLANNING, title="Test Planning Notebook"
+                )
+            ]
+            if kwargs.get("needs_notebook", True)
+            else None,
         }
+        # Remove needs_notebook from kwargs before updating
+        kwargs.pop("needs_notebook", None)
         defaults.update(kwargs)
         return DeepResearchState(**defaults)
 
@@ -490,7 +509,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
     async def test_execute_tasks_tool(self):
         """Test execute_tasks tool execution returns tasks"""
         tasks = [
-            TaskExecutionItem(
+            DeepResearchTask(
                 id="1",
                 description="Test task",
                 prompt="Test prompt",
@@ -661,7 +680,7 @@ class TestDeepResearchPlannerToolsNode(BaseTest):
             (
                 "with_tasks",
                 [
-                    TaskExecutionItem(
+                    DeepResearchTask(
                         id="1",
                         description="Test",
                         prompt="Test prompt",
