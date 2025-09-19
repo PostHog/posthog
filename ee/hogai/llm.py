@@ -1,6 +1,8 @@
 import datetime
 from typing import TYPE_CHECKING, Any
 
+from django.conf import settings
+
 import pytz
 from asgiref.sync import sync_to_async
 from langchain_core.messages import BaseMessage, SystemMessage
@@ -33,6 +35,12 @@ class MaxChatOpenAI(ChatOpenAI):
             kwargs["max_retries"] = 3
         if "stream_usage" not in kwargs:
             kwargs["stream_usage"] = True
+        if (
+            settings.IN_EVAL_TESTING
+            and "service_tier" not in kwargs
+            and (kwargs["model"].startswith("o") or kwargs["model"].startswith("gpt5"))  # flex: o3, o4-mini, gpt5
+        ):
+            kwargs["service_tier"] = "flex"  # 50% cheaper than default tier, but slower
         super().__init__(*args, **kwargs)
         self._user = user
         self._team = team
