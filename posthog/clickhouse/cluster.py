@@ -177,7 +177,7 @@ class ClickhouseCluster:
                 try:
                     result = fn(client)
                 except Exception as e:
-                    self.__logger.warn("Failed to execute %r on %r: %s", fn, host, e, exc_info=True)
+                    self.__logger.warning("Failed to execute %r on %r: %s", fn, host, e, exc_info=True)
                     raise
                 else:
                     self.__logger.info("Successfully executed %r on %r.", fn, host)
@@ -232,6 +232,24 @@ class ClickhouseCluster:
             except StopIteration:
                 raise ValueError(f"No hosts found with roles {node_roles}")
             return executor.submit(self.__get_task_function(host, fn))
+
+    def map_specific_host(self, hostname: str, fn: Callable[[Client], T]) -> FuturesMap[HostInfo, T]:
+        """
+        Execute the callable on a specific host by hostname.
+
+        This is useful when targeting an exact host, such as when working with non-replicated tables.
+        """
+        host_info = self.__find_host_by_name(hostname)
+
+        with ThreadPoolExecutor() as executor:
+            return FuturesMap({host_info: executor.submit(self.__get_task_function(host_info, fn))})
+
+    def __find_host_by_name(self, hostname: str) -> HostInfo:
+        """Find HostInfo by hostname."""
+        for host_info in self.__hosts:
+            if host_info.connection_info.host == hostname:
+                return host_info
+        raise ValueError(f"Host {hostname} is not part of this cluster")
 
     def map_all_hosts(self, fn: Callable[[Client], T], concurrency: int | None = None) -> FuturesMap[HostInfo, T]:
         """

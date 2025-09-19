@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
 import pytest
-from unittest.mock import Mock, call, patch
+from unittest.mock import ANY, Mock, call, patch
 
 import dagster
 from dagster import TimeWindow
@@ -274,9 +274,11 @@ class TestPartitionFiltering:
         end_datetime = datetime(2025, 8, 18, tzinfo=UTC)
         self.mock_context.partition_time_window = TimeWindow(start_datetime, end_datetime)
 
-        # Mock only one partition in the time window
+        # Mock the get_partitions call (first any_host call)
         mock_partition_data = [("20250817",)]
-        self.mock_cluster.any_host.return_value.result.return_value = mock_partition_data
+        # Mock the get_host_with_partition_data call (second any_host call)
+        mock_host_data = [("test-host",)]
+        self.mock_cluster.any_host.return_value.result.side_effect = [mock_partition_data, mock_host_data]
 
         swap_partitions_from_staging(
             context=self.mock_context,
@@ -295,10 +297,10 @@ class TestPartitionFiltering:
         assert "partition >= '20250817'" in executed_query
         assert "partition < '20250818'" in executed_query
 
-        # Verify only one partition replacement was attempted
-        replace_calls = [call for call in self.mock_cluster.any_host.call_args_list if len(call[0]) > 0]
-        # First call is for getting partitions, second call is for replacing partition
-        assert len(replace_calls) == 2
+        # Verify map_specific_host was called for the partition replacement
+        self.mock_cluster.map_specific_host.assert_called_once()
+        # Should call with the hostname returned from the query
+        self.mock_cluster.map_specific_host.assert_called_with("test-host", ANY)
 
     def test_get_partitions_without_partition_time_window_and_filtering_enabled(self):
         self.mock_context.partition_time_window = None
