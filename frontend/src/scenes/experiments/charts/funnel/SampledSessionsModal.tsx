@@ -72,6 +72,7 @@ export function SampledSessionsModal({
                 const response = await api.recordings.list({
                     kind: NodeKind.RecordingsQuery,
                     session_ids: allSessionIds,
+                    date_from: '-90d',
                     limit: allSessionIds.length,
                 })
 
