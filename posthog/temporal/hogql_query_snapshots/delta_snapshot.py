@@ -7,6 +7,7 @@ import pyarrow as pa
 import deltalake as deltalake
 import pyarrow.compute as pc
 from conditional_cache import lru_cache
+from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 
 from posthog.exceptions_capture import capture_exception
 from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
@@ -68,6 +69,24 @@ class DeltaSnapshot:
             "AWS_S3_ALLOW_UNSAFE_RENAME": "true",
         }
 
+    # copied from delta_table_helper.py
+    def _evolve_delta_schema(self, schema: pa.Schema) -> deltalake.DeltaTable:
+        delta_table = self.get_delta_table()
+        if delta_table is None:
+            raise Exception("Deltalake table not found")
+
+        delta_table_schema = delta_table.schema().to_pyarrow()
+
+        new_fields = [
+            deltalake.Field.from_pyarrow(field)
+            for field in ensure_delta_compatible_arrow_schema(schema)
+            if field.name not in delta_table_schema.names
+        ]
+        if new_fields:
+            delta_table.alter.add_columns(new_fields)
+
+        return delta_table
+
     @lru_cache(maxsize=1, condition=lambda result: result is not None)
     def get_delta_table(self) -> deltalake.DeltaTable | None:
         delta_uri = self._get_delta_table_uri()
@@ -96,10 +115,11 @@ class DeltaSnapshot:
                 partition_by=PARTITION_KEY if use_partitioning else None,
             )
 
+        # delta_table = self._evolve_delta_schema(data.schema)
+
         if use_partitioning:
             predicate_ops = [
                 "source._ph_merge_key = target._ph_merge_key",
-                f"source.{PARTITION_KEY} = target.{PARTITION_KEY}",
             ]
             unique_partitions = pc.unique(data[PARTITION_KEY])
             for partition in unique_partitions:
@@ -117,18 +137,19 @@ class DeltaSnapshot:
             source=data,
             source_alias="source",
             target_alias="target",
+            merge_schema=True,
             predicate=predicate,
             streamed_exec=True,
         ).when_matched_update(
             updates={
                 # indicates update
-                "valid_until": "source._ph_snapshot_ts",
+                "_ph_valid_until": "source._ph_snapshot_ts",
             },
             predicate="source._ph_row_hash != target._ph_row_hash AND target._ph_valid_until IS NULL",
         ).when_not_matched_by_source_update(
             updates={
                 # indicates deletion
-                "valid_until": f"to_timestamp_micros({now_micros})",
+                "_ph_valid_until": f"to_timestamp_micros({now_micros})",
             },
             predicate="target._ph_valid_until IS NULL",
             # insert brand new rows

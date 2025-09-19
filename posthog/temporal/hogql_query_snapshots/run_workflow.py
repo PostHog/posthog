@@ -11,6 +11,8 @@ from clickhouse_driver.errors import ServerException
 from posthoganalytics import capture_exception
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
+from temporalio import exceptions
+from temporalio.common import RetryPolicy
 
 from posthog import settings
 from posthog.models import Team
@@ -67,9 +69,9 @@ async def start_job_snapshot_run(
 class FinishSnapshotJobInputs:
     team_id: int
     job_id: str
-    error: Exception | None
-    snapshot_ts: str
-    snapshot_table_id: str
+    error: str | None
+    snapshot_ts: str | None
+    snapshot_table_id: str | None
 
 
 def format_snapshot_name(snapshot_ts: str) -> str:
@@ -83,28 +85,30 @@ async def finish_snapshot_job_activity(inputs: FinishSnapshotJobInputs) -> None:
 
     await logger.adebug(f"Finishing DataWarehouseSnapshotJob for {inputs.job_id}")
     job = await database_sync_to_async(DataWarehouseSnapshotJob.objects.get)(id=inputs.job_id)
-    snapshot_table = await database_sync_to_async(DataWarehouseTable.objects.get)(id=inputs.snapshot_table_id)
 
-    saved_query = DataWarehouseSavedQuery(
-        team_id=inputs.team_id,
-        created_by_id=job.created_by_id,
-        name=f"{snapshot_table.name}_{format_snapshot_name(inputs.snapshot_ts)}",
-        query={
-            "kind": "HogQLQuery",
-            "query": f"""SELECT * FROM snapshots.{snapshot_table.name} WHERE _ph_snapshot_ts <= toDateTime('{inputs.snapshot_ts}', 'UTC') AND (_ph_valid_until > toDateTime('{inputs.snapshot_ts}', 'UTC') OR _ph_valid_until IS NULL)""",
-        },
-        type=DataWarehouseSavedQuery.Type.SNAPSHOT,
-        snapshot_table_id=inputs.snapshot_table_id,
-    )
+    if inputs.snapshot_table_id is not None and inputs.snapshot_ts is not None:
+        snapshot_table = await database_sync_to_async(DataWarehouseTable.objects.get)(id=inputs.snapshot_table_id)
 
-    saved_query.columns = await database_sync_to_async(saved_query.get_columns)()
-    await database_sync_to_async(saved_query.save)()
+        saved_query = DataWarehouseSavedQuery(
+            team_id=inputs.team_id,
+            created_by_id=job.created_by_id,
+            name=f"{snapshot_table.name}_{format_snapshot_name(inputs.snapshot_ts)}",
+            query={
+                "kind": "HogQLQuery",
+                "query": f"""SELECT * FROM snapshots.{snapshot_table.name} WHERE _ph_snapshot_ts <= toDateTime('{inputs.snapshot_ts}', 'UTC') AND (_ph_valid_until > toDateTime('{inputs.snapshot_ts}', 'UTC') OR _ph_valid_until IS NULL)""",
+            },
+            type=DataWarehouseSavedQuery.Type.SNAPSHOT,
+            snapshot_table_id=inputs.snapshot_table_id,
+        )
 
-    job.table = saved_query
+        saved_query.columns = await database_sync_to_async(saved_query.get_columns)()
+        await database_sync_to_async(saved_query.save)()
+        job.table = saved_query
+
     job.status = (
         DataWarehouseSnapshotJob.Status.COMPLETED if inputs.error is None else DataWarehouseSnapshotJob.Status.FAILED
     )
-    job.error = str(inputs.error) if inputs.error is not None else None
+    job.error = inputs.error if inputs.error is not None else None
     await database_sync_to_async(job.save)()
 
 
@@ -241,9 +245,17 @@ class RunWorkflow(PostHogWorkflow):
             create_snapshot_job_activity,
             CreateSnapshotJobInputs(team_id=inputs.team_id, saved_query_id=inputs.saved_query_id),
             start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=temporalio.common.RetryPolicy(
+            retry_policy=RetryPolicy(
                 maximum_attempts=1,
             ),
+        )
+
+        finish_snapshot_job_inputs = FinishSnapshotJobInputs(
+            team_id=inputs.team_id,
+            job_id=job_id,
+            error=None,
+            snapshot_ts=None,
+            snapshot_table_id=None,
         )
 
         try:
@@ -252,35 +264,27 @@ class RunWorkflow(PostHogWorkflow):
                 RunSnapshotActivityInputs(team_id=inputs.team_id, saved_query_id=inputs.saved_query_id),
                 start_to_close_timeout=dt.timedelta(hours=1),
                 heartbeat_timeout=dt.timedelta(minutes=1),
-                retry_policy=temporalio.common.RetryPolicy(
+                retry_policy=RetryPolicy(
                     maximum_attempts=1,
                 ),
                 cancellation_type=temporalio.workflow.ActivityCancellationType.TRY_CANCEL,
             )
+            finish_snapshot_job_inputs.snapshot_ts = snapshot_ts
+            finish_snapshot_job_inputs.snapshot_table_id = snapshot_table_id
+        except exceptions.ActivityError as e:
+            finish_snapshot_job_inputs.error = str(e.cause)
+            raise
         except Exception as e:
-            await temporalio.workflow.execute_activity(
-                finish_snapshot_job_activity,
-                FinishSnapshotJobInputs(
-                    team_id=inputs.team_id,
-                    job_id=job_id,
-                    error=e,
-                    snapshot_ts=snapshot_ts,
-                    snapshot_table_id=snapshot_table_id,
-                ),
-                start_to_close_timeout=dt.timedelta(minutes=5),
-            )
+            finish_snapshot_job_inputs.error = str(e)
             raise
         finally:
             await temporalio.workflow.execute_activity(
                 finish_snapshot_job_activity,
-                FinishSnapshotJobInputs(
-                    team_id=inputs.team_id,
-                    job_id=job_id,
-                    error=None,
-                    snapshot_ts=snapshot_ts,
-                    snapshot_table_id=snapshot_table_id,
-                ),
+                finish_snapshot_job_inputs,
                 start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=1,
+                ),
             )
 
 
