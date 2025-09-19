@@ -583,9 +583,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             actions.updateInsightFilter({ display })
         },
 
-        setDetailedResultsAggregationType: ({ aggregationType }) => {
+        setDetailedResultsAggregationType: ({ detailedResultsAggregationType }) => {
             actions.updateInsightFilter({
-                detailedResultsAggregationType: aggregationType,
+                detailedResultsAggregationType: detailedResultsAggregationType,
             })
         },
 
