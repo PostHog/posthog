@@ -150,6 +150,7 @@ class TestDeepResearchWorkflowIntegration(APIBaseTest):
 
         # Should still create valid state but with invalid reference
         self.assertIsNotNone(state.current_run_notebooks)
+        assert state.current_run_notebooks is not None
         self.assertEqual(len(state.current_run_notebooks), 1)
         self.assertEqual(state.current_run_notebooks[0].notebook_id, "nonexistent_nb")
 

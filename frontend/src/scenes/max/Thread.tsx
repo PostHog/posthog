@@ -514,7 +514,7 @@ function NotebookUpdateAnswer({ message }: NotebookUpdateAnswerProps): JSX.Eleme
                     <IconCheck className="text-success size-4" />
                     <span>A notebook has been updated</span>
                 </div>
-                <LemonButton onClick={handleOpenNotebook} size="xsmall" type="primary" icon={<IconOpenInNew />}>
+                <LemonButton onClick={() => handleOpenNotebook()} size="xsmall" type="primary" icon={<IconOpenInNew />}>
                     Open notebook
                 </LemonButton>
             </div>
