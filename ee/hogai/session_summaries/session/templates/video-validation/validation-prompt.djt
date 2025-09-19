@@ -6,7 +6,7 @@ You need to update a session summary based on visual observations from screen re
 You will receive:
 1. Original session summary with segments, key actions, and outcomes
 2. Visual validation results from screen recordings of specific events
-3. List of fields eligible for updates (pre-computed based on validated events)
+3. List of fields (descriptions, labels) that could be changed based on the visual confirmation.
 </input_data_format>
 
 <original_summary_input>
@@ -23,13 +23,13 @@ Visual observations from actual screen recordings for the following events:
 ```
 </visual_validation_input>
 
-<eligible_update_fields>
-Only these fields can be modified based on the validated events:
+<fields_to_update>
+Decide if the event/segment/session descriptions or labels should be changed based on the new data coming from visual observations. Fill `new_value` field for the fields that require update and return them. Don't return fields that don't require any updates.
 
 ```
-{{ ELIGIBLE_FIELDS | safe }}
+{{ FIELDS_TO_UPDATE | safe}}
 ```
-</eligible_update_fields>
+</fields_to_update>
 
 <update_instructions>
 # Step 1: Analyze Visual Evidence
@@ -128,38 +128,11 @@ Based on all event and segment updates:
 </critical_guidelines>
 
 <output_format>
-Return a JSON object containing only the fields that require updates.
+Return a YAML object containing only the fields that require updates.
 
 IMPORTANT:
 - Use exact field paths from eligible_update_fields
-- Include both "from" (current value) and "to" (new value)
+- Include field `path` and `new_value`, if it should be changed based on visual observations.
 - Only include fields that are actually changing
 - Ensure all string values are properly escaped
 </output_format>
-
-<output_example_yaml_alternative>
-updates:
-  - path: key_actions[1].events[0].exception
-    from: blocking
-    to: null
-    
-  - path: key_actions[1].events[0].description
-    from: "Blocking store path exception rendered Error tracking unusable"
-    to: "Clicked into Error tracking feature"
-    
-  - path: segment_outcomes[1].success
-    from: false
-    to: true
-    
-  - path: segment_outcomes[1].summary
-    from: "Error tracking page threw blocking exception, user abandoned and focused on replay instead"
-    to: "User explored error tracking and surveys before using replay filters"
-    
-  - path: session_outcome.success
-    from: false
-    to: true
-    
-  - path: session_outcome.description
-    from: "Session showcased broad feature exploration but a blocking Error-tracking bug prevented intended usage of that key tool"
-    to: "User successfully explored multiple analytics areas and session replay features"
-</output_example_yaml_alternative>
