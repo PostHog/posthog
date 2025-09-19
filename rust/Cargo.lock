@@ -3938,7 +3938,6 @@ dependencies = [
  "serde_json",
  "serve-metrics",
  "tempfile",
- "time",
  "tokio",
  "tokio-util",
  "tracing",

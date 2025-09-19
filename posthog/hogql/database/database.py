@@ -15,6 +15,7 @@ from posthog.schema import (
     DatabaseSchemaPostHogTable,
     DatabaseSchemaSchema,
     DatabaseSchemaSource,
+    DatabaseSchemaSystemTable,
     DatabaseSchemaViewTable,
     DatabaseSerializedFieldType,
     HogQLQuery,
@@ -47,7 +48,6 @@ from posthog.hogql.database.models import (
     UnknownDatabaseField,
     VirtualTable,
 )
-from posthog.hogql.database.postgres_table import PostgresTable
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
 from posthog.hogql.database.schema.cohort_people import CohortPeople, RawCohortPeople
@@ -90,6 +90,7 @@ from posthog.hogql.database.schema.sessions_v2 import (
     join_events_table_to_sessions_table_v2,
 )
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
+from posthog.hogql.database.schema.system import SystemTables
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebBouncesCombinedTable,
     WebBouncesDailyTable,
@@ -176,22 +177,7 @@ class Database(BaseModel):
 
     # system tables
     numbers: NumbersTable = NumbersTable()
-
-    # Postgres tables
-    dashboards: PostgresTable = PostgresTable(
-        name="dashboards",
-        postgres_table_name="posthog_dashboard",
-        fields={
-            "id": IntegerDatabaseField(name="id"),
-            "team_id": IntegerDatabaseField(name="team_id"),
-            "name": StringDatabaseField(name="name"),
-            "description": StringDatabaseField(name="description"),
-            "created_at": DateTimeDatabaseField(name="created_at"),
-            "deleted": BooleanDatabaseField(name="deleted"),
-            "filters": StringJSONDatabaseField(name="filters"),
-            "variables": StringJSONDatabaseField(name="variables"),
-        },
-    )
+    system: TableGroup = SystemTables()
 
     # These are the tables exposed via SQL editor autocomplete and data management
     _table_names: ClassVar[list[str]] = [
@@ -200,6 +186,7 @@ class Database(BaseModel):
         "persons",
         "sessions",
         "query_log",
+        *system.resolve_all_table_names(),
     ]
 
     _warehouse_table_names: list[str] = []
@@ -288,6 +275,9 @@ class Database(BaseModel):
 
     def get_posthog_tables(self) -> list[str]:
         return self._table_names
+
+    def get_system_tables(self) -> list[str]:
+        return [*self.system.resolve_all_table_names(), "query_log"]
 
     def get_warehouse_tables(self) -> list[str]:
         return self._warehouse_table_names + self._warehouse_self_managed_table_names
@@ -940,6 +930,7 @@ class SerializedField:
 
 DatabaseSchemaTable: TypeAlias = (
     DatabaseSchemaPostHogTable
+    | DatabaseSchemaSystemTable
     | DatabaseSchemaDataWarehouseTable
     | DatabaseSchemaViewTable
     | DatabaseSchemaManagedViewTable
@@ -961,11 +952,11 @@ def serialize_database(
     if context.team_id is None:
         raise ResolutionError("Must provide team_id to serialize_database")
 
-    # PostHog Tables
+    # PostHog tables
     posthog_tables = context.database.get_posthog_tables()
     for table_key in posthog_tables:
         field_input: dict[str, Any] = {}
-        table = getattr(context.database, table_key, None)
+        table = context.database.get_table(table_key)
         if isinstance(table, FunctionCallTable):
             field_input = table.get_asterisk()
         elif isinstance(table, Table):
@@ -974,6 +965,20 @@ def serialize_database(
         fields = serialize_fields(field_input, context, table_key.split("."), table_type="posthog")
         fields_dict = {field.name: field for field in fields}
         tables[table_key] = DatabaseSchemaPostHogTable(fields=fields_dict, id=table_key, name=table_key)
+
+    # System tables
+    system_tables = context.database.get_system_tables()
+    for table_key in system_tables:
+        system_field_input: dict[str, Any] = {}
+        table = context.database.get_table(table_key)
+        if isinstance(table, FunctionCallTable):
+            system_field_input = table.get_asterisk()
+        elif isinstance(table, Table):
+            system_field_input = table.fields
+
+        fields = serialize_fields(system_field_input, context, table_key.split("."), table_type="posthog")
+        fields_dict = {field.name: field for field in fields}
+        tables[table_key] = DatabaseSchemaSystemTable(fields=fields_dict, id=table_key, name=table_key)
 
     # Data Warehouse Tables and Views - Fetch all related data in one go
     warehouse_table_names = context.database.get_warehouse_tables()
