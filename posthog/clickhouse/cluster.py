@@ -237,7 +237,7 @@ class ClickhouseCluster:
         """
         Execute the callable on a specific host by hostname.
 
-        This is useful when targeting an exact host, such as when working with non-replicated tables.
+        If the hostname does not exists, it will throw an error.
         """
         host_info = self.__find_host_by_name(hostname)
 
@@ -245,7 +245,6 @@ class ClickhouseCluster:
             return FuturesMap({host_info: executor.submit(self.__get_task_function(host_info, fn))})
 
     def __find_host_by_name(self, hostname: str) -> HostInfo:
-        """Find HostInfo by hostname."""
         for host_info in self.__hosts:
             if host_info.connection_info.host == hostname:
                 return host_info
@@ -499,6 +498,7 @@ class Retryable(Generic[T]):  # note: this class exists primarily to allow a rea
 
             def delay_fn(_):
                 return self.policy.delay
+
         else:
             delay_fn = self.policy.delay
 

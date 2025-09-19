@@ -9,7 +9,7 @@ from dagster import TimeWindow
 from posthog.models.web_preaggregated.sql import DROP_PARTITION_SQL
 
 from dags.web_preaggregated_daily import pre_aggregate_web_analytics_data
-from dags.web_preaggregated_utils import get_partitions, swap_partitions_from_staging
+from dags.web_preaggregated_utils import get_partitions, get_partitions_with_hosts, swap_partitions_from_staging
 
 
 class TestPartitionHandling:
@@ -274,11 +274,9 @@ class TestPartitionFiltering:
         end_datetime = datetime(2025, 8, 18, tzinfo=UTC)
         self.mock_context.partition_time_window = TimeWindow(start_datetime, end_datetime)
 
-        # Mock the get_partitions call (first any_host call)
-        mock_partition_data = [("20250817",)]
-        # Mock the get_host_with_partition_data call (second any_host call)
-        mock_host_data = [("test-host",)]
-        self.mock_cluster.any_host.return_value.result.side_effect = [mock_partition_data, mock_host_data]
+        # Mock the get_partitions_with_hosts call - returns (partition_id, hostname) tuples
+        mock_partitions_with_hosts = [("20250817", "test-host")]
+        self.mock_cluster.any_host.return_value.result.return_value = mock_partitions_with_hosts
 
         swap_partitions_from_staging(
             context=self.mock_context,
@@ -287,15 +285,16 @@ class TestPartitionFiltering:
             staging_table="web_pre_aggregated_stats_staging",
         )
 
-        # Verify get_partitions was called with filtering enabled
+        # Verify get_partitions_with_hosts was called with filtering enabled
         call_args = self.mock_cluster.any_host.call_args_list[0][0][0]
         mock_client = Mock()
         call_args(mock_client)
         executed_query = mock_client.execute.call_args[0][0]
 
-        # Should include date filtering in the query
+        # Should include date filtering in the query and select both partition and hostname
         assert "partition >= '20250817'" in executed_query
         assert "partition < '20250818'" in executed_query
+        assert "partition, hostName()" in executed_query
 
         # Verify map_specific_host was called for the partition replacement
         self.mock_cluster.map_specific_host.assert_called_once()
@@ -360,3 +359,160 @@ class TestPartitionFiltering:
 
         assert f"partition >= '{expected_start_partition}'" in executed_query
         assert f"partition < '{expected_end_partition}'" in executed_query
+
+
+class TestHostTargetedPartitionSwap:
+    def setup_method(self):
+        self.mock_context = Mock()
+        self.mock_cluster = Mock()
+
+    def test_get_partitions_with_hosts_single_partition(self):
+        start_datetime = datetime(2025, 9, 18, tzinfo=UTC)
+        end_datetime = datetime(2025, 9, 19, tzinfo=UTC)
+        self.mock_context.partition_time_window = TimeWindow(start_datetime, end_datetime)
+
+        mock_data = [("20250918", "ch-host-1")]
+        self.mock_cluster.any_host.return_value.result.return_value = mock_data
+
+        result = get_partitions_with_hosts(self.mock_context, self.mock_cluster, "test_staging_table")
+
+        assert len(result) == 1
+        assert result[0] == ("20250918", "ch-host-1")
+
+    def test_get_partitions_with_hosts_multiple_partitions_different_hosts(self):
+        start_datetime = datetime(2025, 9, 18, tzinfo=UTC)
+        end_datetime = datetime(2025, 9, 20, tzinfo=UTC)
+        self.mock_context.partition_time_window = TimeWindow(start_datetime, end_datetime)
+
+        mock_data = [
+            ("20250918", "ch-host-1"),
+            ("20250919", "ch-host-2"),
+        ]
+        self.mock_cluster.any_host.return_value.result.return_value = mock_data
+
+        result = get_partitions_with_hosts(self.mock_context, self.mock_cluster, "test_staging_table")
+
+        assert len(result) == 2
+        assert ("20250918", "ch-host-1") in result
+        assert ("20250919", "ch-host-2") in result
+
+    def test_get_partitions_with_hosts_duplicate_partitions_picks_first(self):
+        """Test that when multiple hosts have the same partition, we pick the first (most recent)."""
+        start_datetime = datetime(2025, 9, 18, tzinfo=UTC)
+        end_datetime = datetime(2025, 9, 19, tzinfo=UTC)
+        self.mock_context.partition_time_window = TimeWindow(start_datetime, end_datetime)
+
+        mock_data = [
+            ("20250918", "ch-host-2"),  # Most recent (should be picked)
+            ("20250918", "ch-host-1"),  # Older
+        ]
+        self.mock_cluster.any_host.return_value.result.return_value = mock_data
+
+        result = get_partitions_with_hosts(self.mock_context, self.mock_cluster, "test_staging_table")
+
+        assert len(result) == 1
+        assert result[0] == ("20250918", "ch-host-2")
+
+    def test_get_partitions_with_hosts_no_partition_window(self):
+        self.mock_context.partition_time_window = None
+
+        mock_data = [
+            ("20250917", "ch-host-1"),
+            ("20250918", "ch-host-2"),
+            ("20250919", "ch-host-1"),
+        ]
+        self.mock_cluster.any_host.return_value.result.return_value = mock_data
+
+        result = get_partitions_with_hosts(self.mock_context, self.mock_cluster, "test_staging_table")
+
+        assert len(result) == 3
+
+        call_args = self.mock_cluster.any_host.call_args[0][0]
+        mock_client = Mock()
+        call_args(mock_client)
+        executed_query = mock_client.execute.call_args[0][0]
+
+        assert "partition >=" not in executed_query
+        assert "partition <" not in executed_query
+
+    def test_get_partitions_with_hosts_empty_result(self):
+        start_datetime = datetime(2025, 9, 18, tzinfo=UTC)
+        end_datetime = datetime(2025, 9, 19, tzinfo=UTC)
+        self.mock_context.partition_time_window = TimeWindow(start_datetime, end_datetime)
+
+        # No partitions found
+        self.mock_cluster.any_host.return_value.result.return_value = []
+
+        result = get_partitions_with_hosts(self.mock_context, self.mock_cluster, "test_staging_table")
+
+        assert result == []
+
+    def test_swap_partitions_from_staging_with_host_targeting(self):
+        start_datetime = datetime(2025, 9, 18, tzinfo=UTC)
+        end_datetime = datetime(2025, 9, 20, tzinfo=UTC)
+        self.mock_context.partition_time_window = TimeWindow(start_datetime, end_datetime)
+
+        mock_partitions_data = [
+            ("20250918", "ch-host-1"),
+            ("20250919", "ch-host-2"),
+        ]
+        self.mock_cluster.any_host.return_value.result.return_value = mock_partitions_data
+
+        swap_partitions_from_staging(
+            context=self.mock_context,
+            cluster=self.mock_cluster,
+            target_table="web_pre_aggregated_stats",
+            staging_table="web_pre_aggregated_stats_staging",
+        )
+
+        assert self.mock_cluster.map_specific_host.call_count == 2
+
+        first_call = self.mock_cluster.map_specific_host.call_args_list[0]
+        assert first_call[0][0] == "ch-host-1"
+
+        second_call = self.mock_cluster.map_specific_host.call_args_list[1]
+        assert second_call[0][0] == "ch-host-2"
+
+    def test_swap_partitions_from_staging_no_partitions(self):
+        start_datetime = datetime(2025, 9, 18, tzinfo=UTC)
+        end_datetime = datetime(2025, 9, 19, tzinfo=UTC)
+        self.mock_context.partition_time_window = TimeWindow(start_datetime, end_datetime)
+
+        self.mock_cluster.any_host.return_value.result.return_value = []
+
+        swap_partitions_from_staging(
+            context=self.mock_context,
+            cluster=self.mock_cluster,
+            target_table="web_pre_aggregated_stats",
+            staging_table="web_pre_aggregated_stats_staging",
+        )
+
+        # Should not call map_specific_host when no partitions exist
+        self.mock_cluster.map_specific_host.assert_not_called()
+
+    def test_swap_partitions_verifies_replace_partition_sql(self):
+        start_datetime = datetime(2025, 9, 18, tzinfo=UTC)
+        end_datetime = datetime(2025, 9, 19, tzinfo=UTC)
+        self.mock_context.partition_time_window = TimeWindow(start_datetime, end_datetime)
+
+        mock_partitions_data = [("20250918", "ch-host-1")]
+        self.mock_cluster.any_host.return_value.result.return_value = mock_partitions_data
+
+        swap_partitions_from_staging(
+            context=self.mock_context,
+            cluster=self.mock_cluster,
+            target_table="target_table",
+            staging_table="staging_table",
+        )
+
+        # Verify the function passed to map_specific_host
+        call_args = self.mock_cluster.map_specific_host.call_args[0][1]  # The function
+
+        # Execute the function with a mock client to verify SQL
+        mock_client = Mock()
+        call_args(mock_client)
+
+        # Verify correct REPLACE PARTITION SQL was executed
+        executed_sql = mock_client.execute.call_args[0][0]
+        expected_sql = "ALTER TABLE target_table REPLACE PARTITION '20250918' FROM staging_table"
+        assert executed_sql == expected_sql

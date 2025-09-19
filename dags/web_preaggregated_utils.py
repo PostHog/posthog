@@ -8,6 +8,7 @@ from dagster import Array, Backoff, DagsterRunStatus, Field, Jitter, RetryPolicy
 
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import ClickhouseCluster
+from posthog.settings import CLICKHOUSE_CLUSTER
 from posthog.settings.base_variables import DEBUG
 
 TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS = os.getenv("TEAM_ID_FOR_WEB_ANALYTICS_ASSET_CHECKS", 1 if DEBUG else 2)
@@ -109,52 +110,78 @@ def sync_partitions_on_replicas(
     ).result()
 
 
-def get_host_with_partition_data(
-    context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, table_name: str, partition_id: str
-) -> str:
+def get_partitions_with_hosts(
+    context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, table_name: str
+) -> list[tuple[str, str]]:
     """
-    Find which specific host contains the partition data for a non-replicated staging table.
+    Get partitions and their host locations for a non-replicated staging table.
 
-    This addresses the root cause of partition swap failures where:
-    1. Data gets inserted to staging table on host A
-    2. REPLACE PARTITION runs on random host B via cluster.any_host()
-    3. Host B doesn't have the staging data, so the operation does nothing
+    This addresses the root cause of partition swap failures by ensuring we know
+    exactly which host has each partition's data, rather than relying on separate
+    queries that could hit different hosts.
+
+    Returns:
+        List of (partition_id, hostname) tuples
     """
+    # Build the date filter if we have partition time window
+    date_filter = ""
+    if context.partition_time_window:
+        start_datetime, end_datetime = context.partition_time_window
+        start_partition = start_datetime.strftime("%Y%m%d")
+        end_partition = end_datetime.strftime("%Y%m%d")
+        date_filter = f"AND partition >= '{start_partition}' AND partition < '{end_partition}'"
+
     query = f"""
-    SELECT DISTINCT hostName() AS host
-    FROM clusterAllReplicas('posthog', system.parts)
+    SELECT DISTINCT partition, hostName() AS host
+    FROM clusterAllReplicas('{CLICKHOUSE_CLUSTER}', system.parts)
     WHERE active = 1
-      AND partition = '{partition_id}'
       AND table = '{table_name}'
-    ORDER BY modification_time DESC
-    LIMIT 1
+      {date_filter}
+    ORDER BY partition, modification_time DESC
     """
 
     result = cluster.any_host(lambda client: client.execute(query)).result()
-    context.log.info(f"Query for partition {partition_id} in {table_name} returned: {result}")
+    context.log.info(f"Query for partitions in {table_name} returned: {result}")
 
     if not result:
-        raise dagster.Failure(f"No host found with data for partition {partition_id} in table {table_name}")
+        context.log.info(f"No partitions found in {table_name}")
+        return []
 
-    target_hostname = result[0][0]
-    context.log.info(f"Found partition {partition_id} data on host: {target_hostname}")
+    # Group by partition and take the most recent (first) host for each partition
+    partitions_with_hosts = []
+    seen_partitions = set()
 
-    return target_hostname
+    for partition_id, hostname in result:
+        if partition_id not in seen_partitions:
+            partitions_with_hosts.append((partition_id, hostname))
+            seen_partitions.add(partition_id)
+
+    context.log.info(f"Found {len(partitions_with_hosts)} partitions with hosts: {partitions_with_hosts}")
+    return partitions_with_hosts
 
 
 def swap_partitions_from_staging(
     context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, target_table: str, staging_table: str
 ) -> None:
-    staging_partitions = get_partitions(context, cluster, staging_table, filter_by_partition_window=True)
-    context.log.info(f"Swapping partitions {staging_partitions} from {staging_table} to {target_table}")
+    """
+    Swap partitions from staging to target table using host-targeted execution.
+
+    This implementation fixes the core replication issue by ensuring REPLACE PARTITION
+    commands are executed on the exact host that contains the staging data. This is
+    necessary because staging tables are non-replicated (on_cluster=False).
+    """
+    partitions_with_hosts = get_partitions_with_hosts(context, cluster, staging_table)
+
+    if not partitions_with_hosts:
+        context.log.info(f"No partitions found in {staging_table} to swap")
+        return
+
+    context.log.info(f"Swapping {len(partitions_with_hosts)} partitions from {staging_table} to {target_table}")
 
     def replace_partition(client, pid):
         return client.execute(f"ALTER TABLE {target_table} REPLACE PARTITION '{pid}' FROM {staging_table}")
 
-    for partition_id in staging_partitions:
-        # Find the specific host that contains this partition's data
-        target_hostname = get_host_with_partition_data(context, cluster, staging_table, partition_id)
-
+    for partition_id, target_hostname in partitions_with_hosts:
         context.log.info(f"Executing REPLACE PARTITION for {partition_id} on targeted host: {target_hostname}")
         cluster.map_specific_host(target_hostname, partial(replace_partition, pid=partition_id)).result()
         context.log.info(f"Successfully swapped partition {partition_id} on host {target_hostname}")
