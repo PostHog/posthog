@@ -3,7 +3,7 @@ import { isSuccessResult, success } from '../../worker/ingestion/event-pipeline/
 import { BatchProcessingResult } from '../batch-processing-pipeline'
 
 export function createApplyCookielessProcessingStep<T extends { eventWithTeam: IncomingEventWithTeam }>(hub: Hub) {
-    return async (events: T[]): Promise<BatchProcessingResult<T>> => {
+    return async function applyCookielessProcessingStep(events: T[]): Promise<BatchProcessingResult<T>> {
         const cookielessResults = await hub.cookielessManager.doBatch(events.map((x) => x.eventWithTeam))
 
         return events.map((event, index) => {

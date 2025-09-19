@@ -52,7 +52,7 @@ async function resolveTeam(
 export function createResolveTeamStep<T extends { message: Message; headers: EventHeaders; event: IncomingEvent }>(
     hub: Hub
 ): AsyncPreprocessingStep<T, T & { eventWithTeam: IncomingEventWithTeam }> {
-    return async (input) => {
+    return async function resolveTeamStep(input) {
         const { message, headers, event } = input
 
         const eventWithTeam = await resolveTeam(hub, message, headers, event.event)

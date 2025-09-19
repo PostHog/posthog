@@ -9,7 +9,7 @@ export function createParseHeadersStep<T extends { message: Pick<Message, 'heade
     T,
     T & { headers: EventHeaders }
 > {
-    return (input) => {
+    return function parseHeadersStep(input) {
         const { message } = input
         const parsedHeaders = parseEventHeaders(message.headers)
         return success({ ...input, headers: parsedHeaders })

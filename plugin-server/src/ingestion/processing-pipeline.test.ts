@@ -1,35 +1,30 @@
 import { dlq, drop, redirect, success } from '../worker/ingestion/event-pipeline/pipeline-step-result'
-import {
-    AsyncPreprocessingStep,
-    AsyncProcessingPipeline,
-    ProcessingPipeline,
-    SyncPreprocessingStep,
-} from './processing-pipeline'
+import { AsyncPreprocessingStep, ProcessingPipeline, SyncPreprocessingStep } from './processing-pipeline'
 
 describe('ProcessingPipeline', () => {
     describe('static methods', () => {
-        it('should create pipeline with success result using of()', () => {
+        it('should create pipeline with success result using of()', async () => {
             const value = { test: 'data' }
             const pipeline = ProcessingPipeline.of(value)
 
-            const result = pipeline.unwrap()
+            const result = await pipeline.unwrap()
             expect(result).toEqual(success(value))
         })
     })
 
     describe('pipe() - synchronous steps', () => {
-        it('should execute step when result is success', () => {
+        it('should execute step when result is success', async () => {
             const initialValue = { count: 1 }
             const step: SyncPreprocessingStep<typeof initialValue, { count: number }> = (input) => {
                 return success({ count: input.count + 1 })
             }
 
-            const result = ProcessingPipeline.of(initialValue).pipe(step).unwrap()
+            const result = await ProcessingPipeline.of(initialValue).pipe(step).unwrap()
 
             expect(result).toEqual(success({ count: 2 }))
         })
 
-        it('should skip step when result is drop', () => {
+        it('should skip step when result is drop', async () => {
             const initialValue = { count: 1 }
             const dropStep: SyncPreprocessingStep<typeof initialValue, { count: number }> = () => {
                 return drop('dropped by first step')
@@ -38,13 +33,13 @@ describe('ProcessingPipeline', () => {
                 return success({ count: input.count + 1 })
             })
 
-            const result = ProcessingPipeline.of(initialValue).pipe(dropStep).pipe(secondStep).unwrap()
+            const result = await ProcessingPipeline.of(initialValue).pipe(dropStep).pipe(secondStep).unwrap()
 
             expect(result).toEqual(drop('dropped by first step'))
             expect(secondStep).not.toHaveBeenCalled()
         })
 
-        it('should skip step when result is redirect', () => {
+        it('should skip step when result is redirect', async () => {
             const initialValue = { count: 1 }
             const redirectStep: SyncPreprocessingStep<typeof initialValue, { count: number }> = () => {
                 return redirect('test redirect', 'overflow-topic', true, false)
@@ -53,13 +48,13 @@ describe('ProcessingPipeline', () => {
                 return success({ count: input.count + 1 })
             })
 
-            const result = ProcessingPipeline.of(initialValue).pipe(redirectStep).pipe(secondStep).unwrap()
+            const result = await ProcessingPipeline.of(initialValue).pipe(redirectStep).pipe(secondStep).unwrap()
 
             expect(result).toEqual(redirect('test redirect', 'overflow-topic', true, false))
             expect(secondStep).not.toHaveBeenCalled()
         })
 
-        it('should skip step when result is dlq', () => {
+        it('should skip step when result is dlq', async () => {
             const initialValue = { count: 1 }
             const dlqStep: SyncPreprocessingStep<typeof initialValue, { count: number }> = () => {
                 return dlq('test dlq', new Error('test error'))
@@ -68,13 +63,13 @@ describe('ProcessingPipeline', () => {
                 return success({ count: input.count + 1 })
             })
 
-            const result = ProcessingPipeline.of(initialValue).pipe(dlqStep).pipe(secondStep).unwrap()
+            const result = await ProcessingPipeline.of(initialValue).pipe(dlqStep).pipe(secondStep).unwrap()
 
             expect(result).toEqual(dlq('test dlq', new Error('test error')))
             expect(secondStep).not.toHaveBeenCalled()
         })
 
-        it('should chain multiple synchronous steps', () => {
+        it('should chain multiple synchronous steps', async () => {
             const initialValue = { count: 0 }
 
             const step1: SyncPreprocessingStep<typeof initialValue, { count: number }> = (input) => {
@@ -89,12 +84,12 @@ describe('ProcessingPipeline', () => {
                 return success({ final: `count: ${input.count}, doubled: ${input.doubled}` })
             }
 
-            const result = ProcessingPipeline.of(initialValue).pipe(step1).pipe(step2).pipe(step3).unwrap()
+            const result = await ProcessingPipeline.of(initialValue).pipe(step1).pipe(step2).pipe(step3).unwrap()
 
             expect(result).toEqual(success({ final: 'count: 1, doubled: 2' }))
         })
 
-        it('should stop chain when step returns drop', () => {
+        it('should stop chain when step returns drop', async () => {
             const initialValue = { count: 0 }
 
             const step1: SyncPreprocessingStep<typeof initialValue, { count: number }> = (input) => {
@@ -109,24 +104,24 @@ describe('ProcessingPipeline', () => {
                 return success({ final: `count: ${input.count}` })
             }
 
-            const result = ProcessingPipeline.of(initialValue).pipe(step1).pipe(step2).pipe(step3).unwrap()
+            const result = await ProcessingPipeline.of(initialValue).pipe(step1).pipe(step2).pipe(step3).unwrap()
 
             expect(result).toEqual(drop('step2 dropped'))
         })
     })
 
     describe('pipeAsync() - mixed sync/async steps', () => {
-        it('should transition to AsyncProcessingPipeline', async () => {
+        it('should execute async steps', async () => {
             const initialValue = { count: 1 }
             const asyncStep: AsyncPreprocessingStep<typeof initialValue, { count: number }> = async (input) => {
                 await new Promise((resolve) => setTimeout(resolve, 1))
                 return success({ count: input.count + 1 })
             }
 
-            const asyncPipeline = ProcessingPipeline.of(initialValue).pipeAsync(asyncStep)
-            expect(asyncPipeline).toBeInstanceOf(AsyncProcessingPipeline)
+            const pipeline = ProcessingPipeline.of(initialValue).pipeAsync(asyncStep)
+            expect(pipeline).toBeInstanceOf(ProcessingPipeline)
 
-            const result = await asyncPipeline.unwrap()
+            const result = await pipeline.unwrap()
             expect(result).toEqual(success({ count: 2 }))
         })
 
@@ -148,7 +143,7 @@ describe('ProcessingPipeline', () => {
     })
 })
 
-describe('AsyncProcessingPipeline', () => {
+describe('ProcessingPipeline - Advanced Tests', () => {
     describe('pipe() - synchronous steps on async pipeline', () => {
         it('should execute sync step after async step', async () => {
             const initialValue = { count: 1 }
@@ -280,21 +275,21 @@ describe('AsyncProcessingPipeline', () => {
             )
         })
 
-        it('should handle sync step that throws an error', () => {
+        it('should handle sync step that throws an error', async () => {
             const initialValue = { count: 1 }
             const errorStep: SyncPreprocessingStep<typeof initialValue, { count: number }> = () => {
                 throw new Error('Sync step failed')
             }
 
-            expect(() => {
-                ProcessingPipeline.of(initialValue).pipe(errorStep).unwrap()
-            }).toThrow('Sync step failed')
+            await expect(ProcessingPipeline.of(initialValue).pipe(errorStep).unwrap()).rejects.toThrow(
+                'Sync step failed'
+            )
         })
     })
 })
 
 describe('Type safety and generics', () => {
-    it('should maintain type safety through pipeline transformations', () => {
+    it('should maintain type safety through pipeline transformations', async () => {
         interface Input1 {
             a: number
         }
@@ -315,12 +310,12 @@ describe('Type safety and generics', () => {
             return success({ c: input.b === '42' })
         }
 
-        const result = ProcessingPipeline.of({ a: 42 }).pipe(step1).pipe(step2).unwrap()
+        const result = await ProcessingPipeline.of({ a: 42 }).pipe(step1).pipe(step2).unwrap()
 
         expect(result).toEqual(success({ c: true }))
     })
 
-    it('should work with complex nested types', () => {
+    it('should work with complex nested types', async () => {
         interface ComplexInput {
             user: { id: string; name: string }
             metadata: { timestamp: number; source: string }
@@ -345,7 +340,7 @@ describe('Type safety and generics', () => {
             metadata: { timestamp: 1640995200000, source: 'api' },
         }
 
-        const result = ProcessingPipeline.of(complexInput).pipe(processStep).unwrap()
+        const result = await ProcessingPipeline.of(complexInput).pipe(processStep).unwrap()
 
         expect(result).toEqual(
             success({

@@ -25,7 +25,7 @@ export function createParseKafkaMessageStep<T extends { message: Message }>(): S
     T,
     T & { event: IncomingEvent }
 > {
-    return (input) => {
+    return function parseKafkaMessageStep(input) {
         const { message } = input
 
         const parsedEvent = parseKafkaMessage(message)

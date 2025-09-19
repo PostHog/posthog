@@ -40,7 +40,7 @@ async function isEventUuidValid(eventWithTeam: IncomingEventWithTeam, hub: Pick<
 export function createValidateEventUuidStep<T extends { eventWithTeam: IncomingEventWithTeam }>(
     hub: Hub
 ): AsyncPreprocessingStep<T, T> {
-    return async (input) => {
+    return async function validateEventUuidStep(input) {
         const { eventWithTeam } = input
         const isValid = await isEventUuidValid(eventWithTeam, hub)
         if (!isValid) {

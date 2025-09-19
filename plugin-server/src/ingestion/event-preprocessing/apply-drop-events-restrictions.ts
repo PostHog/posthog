@@ -17,7 +17,7 @@ function applyDropEventsRestrictions(
 export function createApplyDropRestrictionsStep<T extends { headers: EventHeaders }>(
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
 ): SyncPreprocessingStep<T, T> {
-    return (input) => {
+    return function applyDropRestrictionsStep(input) {
         const { headers } = input
 
         if (applyDropEventsRestrictions(eventIngestionRestrictionManager, headers)) {

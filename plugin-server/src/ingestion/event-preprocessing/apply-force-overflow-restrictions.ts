@@ -38,7 +38,7 @@ export function createApplyForceOverflowRestrictionsStep<T extends { headers: Ev
     eventIngestionRestrictionManager: EventIngestionRestrictionManager,
     overflowConfig: OverflowConfig
 ): SyncPreprocessingStep<T, T> {
-    return (input) => {
+    return function applyForceOverflowRestrictionsStep(input) {
         const { headers } = input
 
         if (!overflowConfig.overflowEnabled) {

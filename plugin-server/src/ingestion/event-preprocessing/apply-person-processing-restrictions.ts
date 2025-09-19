@@ -29,7 +29,7 @@ function applyPersonProcessingRestrictions(
 export function createApplyPersonProcessingRestrictionsStep<T extends { eventWithTeam: IncomingEventWithTeam }>(
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
 ): SyncPreprocessingStep<T, T> {
-    return (input) => {
+    return function applyPersonProcessingRestrictionsStep(input) {
         const { eventWithTeam } = input
         applyPersonProcessingRestrictions(eventWithTeam, eventIngestionRestrictionManager)
         return success(input)

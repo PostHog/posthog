@@ -3,20 +3,13 @@ import { Message } from 'node-rdkafka'
 import { BatchProcessingPipeline, BatchProcessingResult } from '../../ingestion/batch-processing-pipeline'
 import {
     AsyncPreprocessingStep,
-    AsyncProcessingPipeline,
     ProcessingPipeline,
     ProcessingResult,
     SyncPreprocessingStep,
 } from '../../ingestion/processing-pipeline'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
-import {
-    PipelineStepResultType,
-    isDlqResult,
-    isDropResult,
-    isRedirectResult,
-    isSuccessResult,
-} from './event-pipeline/pipeline-step-result'
+import { isDlqResult, isDropResult, isRedirectResult, isSuccessResult } from './event-pipeline/pipeline-step-result'
 import { logDroppedMessage, redirectMessageToTopic, sendMessageToDLQ } from './pipeline-helpers'
 
 export type PipelineConfig = {
@@ -101,7 +94,7 @@ abstract class BaseResultHandlingPipeline<T> {
  * Requires a KafkaProducerWrapper for DLQ and redirect functionality.
  */
 export class ResultHandlingPipeline<T> extends BaseResultHandlingPipeline<T> {
-    private constructor(
+    constructor(
         private pipeline: ProcessingPipeline<T>,
         originalMessage: Message,
         config: PipelineConfig
@@ -114,57 +107,19 @@ export class ResultHandlingPipeline<T> extends BaseResultHandlingPipeline<T> {
         return new ResultHandlingPipeline(newPipeline, this.originalMessage, this.config)
     }
 
-    pipeAsync<U>(step: AsyncPreprocessingStep<T, U>, _stepName?: string): AsyncResultHandlingPipeline<U> {
+    pipeAsync<U>(step: AsyncPreprocessingStep<T, U>, _stepName?: string): ResultHandlingPipeline<U> {
         const newPipeline = this.pipeline.pipeAsync(step)
-        return new AsyncResultHandlingPipeline(newPipeline, this.originalMessage, this.config)
+        return new ResultHandlingPipeline(newPipeline, this.originalMessage, this.config)
     }
 
     async unwrap(): Promise<T | null> {
-        const result = this.pipeline.unwrap()
+        const result = await this.pipeline.unwrap()
         return this.handleResult(result, 'pipeline_result_handler')
     }
 
     static of<T>(value: T, originalMessage: Message, config: PipelineConfig): ResultHandlingPipeline<T> {
         const pipeline = ProcessingPipeline.of(value)
         return new ResultHandlingPipeline(pipeline, originalMessage, config)
-    }
-}
-
-/**
- * Wrapper around AsyncProcessingPipeline that automatically handles result types (DLQ, DROP, REDIRECT)
- * and cuts execution short when encountering non-success results.
- *
- * Requires a KafkaProducerWrapper for DLQ and redirect functionality.
- */
-export class AsyncResultHandlingPipeline<T> extends BaseResultHandlingPipeline<T> {
-    constructor(
-        private pipeline: AsyncProcessingPipeline<T>,
-        originalMessage: Message,
-        config: PipelineConfig
-    ) {
-        super(originalMessage, config)
-    }
-
-    pipe<U>(step: SyncPreprocessingStep<T, U>, _stepName?: string): AsyncResultHandlingPipeline<U> {
-        const newPipeline = this.pipeline.pipe(step)
-        return new AsyncResultHandlingPipeline(newPipeline, this.originalMessage, this.config)
-    }
-
-    pipeAsync<U>(step: AsyncPreprocessingStep<T, U>, _stepName?: string): AsyncResultHandlingPipeline<U> {
-        const newPipeline = this.pipeline.pipeAsync(step)
-        return new AsyncResultHandlingPipeline(newPipeline, this.originalMessage, this.config)
-    }
-
-    async unwrap(): Promise<T | null> {
-        const result = await this.pipeline.unwrap()
-        return this.handleResult(result, 'async_pipeline_result_handler')
-    }
-
-    static of<T>(value: T, originalMessage: Message, config: PipelineConfig): AsyncResultHandlingPipeline<T> {
-        const pipeline = ProcessingPipeline.of(value).pipeAsync((v) =>
-            Promise.resolve({ type: PipelineStepResultType.OK, value: v })
-        )
-        return new AsyncResultHandlingPipeline(pipeline, originalMessage, config)
     }
 }
 

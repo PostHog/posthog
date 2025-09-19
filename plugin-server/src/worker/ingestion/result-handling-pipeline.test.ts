@@ -228,11 +228,7 @@ describe('ResultHandlingPipeline', () => {
 
             expect(result).toBeNull()
             expect(asyncStep).not.toHaveBeenCalled()
-            expect(mockLogDroppedMessage).toHaveBeenCalledWith(
-                mockMessage,
-                'initial drop',
-                'async_pipeline_result_handler'
-            )
+            expect(mockLogDroppedMessage).toHaveBeenCalledWith(mockMessage, 'initial drop', 'pipeline_result_handler')
         })
     })
 
@@ -578,7 +574,7 @@ describe('Integration tests', () => {
             mockKafkaProducer,
             mockMessage,
             expect.any(Error),
-            'async_pipeline_result_handler',
+            'pipeline_result_handler',
             'test-dlq'
         )
     })
