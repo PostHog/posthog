@@ -24,14 +24,14 @@ interface FunnelTooltipProps {
     stepIndex: number
     series: FunnelStepWithConversionMetrics
     embedded?: boolean
-    hasSampledRecordings?: boolean
+    hasSessionData?: boolean
 }
 
 function FunnelTooltipContent({
     stepIndex,
     series,
     embedded = false,
-    hasSampledRecordings = false,
+    hasSessionData = false,
 }: FunnelTooltipProps): JSX.Element {
     return (
         <div
@@ -89,12 +89,12 @@ function FunnelTooltipContent({
                     )}
                 </tbody>
             </table>
-            {hasSampledRecordings && (
+            {hasSessionData && (
                 <>
                     <LemonDivider className="my-2" />
                     <div className="text-xs text-muted flex items-center gap-1">
                         <IconHandClick className="text-base" />
-                        Click to view sampled recordings
+                        Click to view sessions
                     </div>
                 </>
             )}
@@ -108,7 +108,7 @@ export function useFunnelTooltip(): {
         rect: [number, number, number],
         stepIndex: number,
         series: FunnelStepWithConversionMetrics,
-        hasSampledRecordings?: boolean
+        hasSessionData?: boolean
     ) => void
     hideTooltip: () => void
 } {
@@ -118,18 +118,18 @@ export function useFunnelTooltip(): {
     const [isTooltipShown, setIsTooltipShown] = useState(false)
     const [currentTooltip, setCurrentTooltip] = useState<FunnelTooltipData | null>(null)
     const [tooltipOrigin, setTooltipOrigin] = useState<[number, number, number] | null>(null)
-    const [hasSampledRecordings, setHasSampledRecordings] = useState(false)
+    const [hasSessionData, setHasSessionData] = useState(false)
 
     const showTooltip = (
         rect: [number, number, number],
         stepIndex: number,
         series: FunnelStepWithConversionMetrics,
-        hasSampledRecordings: boolean = false
+        hasSessionData: boolean = false
     ): void => {
         setIsTooltipShown(true)
         setCurrentTooltip({ stepIndex, series })
         setTooltipOrigin(rect)
-        setHasSampledRecordings(hasSampledRecordings)
+        setHasSessionData(hasSessionData)
     }
 
     const hideTooltip = (): void => {
@@ -149,7 +149,7 @@ export function useFunnelTooltip(): {
                 <FunnelTooltipContent
                     stepIndex={currentTooltip.stepIndex}
                     series={currentTooltip.series}
-                    hasSampledRecordings={hasSampledRecordings}
+                    hasSessionData={hasSessionData}
                 />
             )
 
