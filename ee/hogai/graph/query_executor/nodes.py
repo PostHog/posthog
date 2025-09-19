@@ -17,6 +17,7 @@ from posthog.exceptions_capture import capture_exception
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
+from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
     FALLBACK_EXAMPLE_PROMPT,
@@ -33,7 +34,9 @@ from .query_executor import AssistantQueryExecutor
 
 
 class QueryExecutorNode(AssistantNode):
-    name = AssistantNodeName.QUERY_EXECUTOR
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.QUERY_EXECUTOR
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         viz_message = state.messages[-1]

@@ -336,6 +336,10 @@ class AssistantNodeName(StrEnum):
     TITLE_GENERATOR = "title_generator"
     INSIGHTS_SEARCH = "insights_search"
     SESSION_SUMMARIZATION = "session_summarization"
+    HOGQL_GENERATOR = "hogql_generator"
+    HOGQL_GENERATOR_TOOLS = "hogql_generator_tools"
+    SESSION_REPLAY_FILTER = "session_replay_filter"
+    SESSION_REPLAY_FILTER_OPTIONS_TOOLS = "session_replay_filter_options_tools"
 
 
 class AssistantMode(StrEnum):
