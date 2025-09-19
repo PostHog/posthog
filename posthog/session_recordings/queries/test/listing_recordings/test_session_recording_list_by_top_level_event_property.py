@@ -67,7 +67,11 @@ class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIB
         self, query: dict | None, expected: list[str], sort_results_when_asserting: bool = True
     ) -> None:
         assert_query_matches_session_ids(
-            team=self.team, query=query, expected=expected, sort_results_when_asserting=sort_results_when_asserting
+            team=self.team,
+            query=query,
+            expected=expected,
+            sort_results_when_asserting=sort_results_when_asserting,
+            allow_event_property_expansion=self.allow_event_property_expansion,
         )
 
     def _a_session_with_two_events(self, team: Team, session_id: str) -> None:

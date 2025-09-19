@@ -44,9 +44,15 @@ def filter_recordings_by(
 
 
 def assert_query_matches_session_ids(
-    team: Team, query: dict | None, expected: list[str], sort_results_when_asserting: bool = True
+    team: Team,
+    query: dict | None,
+    expected: list[str],
+    sort_results_when_asserting: bool = True,
+    allow_event_property_expansion: bool = False,
 ) -> None:
-    (session_recordings, more_recordings_available, _) = filter_recordings_by(team=team, recordings_filter=query)
+    (session_recordings, more_recordings_available, _) = filter_recordings_by(
+        team=team, recordings_filter=query, allow_event_property_expansion=allow_event_property_expansion
+    )
 
     # in some tests we care about the order of results e.g. when testing sorting
     # generally we want to sort results since the order is not guaranteed
