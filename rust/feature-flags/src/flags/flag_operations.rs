@@ -227,6 +227,7 @@ mod tests {
             ensure_experience_continuity: Some(false),
             version: None,
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         };
 
         let deps = flag_no_deps.extract_dependencies().unwrap();
@@ -262,6 +263,7 @@ mod tests {
             ensure_experience_continuity: Some(false),
             version: None,
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         };
 
         let deps = flag_with_dep.extract_dependencies().unwrap();
@@ -311,6 +313,7 @@ mod tests {
             ensure_experience_continuity: Some(false),
             version: None,
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         };
 
         let deps = flag_with_multiple_deps.extract_dependencies().unwrap();
@@ -356,6 +359,7 @@ mod tests {
             ensure_experience_continuity: Some(false),
             version: None,
             evaluation_runtime: Some("all".to_string()),
+            evaluation_tags: None,
         };
 
         let deps = flag_with_mixed_props.extract_dependencies().unwrap();
@@ -467,6 +471,7 @@ mod tests {
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
                 evaluation_runtime: Some("all".to_string()),
+                evaluation_tags: None,
             }),
         )
         .await
@@ -567,6 +572,7 @@ mod tests {
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
                 evaluation_runtime: Some("all".to_string()),
+                evaluation_tags: None,
             }),
         )
         .await
@@ -698,6 +704,7 @@ mod tests {
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
                 evaluation_runtime: Some("all".to_string()),
+                evaluation_tags: None,
             }),
         )
         .await
@@ -796,6 +803,7 @@ mod tests {
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
                 evaluation_runtime: Some("all".to_string()),
+                evaluation_tags: None,
             }),
         )
         .await
@@ -883,6 +891,7 @@ mod tests {
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
                 evaluation_runtime: Some("all".to_string()),
+                evaluation_tags: None,
             }),
         )
         .await
@@ -902,6 +911,7 @@ mod tests {
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
                 evaluation_runtime: Some("all".to_string()),
+                evaluation_tags: None,
             }),
         )
         .await
@@ -998,6 +1008,7 @@ mod tests {
                 ensure_experience_continuity: Some(false),
                 version: Some(1),
                 evaluation_runtime: Some("all".to_string()),
+                evaluation_tags: None,
             }),
         )
         .await
@@ -1079,6 +1090,7 @@ mod tests {
                     ensure_experience_continuity: Some(false),
                     version: Some(1),
                     evaluation_runtime: Some("all".to_string()),
+                    evaluation_tags: None,
                 }),
             )
             .await
@@ -1171,6 +1183,7 @@ mod tests {
                     ensure_experience_continuity: Some(false),
                     version: Some(1),
                     evaluation_runtime: Some("all".to_string()),
+                    evaluation_tags: None,
                 }),
             )
             .await
@@ -1257,6 +1270,7 @@ mod tests {
                     ensure_experience_continuity: Some(false),
                     version: Some(1),
                     evaluation_runtime: Some("all".to_string()),
+                    evaluation_tags: None,
                 }),
             )
             .await
@@ -1375,6 +1389,7 @@ mod tests {
                     ensure_experience_continuity: Some(false),
                     version: Some(1),
                     evaluation_runtime: Some("all".to_string()),
+                    evaluation_tags: None,
                 }),
             )
             .await
