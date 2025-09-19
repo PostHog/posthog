@@ -182,6 +182,9 @@ class TestUserTeamsAccessControl(BaseTest):
             role=None,
         )
 
+        # Clear the cached property to get fresh data
+        del self.user.teams
+
         # Owner should see all teams
         user_teams = self.user.teams.all()
         self.assertEqual(user_teams.count(), 2)
