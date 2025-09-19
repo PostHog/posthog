@@ -21,7 +21,7 @@ from ee.hogai.graph.parallel_task_execution.mixins import (
 )
 from ee.hogai.graph.parallel_task_execution.nodes import BaseTaskExecutorNode, TaskExecutionInputTuple
 from ee.hogai.utils.helpers import build_dashboard_url, build_insight_url, cast_assistant_query
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import BaseStateWithTasks, InsightArtifact, InsightQuery, TaskResult
 
 from .prompts import (
@@ -54,6 +54,10 @@ class DashboardCreationExecutorNode(
     """
     Task executor node specifically for insight search operations.
     """
+
+    @property
+    def node_name(self):
+        return AssistantNodeName.DASHBOARD_CREATION_EXECUTOR
 
     async def _aget_input_tuples(self, state: BaseStateWithTasks) -> list[TaskExecutionInputTuple]:
         if not state.tasks:
@@ -162,7 +166,8 @@ class DashboardCreationNode(AssistantNode):
             ],
         )
 
-        result = await DashboardCreationExecutorNode(self._team, self._user).arun(task_executor_state, config)
+        executor = DashboardCreationExecutorNode(self._team, self._user)
+        result = await executor.arun(task_executor_state, config)
 
         query_metadata = await self._process_insight_creation_results(result.task_results, query_metadata)
 
@@ -189,7 +194,8 @@ class DashboardCreationNode(AssistantNode):
             tasks=tasks,
         )
 
-        result = await DashboardCreationExecutorNode(self._team, self._user).arun(task_executor_state, config)
+        executor = DashboardCreationExecutorNode(self._team, self._user)
+        result = await executor.arun(task_executor_state, config)
         final_task_executor_state = BaseStateWithTasks.model_validate(result)
 
         for task_result in final_task_executor_state.task_results:

@@ -363,6 +363,7 @@ class AssistantNodeName(StrEnum):
     INSIGHTS_SEARCH = "insights_search"
     SESSION_SUMMARIZATION = "session_summarization"
     DASHBOARD_CREATION = "dashboard_creation"
+    DASHBOARD_CREATION_EXECUTOR = "dashboard_creation_executor"
 
 
 class AssistantMode(StrEnum):

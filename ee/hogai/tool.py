@@ -116,9 +116,10 @@ class create_dashboard(BaseModel):
     """
     Create a dashboard with insights based on the user's request.
     Use this tool when users ask to create, build, or make a new dashboard with insights.
-    This tool will search for existing insights that match the user's requirements,
+    This tool will search for existing insights that match the user's requirements so no need to call `search_insights` tool.
     or create new insights if none are found, then combine them into a dashboard.
     Do not call this tool if the user only asks to find, search for, or look up existing insights and does not ask to create a dashboard.
+    If you decided to use this tool, there is no need to call `search_insights` tool beforehand. The tool will search for existing insights that match the user's requirements and create new insights if none are found.
     """
 
     search_insights_queries: list[InsightQuery] = Field(
