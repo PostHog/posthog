@@ -875,6 +875,7 @@ class DatabaseSchemaSource(BaseModel):
 
 class DatabaseSchemaTableType(StrEnum):
     POSTHOG = "posthog"
+    SYSTEM = "system"
     DATA_WAREHOUSE = "data_warehouse"
     VIEW = "view"
     BATCH_EXPORT = "batch_export"
@@ -918,6 +919,11 @@ class DateRange(BaseModel):
 
 class DatetimeDay(RootModel[datetime]):
     root: datetime
+
+
+class DeepResearchType(StrEnum):
+    PLANNING = "planning"
+    REPORT = "report"
 
 
 class DefaultChannelTypes(StrEnum):
@@ -3600,6 +3606,17 @@ class DatabaseSchemaPostHogTable(BaseModel):
     type: Literal["posthog"] = "posthog"
 
 
+class DatabaseSchemaSystemTable(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    fields: dict[str, DatabaseSchemaField]
+    id: str
+    name: str
+    row_count: Optional[float] = None
+    type: Literal["system"] = "system"
+
+
 class DatabaseSchemaTableCommon(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -3613,6 +3630,16 @@ class DatabaseSchemaTableCommon(BaseModel):
 
 class Day(RootModel[int]):
     root: int
+
+
+class DeepResearchNotebook(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    category: Literal["deep_research"] = "deep_research"
+    notebook_id: str
+    notebook_type: Optional[DeepResearchType] = None
+    title: str
 
 
 class ElementPropertyFilter(BaseModel):
@@ -4120,8 +4147,11 @@ class NotebookUpdateMessage(BaseModel):
         extra="forbid",
     )
     content: ProsemirrorJSONContent
+    conversation_notebooks: Optional[list[DeepResearchNotebook]] = None
+    current_run_notebooks: Optional[list[DeepResearchNotebook]] = None
     id: Optional[str] = None
     notebook_id: str
+    notebook_type: Literal["deep_research"] = "deep_research"
     tool_calls: Optional[list[AssistantToolCall]] = None
     type: Literal["ai/notebook"] = "ai/notebook"
 
@@ -4858,6 +4888,7 @@ class SurveyQuestionSchema(BaseModel):
     descriptionContentType: Optional[SurveyQuestionDescriptionContentType] = None
     display: Optional[Display1] = None
     hasOpenChoice: Optional[bool] = None
+    id: Optional[str] = None
     link: Optional[str] = None
     lowerBoundLabel: Optional[str] = None
     optional: Optional[bool] = None
@@ -4886,6 +4917,7 @@ class TaskExecutionItem(BaseModel):
     progress_text: Optional[str] = None
     prompt: str
     status: TaskExecutionStatus
+    task_type: str
 
 
 class TaskExecutionMessage(BaseModel):
@@ -13536,6 +13568,7 @@ class QueryResponseAlternative62(BaseModel):
         str,
         Union[
             DatabaseSchemaPostHogTable,
+            DatabaseSchemaSystemTable,
             DatabaseSchemaDataWarehouseTable,
             DatabaseSchemaViewTable,
             DatabaseSchemaManagedViewTable,
@@ -13721,6 +13754,7 @@ class DatabaseSchemaQueryResponse(BaseModel):
         str,
         Union[
             DatabaseSchemaPostHogTable,
+            DatabaseSchemaSystemTable,
             DatabaseSchemaDataWarehouseTable,
             DatabaseSchemaViewTable,
             DatabaseSchemaManagedViewTable,
