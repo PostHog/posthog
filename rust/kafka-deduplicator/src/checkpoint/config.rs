@@ -38,6 +38,9 @@ pub struct CheckpointConfig {
     /// when max_concurrent_checkpoints slots are occupied
     pub checkpoint_gate_interval: Duration,
 
+    /// Timeout for checkpoint worker graceful shutdown (applied in CheckpointManager::stop)
+    pub checkpoint_worker_shutdown_timeout: Duration,
+
     /// Timeout for S3 operations
     pub s3_timeout: Duration,
 }
@@ -56,6 +59,7 @@ impl Default for CheckpointConfig {
             max_checkpoint_retention_hours: 72,
             max_concurrent_checkpoints: 3,
             checkpoint_gate_interval: Duration::from_millis(200),
+            checkpoint_worker_shutdown_timeout: Duration::from_secs(10),
             s3_timeout: Duration::from_secs(300), // 5 minutes
         }
     }

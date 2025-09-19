@@ -89,12 +89,8 @@ pub struct CheckpointWorker {
     /// Worker ID for logging
     worker_id: u32,
 
-    mode: CheckpointMode,
-
+    /// Target partition checkpoint path helper
     target: CheckpointTarget,
-
-    /// Reference to the store manager
-    store: DeduplicationStore,
 
     /// Checkpoint export module
     exporter: Option<Arc<CheckpointExporter>>,
@@ -103,51 +99,51 @@ pub struct CheckpointWorker {
 impl CheckpointWorker {
     pub fn new(
         worker_id: u32,
-        mode: CheckpointMode,
         target: CheckpointTarget,
-        store: DeduplicationStore,
         exporter: Option<Arc<CheckpointExporter>>,
     ) -> Self {
         Self {
             worker_id,
-            mode,
             target,
-            store,
             exporter,
         }
     }
 
     /// Perform a checkpoint for the given (assumed active) partition and store
-    pub async fn checkpoint_partition(&self) -> Result<Option<String>> {
+    pub async fn checkpoint_partition(
+        &self,
+        mode: CheckpointMode,
+        store: &DeduplicationStore,
+    ) -> Result<Option<String>> {
         info!(
             self.worker_id,
             local_path = self.target.local_path_tag,
-            checkpoint_mode = self.mode.as_str(),
+            checkpoint_mode = mode.as_str(),
             "Checkpoint worker: initializing checkpoint"
         );
 
         // Ensure local checkpoint directory exists - results observed internally, safe to bubble up
-        self.create_partition_checkpoint_directory().await?;
+        self.create_partition_checkpoint_directory(mode).await?;
 
         // this creates the local RocksDB checkpoint - results observed internally, safe to bubble up
-        self.create_local_partition_checkpoint().await?;
+        self.create_local_partition_checkpoint(mode, store).await?;
 
         // update store metrics - this can fail without blocking the checkpoint attempt
-        if let Err(e) = self.store.update_metrics() {
+        if let Err(e) = store.update_metrics() {
             warn!(
                 self.worker_id,
                 local_path = self.target.local_path_tag,
-                checkpoint_mode = self.mode.as_str(),
+                checkpoint_mode = mode.as_str(),
                 "Checkpoint worker: failed store metrics update after local checkpoint: {}",
                 e
             );
         }
 
         // export the checkpoint - observed internally, safe to return result
-        self.export_checkpoint().await
+        self.export_checkpoint(mode).await
     }
 
-    async fn create_partition_checkpoint_directory(&self) -> Result<()> {
+    async fn create_partition_checkpoint_directory(&self, mode: CheckpointMode) -> Result<()> {
         // oddly, the RocksDB client likes to create the final directory in the
         // checkpoint path and will error if the parent dirs do not exist, or
         // full path exists ahead of the checkpoint attempt. Here, we only
@@ -160,7 +156,7 @@ impl CheckpointWorker {
             .context("Checkpoint worker: failed to get parent directory")?;
         if let Err(e) = tokio::fs::create_dir_all(base_path).await {
             let tags = [
-                ("mode", self.mode.as_str()),
+                ("mode", mode.as_str()),
                 ("result", "error"),
                 ("cause", "create_local_dir"),
             ];
@@ -168,7 +164,7 @@ impl CheckpointWorker {
             error!(
                 self.worker_id,
                 local_path = self.target.local_path_tag,
-                checkpoint_mode = self.mode.as_str(),
+                checkpoint_mode = mode.as_str(),
                 "Checkpoint worker: failed to create local directory: {}",
                 e
             );
@@ -179,13 +175,15 @@ impl CheckpointWorker {
         Ok(())
     }
 
-    async fn create_local_partition_checkpoint(&self) -> Result<()> {
+    async fn create_local_partition_checkpoint(
+        &self,
+        mode: CheckpointMode,
+        store: &DeduplicationStore,
+    ) -> Result<()> {
         let start_time = Instant::now();
 
-        match self
-            .store
-            .create_checkpoint_with_metadata(&self.target.local_path)
-        {
+        // TODO: this should accept CheckpointMode argument to implement incremental local checkpoint step
+        match store.create_checkpoint_with_metadata(&self.target.local_path) {
             Ok(sst_files) => {
                 let checkpoint_duration = start_time.elapsed();
                 metrics::histogram!(CHECKPOINT_DURATION_HISTOGRAM)
@@ -201,7 +199,7 @@ impl CheckpointWorker {
                     self.worker_id,
                     local_path = self.target.local_path_tag,
                     sst_file_count = sst_files.len(),
-                    checkpoint_mode = self.mode.as_str(),
+                    checkpoint_mode = mode.as_str(),
                     "Created local checkpoint",
                 );
 
@@ -218,7 +216,7 @@ impl CheckpointWorker {
                 }
 
                 let tags = [
-                    ("mode", self.mode.as_str()),
+                    ("mode", mode.as_str()),
                     ("result", "error"),
                     ("cause", "local_checkpoint"),
                 ];
@@ -226,7 +224,7 @@ impl CheckpointWorker {
                 error!(
                     self.worker_id,
                     local_path = self.target.local_path_tag,
-                    checkpoint_mode = self.mode.as_str(),
+                    checkpoint_mode = mode.as_str(),
                     "Local checkpoint failed: {}",
                     error_chain.join(" -> ")
                 );
@@ -236,23 +234,23 @@ impl CheckpointWorker {
         }
     }
 
-    async fn export_checkpoint(&self) -> Result<Option<String>> {
+    async fn export_checkpoint(&self, mode: CheckpointMode) -> Result<Option<String>> {
         info!(
             self.worker_id,
             local_path = self.target.local_path_tag,
-            checkpoint_mode = self.mode.as_str(),
+            checkpoint_mode = mode.as_str(),
             "Checkpoint worker: exporting remote checkpoint",
         );
 
         match self.exporter.as_ref() {
             Some(exporter) => {
                 match exporter
-                    .export_checkpoint(&self.target.local_path, &self.target.remote_path, self.mode)
+                    .export_checkpoint(&self.target.local_path, &self.target.remote_path, mode)
                     .await
                 {
                     Ok(remote_key_prefix) => {
                         let tags = [
-                            ("mode", self.mode.as_str()),
+                            ("mode", mode.as_str()),
                             ("result", "success"),
                             ("export", "success"),
                         ];
@@ -261,7 +259,7 @@ impl CheckpointWorker {
                             self.worker_id,
                             local_path = self.target.local_path_tag,
                             remote_path = remote_key_prefix,
-                            checkpoint_mode = self.mode.as_str(),
+                            checkpoint_mode = mode.as_str(),
                             "Checkpoint exported successfully"
                         );
 
@@ -270,7 +268,7 @@ impl CheckpointWorker {
 
                     Err(e) => {
                         let tags = [
-                            ("mode", self.mode.as_str()),
+                            ("mode", mode.as_str()),
                             ("result", "error"),
                             ("cause", "export"),
                         ];
@@ -278,7 +276,7 @@ impl CheckpointWorker {
                         error!(
                             self.worker_id,
                             local_path = self.target.local_path_tag,
-                            checkpoint_mode = self.mode.as_str(),
+                            checkpoint_mode = mode.as_str(),
                             "Checkpoint failed to export: {}",
                             e
                         );
@@ -290,7 +288,7 @@ impl CheckpointWorker {
 
             None => {
                 let tags = [
-                    ("mode", self.mode.as_str()),
+                    ("mode", mode.as_str()),
                     ("result", "success"),
                     ("export", "skipped"),
                 ];
@@ -298,7 +296,7 @@ impl CheckpointWorker {
                 warn!(
                     self.worker_id,
                     local_path = self.target.local_path_tag,
-                    checkpoint_mode = self.mode.as_str(),
+                    checkpoint_mode = mode.as_str(),
                     "Checkpoint upload skipped: no exporter configured",
                 );
 
@@ -413,10 +411,11 @@ mod tests {
                 .unwrap();
 
         // simulate how the manager's checkpoint loop thread constructs workers
-        let worker =
-            CheckpointWorker::new(1, CheckpointMode::Full, target.clone(), store.clone(), None);
+        let worker = CheckpointWorker::new(1, target.clone(), None);
 
-        let result = worker.checkpoint_partition().await;
+        let result = worker
+            .checkpoint_partition(CheckpointMode::Full, &store)
+            .await;
         assert!(result.is_ok());
 
         let expected_checkpoint_path = Path::new(&target.local_path);
@@ -471,15 +470,11 @@ mod tests {
                 .unwrap();
 
         // simulate how the manager's checkpoint loop thread constructs workers
-        let worker = CheckpointWorker::new(
-            1,
-            CheckpointMode::Incremental,
-            target.clone(),
-            store.clone(),
-            None,
-        );
+        let worker = CheckpointWorker::new(1, target.clone(), None);
 
-        let result = worker.checkpoint_partition().await;
+        let result = worker
+            .checkpoint_partition(CheckpointMode::Incremental, &store)
+            .await;
         assert!(result.is_ok());
 
         let expected_checkpoint_path = Path::new(&target.local_path);

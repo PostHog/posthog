@@ -101,6 +101,12 @@ pub struct Config {
     #[envconfig(default = "200")]
     pub checkpoint_gate_interval_millis: u64,
 
+    #[envconfig(default = "10")]
+    pub checkpoint_worker_shutdown_timeout_secs: u64,
+
+    #[envconfig(default = "5")]
+    pub max_local_checkpoints: usize,
+
     #[envconfig(default = "/tmp/checkpoints")]
     pub local_checkpoint_dir: String,
 
@@ -116,9 +122,6 @@ pub struct Config {
 
     #[envconfig(default = "us-east-1")]
     pub aws_region: String,
-
-    #[envconfig(default = "5")]
-    pub max_local_checkpoints: usize,
 
     #[envconfig(default = "300")] // 5 minutes in seconds
     pub s3_timeout_secs: u64,
@@ -270,6 +273,14 @@ impl Config {
 
     pub fn checkpoint_gate_interval(&self) -> Duration {
         Duration::from_millis(self.checkpoint_gate_interval_millis)
+    }
+
+    pub fn checkpoint_worker_shutdown_timeout(&self) -> Duration {
+        Duration::from_secs(self.checkpoint_worker_shutdown_timeout_secs)
+    }
+
+    pub fn max_local_checkpoints(&self) -> usize {
+        self.max_local_checkpoints
     }
 
     /// Get S3 timeout as Duration
