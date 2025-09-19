@@ -23,7 +23,6 @@ import {
     LemonButton,
     LemonButtonPropsBase,
     LemonCheckbox,
-    LemonCollapse,
     LemonDialog,
     LemonInput,
     LemonSkeleton,
@@ -54,7 +53,6 @@ import { Query } from '~/queries/Query/Query'
 import {
     AssistantForm,
     AssistantMessage,
-    AssistantMessageType,
     AssistantToolCallMessage,
     FailureMessage,
     MultiVisualizationMessage,
@@ -402,14 +400,6 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
             boxClassName={message.status === 'error' || message.type === 'ai/failure' ? 'border-danger' : undefined}
             ref={ref}
             action={action}
-            header={
-                message.type === AssistantMessageType.Assistant && message.meta?.thinking ? (
-                    <ThinkingHeader
-                        thinking={message.meta.thinking}
-                        isActive={message.status === 'loading' && !message.content}
-                    />
-                ) : null
-            }
         >
             {message.status === 'error' ? (
                 <MarkdownMessage
@@ -422,41 +412,6 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
         </MessageTemplate>
     )
 })
-
-function ThinkingHeader({
-    thinking,
-    isActive,
-}: {
-    thinking: Record<string, unknown>[]
-    isActive: boolean
-}): JSX.Element {
-    const thinkingContent = thinking.find((t) => t.type === 'thinking')
-    return (
-        <LemonCollapse
-            className="w-full mb-1"
-            size="xsmall"
-            panels={[
-                {
-                    key: 'thinking',
-                    header: {
-                        type: 'tertiary',
-                        children: 'Planning next actions',
-                        icon: null,
-                        className: 'bg-surface-secondary',
-                    },
-                    content: (
-                        <MarkdownMessage
-                            content={(thinkingContent?.thinking as string | undefined | null) || 'Thinking...'}
-                            id="reasoning"
-                            className="text-xs"
-                        />
-                    ),
-                },
-            ]}
-            activeKey={isActive ? 'thinking' : undefined}
-        />
-    )
-}
 
 interface AssistantMessageFormProps {
     form: AssistantForm

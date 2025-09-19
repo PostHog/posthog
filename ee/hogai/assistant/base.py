@@ -22,7 +22,6 @@ from posthog.schema import (
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
     AssistantMessage,
-    AssistantMessageMetadata,
     FailureMessage,
     HumanMessage,
     MaxBillingContext,
@@ -40,7 +39,6 @@ from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import (
     extract_content_from_ai_message,
     extract_stream_update,
-    extract_thinking_content_from_ai_message,
     should_output_assistant_message,
 )
 from ee.hogai.utils.state import (
@@ -445,15 +443,11 @@ class BaseAssistant(ABC):
 
         # Extract and process content
         message_content = extract_content_from_ai_message(self._chunks)
-        thinking = extract_thinking_content_from_ai_message(self._chunks)
 
-        if not message_content and not thinking:
+        if not message_content:
             return None
 
-        return AssistantMessage(
-            content=message_content,
-            meta=AssistantMessageMetadata(thinking=thinking) if thinking else None,
-        )
+        return AssistantMessage(content=message_content)
 
     def _build_root_config_for_persistence(self) -> RunnableConfig:
         """
