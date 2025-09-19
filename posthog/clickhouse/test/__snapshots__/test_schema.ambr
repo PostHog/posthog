@@ -2161,6 +2161,7 @@
       query_kind                            LowCardinality(String),
   
       exception_code                        Int32,
+      exception_name                        String,
       exception                             String,
       stack_trace                           String,
   
@@ -2274,6 +2275,7 @@
       query_kind,
   
       exception_code,
+      errorCodeToName(exception_code) as exception_name,
       exception,
       stack_trace,
   
@@ -5235,6 +5237,7 @@
       query_kind                            LowCardinality(String),
   
       exception_code                        Int32,
+      exception_name                        String,
       exception                             String,
       stack_trace                           String,
   
