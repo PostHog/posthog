@@ -2,6 +2,7 @@ import json
 from dataclasses import asdict
 from math import ceil
 from typing import cast
+import yaml
 
 import temporalio
 from temporalio.exceptions import ApplicationError
@@ -16,7 +17,7 @@ from ee.hogai.session_summaries.constants import (
     VALIDATION_VIDEO_DURATION,
 )
 from ee.hogai.session_summaries.session.output_data import EnrichedKeyActionSerializer, SessionSummarySerializer
-from ee.hogai.session_summaries.session.summarize_session import generate_video_validation_prompt
+from ee.hogai.session_summaries.session.summarize_session import generate_video_description_prompt
 from ee.hogai.videos.session_moments import SessionMomentInput, SessionMomentsLLMAnalyzer
 from ee.models.session_summaries import SingleSessionSummary
 
@@ -65,23 +66,64 @@ async def validate_llm_single_session_summary_with_videos_activity(
             non_retryable=True,
         )
     summary_row = cast(SingleSessionSummary, summary_row)
+    with open(f"summary_{inputs.session_id}.json", "w") as f:
+        json.dump(summary_row.summary, f, indent=4)
     summary = SessionSummarySerializer(data=summary_row.summary)
     summary.is_valid(raise_exception=True)
     # Pick blocking exceptions to generate videos for
     events_to_validate: list[tuple[str, EnrichedKeyActionSerializer]] = []
-    for key_actions in summary.data.get("key_actions", []):
-        for event in key_actions.get("events", []):
+    # Keep track of the blocks that would need an update based on the video-based results
+    fields_to_update: dict[str, str] = {}
+    for ki, key_actions in enumerate(summary.data.get("key_actions", [])):
+        segment_index = key_actions["segment_index"]
+        for ei, event in enumerate(key_actions.get("events", [])):
             if event.get("exception") != "blocking":
                 continue
             # Keep only blocking exceptions
             validated_event = EnrichedKeyActionSerializer(data=event)
             validated_event.is_valid(raise_exception=True)
+            # Collect the fields to validate/update and their current values
+            # Current event fields
+            for field in ["description", "exception", "abandonment", "confusion"]:
+                field_path = f"key_actions[{ki}].events[{ei}].{field}"
+                # TODO: Use dataclasses, avoid code repetition
+                fields_to_update[field_path] = {
+                    "path": field_path,
+                    "current_value": event[field],
+                    "new_value": None,
+                }
+            # Related segment outcome
+            for field in ["success", "summary"]:
+                field_path = f"segment_outcomes[{segment_index}].{field}"
+                fields_to_update[field_path] = {
+                    "path": field_path,
+                    "current_value": summary.data["segment_outcomes"][segment_index][field],
+                    "new_value": None,
+                }
+            field_path = f"segments[{segment_index}].name"
+            fields_to_update[field_path] = {
+                "path": field_path,
+                "current_value": summary.data["segments"][segment_index]["name"],
+                "new_value": None,
+            }
+            # Session outcome
+            for field in ["success", "description"]:
+                field_path = f"session_outcome.{field}"
+                fields_to_update[field_path] = {
+                    "path": field_path,
+                    "current_value": summary.data["session_outcome"][field],
+                    "new_value": None,
+                }
             # Generate prompt
-            prompt = generate_video_validation_prompt(event=validated_event)
+            prompt = generate_video_description_prompt(event=validated_event)
             events_to_validate.append((prompt, validated_event))
     if not events_to_validate:
         # No blocking issues detected in the summary, no need to validate
         return None
+    # Sort fields to update by path
+    fields_to_update = dict(sorted(fields_to_update.items(), key=lambda x: x[0]))
+    with open(f"fields_to_update_{inputs.session_id}.yml", "w") as f:
+        yaml.dump(list(fields_to_update.values()), f, allow_unicode=True, sort_keys=False)
 
     # Pick events that happened before/after the exception, if they fit within the video duration
     # TODO: Decide if I need it
@@ -131,7 +173,8 @@ async def validate_llm_single_session_summary_with_videos_activity(
             # No sense to retry, as the events picked to validate don't have enough metadata to generate a moment
             non_retryable=True,
         )
-    # Generate videos and validate them with LLM
-    validation_results = await moments_analyzer.analyze(moments_input=moments_input)
+    # Generate videos and asks LLM to describe them
+    description_results = await moments_analyzer.analyze(moments_input=moments_input)
     with open(f"validation_results_{inputs.session_id}.json", "w") as f:
-        json.dump(validation_results, f, indent=4)
+        json.dump(description_results, f, indent=4)
+    # TODO: Update the summary with the description results

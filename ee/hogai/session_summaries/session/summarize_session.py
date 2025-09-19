@@ -146,12 +146,12 @@ def prepare_prompt_data(
     )
 
 
-def generate_video_validation_prompt(event: EnrichedKeyActionSerializer) -> str:
+def generate_video_description_prompt(event: EnrichedKeyActionSerializer) -> str:
     """Generate a prompt for validating a video"""
     template_dir = Path(__file__).parent / "templates" / "video-validation"
     prompt = load_custom_template(
         template_dir,
-        "prompt.djt",
+        "description-prompt.djt",
         {"EVENT_DESCRIPTION": event.data["description"]},
     )
     return prompt

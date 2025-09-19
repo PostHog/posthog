@@ -1,0 +1,226 @@
+{
+    "segments": [
+        {
+            "meta": {
+                "duration": 11,
+                "events_count": 111,
+                "failure_count": 0,
+                "confusion_count": 0,
+                "exception_count": 0,
+                "key_action_count": 5,
+                "abandonment_count": 0,
+                "events_percentage": 0.8605,
+                "duration_percentage": 0.6471
+            },
+            "name": "Rapid tour of analytics areas",
+            "index": 0,
+            "end_event_id": "cd40302e",
+            "start_event_id": "d66f4f4c"
+        },
+        {
+            "meta": {
+                "duration": 6,
+                "events_count": 19,
+                "failure_count": 1,
+                "confusion_count": 0,
+                "exception_count": 1,
+                "key_action_count": 5,
+                "abandonment_count": 1,
+                "events_percentage": 0.1473,
+                "duration_percentage": 0.3529
+            },
+            "name": "Error-tracking failure and fallback to replay",
+            "index": 1,
+            "end_event_id": "d76f5d70",
+            "start_event_id": "edb7bf17"
+        }
+    ],
+    "key_actions": [
+        {
+            "events": [
+                {
+                    "event": "viewed dashboard",
+                    "event_id": "a57dc7d1",
+                    "confusion": false,
+                    "exception": null,
+                    "timestamp": "2025-09-18T07:14:25.827000+00:00",
+                    "window_id": "01995bac-a002-7ba2-bc68-baa1a21f6b9a",
+                    "event_type": null,
+                    "event_uuid": "01995bac-a78d-7380-bf77-e208f754325b",
+                    "session_id": "01995bac-a002-7ba2-bc68-baa043d8e46c",
+                    "abandonment": false,
+                    "current_url": "http://localhost:8010/project/2",
+                    "description": "Loaded main project dashboard",
+                    "event_index": 22,
+                    "milliseconds_since_start": 1118
+                },
+                {
+                    "event": "$autocapture",
+                    "event_id": "1147e01a",
+                    "confusion": false,
+                    "exception": null,
+                    "timestamp": "2025-09-18T07:14:27.140000+00:00",
+                    "window_id": "01995bac-a002-7ba2-bc68-baa1a21f6b9a",
+                    "event_type": "click",
+                    "event_uuid": "01995bac-acbb-7030-a21d-390f6ee3f0ac",
+                    "session_id": "01995bac-a002-7ba2-bc68-baa043d8e46c",
+                    "abandonment": false,
+                    "current_url": "http://localhost:8010/project/2",
+                    "description": "Opened LLM analytics section",
+                    "event_index": 41,
+                    "milliseconds_since_start": 2431
+                },
+                {
+                    "event": "$autocapture",
+                    "event_id": "6178fac3",
+                    "confusion": false,
+                    "exception": null,
+                    "timestamp": "2025-09-18T07:14:28.601000+00:00",
+                    "window_id": "01995bac-a002-7ba2-bc68-baa1a21f6b9a",
+                    "event_type": "click",
+                    "event_uuid": "01995bac-b270-7dd1-9fc5-9d4ca7f4c4ff",
+                    "session_id": "01995bac-a002-7ba2-bc68-baa043d8e46c",
+                    "abandonment": false,
+                    "current_url": "http://localhost:8010/project/2/llm-analytics",
+                    "description": "Switched to Product analytics insights",
+                    "event_index": 54,
+                    "milliseconds_since_start": 3892
+                },
+                {
+                    "event": "$autocapture",
+                    "event_id": "d9c78aa0",
+                    "confusion": false,
+                    "exception": null,
+                    "timestamp": "2025-09-18T07:14:33.139000+00:00",
+                    "window_id": "01995bac-a002-7ba2-bc68-baa1a21f6b9a",
+                    "event_type": "click",
+                    "event_uuid": "01995bac-c425-72f0-9e85-64cd4060bfb9",
+                    "session_id": "01995bac-a002-7ba2-bc68-baa043d8e46c",
+                    "abandonment": false,
+                    "current_url": "http://localhost:8010/project/2/llm-analytics",
+                    "description": "Visited SQL editor for deeper analysis",
+                    "event_index": 88,
+                    "milliseconds_since_start": 8430
+                },
+                {
+                    "event": "$autocapture",
+                    "event_id": "a9f18137",
+                    "confusion": false,
+                    "exception": null,
+                    "timestamp": "2025-09-18T07:14:35.333000+00:00",
+                    "window_id": "01995bac-a002-7ba2-bc68-baa1a21f6b9a",
+                    "event_type": "click",
+                    "event_uuid": "01995bac-ccba-7c47-9af8-661a3e35e272",
+                    "session_id": "01995bac-a002-7ba2-bc68-baa043d8e46c",
+                    "abandonment": false,
+                    "current_url": "http://localhost:8010/project/2/web",
+                    "description": "Arrived at Session replay home",
+                    "event_index": 105,
+                    "milliseconds_since_start": 10624
+                }
+            ],
+            "segment_index": 0
+        },
+        {
+            "events": [
+                {
+                    "event": "$autocapture",
+                    "event_id": "edb7bf17",
+                    "confusion": false,
+                    "exception": null,
+                    "timestamp": "2025-09-18T07:14:35.908000+00:00",
+                    "window_id": "01995bac-a002-7ba2-bc68-baa1a21f6b9a",
+                    "event_type": "click",
+                    "event_uuid": "01995bac-cef9-7aa9-818c-c7e887c68c32",
+                    "session_id": "01995bac-a002-7ba2-bc68-baa043d8e46c",
+                    "abandonment": false,
+                    "current_url": "http://localhost:8010/project/2/replay/home",
+                    "description": "Clicked into Error tracking feature",
+                    "event_index": 111,
+                    "milliseconds_since_start": 11199
+                },
+                {
+                    "event": "$exception",
+                    "event_id": "5e7fc9d4",
+                    "confusion": false,
+                    "exception": "blocking",
+                    "timestamp": "2025-09-18T07:14:37.095000+00:00",
+                    "window_id": "01995bac-a002-7ba2-bc68-baa1a21f6b9a",
+                    "event_type": null,
+                    "event_uuid": "01995bac-cf44-7127-8c6b-60dfa839ee2d",
+                    "session_id": "01995bac-a002-7ba2-bc68-baa043d8e46c",
+                    "abandonment": true,
+                    "current_url": "http://localhost:8010/project/2/error_tracking",
+                    "description": "Blocking store path exception rendered Error tracking unusable",
+                    "event_index": 113,
+                    "milliseconds_since_start": 12386
+                },
+                {
+                    "event": "$autocapture",
+                    "event_id": "739c2808",
+                    "confusion": false,
+                    "exception": null,
+                    "timestamp": "2025-09-18T07:14:37.158000+00:00",
+                    "window_id": "01995bac-a002-7ba2-bc68-baa1a21f6b9a",
+                    "event_type": "click",
+                    "event_uuid": "01995bac-d3e0-74ba-a35f-f964102c64d0",
+                    "session_id": "01995bac-a002-7ba2-bc68-baa043d8e46c",
+                    "abandonment": false,
+                    "current_url": "http://localhost:8010/project/2/error_tracking",
+                    "description": "Moved on to Surveys section",
+                    "event_index": 114,
+                    "milliseconds_since_start": 12449
+                },
+                {
+                    "event": "$autocapture",
+                    "event_id": "33b6f4fc",
+                    "confusion": false,
+                    "exception": null,
+                    "timestamp": "2025-09-18T07:14:39.690000+00:00",
+                    "window_id": "01995bac-a002-7ba2-bc68-baa1a21f6b9a",
+                    "event_type": "click",
+                    "event_uuid": "01995bac-ddc4-720e-8fd7-9b0a21c452dd",
+                    "session_id": "01995bac-a002-7ba2-bc68-baa043d8e46c",
+                    "abandonment": false,
+                    "current_url": "http://localhost:8010/project/2/surveys",
+                    "description": "Returned to Session replay home",
+                    "event_index": 117,
+                    "milliseconds_since_start": 14981
+                },
+                {
+                    "event": "$autocapture",
+                    "event_id": "29f5ebfa",
+                    "confusion": false,
+                    "exception": null,
+                    "timestamp": "2025-09-18T07:14:41.929000+00:00",
+                    "window_id": "01995bac-a002-7ba2-bc68-baa1a21f6b9a",
+                    "event_type": "click",
+                    "event_uuid": "01995bac-e683-77d3-857d-3c03486e088c",
+                    "session_id": "01995bac-a002-7ba2-bc68-baa043d8e46c",
+                    "abandonment": false,
+                    "current_url": "http://localhost:8010/project/2/replay/home",
+                    "description": "Applied 30-day filter to recording list",
+                    "event_index": 123,
+                    "milliseconds_since_start": 17220
+                }
+            ],
+            "segment_index": 1
+        }
+    ],
+    "session_outcome": {
+        "success": false,
+        "description": "Session showcased broad feature exploration but a blocking Error-tracking bug prevented intended usage of that key tool"
+    },
+    "segment_outcomes": [
+        {
+            "success": true,
+            "summary": "User swiftly browsed multiple analytics areas without errors",
+            "segment_index": 0
+        },
+        {
+            "success": false,
+            "summary": "Error tracking page threw blocking exception, user abandoned and focused on replay instead",
+            "segment_index": 1
+        }
+    ]
+}
