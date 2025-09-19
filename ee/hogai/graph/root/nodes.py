@@ -1,7 +1,8 @@
 import re
 import json
 import math
-from typing import Literal, Optional, TypeVar, cast
+import asyncio
+from typing import Any, Literal, Optional, TypeVar, cast
 from uuid import uuid4
 
 from django.conf import settings
@@ -23,7 +24,6 @@ from pydantic import BaseModel
 from posthog.schema import (
     AssistantContextualTool,
     AssistantMessage,
-    AssistantToolCall,
     AssistantToolCallMessage,
     FailureMessage,
     FunnelsQuery,
@@ -41,17 +41,31 @@ from posthog.hogql_queries.apply_dashboard_filters import (
     apply_dashboard_variables_to_dict,
 )
 from posthog.models.organization import OrganizationMembership
+from posthog.sync import database_sync_to_async
 
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
-from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
-from ee.hogai.utils.helpers import find_last_ui_context
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import BaseState, BaseStateWithMessages
+from ee.hogai.utils.anthropic import (
+    add_cache_control,
+    get_thinking_from_assistant_message,
+    normalize_ai_anthropic_message,
+)
+from ee.hogai.utils.helpers import find_last_ui_context, find_start_message, find_start_message_idx
+from ee.hogai.utils.types import (
+    AssistantMessageUnion,
+    AssistantState,
+    BaseState,
+    BaseStateWithMessages,
+    PartialAssistantState,
+)
+from ee.hogai.utils.types.base import ReplaceMessages
 
 from .prompts import (
+    CONTEXTUAL_TOOLS_REMINDER_PROMPT,
+    MAX_PERSONALITY_PROMPT,
     ROOT_BILLING_CONTEXT_ERROR_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
@@ -98,7 +112,7 @@ T = TypeVar("T", RootMessageUnion, BaseMessage)
 class RootNodeUIContextMixin(AssistantNode):
     """Mixin that provides UI context formatting capabilities for root nodes."""
 
-    def _format_ui_context(self, ui_context: MaxUIContext | None, config: RunnableConfig) -> str:
+    async def _format_ui_context(self, ui_context: MaxUIContext | None, config: RunnableConfig) -> str | None:
         """
         Format UI context into template variables for the prompt.
 
@@ -129,7 +143,7 @@ class RootNodeUIContextMixin(AssistantNode):
                             if hasattr(dashboard, "filters") and dashboard.filters
                             else None
                         )
-                        formatted_insight = self._run_and_format_insight(
+                        formatted_insight = await self._arun_and_format_insight(
                             config,
                             insight,
                             query_runner,
@@ -167,7 +181,7 @@ class RootNodeUIContextMixin(AssistantNode):
         if ui_context.insights:
             insights_results = []
             for insight in ui_context.insights:
-                result = self._run_and_format_insight(config, insight, query_runner, None, heading="##")
+                result = await self._arun_and_format_insight(config, insight, query_runner, None, heading="##")
                 if result:
                     insights_results.append(result)
 
@@ -188,9 +202,9 @@ class RootNodeUIContextMixin(AssistantNode):
             return self._render_user_context_template(
                 dashboard_context, insights_context, events_context, actions_context
             )
-        return ""
+        return None
 
-    def _run_and_format_insight(
+    async def _arun_and_format_insight(
         self,
         config: RunnableConfig,
         insight: MaxInsightContext,
@@ -233,7 +247,7 @@ class RootNodeUIContextMixin(AssistantNode):
                 QueryModel = MAX_SUPPORTED_QUERY_KIND_TO_MODEL[query_kind]
                 query_obj = QueryModel.model_validate(query_dict)
 
-            raw_results, _ = query_runner.run_and_format_query(query_obj)
+            raw_results, _ = await query_runner.arun_and_format_query(query_obj)
 
             result = (
                 PromptTemplate.from_template(ROOT_INSIGHT_CONTEXT_PROMPT, template_format="mustache")
@@ -302,49 +316,34 @@ class RootNode(RootNodeUIContextMixin):
     Determines the maximum number of tool calls allowed in a single generation.
     """
     CONVERSATION_WINDOW_SIZE = 64000
-
-    async def get_reasoning_message(
-        self, input: BaseState, default_message: Optional[str] = None
-    ) -> ReasoningMessage | None:
-        if not isinstance(input, BaseStateWithMessages):
-            return None
-        ui_context = find_last_ui_context(input.messages)
-        if ui_context and (ui_context.dashboards or ui_context.insights):
-            return ReasoningMessage(content="Calculating context")
-        return None
-
-    def _has_session_summarization_feature_flag(self) -> bool:
-        """
-        Check if the user has the session summarization feature flag enabled.
-        """
-        return posthoganalytics.feature_enabled(
-            "max-session-summarization",
-            str(self._user.distinct_id),
-            groups={"organization": str(self._team.organization_id)},
-            group_properties={"organization": {"id": str(self._team.organization_id)}},
-            send_feature_flag_events=False,
-        )
-
-    def _has_insight_search_feature_flag(self) -> bool:
-        """
-        Check if the user has the insight search feature flag enabled.
-        """
-        return posthoganalytics.feature_enabled(
-            "max-ai-insight-search",
-            str(self._user.distinct_id),
-            groups={"organization": str(self._team.organization_id)},
-            group_properties={"organization": {"id": str(self._team.organization_id)}},
-            send_feature_flag_events=False,
-        )
-
     """
     Determines the maximum number of tokens allowed in the conversation window.
     """
+    THINKING_CONFIG = {"type": "enabled", "budget_tokens": 1024}
+    """
+    Determines the thinking configuration for the model.
+    """
 
-    def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        from ee.hogai.tool import get_contextual_tool_class
+    async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
+        # Add context messages on start of the conversation.
+        if self._is_first_turn(state):
+            context_prompts = await self._get_context_prompts(state, config)
+            if context_prompts:
+                updated_messages = self._inject_context_messages(state, context_prompts)
+                state.messages = updated_messages
+            else:
+                updated_messages = []
+        else:
+            updated_messages = []
 
-        history, new_window_id = self._construct_and_update_messages_window(state, config)
+        message_window, billing_context, core_memory = await asyncio.gather(
+            self._construct_and_update_messages_window(state, config),
+            self._get_billing_info(config),
+            self._aget_core_memory_text(),
+        )
+        should_add_billing_tool, billing_context_prompt = billing_context
+        history, new_window_id = message_window
+
         # Build system prompt with conditional session summarization and insight search sections
         system_prompt_template = ROOT_SYSTEM_PROMPT
         # Check if session summarization is enabled for the user
@@ -370,70 +369,85 @@ class RootNode(RootNodeUIContextMixin):
                 flags=re.DOTALL,
             )
 
-        prompt = (
-            ChatPromptTemplate.from_messages(
-                [
-                    ("system", system_prompt_template),
-                    (
-                        "system",
-                        CORE_MEMORY_PROMPT
-                        + "\nNew memories will automatically be added to the core memory as the conversation progresses. "
-                        + " If users ask to save, update, or delete the core memory, say you have done it."
-                        + " If the '/remember [information]' command is used, the information gets appended verbatim to core memory.",
-                    ),
-                    *[
-                        (
-                            "system",
-                            f"<{tool_name}>\n"
-                            f"{get_contextual_tool_class(tool_name)(team=self._team, user=self._user).format_system_prompt_injection(tool_context)}\n"  # type: ignore
-                            f"</{tool_name}>",
-                        )
-                        for tool_name, tool_context in self._get_contextual_tools(config).items()
-                        if get_contextual_tool_class(tool_name) is not None
-                    ],
-                ],
-                template_format="mustache",
-            )
-            + history
+        system_prompts = ChatPromptTemplate.from_messages(
+            [
+                ("system", system_prompt_template),
+                (
+                    "system",
+                    CORE_MEMORY_PROMPT
+                    + "\nNew memories will automatically be added to the core memory as the conversation progresses. "
+                    + " If users ask to save, update, or delete the core memory, say you have done it."
+                    + " If the '/remember [information]' command is used, the information gets appended verbatim to core memory.",
+                ),
+            ],
+            template_format="mustache",
+        ).format_messages(
+            personality_prompt=MAX_PERSONALITY_PROMPT,
+            core_memory=core_memory,
+            billing_context=billing_context_prompt,
         )
 
-        ui_context = self._format_ui_context(self._get_ui_context(state), config)
-        should_add_billing_tool, billing_context_prompt = self._get_billing_info(config)
+        # Mark the longest default prefix as cacheable
+        add_cache_control(system_prompts[-1])
 
-        chain = prompt | self._get_model(
-            state, config, extra_tools=["retrieve_billing_information"] if should_add_billing_tool else []
-        )
-
-        message = chain.invoke(
-            {
-                "core_memory": self.core_memory_text,
-                "project_datetime": self.project_now,
-                "project_timezone": self.project_timezone,
-                "project_name": self._team.name,
-                "organization_name": self._team.organization.name,
-                "user_full_name": self._user.get_full_name(),
-                "user_email": self._user.email,
-                "ui_context": ui_context,
-                "billing_context": billing_context_prompt,
-            },
+        message = await self._get_model(
+            state,
+            config,
+            extra_tools=["retrieve_billing_information"] if should_add_billing_tool else [],
+        ).ainvoke(
+            system_prompts + history,
             config,
         )
-        message = cast(LangchainAIMessage, message)
+        assistant_message = normalize_ai_anthropic_message(message)
 
         return PartialAssistantState(
             root_conversation_start_id=new_window_id,
-            messages=[
-                AssistantMessage(
-                    content=str(message.content),
-                    tool_calls=[
-                        AssistantToolCall(id=tool_call["id"], name=tool_call["name"], args=tool_call["args"])
-                        for tool_call in message.tool_calls
-                    ],
-                    id=str(uuid4()),
-                ),
-            ],
+            messages=ReplaceMessages([*updated_messages, assistant_message])
+            if updated_messages
+            else [assistant_message],
         )
 
+    async def get_reasoning_message(
+        self, input: BaseState, default_message: Optional[str] = None
+    ) -> ReasoningMessage | None:
+        if not isinstance(input, BaseStateWithMessages):
+            return None
+        ui_context = find_last_ui_context(input.messages)
+        if ui_context and (ui_context.dashboards or ui_context.insights):
+            return ReasoningMessage(content="Calculating context")
+        return None
+
+    def _is_first_turn(self, state: AssistantState) -> bool:
+        last_message = state.messages[-1]
+        if isinstance(last_message, HumanMessage):
+            return last_message == find_start_message(state.messages, start_id=state.start_id)
+        return False
+
+    def _has_session_summarization_feature_flag(self) -> bool:
+        """
+        Check if the user has the session summarization feature flag enabled.
+        """
+        return posthoganalytics.feature_enabled(
+            "max-session-summarization",
+            str(self._user.distinct_id),
+            groups={"organization": str(self._team.organization_id)},
+            group_properties={"organization": {"id": str(self._team.organization_id)}},
+            send_feature_flag_events=False,
+        )
+
+    def _has_insight_search_feature_flag(self) -> bool:
+        """
+        Check if the user has the insight search feature flag enabled.
+        """
+        return posthoganalytics.feature_enabled(
+            "max-ai-insight-search",
+            str(self._user.distinct_id),
+            groups={"organization": str(self._team.organization_id)},
+            group_properties={"organization": {"id": str(self._team.organization_id)}},
+            send_feature_flag_events=False,
+        )
+
+    @database_sync_to_async
     def _get_billing_info(self, config: RunnableConfig) -> tuple[bool, str]:
         """Get billing information including wheter to include the billing tool and the prompt.
         Returns:
@@ -461,20 +475,20 @@ class RootNode(RootNodeUIContextMixin):
     def _get_model(self, state: AssistantState, config: RunnableConfig, extra_tools: list[str] | None = None):
         if extra_tools is None:
             extra_tools = []
-        # Research suggests temperature is not _massively_ correlated with creativity (https://arxiv.org/html/2405.00492v1).
-        # It _probably_ doesn't matter, but let's use a lower temperature for _maybe_ less of a risk of hallucinations.
-        # We were previously using 0.0, but that wasn't useful, as the false determinism didn't help in any way,
-        # only made evals less useful precisely because of the false determinism.
-        base_model = MaxChatOpenAI(
-            model="gpt-4.1",
-            temperature=0.3,
+
+        base_model = MaxChatAnthropic(
+            model="claude-sonnet-4-0",
             streaming=True,
             stream_usage=True,
             user=self._user,
             team=self._team,
+            betas=["interleaved-thinking-2025-05-14"],
+            max_tokens=8192,
+            thinking=self.THINKING_CONFIG,
+            conversation_start_dt=state.start_dt,
         )
 
-        # The agent can now be in loops. Since insight building is an expensive operation, we want to limit a recursion depth.
+        # The agent can operate in loops. Since insight building is an expensive operation, we want to limit a recursion depth.
         # This will remove the functions, so the agent doesn't have any other option but to exit.
         if self._is_hard_limit_reached(state):
             return base_model
@@ -512,7 +526,7 @@ class RootNode(RootNodeUIContextMixin):
 
             available_tools.append(retrieve_billing_information)
 
-        return base_model.bind_tools(available_tools, strict=True, parallel_tool_calls=False)
+        return base_model.bind_tools(available_tools, parallel_tool_calls=False)
 
     def _get_assistant_messages_in_window(self, state: AssistantState) -> list[RootMessageUnion]:
         filtered_conversation = [message for message in state.messages if isinstance(message, RootMessageUnion)]
@@ -521,6 +535,62 @@ class RootNode(RootNodeUIContextMixin):
                 filtered_conversation, state.root_conversation_start_id
             )
         return filtered_conversation
+
+    async def _get_context_prompts(self, state: AssistantState, config: RunnableConfig) -> list[str]:
+        prompts: list[str] = []
+        if contextual_tools := self._get_contextual_tools_prompt(config):
+            prompts.append(contextual_tools)
+        if ui_context := await self._format_ui_context(self._get_ui_context(state), config):
+            prompts.append(ui_context)
+        return self._deduplicate_context_messages(state, prompts)
+
+    def _get_contextual_tools_prompt(self, config: RunnableConfig) -> str | None:
+        from ee.hogai.tool import get_contextual_tool_class
+
+        contextual_tools_prompt = [
+            f"<{tool_name}>\n"
+            f"{get_contextual_tool_class(tool_name)(team=self._team, user=self._user).format_system_prompt_injection(tool_context)}\n"  # type: ignore
+            f"</{tool_name}>"
+            for tool_name, tool_context in self._get_contextual_tools(config).items()
+            if get_contextual_tool_class(tool_name) is not None
+        ]
+        if contextual_tools_prompt:
+            tools = "\n".join(contextual_tools_prompt)
+            return CONTEXTUAL_TOOLS_REMINDER_PROMPT.format(tools=tools)
+        return None
+
+    def _deduplicate_context_messages(self, state: AssistantState, context_prompts: list[str]) -> list[str]:
+        """Naive deduplication of context messages by content."""
+        human_messages = {message.content for message in state.messages if isinstance(message, HumanMessage)}
+        return [prompt for prompt in context_prompts if prompt not in human_messages]
+
+    def _inject_context_messages(
+        self, state: AssistantState, context_prompts: list[str]
+    ) -> list[AssistantMessageUnion]:
+        human_messages = [HumanMessage(content=prompt, id=str(uuid4()), visible=False) for prompt in context_prompts]
+        # -1 to make the context messages appear before the start message
+        start_idx = find_start_message_idx(state.messages, state.start_id) - 1
+        return [*state.messages[:start_idx], *human_messages, *state.messages[start_idx:]]
+
+    async def _construct_and_update_messages_window(
+        self, state: AssistantState, config: RunnableConfig
+    ) -> tuple[list[BaseMessage], str | None]:
+        """
+        Retrieves the current conversation window, finds a new window if necessary, and enforces the tool call limit.
+        """
+
+        history = self._construct_messages(state)
+
+        # Find a new window id and trim the history to it.
+        new_window_id = await self._find_new_window_id(state, config, history)
+        if new_window_id is not None:
+            history = self._get_conversation_window(history, new_window_id)
+
+        # Force the agent to stop if the tool call limit is reached.
+        if self._is_hard_limit_reached(state):
+            history.append(LangchainHumanMessage(content=ROOT_HARD_LIMIT_REACHED_PROMPT))
+
+        return history, new_window_id
 
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         # Filter out messages that are not part of the conversation window.
@@ -534,57 +604,69 @@ class RootNode(RootNodeUIContextMixin):
         }
 
         history: list[BaseMessage] = []
+
         for message in conversation_window:
             if isinstance(message, HumanMessage):
-                history.append(LangchainHumanMessage(content=message.content, id=message.id))
+                history.append(
+                    LangchainHumanMessage(content=[{"type": "text", "text": message.content}], id=message.id)
+                )
             elif isinstance(message, AssistantMessage):
+                content = get_thinking_from_assistant_message(message)
+                if message.content:
+                    content.append({"type": "text", "text": message.content})
+
                 # Filter out tool calls without a tool response, so the completion doesn't fail.
                 tool_calls = [
                     tool for tool in (message.model_dump()["tool_calls"] or []) if tool["id"] in tool_result_messages
                 ]
 
-                history.append(LangchainAIMessage(content=message.content, tool_calls=tool_calls, id=message.id))
+                if content or tool_calls:
+                    history.append(
+                        LangchainAIMessage(
+                            content=cast(list[str | dict[str, Any]], content),
+                            tool_calls=tool_calls,
+                            id=message.id,
+                        )
+                    )
 
                 # Append associated tool call messages.
                 for tool_call in tool_calls:
                     tool_call_id = tool_call["id"]
                     result_message = tool_result_messages[tool_call_id]
                     history.append(
-                        LangchainToolMessage(
-                            content=result_message.content, tool_call_id=tool_call_id, id=result_message.id
-                        )
+                        LangchainHumanMessage(
+                            content=[
+                                {"type": "tool_result", "tool_use_id": tool_call_id, "content": result_message.content}
+                            ],
+                            id=result_message.id,
+                        ),
                     )
             elif isinstance(message, FailureMessage):
                 history.append(
-                    LangchainAIMessage(content=message.content or "An unknown failure occurred.", id=message.id)
+                    LangchainHumanMessage(
+                        content=[{"type": "text", "text": message.content or "An unknown failure occurred."}],
+                        id=message.id,
+                    )
                 )
 
+        # Append a single cache control to the last human message or last tool message
+        for i in range(len(history) - 1, -1, -1):
+            maybe_content_arr = history[i].content
+            if (
+                isinstance(history[i], LangchainHumanMessage | LangchainAIMessage)
+                and isinstance(maybe_content_arr, list)
+                and len(maybe_content_arr) > 0
+                and isinstance(maybe_content_arr[-1], dict)
+            ):
+                maybe_content_arr[-1]["cache_control"] = {"type": "ephemeral"}
+                break
+
         return history
-
-    def _construct_and_update_messages_window(
-        self, state: AssistantState, config: RunnableConfig
-    ) -> tuple[list[BaseMessage], str | None]:
-        """
-        Retrieves the current conversation window, finds a new window if necessary, and enforces the tool call limit.
-        """
-
-        history = self._construct_messages(state)
-
-        # Find a new window id and trim the history to it.
-        new_window_id = self._find_new_window_id(state, config, history)
-        if new_window_id is not None:
-            history = self._get_conversation_window(history, new_window_id)
-
-        # Force the agent to stop if the tool call limit is reached.
-        if self._is_hard_limit_reached(state):
-            history.append(LangchainHumanMessage(content=ROOT_HARD_LIMIT_REACHED_PROMPT))
-
-        return history, new_window_id
 
     def _is_hard_limit_reached(self, state: AssistantState) -> bool:
         return state.root_tool_calls_count is not None and state.root_tool_calls_count >= self.MAX_TOOL_CALLS
 
-    def _find_new_window_id(
+    async def _find_new_window_id(
         self, state: AssistantState, config: RunnableConfig, window: list[BaseMessage]
     ) -> str | None:
         """
@@ -594,7 +676,17 @@ class RootNode(RootNodeUIContextMixin):
         """
         model = self._get_model(state, config)
 
-        if model.get_num_tokens_from_messages(window) > self.CONVERSATION_WINDOW_SIZE:
+        # Quickly skip the window check if there are less than 3 human messages.
+        human_messages = [message for message in window if isinstance(message, LangchainHumanMessage)]
+        if len(human_messages) < 3:
+            return None
+
+        # Contains an async method in get_num_tokens_from_messages
+        token_count = await database_sync_to_async(model.get_num_tokens_from_messages, thread_sensitive=False)(
+            window, thinking=self.THINKING_CONFIG
+        )
+
+        if token_count > self.CONVERSATION_WINDOW_SIZE:
             trimmed_window: list[BaseMessage] = trim_messages(
                 window,
                 token_counter=model,
