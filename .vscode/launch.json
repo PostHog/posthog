@@ -61,7 +61,8 @@
                 "SKIP_SERVICE_VERSION_REQUIREMENTS": "1",
                 "PRINT_SQL": "1",
                 "BILLING_SERVICE_URL": "https://billing.dev.posthog.dev",
-                "CLOUD_DEPLOYMENT": "dev"
+                "CLOUD_DEPLOYMENT": "dev",
+                "POSTHOG_USE_VITE": "1"
             },
             "envFile": "${workspaceFolder}/.env",
             "console": "integratedTerminal",

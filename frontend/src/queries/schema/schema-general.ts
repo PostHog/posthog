@@ -1518,6 +1518,35 @@ export type RefreshType =
     | 'force_cache'
     | 'lazy_async'
 
+export interface NamedQueryRequest {
+    name?: string
+    description?: string
+    query?: HogQLQuery
+    is_active?: boolean
+}
+
+export interface NamedQueryRunRequest {
+    /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
+    client_query_id?: string
+
+    // Sync the `refresh` description here with the two instances in posthog/api/insight.py
+    /**
+     * Whether results should be calculated sync or async, and how much to rely on the cache:
+     * - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
+     * - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
+     * - `'lazy_async'` - kick off background calculation, UNLESS there are somewhat fresh results in the cache
+     * - `'force_blocking'` - calculate synchronously, even if fresh results are already cached
+     * - `'force_async'` - kick off background calculation, even if fresh results are already cached
+     * - `'force_cache'` - return cached data or a cache miss; always completes immediately as it never calculates
+     * Background calculation can be tracked using the `query_status` response field.
+     * @default 'blocking'
+     */
+    refresh?: RefreshType
+    filters_override?: DashboardFilter
+    variables_override?: Record<string, Record<string, any>>
+    variables_values?: Record<string, any>
+}
+
 export interface QueryRequest {
     /** Client provided query ID. Can be used to retrieve the status or cancel the query. */
     client_query_id?: string
@@ -2909,6 +2938,7 @@ export interface DatabaseSchemaField {
 
 export type DatabaseSchemaTableType =
     | 'posthog'
+    | 'system'
     | 'data_warehouse'
     | 'view'
     | 'batch_export'
@@ -2954,6 +2984,10 @@ export interface DatabaseSchemaPostHogTable extends DatabaseSchemaTableCommon {
     type: 'posthog'
 }
 
+export interface DatabaseSchemaSystemTable extends DatabaseSchemaTableCommon {
+    type: 'system'
+}
+
 export interface DatabaseSchemaDataWarehouseTable extends DatabaseSchemaTableCommon {
     type: 'data_warehouse'
     format: string
@@ -2968,6 +3002,7 @@ export interface DatabaseSchemaBatchExportTable extends DatabaseSchemaTableCommo
 
 export type DatabaseSchemaTable =
     | DatabaseSchemaPostHogTable
+    | DatabaseSchemaSystemTable
     | DatabaseSchemaDataWarehouseTable
     | DatabaseSchemaViewTable
     | DatabaseSchemaManagedViewTable

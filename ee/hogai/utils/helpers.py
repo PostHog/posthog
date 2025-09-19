@@ -1,6 +1,6 @@
 import xml.etree.ElementTree as ET
 from collections.abc import Sequence
-from typing import Optional, TypeVar, Union
+from typing import Any, Optional, TypeVar, Union
 
 from jsonref import replace_refs
 from langchain_core.messages import (
@@ -218,3 +218,13 @@ def extract_content_from_ai_message(response: BaseMessage) -> str:
                 text_parts.append(content_item)
         return "".join(text_parts)
     return str(response.content)
+
+
+def extract_stream_update(update: Any) -> Any:
+    if update[1] == "custom":
+        # Custom streams come from a tool call
+        # If it's a LangGraph-based chunk, we remove the first two elements, which are "custom" and the parent graph namespace
+        update = update[2]
+
+    update = update[1:]  # we remove the first element, which is the node/subgraph node name
+    return update

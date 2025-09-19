@@ -328,6 +328,14 @@ export class KafkaConsumer {
         return new HealthCheckResultOk()
     }
 
+    public isShuttingDown(): boolean {
+        return this.isStopping
+    }
+
+    public isRebalancing(): boolean {
+        return this.rebalanceCoordination.isRebalancing
+    }
+
     public assignments(): Assignment[] {
         return this.rdKafkaConsumer.isConnected() ? this.rdKafkaConsumer.assignments() : []
     }
