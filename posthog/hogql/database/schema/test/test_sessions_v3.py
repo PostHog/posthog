@@ -25,8 +25,7 @@ class TestSessionsV3(ClickhouseTestMixin, APIBaseTest):
         bounce_rate_duration=None,
     ):
         modifiers = HogQLQueryModifiers(
-            sessionTableVersion=SessionTableVersion.V3,
-            bounceRateDurationSeconds=bounce_rate_duration
+            sessionTableVersion=SessionTableVersion.V3, bounceRateDurationSeconds=bounce_rate_duration
         )
         return execute_hogql_query(
             query=query,

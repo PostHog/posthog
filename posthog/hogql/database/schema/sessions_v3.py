@@ -43,16 +43,13 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "session_id_v7": UUIDDatabaseField(name="session_id_v7", nullable=False),
     "distinct_id": DatabaseField(name="distinct_id", nullable=False),
     "person_id": DatabaseField(name="person_id", nullable=False),
-
     "min_timestamp": DateTimeDatabaseField(name="min_timestamp", nullable=False),
     "max_timestamp": DateTimeDatabaseField(name="max_timestamp", nullable=False),
     "max_inserted_at": DateTimeDatabaseField(name="max_inserted_at", nullable=False),
-
     "urls": StringArrayDatabaseField(name="urls", nullable=False),
     "entry_url": DatabaseField(name="entry_url", nullable=False),
     "end_url": DatabaseField(name="end_url", nullable=False),
     "last_external_click_url": DatabaseField(name="last_external_click_url", nullable=False),
-
     "browser": DatabaseField(name="browser", nullable=False),
     "browser_version": DatabaseField(name="browser_version", nullable=False),
     "os": DatabaseField(name="os", nullable=False),
@@ -60,13 +57,11 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "device_type": DatabaseField(name="device_type", nullable=False),
     "viewport_width": DatabaseField(name="viewport_width", nullable=False),
     "viewport_height": DatabaseField(name="viewport_height", nullable=False),
-
     "geoip_country_code": DatabaseField(name="geoip_country_code", nullable=False),
     "geoip_subdivision_1_code": DatabaseField(name="geoip_subdivision_1_code", nullable=False),
     "geoip_subdivision_1_name": DatabaseField(name="geoip_subdivision_1_name", nullable=False),
     "geoip_subdivision_city_name": DatabaseField(name="geoip_subdivision_city_name", nullable=False),
     "geoip_time_zone": DatabaseField(name="geoip_time_zone", nullable=False),
-
     "entry_referring_domain": DatabaseField(name="entry_referring_domain", nullable=False),
     "entry_utm_source": DatabaseField(name="entry_utm_source", nullable=False),
     "entry_utm_campaign": DatabaseField(name="entry_utm_campaign", nullable=False),
@@ -76,18 +71,14 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "entry_gclid": DatabaseField(name="entry_gclid", nullable=False),
     "entry_gad_source": DatabaseField(name="entry_gad_source", nullable=False),
     "entry_fbclid": DatabaseField(name="entry_fbclid", nullable=False),
-
     "entry_has_gclid": DatabaseField(name="entry_has_gclid", nullable=False),
     "entry_has_fbclid": DatabaseField(name="entry_has_fbclid", nullable=False),
-
     "entry_ad_ids_map": DatabaseField(name="entry_ad_ids_map", nullable=False),
     "entry_ad_ids_set": DatabaseField(name="entry_ad_ids_set", nullable=False),
     "entry_channel_type_properties": DatabaseField(name="entry_channel_type_properties", nullable=False),
-
     "pageview_uniq": DatabaseField(name="pageview_uniq", nullable=False),
     "autocapture_uniq": DatabaseField(name="autocapture_uniq", nullable=False),
     "screen_uniq": DatabaseField(name="screen_uniq", nullable=False),
-
     "page_screen_autocapture_uniq_up_to": DatabaseField(name="page_screen_autocapture_uniq_up_to", nullable=False),
 }
 
@@ -161,14 +152,14 @@ class RawSessionsTableV3(Table):
         return "raw_sessions_v3"
 
     def avoid_asterisk_fields(self) -> list[str]:
-        binary_fields = {
-            key for key, val in self.fields.items() if val.__class__ == DatabaseField
-        }
+        binary_fields = {key for key, val in self.fields.items() if val.__class__ == DatabaseField}
 
-        return list({
-            *binary_fields, # our clickhouse driver can't return aggregate states
-            "session_id_v7",  # HogQL insights currently don't support returning uint128s due to json serialisation
-        })
+        return list(
+            {
+                *binary_fields,  # our clickhouse driver can't return aggregate states
+                "session_id_v7",  # HogQL insights currently don't support returning uint128s due to json serialisation
+            }
+        )
 
 
 def select_from_sessions_table_v3(
@@ -320,7 +311,9 @@ def select_from_sessions_table_v3(
     )
 
     def get_entry_channel_type_property(n: int):
-        return ast.Call(name="tupleElement", args=[aggregate_fields["$entry_channel_type_properties"], ast.Constant(value=n)])
+        return ast.Call(
+            name="tupleElement", args=[aggregate_fields["$entry_channel_type_properties"], ast.Constant(value=n)]
+        )
 
     aggregate_fields["$channel_type"] = create_channel_type_expr(
         context.modifiers.customChannelTypeRules,
@@ -382,43 +375,44 @@ class SessionsTableV3(LazyTable):
         return "sessions"
 
     def avoid_asterisk_fields(self) -> list[str]:
-        binary_fields = {
-            key for key, val in self.fields.items() if val.__class__ == DatabaseField
-        }
+        binary_fields = {key for key, val in self.fields.items() if val.__class__ == DatabaseField}
 
-        return list({
-            *binary_fields, # our clickhouse driver can't return aggregate states
-            "session_id_v7",  # HogQL insights currently don't support returning uint128s due to json serialisation
-            "id",  # prefer to use session_id
-            "duration",  # alias of $session_duration, deprecated but included for backwards compatibility
-            # aliases for people upgrading from v1 to v2
-            "$exit_current_url",
-            "$exit_pathname",
-        })
+        return list(
+            {
+                *binary_fields,  # our clickhouse driver can't return aggregate states
+                "session_id_v7",  # HogQL insights currently don't support returning uint128s due to json serialisation
+                "id",  # prefer to use session_id
+                "duration",  # alias of $session_duration, deprecated but included for backwards compatibility
+                # aliases for people upgrading from v1 to v2
+                "$exit_current_url",
+                "$exit_pathname",
+            }
+        )
 
 
 def session_id_to_session_id_v7_as_uuid_expr(session_id: ast.Expr) -> ast.Expr:
     return ast.Call(name="toUUID", args=[session_id])
 
+
 def uuid_to_uint128_expr(uuid: ast.Expr) -> ast.Expr:
     return ast.Call(
-                    name="reinterpretAsUUID",
-                    args=[
-                        ast.Call(
-                            name="bitOr",
-                            args=[
-                                ast.Call(
-                                    name="bitShiftLeft",
-                                    args=[uuid, ast.Constant(value=64)],
-                                ),
-                                ast.Call(
-                                    name="bitShiftRight",
-                                    args=[uuid, ast.Constant(value=64)],
-                                ),
-                            ],
-                        )
-                    ],
-                )
+        name="reinterpretAsUUID",
+        args=[
+            ast.Call(
+                name="bitOr",
+                args=[
+                    ast.Call(
+                        name="bitShiftLeft",
+                        args=[uuid, ast.Constant(value=64)],
+                    ),
+                    ast.Call(
+                        name="bitShiftRight",
+                        args=[uuid, ast.Constant(value=64)],
+                    ),
+                ],
+            )
+        ],
+    )
 
 
 def join_events_table_to_sessions_table_v3(
@@ -526,7 +520,9 @@ SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
 }
 
 for session_ad_id in SESSION_V3_LOWER_TIER_AD_IDS:
-    SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP["$entry_" + session_ad_id] = f"arrayElement(finalizeAggregation(entry_ad_ids_map), '{session_ad_id}')"
+    SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP["$entry_" + session_ad_id] = (
+        f"arrayElement(finalizeAggregation(entry_ad_ids_map), '{session_ad_id}')"
+    )
 
 
 def get_lazy_session_table_values_v3(key: str, search_term: Optional[str], team: "Team"):
