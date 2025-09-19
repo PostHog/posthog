@@ -2,7 +2,7 @@ import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
 import { EventHeaders } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
 import { drop, success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
-import { SyncProcessingStep } from '../processing-pipeline'
+import { SyncProcessingStep } from '../pipeline-types'
 
 function applyDropEventsRestrictions(
     eventIngestionRestrictionManager: EventIngestionRestrictionManager,

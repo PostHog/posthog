@@ -1,54 +1,84 @@
+import { instrumentFn } from '../common/tracing/tracing-utils'
 import {
     PipelineStepResult,
-    PipelineStepResultType,
+    PipelineStepResultOk,
     isSuccessResult,
 } from '../worker/ingestion/event-pipeline/pipeline-step-result'
-import { AsyncProcessingStep } from './processing-pipeline'
+import { ConcurrentBatchProcessingPipeline } from './concurrent-batch-processing-pipeline'
+import {
+    AsyncProcessingStep,
+    BatchProcessingPipeline,
+    BatchProcessingResult,
+    ResultWithContext,
+} from './pipeline-types'
 
-export type BatchProcessingResult<T> = PipelineStepResult<T>[]
+/**
+ * Type guard for ResultWithContext that asserts the result is successful
+ */
+function isSuccessResultWithContext<T>(
+    resultWithContext: ResultWithContext<T>
+): resultWithContext is ResultWithContext<T> & { result: PipelineStepResultOk<T> } {
+    return isSuccessResult(resultWithContext.result)
+}
 
-export type BatchProcessingStep<T, U> = (values: T[]) => Promise<BatchProcessingResult<U>>
+export type BatchProcessingStep<T, U> = (values: T[]) => Promise<PipelineStepResult<U>[]>
 
-export class BatchProcessingPipeline<T> {
-    constructor(private resultPromise: Promise<BatchProcessingResult<T>>) {}
+export class SequentialBatchProcessingPipeline<TInput, TIntermediate, TOutput>
+    implements BatchProcessingPipeline<TInput, TOutput>
+{
+    constructor(
+        private currentStep: BatchProcessingStep<TIntermediate, TOutput>,
+        private previousPipeline: BatchProcessingPipeline<TInput, TIntermediate>
+    ) {}
 
-    pipe<U>(step: BatchProcessingStep<T, U>): BatchProcessingPipeline<U> {
-        const nextResultPromise = this.resultPromise.then(async (currentResults) => {
-            const successfulValues = currentResults.filter(isSuccessResult).map((result) => result.value)
+    feed(elements: BatchProcessingResult<TInput>): void {
+        this.previousPipeline.feed(elements)
+    }
 
-            if (successfulValues.length === 0) {
-                return currentResults as BatchProcessingResult<U>
+    async next(): Promise<BatchProcessingResult<TOutput> | null> {
+        const previousResults = await this.previousPipeline.next()
+        if (previousResults === null) {
+            return null
+        }
+
+        // Filter successful values for processing
+        const successfulValues = previousResults
+            .filter(isSuccessResultWithContext)
+            .map((resultWithContext) => resultWithContext.result.value)
+
+        // Apply current step to successful values
+        const stepName = this.currentStep.name || 'anonymousBatchStep'
+        let stepResults: PipelineStepResult<TOutput>[] = []
+        if (successfulValues.length > 0) {
+            stepResults = await instrumentFn(stepName, () => this.currentStep(successfulValues))
+        }
+        let stepIndex = 0
+
+        // Map results back, preserving context and non-successful results
+        return previousResults.map((resultWithContext) => {
+            if (isSuccessResult(resultWithContext.result)) {
+                return {
+                    result: stepResults[stepIndex++],
+                    context: resultWithContext.context,
+                }
+            } else {
+                return {
+                    result: resultWithContext.result,
+                    context: resultWithContext.context,
+                }
             }
-
-            const stepResults = await step(successfulValues)
-            let stepIndex = 0
-
-            return currentResults.map((result) =>
-                isSuccessResult(result) ? stepResults[stepIndex++] : (result as PipelineStepResult<U>)
-            )
         })
-
-        return new BatchProcessingPipeline(nextResultPromise)
     }
 
-    pipeConcurrently<U>(stepConstructor: AsyncProcessingStep<T, U>): BatchProcessingPipeline<U> {
-        const nextResultPromise = this.resultPromise.then(async (currentResults) => {
-            return Promise.all(
-                currentResults.map(async (result) =>
-                    isSuccessResult(result) ? await stepConstructor(result.value) : (result as PipelineStepResult<U>)
-                )
-            )
-        })
-
-        return new BatchProcessingPipeline(nextResultPromise)
+    pipeConcurrently<U>(step: AsyncProcessingStep<TOutput, U>): ConcurrentBatchProcessingPipeline<TInput, TOutput, U> {
+        return new ConcurrentBatchProcessingPipeline(step, this)
     }
 
-    async unwrap(): Promise<BatchProcessingResult<T>> {
-        return await this.resultPromise
-    }
-
-    static of<T>(values: T[]): BatchProcessingPipeline<T> {
-        const results: PipelineStepResult<T>[] = values.map((value) => ({ type: PipelineStepResultType.OK, value }))
-        return new BatchProcessingPipeline(Promise.resolve(results))
+    static from<TInput, TIntermediate, TOutput>(
+        step: BatchProcessingStep<TIntermediate, TOutput>,
+        subPipeline: BatchProcessingPipeline<TInput, TIntermediate>
+    ): SequentialBatchProcessingPipeline<TInput, TIntermediate, TOutput> {
+        const pipeline = subPipeline
+        return new SequentialBatchProcessingPipeline<TInput, TIntermediate, TOutput>(step, pipeline)
     }
 }

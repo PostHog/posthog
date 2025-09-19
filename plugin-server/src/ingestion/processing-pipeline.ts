@@ -1,51 +1,54 @@
 import { instrumentFn } from '../common/tracing/tracing-utils'
-import {
-    PipelineStepResult,
-    PipelineStepResultType,
-    isSuccessResult,
-} from '../worker/ingestion/event-pipeline/pipeline-step-result'
+import { isSuccessResult, success } from '../worker/ingestion/event-pipeline/pipeline-step-result'
+import { AsyncProcessingStep, ProcessingResult, SyncProcessingStep } from './pipeline-types'
 
-export type ProcessingResult<T> = PipelineStepResult<T>
+interface Processor<TInput, TIntermediate> {
+    process(element: TInput): Promise<ProcessingResult<TIntermediate>>
+}
 
-export type SyncProcessingStep<T, U> = (value: T) => ProcessingResult<U>
+export class NoopProcessingPipeline<T> implements Processor<T, T> {
+    async process(element: T): Promise<ProcessingResult<T>> {
+        return Promise.resolve(success(element))
+    }
+}
 
-export type AsyncProcessingStep<T, U> = (value: T) => Promise<ProcessingResult<U>>
+export class ProcessingPipeline<TInput, TIntermediate, TOutput> implements Processor<TInput, TOutput> {
+    constructor(
+        private currentStep: (value: TIntermediate) => Promise<ProcessingResult<TOutput>>,
+        private previousPipeline: Processor<TInput, TIntermediate>
+    ) {}
 
-export class ProcessingPipeline<T> {
-    constructor(private resultPromise: Promise<ProcessingResult<T>>) {}
-
-    pipe<U>(step: SyncProcessingStep<T, U>): ProcessingPipeline<U> {
+    pipe<U>(step: SyncProcessingStep<TOutput, U>): ProcessingPipeline<TInput, TOutput, U> {
         const stepName = step.name || 'anonymousStep'
-        const nextResultPromise = this.resultPromise.then(async (currentResult) => {
-            if (!isSuccessResult(currentResult)) {
-                return currentResult
-            }
-
-            return await instrumentFn(stepName, () => Promise.resolve(step(currentResult.value)))
-        })
-
-        return new ProcessingPipeline(nextResultPromise)
+        const wrappedStep = async (value: TOutput) => {
+            return await instrumentFn(stepName, () => Promise.resolve(step(value)))
+        }
+        return new ProcessingPipeline<TInput, TOutput, U>(wrappedStep, this)
     }
 
-    pipeAsync<U>(step: AsyncProcessingStep<T, U>): ProcessingPipeline<U> {
+    pipeAsync<U>(step: AsyncProcessingStep<TOutput, U>): ProcessingPipeline<TInput, TOutput, U> {
         const stepName = step.name || 'anonymousAsyncStep'
-        const nextResultPromise = this.resultPromise.then(async (currentResult) => {
-            if (!isSuccessResult(currentResult)) {
-                return currentResult
-            }
-
-            return await instrumentFn(stepName, () => step(currentResult.value))
-        })
-
-        return new ProcessingPipeline(nextResultPromise)
+        const wrappedStep = async (value: TOutput) => {
+            return await instrumentFn(stepName, () => step(value))
+        }
+        return new ProcessingPipeline<TInput, TOutput, U>(wrappedStep, this)
     }
 
-    async unwrap(): Promise<ProcessingResult<T>> {
-        return await this.resultPromise
+    async process(element: TInput): Promise<ProcessingResult<TOutput>> {
+        // Process through the previous pipeline first (with the same input)
+        const previousResult = await this.previousPipeline.process(element)
+
+        // If the previous step failed, return the failure
+        if (!isSuccessResult(previousResult)) {
+            return previousResult
+        }
+
+        // Apply the current step to the successful result value from previous pipeline
+        return await this.currentStep(previousResult.value)
     }
 
-    static of<T>(value: T): ProcessingPipeline<T> {
-        const resultPromise = Promise.resolve({ type: PipelineStepResultType.OK, value } as ProcessingResult<T>)
-        return new ProcessingPipeline(resultPromise)
+    static create<T>(): ProcessingPipeline<T, T, T> {
+        const noopStep = (value: T) => Promise.resolve(success(value))
+        return new ProcessingPipeline<T, T, T>(noopStep, new NoopProcessingPipeline<T>())
     }
 }

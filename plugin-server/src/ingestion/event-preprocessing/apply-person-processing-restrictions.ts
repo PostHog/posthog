@@ -1,7 +1,7 @@
 import { IncomingEventWithTeam } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
 import { success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
-import { SyncProcessingStep } from '../processing-pipeline'
+import { SyncProcessingStep } from '../pipeline-types'
 
 function applyPersonProcessingRestrictions(
     eventWithTeam: IncomingEventWithTeam,

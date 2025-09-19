@@ -5,7 +5,7 @@ import { normalizeEvent } from '../../utils/event'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { drop, success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
-import { SyncProcessingStep } from '../processing-pipeline'
+import { SyncProcessingStep } from '../pipeline-types'
 
 function parseKafkaMessage(message: Message): IncomingEvent | null {
     try {

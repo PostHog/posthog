@@ -4,7 +4,7 @@ import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
 import { EventHeaders, Hub, IncomingEvent, IncomingEventWithTeam } from '../../types'
 import { tokenOrTeamPresentCounter } from '../../worker/ingestion/event-pipeline/metrics'
 import { drop, success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
-import { AsyncProcessingStep } from '../processing-pipeline'
+import { AsyncProcessingStep } from '../pipeline-types'
 
 async function resolveTeam(
     hub: Pick<Hub, 'teamManager'>,

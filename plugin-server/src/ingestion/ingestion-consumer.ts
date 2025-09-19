@@ -31,8 +31,7 @@ import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing
 import { GroupStoreForBatch } from '../worker/ingestion/groups/group-store-for-batch.interface'
 import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
 import { FlushResult, PersonsStoreForBatch } from '../worker/ingestion/persons/persons-store-for-batch'
-import { BatchResultHandlingPipeline, PipelineConfig } from '../worker/ingestion/result-handling-pipeline'
-import { BatchProcessingPipeline } from './batch-processing-pipeline'
+import { PipelineConfig, ResultHandlingPipeline } from '../worker/ingestion/result-handling-pipeline'
 import { deduplicateEvents } from './deduplication/events'
 import { DeduplicationRedis, createDeduplicationRedis } from './deduplication/redis-client'
 import {
@@ -45,7 +44,9 @@ import {
     createResolveTeamStep,
     createValidateEventUuidStep,
 } from './event-preprocessing'
-import { ProcessingPipeline, ProcessingResult } from './processing-pipeline'
+import { createBatch, createNewPipeline } from './pipeline-types'
+import { ProcessingResult } from './pipeline-types'
+import { ProcessingPipeline } from './processing-pipeline'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
 const ingestionEventOverflowed = new Counter({
@@ -116,8 +117,7 @@ export class IngestionConsumer {
     private deduplicationRedis: DeduplicationRedis
     public readonly promiseScheduler = new PromiseScheduler()
 
-    private preprocessingPipeline: (message: Message) => Promise<ProcessingResult<PreprocessedEvent>>
-    private batchPreprocessingPipeline: (messages: Message[]) => Promise<PreprocessedEvent[]>
+    private batchPreprocessingPipeline!: ResultHandlingPipeline<{ message: Message }, PreprocessedEvent>
 
     constructor(
         private hub: Hub,
@@ -178,56 +178,6 @@ export class IngestionConsumer {
             groupId: this.groupId,
             topic: this.topic,
         })
-
-        // Initialize single message preprocessing pipeline
-        this.preprocessingPipeline = async (message: Message): Promise<ProcessingResult<PreprocessedEvent>> => {
-            try {
-                const pipeline = ProcessingPipeline.of({ message })
-                    .pipe(createParseHeadersStep())
-                    .pipe(createApplyDropRestrictionsStep(this.eventIngestionRestrictionManager))
-                    .pipe(
-                        createApplyForceOverflowRestrictionsStep(this.eventIngestionRestrictionManager, {
-                            overflowEnabled: this.overflowEnabled(),
-                            overflowTopic: this.overflowTopic || '',
-                            preservePartitionLocality: this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
-                        })
-                    )
-                    .pipe(createParseKafkaMessageStep())
-                    .pipeAsync(createResolveTeamStep(this.hub))
-                    .pipe(createApplyPersonProcessingRestrictionsStep(this.eventIngestionRestrictionManager))
-                    .pipeAsync(createValidateEventUuidStep(this.hub))
-
-                return await pipeline.unwrap()
-            } catch (error) {
-                console.error('Error processing message in pipeline:', error)
-                throw error
-            }
-        }
-
-        // Initialize batch preprocessing pipeline using BatchResultHandlingPipeline
-        this.batchPreprocessingPipeline = async (messages: Message[]) => {
-            const pipelineConfig: PipelineConfig = {
-                kafkaProducer: this.kafkaProducer!,
-                dlqTopic: this.dlqTopic,
-                promiseScheduler: this.promiseScheduler,
-            }
-
-            try {
-                // Create the inner batch processing pipeline
-                const innerPipeline = BatchProcessingPipeline.of(messages)
-                    .pipeConcurrently(this.preprocessingPipeline)
-                    .pipe(createApplyCookielessProcessingStep(this.hub))
-
-                // Wrap it in the result handling pipeline
-                const pipeline = BatchResultHandlingPipeline.of(innerPipeline, messages, pipelineConfig)
-
-                // This will automatically handle DLQ, DROP, REDIRECT and return only successful results
-                return await pipeline.unwrap()
-            } catch (error) {
-                console.error('Error processing batch in pipeline:', error)
-                return []
-            }
-        }
     }
 
     public get service(): PluginServerService {
@@ -250,6 +200,9 @@ export class IngestionConsumer {
             }),
         ])
 
+        // Initialize batch preprocessing pipeline after kafka producer is available
+        this.initializePipeline()
+
         await this.kafkaConsumer.connect(async (messages) => {
             return await instrumentFn(
                 {
@@ -259,6 +212,49 @@ export class IngestionConsumer {
                 async () => await this.handleKafkaBatch(messages)
             )
         })
+    }
+
+    private initializePipeline(): void {
+        const pipelineConfig: PipelineConfig = {
+            kafkaProducer: this.kafkaProducer!,
+            dlqTopic: this.dlqTopic,
+            promiseScheduler: this.promiseScheduler,
+        }
+
+        // Create single message processing step
+        const preprocessingStep = async (input: { message: Message }): Promise<ProcessingResult<PreprocessedEvent>> => {
+            try {
+                const pipeline = ProcessingPipeline.create<{ message: Message }>()
+                    .pipe(createParseHeadersStep())
+                    .pipe(createApplyDropRestrictionsStep(this.eventIngestionRestrictionManager))
+                    .pipe(
+                        createApplyForceOverflowRestrictionsStep(this.eventIngestionRestrictionManager, {
+                            overflowEnabled: this.overflowEnabled(),
+                            overflowTopic: this.overflowTopic || '',
+                            preservePartitionLocality: this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
+                        })
+                    )
+                    .pipe(createParseKafkaMessageStep())
+                    .pipeAsync(createResolveTeamStep(this.hub))
+                    .pipe(createApplyPersonProcessingRestrictionsStep(this.eventIngestionRestrictionManager))
+                    .pipeAsync(createValidateEventUuidStep(this.hub))
+
+                const result = await pipeline.process(input)
+                return result as ProcessingResult<PreprocessedEvent>
+            } catch (error) {
+                console.error('Error processing message in pipeline:', error)
+                throw error
+            }
+        }
+
+        // Create the batch processing pipeline with fluent API
+        const pipeline = createNewPipeline()
+            .pipeConcurrently(preprocessingStep)
+            .gather()
+            .pipeBatch(createApplyCookielessProcessingStep(this.hub))
+
+        // Wrap it in the result handling pipeline
+        this.batchPreprocessingPipeline = ResultHandlingPipeline.of(pipeline, pipelineConfig)
     }
 
     public async stop(): Promise<void> {
@@ -630,7 +626,21 @@ export class IngestionConsumer {
     }
 
     private async preprocessEvents(messages: Message[]): Promise<PreprocessedEvent[]> {
-        return await this.batchPreprocessingPipeline(messages)
+        // Create batch using the helper function
+        const batch = createBatch(messages)
+
+        // Feed batch to the pipeline
+        this.batchPreprocessingPipeline.feed(batch)
+
+        // Get all results from the gather pipeline (should return all results in one call)
+        const result = await this.batchPreprocessingPipeline.next()
+
+        if (result === null) {
+            return []
+        }
+
+        // Return the results (already filtered to successful ones by ResultHandlingPipeline)
+        return result
     }
 
     private groupEventsByDistinctId(messages: IncomingEventWithTeam[]): IncomingEventsByDistinctId {
