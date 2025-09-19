@@ -381,3 +381,33 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
             False,
             "1",
         )
+
+    def test_autocapture_does_not_set_initial_url(self):
+        distinct_id = create_distinct_id()
+        session_id = create_session_id()
+
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id=distinct_id,
+            properties={
+                "$session_id": session_id,
+                "$current_url": "/1",
+            },
+            timestamp="2024-03-08",
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={
+                "$session_id": session_id,
+                "$current_url": "/2",
+            },
+            timestamp="2024-03-09",
+        )
+
+        result = self.select_by_session_id(session_id)
+
+        assert result[0]["entry_url"] == "/2"
+        assert result[0]["urls"] == ["/2"]
