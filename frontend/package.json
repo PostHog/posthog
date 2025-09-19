@@ -18,6 +18,7 @@
     "packageManager": "pnpm@9.15.5+sha256.8472168c3e1fd0bff287e694b053fccbbf20579a3ff9526b6333beab8df65a8d",
     "scripts": {
         "copy-scripts": "mkdir -p dist/ && ./bin/copy-posthog-js",
+        "copy-index": "mkdir -p dist/ && cp src/index.html dist/index.html",
         "clean": "rm -rf dist && mkdir dist",
         "build": "pnpm copy-scripts && pnpm build:esbuild",
         "build:esbuild": "DEBUG=0 node ./build.mjs",
@@ -27,7 +28,7 @@
         "start": "if [ -n \"$SKIP_TYPEGEN\" ]; then pnpm start-no-typegen; else pnpm start-all; fi",
         "start-all": "concurrently -n ESBUILD,TYPEGEN,TAILWIND -c yellow,green,blue \"pnpm start-http\" \"${SKIP_TYPEGEN:-pnpm run typegen:watch}\" \"pnpm watch:tailwind\"",
         "start-no-typegen": "concurrently -n ESBUILD,TAILWIND -c yellow,green,blue \"pnpm start-http\" \"pnpm watch:tailwind\"",
-        "start-http": "pnpm clean && pnpm copy-scripts && pnpm build:esbuild --dev",
+        "start-http": "pnpm clean && pnpm copy-scripts && pnpm copy-index && pnpm build:esbuild --dev",
         "start-docker": "pnpm start-http --host 0.0.0.0",
         "typegen:check": "cd .. && NODE_OPTIONS=\"--max-old-space-size=16384\" kea-typegen check",
         "typegen:clean": "cd .. && find frontend/src products common -type f -name '*Type.ts' -delete",
