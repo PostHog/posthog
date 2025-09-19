@@ -94,41 +94,71 @@ async def get_unique_conditions_activity(inputs: BehavioralCohortsWorkflowInputs
 
     where_clause = " AND ".join(where_clauses)
 
-    # Add LIMIT clause if specified
-    limit_clause = f"LIMIT {int(inputs.limit)}" if inputs.limit else ""
+    # Use pagination to get all results in batches of 10,000
+    all_conditions = []
+    page_size = 10000
+    offset = 0
+    total_fetched = 0
 
-    query = f"""
-        SELECT DISTINCT
-            team_id,
-            cohort_id,
-            condition
-        FROM behavioral_cohorts_matches
-        WHERE {where_clause}
-        ORDER BY team_id, cohort_id, condition
-        {limit_clause}
-    """
+    # If user specified a limit, respect it as the maximum total results
+    user_limit = inputs.limit
 
     try:
-        with tags_context(
-            team_id=inputs.team_id,
-            feature=Feature.BEHAVIORAL_COHORTS,
-            cohort_id=inputs.cohort_id,
-            product=Product.MESSAGING,
-            query_type="get_unique_conditions",
-        ):
-            results = sync_execute(query, params, ch_user=ClickHouseUser.COHORTS, workload=Workload.OFFLINE)
+        while True:
+            # Calculate current batch limit
+            if user_limit:
+                remaining = user_limit - total_fetched
+                if remaining <= 0:
+                    break
+                current_limit = min(page_size, remaining)
+            else:
+                current_limit = page_size
 
-        conditions = [
-            {
-                "team_id": row[0],
-                "cohort_id": row[1],
-                "condition": row[2],
-            }
-            for row in results
-        ]
+            query = """
+                SELECT DISTINCT
+                    team_id,
+                    cohort_id,
+                    condition
+                FROM behavioral_cohorts_matches
+                WHERE {where_clause}
+                ORDER BY team_id, cohort_id, condition
+                LIMIT {limit} OFFSET {offset}
+            """.format(where_clause=where_clause, limit=current_limit, offset=offset)
 
-        logger.info(f"Found {len(conditions)} unique conditions")
-        return conditions
+            with tags_context(
+                team_id=inputs.team_id,
+                feature=Feature.BEHAVIORAL_COHORTS,
+                cohort_id=inputs.cohort_id,
+                product=Product.MESSAGING,
+                query_type="get_unique_conditions",
+            ):
+                results = sync_execute(query, params, ch_user=ClickHouseUser.COHORTS, workload=Workload.OFFLINE)
+
+            # If no results returned, we've reached the end
+            if not results:
+                break
+
+            batch_conditions = [
+                {
+                    "team_id": row[0],
+                    "cohort_id": row[1],
+                    "condition": row[2],
+                }
+                for row in results
+            ]
+
+            all_conditions.extend(batch_conditions)
+            total_fetched += len(batch_conditions)
+            offset += current_limit
+
+            logger.info(f"Fetched batch of {len(batch_conditions)} conditions (total: {total_fetched})")
+
+            # If we got fewer results than requested, we've reached the end
+            if len(results) < current_limit:
+                break
+
+        logger.info(f"Found {len(all_conditions)} unique conditions across all pages")
+        return all_conditions
 
     except Exception as e:
         logger.exception("Error fetching unique conditions", error=str(e))
