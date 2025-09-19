@@ -162,7 +162,7 @@ export function SampledSessionsModal({
     ]
 
     return (
-        <LemonModal isOpen={isOpen} onClose={onClose} title={`Sampled Sessions - ${variant}`} width={720}>
+        <LemonModal isOpen={isOpen} onClose={onClose} title={`Sampled sessions - ${variant}`} width={720}>
             <div className="space-y-4">
                 <div className="text">
                     Users in <strong>{variant}</strong> with <strong>{stepName}</strong> as their last funnel step.

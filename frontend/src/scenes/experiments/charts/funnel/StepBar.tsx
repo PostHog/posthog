@@ -60,7 +60,7 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element {
                 onMouseEnter={() => {
                     if (ref.current) {
                         const rect = ref.current.getBoundingClientRect()
-                        showTooltip([rect.x, rect.y, rect.width], stepIndex, step)
+                        showTooltip([rect.x, rect.y, rect.width], stepIndex, step, !!sessionData)
                     }
                 }}
                 onMouseLeave={() => hideTooltip()}
