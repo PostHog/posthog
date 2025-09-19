@@ -953,22 +953,29 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
             # Abort early if the user doesn't have access to the query runner
             # We'll proceed as usual if there's no user connected to this request
-            if user is not None and not self.can_access_query_runner(user):
-                posthoganalytics.capture(
-                    distinct_id=user.distinct_id,
-                    event="query access control error",
-                    properties={
-                        "query_runner": self.__class__.__name__,
-                        "query_id": self.query_id,
-                        "insight_id": insight_id,
-                        "dashboard_id": dashboard_id,
-                        "execution_mode": execution_mode.value,
-                        "query_type": getattr(self.query, "kind", "Other"),
-                        "cache_key": cache_key,
-                    },
-                )
+            # We're capturing the error for analytics purposes, but we reraise the same one
+            if user is not None:
+                try:
+                    self.validate_query_runner_access(user)
+                except UserAccessControlError as error:
+                    posthoganalytics.capture(
+                        distinct_id=user.distinct_id,
+                        event="query access control error",
+                        properties={
+                            "query_runner": self.__class__.__name__,
+                            "query_id": self.query_id,
+                            "insight_id": insight_id,
+                            "dashboard_id": dashboard_id,
+                            "execution_mode": execution_mode.value,
+                            "query_type": getattr(self.query, "kind", "Other"),
+                            "resource": error.resource,
+                            "required_level": error.required_level,
+                            "resource_id": error.resource_id,
+                            "cache_key": cache_key,
+                        },
+                    )
 
-                raise UserAccessControlError()
+                    raise
 
             trigger: str | None = get_query_tag_value("trigger")
 
@@ -1204,25 +1211,40 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         mode = ThresholdMode.LAZY if lazy else ThresholdMode.DEFAULT
         return cache_target_age(interval, last_refresh=last_refresh, mode=mode)
 
-    def can_access_query_runner(self, user: User) -> bool:
+    def validate_query_runner_access(self, user: User) -> bool:
         """
         Child query runners can override this to check if the user has access to the query runner
         by using the user_access_control.check_access_level_for_resource method
 
-        Example
+        It should return `True` if the user has access to the query runner, or raise a `UserAccessControlError` if they don't.
+
+        Example:
         ```
         from posthog.rbac.user_access_control import UserAccessControl
 
-        def can_access_query_runner(self, user: User) -> bool:
+        def validate_query_runner_access(self, user: User) -> bool:
             user_access_control = UserAccessControl(user=user, team=self.team)
-            return user_access_control.check_access_level_for_resource("revenue_analytics", "viewer")
+            if not user_access_control.check_access_level_for_resource("revenue_analytics", "viewer"):
+                raise UserAccessControlError("revenue_analytics", "viewer")
+        ```
+
+        Example using `assert_access_level_for_resource`:
+        ```
+        from posthog.rbac.user_access_control import UserAccessControl
+
+        def validate_query_runner_access(self, user: User) -> bool:
+            user_access_control = UserAccessControl(user=user, team=self.team)
+            return user_access_control.assert_access_level_for_resource("revenue_analytics", "viewer")
         ```
 
         Args:
             user: The user to check access for
 
         Returns:
-            True if the user has access to the query runner, False otherwise
+            `True` if the user has access to the query runner
+
+        Raises:
+            `UserAccessControlError` if the user does not have access to the query runner
         """
         return True
 

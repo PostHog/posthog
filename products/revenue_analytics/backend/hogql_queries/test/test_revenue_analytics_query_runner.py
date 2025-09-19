@@ -5,6 +5,7 @@ from posthog.test.base import APIBaseTest
 from posthog.schema import IntervalType, RevenueAnalyticsGrossRevenueQuery
 
 from posthog.constants import AvailableFeature
+from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.types import ExternalDataSourceType
 
@@ -320,16 +321,16 @@ class TestRevenueAnalyticsQueryRunner(APIBaseTest):
         # Should return our small cache target age since it's the first time syncing
         self.assertDiff(RevenueAnalyticsQueryRunner.SMALL_CACHE_TARGET_AGE)
 
-    def test_can_access_query_runner_by_default(self):
+    def test_validate_query_runner_access(self):
         """Test that the query runner can access the query runner"""
         runner = RevenueAnalyticsQueryRunnerImpl(team=self.team, query=self.query)
-        self.assertTrue(runner.can_access_query_runner(self.user))
+        self.assertTrue(runner.validate_query_runner_access(self.user))
 
-    def test_cannot_access_query_runner_without_view_access_control(self):
+    def test_validate_query_runner_access_without_access(self):
         """Test that the query runner cannot access the query runner without view access control"""
         AccessControl.objects.create(team=self.team, resource="revenue_analytics", access_level="none")
         self.organization.available_product_features.append({"key": AvailableFeature.ADVANCED_PERMISSIONS})  # type: ignore[union-attr]
         self.organization.save()
 
         runner = RevenueAnalyticsQueryRunnerImpl(team=self.team, query=self.query)
-        self.assertFalse(runner.can_access_query_runner(self.user))
+        self.assertRaises(UserAccessControlError, runner.validate_query_runner_access, self.user)

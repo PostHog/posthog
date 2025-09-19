@@ -68,9 +68,9 @@ class RevenueAnalyticsQueryRunner(QueryRunnerWithHogQLContext[AR]):
         RevenueAnalyticsTopCustomersQuery,
     ]
 
-    def can_access_query_runner(self, user: User) -> bool:
+    def validate_query_runner_access(self, user: User) -> bool:
         user_access_control = UserAccessControl(user=user, team=self.team)
-        return user_access_control.check_access_level_for_resource("revenue_analytics", "viewer")
+        return user_access_control.assert_access_level_for_resource("revenue_analytics", "viewer")
 
     def where_property_exprs(self, join_from: RevenueAnalyticsBaseView) -> list[ast.Expr]:
         # Some filters are not namespaced and they should simply use the raw property
