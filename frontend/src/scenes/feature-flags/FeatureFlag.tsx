@@ -683,7 +683,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 {featureFlags[FEATURE_FLAGS.FEATURE_FLAG_COHORT_CREATION] && (
                                     <ButtonPrimitive
                                         menuItem
-                                        data-attr={`${RESOURCE_TYPE}-add-to-notebook`}
+                                        data-attr={`${RESOURCE_TYPE}-create-cohort`}
                                         onClick={() => createStaticCohort()}
                                     >
                                         <IconPlusSmall />
