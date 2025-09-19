@@ -13,7 +13,7 @@ from statshog.defaults.django import statsd
 
 from posthog.api.error_tracking import get_suppression_rules
 from posthog.api.survey import get_surveys_count, get_surveys_opt_in
-from posthog.api.utils import get_project_id, get_token, on_permitted_recording_domain
+from posthog.api.utils import DECIDE_REQUEST_DATA_CACHE_KEY, get_project_id, get_token, on_permitted_recording_domain
 from posthog.constants import SURVEY_TARGETING_FLAG_PREFIX
 from posthog.database_healthcheck import DATABASE_FOR_FLAG_MATCHING
 from posthog.exceptions import (
@@ -245,7 +245,11 @@ def get_decide(request: HttpRequest) -> HttpResponse:
     # --- 2. Parse request data and API version ---
     try:
         with tracer.start_as_current_span("load_data_from_request"):
-            data = load_data_from_request(request)
+            if hasattr(request, DECIDE_REQUEST_DATA_CACHE_KEY):
+                data = getattr(request, DECIDE_REQUEST_DATA_CACHE_KEY)
+            else:
+                data = load_data_from_request(request)
+                setattr(request, DECIDE_REQUEST_DATA_CACHE_KEY, data)
         api_version_string = request.GET.get("v")
         # NOTE: This does not support semantic versioning e.g. 2.1.0
         api_version = int(api_version_string) if api_version_string else 1

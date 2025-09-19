@@ -27,6 +27,7 @@ from statshog.defaults.django import statsd
 
 from posthog.api.decide import get_decide
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.utils import DECIDE_REQUEST_DATA_CACHE_KEY
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.cloud_utils import is_cloud
@@ -39,6 +40,7 @@ from posthog.rate_limit import DecideRateThrottle
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.user_permissions import UserPermissions
+from posthog.utils import load_data_from_request
 
 from .auth import PersonalAPIKeyAuthentication
 from .utils_cors import cors_response
@@ -401,6 +403,8 @@ class ShortCircuitMiddleware:
                     http_referer=request.headers.get("referer"),
                     http_user_agent=request.headers.get("user-agent"),
                 )
+                if not hasattr(request, DECIDE_REQUEST_DATA_CACHE_KEY):
+                    setattr(request, DECIDE_REQUEST_DATA_CACHE_KEY, load_data_from_request(request))
                 if self.decide_throttler.allow_request(request, None):
                     return get_decide(request)
                 else:

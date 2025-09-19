@@ -287,13 +287,17 @@ class DecideRateThrottle(BaseThrottle):
         Accessing it when it does not exist throws a KeyError. Hence, this method.
         """
         try:
-            from posthog.api.utils import get_token
+            from posthog.api.utils import DECIDE_REQUEST_DATA_CACHE_KEY, get_token
             from posthog.utils import load_data_from_request
 
             if request.method != "POST":
                 return None
 
-            data = load_data_from_request(request)
+            if hasattr(request, DECIDE_REQUEST_DATA_CACHE_KEY):
+                data = getattr(request, DECIDE_REQUEST_DATA_CACHE_KEY)
+            else:
+                data = load_data_from_request(request)
+                setattr(request, DECIDE_REQUEST_DATA_CACHE_KEY, data)
             return get_token(data, request)
         except Exception:
             return None
