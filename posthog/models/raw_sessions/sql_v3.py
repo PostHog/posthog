@@ -251,95 +251,6 @@ CAST(arrayFilter(x -> x IS NOT NULL, [
 """
 
 
-def RAW_SESSION_TABLE_BACKFILL_SELECT_SQL_V3(where="TRUE"):
-    return """
-WITH parsed_events AS (
-SELECT
-    team_id,
-    `$session_id`,
-    distinct_id,
-    person_id,
-    timestamp,
-    inserted_at,
-    event,
-    uuid,
-    {PROPERTIES}
-FROM {database}.events
-WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 AND {where}
-)
-
-SELECT
-    team_id,
-    toUUID(`$session_id`) as session_id_v7,
-
-    initializeAggregation('argMaxState', distinct_id, timestamp) as distinct_id,
-    initializeAggregation('argMaxState', person_id, timestamp) as person_id,
-
-    timestamp AS min_timestamp,
-    timestamp AS max_timestamp,
-    inserted_at AS max_inserted_at,
-
-    -- urls
-    if(current_url IS NOT NULL, [current_url], []) AS urls,
-    initializeAggregation('argMinState', current_url, timestamp) as entry_url,
-    initializeAggregation('argMaxState', current_url, timestamp) as end_url,
-    initializeAggregation('argMaxState', external_click_url, timestamp) as last_external_click_url,
-
-    -- device
-    initializeAggregation('argMinState', browser, timestamp) as browser,
-    initializeAggregation('argMinState', browser_version, timestamp) as browser_version,
-    initializeAggregation('argMinState', os, timestamp) as os,
-    initializeAggregation('argMinState', os_version, timestamp) as os_version,
-    initializeAggregation('argMinState', device_type, timestamp) as device_type,
-    initializeAggregation('argMinState', viewport_width, timestamp) as viewport_width,
-    initializeAggregation('argMinState', viewport_height, timestamp) as viewport_height,
-
-    -- geo ip
-    initializeAggregation('argMinState', geoip_country_code, timestamp) as geoip_country_code,
-    initializeAggregation('argMinState', geoip_subdivision_1_code, timestamp) as geoip_subdivision_1_code,
-    initializeAggregation('argMinState', geoip_subdivision_1_name, timestamp) as geoip_subdivision_1_name,
-    initializeAggregation('argMinState', geoip_subdivision_city_name, timestamp) as geoip_subdivision_city_name,
-    initializeAggregation('argMinState', geoip_time_zone, timestamp) as geoip_time_zone,
-
-    -- attribution
-    initializeAggregation('argMinState', referring_domain, timestamp) as entry_referring_domain,
-    initializeAggregation('argMinState', utm_source, timestamp) as entry_utm_source,
-    initializeAggregation('argMinState', utm_campaign, timestamp) as entry_utm_campaign,
-    initializeAggregation('argMinState', utm_medium, timestamp) as entry_utm_medium,
-    initializeAggregation('argMinState', utm_term, timestamp) as entry_utm_term,
-    initializeAggregation('argMinState', utm_content, timestamp) as entry_utm_content,
-    initializeAggregation('argMinState', gclid, timestamp) as entry_gclid,
-    initializeAggregation('argMinState', gad_source, timestamp) as entry_gad_source,
-    initializeAggregation('argMinState', fbclid, timestamp) as entry_fbclid,
-
-    -- has gclid/fbclid for reading fewer bytes when calculating channel type
-    initializeAggregation('argMinState', gclid IS NOT NULL, timestamp) as entry_has_gclid,
-    initializeAggregation('argMinState', fbclid IS NOT NULL, timestamp) as entry_has_fbclid,
-
-    -- other ad ids
-    initializeAggregation('argMinState', ({AD_IDS_MAP}), timestamp) as entry_ad_ids_map,
-    initializeAggregation('argMinState', ({AD_IDS_SET}), timestamp) as entry_ad_ids_set,
-
-    -- channel type
-    initializeAggregation('argMinState', tuple(utm_source, utm_medium, utm_campaign, referring_domain, gclid IS NOT NULL, fbclid IS NOT NULL, gad_source), timestamp) as entry_channel_type_properties,
-
-    -- counts
-    initializeAggregation('uniqState', if(event='$pageview', uuid, NULL)) as pageview_uniq,
-    initializeAggregation('uniqState', if(event='$autocapture', uuid, NULL)) as autocapture_uniq,
-    initializeAggregation('uniqState', if(event='$screen', uuid, NULL)) as screen_uniq,
-
-    -- perf
-    initializeAggregation('uniqUpToState(1)', if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to
-FROM parsed_events
-""".format(
-        database=settings.CLICKHOUSE_DATABASE,
-        where=where,
-        PROPERTIES=PROPERTIES,
-        AD_IDS_MAP=AD_IDS_MAP,
-        AD_IDS_SET=AD_IDS_SET,
-    )
-
-
 def RAW_SESSION_TABLE_MV_SELECT_SQL_V3(where="TRUE"):
     return """
 WITH parsed_events AS (
@@ -455,6 +366,18 @@ MODIFY QUERY
         select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(),
     )
 )
+
+
+def RAW_SESSION_TABLE_BACKFILL_SQL_V3(where="TRUE"):
+    return """
+INSERT INTO {database}.{writable_table}
+{select_sql}
+""".format(
+        database=settings.CLICKHOUSE_DATABASE,
+        writable_table=WRITABLE_RAW_SESSIONS_TABLE_V3(),
+        select_sql=RAW_SESSION_TABLE_MV_SELECT_SQL_V3(where=where),
+    )
+
 
 # Distributed engine tables are only created if CLICKHOUSE_REPLICATED
 

@@ -3,7 +3,7 @@ import datetime
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from posthog.clickhouse.client import query_with_columns, sync_execute
-from posthog.models.raw_sessions.sql_v3 import RAW_SESSION_TABLE_BACKFILL_SELECT_SQL_V3
+from posthog.models.raw_sessions.sql_v3 import RAW_SESSION_TABLE_BACKFILL_SQL_V3
 from posthog.models.utils import uuid7
 
 distinct_id_counter = 0
@@ -305,7 +305,7 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
 
         # just test that the backfill SQL can be run without error
         sync_execute(
-            "INSERT INTO raw_sessions_v3" + RAW_SESSION_TABLE_BACKFILL_SELECT_SQL_V3("team_id = %(team_id)s"),
+            RAW_SESSION_TABLE_BACKFILL_SQL_V3("team_id = %(team_id)s"),
             {"team_id": self.team.id},
         )
 
