@@ -183,6 +183,8 @@ SESSION_V3_LOWER_TIER_AD_IDS = [
     "irclid",
 ]
 
+new_line = "\n"
+
 # See https://kb.altinity.com/altinity-kb-queries-and-syntax/jsonextract-to-parse-many-attributes-at-a-time/
 # Or https://posthog.slack.com/archives/C02JQ320FV3/p1721406540313379?thread_ts=1721334861.073739&cid=C02JQ320FV3
 PROPERTIES = f"""
@@ -235,19 +237,13 @@ tupleElement(p, 'utm_content') as utm_content,
 tupleElement(p, 'gclid') as gclid,
 tupleElement(p, 'gad_source') as gad_source,
 tupleElement(p, 'fbclid') as fbclid,
-{','.join([f"tupleElement(p, '{ad_id}') as {ad_id}" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
-"""
-
-AD_IDS_MAP = f"""
+{f',{new_line}'.join([f"tupleElement(p, '{ad_id}') as {ad_id}" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])},
 CAST(mapFilter((k, v) -> v IS NOT NULL, map(
-{','.join([f"'{ad_id}', {ad_id}" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
-)) AS Map(String, String))
-"""
-
-AD_IDS_SET = f"""
+{f',{new_line}'.join([f"'{ad_id}', {ad_id}" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
+)) AS Map(String, String)) as ad_ids_map,
 CAST(arrayFilter(x -> x IS NOT NULL, [
-{','.join([f"if({ad_id} IS NOT NULL, '{ad_id}', NULL)" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
-]) AS Array(String))
+{f',{new_line}'.join([f"if({ad_id} IS NOT NULL, '{ad_id}', NULL)" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
+]) AS Array(String)) as ad_ids_set
 """
 
 
@@ -321,8 +317,8 @@ SELECT
     initializeAggregation('argMinState', fbclid IS NOT NULL, pageview_prio_timestamp_min) as entry_has_fbclid,
 
     -- other ad ids
-    initializeAggregation('argMinState', ({AD_IDS_MAP}), pageview_prio_timestamp_min) as entry_ad_ids_map,
-    initializeAggregation('argMinState', ({AD_IDS_SET}), pageview_prio_timestamp_min) as entry_ad_ids_set,
+    initializeAggregation('argMinState', ad_ids_map, pageview_prio_timestamp_min) as entry_ad_ids_map,
+    initializeAggregation('argMinState', ad_ids_set, pageview_prio_timestamp_min) as entry_ad_ids_set,
 
     -- channel type
     initializeAggregation('argMinState', tuple(utm_source, utm_medium, utm_campaign, referring_domain, gclid IS NOT NULL, fbclid IS NOT NULL, gad_source), pageview_prio_timestamp_min) as entry_channel_type_properties,
@@ -340,8 +336,6 @@ FROM parsed_events
         database=settings.CLICKHOUSE_DATABASE,
         where=where,
         PROPERTIES=PROPERTIES,
-        AD_IDS_MAP=AD_IDS_MAP,
-        AD_IDS_SET=AD_IDS_SET,
     )
 
 
