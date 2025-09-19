@@ -332,7 +332,8 @@ class MatrixManager:
             )
             self._persons_created += 1
             self._person_distinct_ids_created += len(subject.distinct_ids_at_now)
-            for distinct_id in subject.distinct_ids_at_now:
+            # Sort distinct_ids for deterministic iteration order
+            for distinct_id in sorted(subject.distinct_ids_at_now):
                 create_person_distinct_id(
                     team_id=team.pk,
                     distinct_id=str(distinct_id),
