@@ -165,7 +165,7 @@ export function SampledSessionsModal({
         <LemonModal isOpen={isOpen} onClose={onClose} title={`Sampled Sessions - ${variant}`} width={720}>
             <div className="space-y-4">
                 <div className="text">
-                    Users in <strong>{variant}</strong> where <strong>{stepName}</strong> was their last step.
+                    Users in <strong>{variant}</strong> with <strong>{stepName}</strong> as their last funnel step.
                 </div>
                 <div className="mt-2">
                     <LemonTable
