@@ -214,6 +214,7 @@ class SystemTables(TableGroup):
         "cohorts": cohorts,
         "insights": insights,
         "experiments": experiments,
+        "exports": exports,
         "data_warehouse_sources": data_warehouse_sources,
         "feature_flags": feature_flags,
         "groups": groups,
