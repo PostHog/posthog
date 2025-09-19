@@ -3,7 +3,14 @@ from typing import Optional
 
 import posthoganalytics
 
-from posthog.schema import ActionsNode, DataWarehouseNode, EventsNode, HogQLQueryModifiers, RecordingsQuery
+from posthog.schema import (
+    ActionsNode,
+    DataWarehouseNode,
+    EventPropertyFilter,
+    EventsNode,
+    HogQLQueryModifiers,
+    RecordingsQuery,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
@@ -356,8 +363,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         into an event and property filter
         """
         try:
-            property_type = getattr(p, "type", None)
-            if property_type is None or property_type != "event":
+            if not isinstance(p, EventPropertyFilter):
                 # something unexpected has been passed to us,
                 # but we would always have called property_to_expr before
                 # so let's just do that
@@ -382,7 +388,6 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
             event_exprs = ReplayFiltersEventsSubQuery._event_predicates(entities, team)
 
-            # Combine all with OR: ((event = '$pageview' AND ...) OR(event='$pageleave' AND...))
             return ast.Or(exprs=event_exprs)
         except Exception as e:
             posthoganalytics.capture_exception(e, properties={"replay_feature": "with_team_events_added"})
