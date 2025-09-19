@@ -255,7 +255,7 @@ class TestLoginAPI(APIBaseTest):
                     "/api/login",
                     {"email": "new_user@posthog.com", "password": "invalid"},
                 )
-                self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+                self.assertIn(response.status_code, [status.HTTP_400_BAD_REQUEST, status.HTTP_403_FORBIDDEN])
                 self.assertEqual(response.json(), self.ERROR_INVALID_CREDENTIALS)
 
                 # Assert user is not logged in

@@ -21,6 +21,8 @@ from django.shortcuts import redirect
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_protect
 
+from axes.exceptions import AxesBackendPermissionDenied
+from axes.handlers.proxy import AxesProxyHandler
 from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice
 from loginas.utils import is_impersonated_session, restore_original_login
@@ -168,14 +170,11 @@ class LoginSerializer(serializers.Serializer):
         was_authenticated_before_login_attempt = bool(getattr(request, "user", None) and request.user.is_authenticated)
 
         # Initialize axes handler via proxy so request metadata is populated consistently
-        from axes.handlers.proxy import AxesProxyHandler
-
         handler = AxesProxyHandler
+        axes_credentials = {"username": validated_data["email"]}
 
         # Check if axes has locked out this IP/user before attempting authentication
-        if handler.is_locked(axes_request, credentials={"username": validated_data["email"]}):
-            from axes.exceptions import AxesBackendPermissionDenied
-
+        if handler.is_locked(axes_request, credentials=axes_credentials):
             raise AxesBackendPermissionDenied("Account locked: too many login attempts.")
 
         user = cast(
@@ -188,8 +187,11 @@ class LoginSerializer(serializers.Serializer):
         )
 
         if not user:
-            # Record the failed attempt with axes
-            handler.user_login_failed(None, credentials={"username": validated_data["email"]}, request=axes_request)
+            # Axes tracks failed attempts via authentication signals. If this failure triggered a
+            # lockout, surface the lockout response instead of the generic credential error.
+            if handler.is_locked(axes_request, credentials=axes_credentials):
+                raise AxesBackendPermissionDenied("Account locked: too many login attempts.")
+
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
         # We still let them log in if is_email_verified is null so existing users don't get locked out
