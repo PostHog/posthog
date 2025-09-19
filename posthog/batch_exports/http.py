@@ -809,10 +809,8 @@ def create_backfill(
     if start_at >= end_at:
         raise ValidationError("The initial backfill datetime 'start_at' happens after 'end_at'")
 
-    if end_at > dt.datetime.now(dt.UTC) + batch_export.interval_time_delta:
-        raise ValidationError(
-            f"The provided 'end_at' ({end_at.isoformat()}) is too far into the future. Cannot backfill beyond 1 batch period into the future."
-        )
+    if end_at > dt.datetime.now(dt.UTC):
+        raise ValidationError(f"The provided 'end_at' ({end_at.isoformat()}) is in the future")
 
     try:
         return backfill_export(temporal, str(batch_export.pk), team.pk, start_at, end_at)
