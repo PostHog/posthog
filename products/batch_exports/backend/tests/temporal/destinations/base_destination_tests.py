@@ -28,6 +28,7 @@ from posthog.batch_exports.service import (
     BatchExportModel,
     BatchExportSchema,
 )
+from posthog.models.integration import Integration
 from posthog.models.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export, afetch_batch_export_runs
@@ -121,6 +122,10 @@ class BaseDestinationTest(ABC):
         """
         pass
 
+    def create_integration(self, team_id: int) -> Integration | None:
+        """Create a test integration (for those destinations that require an integration)"""
+        return None
+
     @abstractmethod
     def get_json_columns(self, inputs: BaseBatchExportInputs) -> list[str]:
         """Return the JSON columns for the destination."""
@@ -140,11 +145,12 @@ class BaseDestinationTest(ABC):
         self,
         team_id: int,
         json_columns: list[str],
+        integration: Integration | None = None,
     ) -> list[dict[str, t.Any]]:
         pass
 
     @abstractmethod
-    async def assert_no_data_in_destination(self, team_id: int) -> None:
+    async def assert_no_data_in_destination(self, team_id: int, integration: "Integration | None" = None) -> None:
         """Assert that no data was written to the destination."""
         pass
 
@@ -300,6 +306,7 @@ async def assert_clickhouse_records_in_destination(
     expect_duplicates: bool = False,
     primary_key: list[str] | None = None,
     fields_to_exclude: list[str] | None = None,
+    integration: Integration | None = None,
 ):
     """Assert that the expected data was written to the destination."""
     json_columns = destination_test.get_json_columns(inputs)
@@ -318,6 +325,7 @@ async def assert_clickhouse_records_in_destination(
     records_from_destination = await destination_test.get_inserted_records(
         team_id=team_id,
         json_columns=json_columns,
+        integration=integration,
     )
 
     # Determine sort key based on model
@@ -420,12 +428,20 @@ class CommonWorkflowTests:
 
     @pytest.fixture
     async def batch_export_for_destination(
-        self, ateam, destination_data, temporal_client, interval
+        self, ateam, destination_data, temporal_client, interval, integration
     ) -> AsyncGenerator[BatchExport, None]:
         """Manage BatchExport model (and associated Temporal Schedule) for tests"""
+        # Add integration_id to destination data if integration exists
+        destination_config = destination_data["config"].copy()
+        if integration:
+            destination_config["integration_id"] = integration.pk
+
         batch_export_data = {
             "name": "my-production-destination-export",
-            "destination": destination_data,
+            "destination": {
+                **destination_data,
+                "config": destination_config,
+            },
             "interval": interval,
         }
 
@@ -445,6 +461,11 @@ class CommonWorkflowTests:
         raise NotImplementedError("destination_test fixture must be implemented by destination-specific tests")
 
     @pytest.fixture
+    def integration(self, ateam):
+        """Create a test integration (for those destinations that require an integration)"""
+        raise NotImplementedError("integration fixture must be implemented by destination-specific tests")
+
+    @pytest.fixture
     def simulate_unexpected_error(self):
         raise NotImplementedError("simulate_unexpected_error fixture must be implemented by destination-specific tests")
 
@@ -462,6 +483,8 @@ class CommonWorkflowTests:
         data_interval_end: dt.datetime,
         ateam,
         batch_export_for_destination,  # This fixture needs to be provided by destination-specific tests
+        integration,
+        setup_destination,
     ):
         """Test that the workflow completes successfully end-to-end.
 
@@ -513,6 +536,7 @@ class CommonWorkflowTests:
             batch_export_model=batch_export_model or batch_export_schema,
             exclude_events=exclude_events,
             inputs=inputs,
+            integration=integration,
         )
 
     async def test_workflow_without_events(
@@ -522,6 +546,8 @@ class CommonWorkflowTests:
         batch_export_for_destination,
         data_interval_start: dt.datetime,
         data_interval_end: dt.datetime,
+        integration,
+        setup_destination,
     ):
         """Test workflow behavior when there are no events to export."""
         inputs = destination_test.create_batch_export_inputs(
@@ -544,6 +570,7 @@ class CommonWorkflowTests:
 
         await destination_test.assert_no_data_in_destination(
             team_id=ateam.pk,
+            integration=integration,
         )
 
     async def test_workflow_handles_unexpected_errors(
@@ -553,6 +580,8 @@ class CommonWorkflowTests:
         data_interval_end: dt.datetime,
         batch_export_for_destination,
         simulate_unexpected_error,
+        integration,
+        setup_destination,
     ):
         """Test that workflow handles unexpected errors gracefully.
 
@@ -589,6 +618,8 @@ class CommonWorkflowTests:
         generate_test_data,
         data_interval_end: dt.datetime,
         batch_export_for_destination,
+        integration,
+        setup_destination,
     ):
         """Test that workflow handles non-retryable errors gracefully.
 
