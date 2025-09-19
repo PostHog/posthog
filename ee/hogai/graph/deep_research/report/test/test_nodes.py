@@ -683,4 +683,5 @@ class TestDeepResearchReportNode:
         assert report_notebook.title == "Test Notebook"
 
         # Check that current_run_notebooks contains all notebooks
+        assert result.current_run_notebooks is not None
         assert len(result.current_run_notebooks) == 3  # 2 existing + 1 new

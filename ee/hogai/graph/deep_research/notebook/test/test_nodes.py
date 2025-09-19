@@ -47,6 +47,7 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
         self.assertEqual(len(result.conversation_notebooks), 1)
         self.assertEqual(result.conversation_notebooks[0].notebook_id, "test-notebook-123")
         self.assertEqual(result.conversation_notebooks[0].notebook_type, DeepResearchType.PLANNING)
+        self.assertIsNotNone(result.current_run_notebooks)
         self.assertEqual(len(result.current_run_notebooks), 1)
         self.assertEqual(result.current_run_notebooks[0].notebook_id, "test-notebook-123")
 
@@ -87,6 +88,7 @@ class TestDeepResearchNotebookPlanningNode(APIBaseTest):
 
         self.assertIsInstance(result, PartialDeepResearchState)
         self.assertEqual(len(result.conversation_notebooks), 1)
+        self.assertIsNotNone(result.current_run_notebooks)
         self.assertEqual(len(result.current_run_notebooks), 1)
 
     async def test_arun_raises_error_when_last_message_not_human(self):
