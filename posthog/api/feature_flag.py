@@ -193,8 +193,10 @@ class FeatureFlagSerializer(
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
-        # Use new access control system
-        return self.get_user_access_level(feature_flag) == "editor"
+        from posthog.rbac.user_access_control import access_level_satisfied_for_resource
+
+        user_access_level = self.get_user_access_level(feature_flag)
+        return user_access_level and access_level_satisfied_for_resource("feature_flag", user_access_level, "editor")
 
     # Simple flags are ones that only have rollout_percentage
     # That means server side libraries are able to gate these flags without calling to the server
