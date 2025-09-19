@@ -101,11 +101,6 @@ export function InsightMeta({
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    // const tileLogicProps = { dashboardId: dashboardId, tileId: tile.id, filtersOverrides: tile.filters_overrides } as TileLogicProps
-    // const logic = tileLogic(tileLogicProps)
-    // const { hasOverrides } = useValues(logic)
-    // console.log('has overrides', hasOverrides)
-
     const otherDashboards = nameSortedDashboards.filter((d) => !dashboards?.includes(d.id))
 
     const canViewInsight = insight.user_access_level
@@ -186,7 +181,13 @@ export function InsightMeta({
             }
             content={
                 <InsightMetaContent
-                    link={urls.insightView(short_id, dashboardId, variablesOverride, filtersOverride)}
+                    link={urls.insightView(
+                        short_id,
+                        dashboardId,
+                        variablesOverride,
+                        filtersOverride,
+                        tile.filters_overrides
+                    )}
                     title={name}
                     fallbackTitle={summary}
                     description={insight.description}

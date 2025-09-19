@@ -1423,7 +1423,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     'force_blocking',
                     undefined,
                     values.urlFilters,
-                    values.urlVariables
+                    values.urlVariables,
+                    tile.filters_overrides
                 )
 
                 eventUsageLogic.actions.reportDashboardTileRefreshed(
@@ -1509,7 +1510,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             forceRefresh ? 'force_blocking' : 'blocking', // 'blocking' returns cached data if available, when manual refresh is triggered we want fresh results
                             methodOptions,
                             values.urlFilters,
-                            values.urlVariables
+                            values.urlVariables,
+                            tile.filters_overrides
                         )
 
                         if (refreshedInsight) {
@@ -1824,7 +1826,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 initialValues: {},
                 content: (
                     <BindLogic logic={tileLogic} props={tileLogicProps}>
-                        <TileFiltersOverride tile={tile} dashboardId={props.id} />
+                        <TileFiltersOverride tile={tile} />
                     </BindLogic>
                 ),
                 tertiaryButton: {
