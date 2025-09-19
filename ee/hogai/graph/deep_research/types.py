@@ -3,7 +3,7 @@ from enum import StrEnum
 from typing import Annotated, Literal, Optional
 
 from langgraph.graph import END, START
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from posthog.schema import DeepResearchNotebook, PlanningStepStatus, TaskExecutionItem
 
@@ -42,6 +42,9 @@ class DeepResearchIntermediateResult(BaseModel):
 
 
 class _SharedDeepResearchState(BaseStateWithMessages, BaseStateWithTasks):
+    # Keepingtyping aligned with the base class so mypy remains happy, but coerce incoming
+    # dicts into the DeepResearchTask subtype for assistant-specific fields.
+    tasks: Annotated[Optional[list[TaskExecutionItem]], replace] = Field(default=None)
     todos: Annotated[Optional[list[DeepResearchTodo]], replace] = Field(default=None)
     """
     The current TO-DO list.
@@ -62,6 +65,18 @@ class _SharedDeepResearchState(BaseStateWithMessages, BaseStateWithTasks):
     """
     Notebooks created in the current deep research run (reset on new run).
     """
+
+    @field_validator("tasks", mode="before")
+    @classmethod
+    def _ensure_deep_research_tasks(cls, value):
+        if value is None:
+            return value
+
+        coerced: list[DeepResearchTask] = []
+        for task in value:
+            coerced.append(DeepResearchTask.model_validate(task))
+
+        return coerced
 
 
 class DeepResearchState(_SharedDeepResearchState):

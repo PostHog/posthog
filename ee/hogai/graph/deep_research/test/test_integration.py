@@ -19,7 +19,6 @@ from posthog.schema import (
     PlanningMessage,
     PlanningStep,
     PlanningStepStatus,
-    TaskExecutionItem,
     TaskExecutionStatus,
     VisualizationItem,
 )
@@ -32,7 +31,12 @@ from ee.hogai.graph.deep_research.onboarding.nodes import DeepResearchOnboarding
 from ee.hogai.graph.deep_research.planner.nodes import DeepResearchPlannerNode, DeepResearchPlannerToolsNode
 from ee.hogai.graph.deep_research.report.nodes import DeepResearchReportNode
 from ee.hogai.graph.deep_research.task_executor.nodes import DeepResearchTaskExecutorNode
-from ee.hogai.graph.deep_research.types import DeepResearchIntermediateResult, DeepResearchState, DeepResearchTodo
+from ee.hogai.graph.deep_research.types import (
+    DeepResearchIntermediateResult,
+    DeepResearchState,
+    DeepResearchTask,
+    DeepResearchTodo,
+)
 from ee.hogai.utils.types.base import TaskResult
 from ee.models.assistant import Conversation
 
@@ -56,7 +60,7 @@ class TestDeepResearchWorkflowIntegration(APIBaseTest):
         self,
         messages: list[Any] | None = None,
         todos: list[DeepResearchTodo] | None = None,
-        tasks: list[TaskExecutionItem] | None = None,
+        tasks: list[DeepResearchTask] | None = None,
         task_results: list[TaskResult] | None = None,
         intermediate_results: list[DeepResearchIntermediateResult] | None = None,
         current_run_notebooks: list[DeepResearchNotebook] | None = None,
