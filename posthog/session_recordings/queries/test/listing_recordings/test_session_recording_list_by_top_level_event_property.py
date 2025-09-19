@@ -35,6 +35,8 @@ class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIB
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
         sync_execute(TRUNCATE_LOG_ENTRIES_TABLE_SQL)
 
+        EventProperty.objects.all().delete()
+
     def create_action(self, name, team_id=None, properties=None):
         if team_id is None:
             team_id = self.team.pk
@@ -154,7 +156,7 @@ class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIB
     def test_can_filter_for_flags(self, _name: str, properties: dict, expected: list[str]) -> None:
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
-        for event_name in ["foo", "bar", "baz"]:
+        for event_name in ["foo", "bar", "baz", "$pageview"]:
             EventProperty.objects.create(team=self.team, event=event_name, property="$feature/target-flag")
             EventProperty.objects.create(team=self.team, event=event_name, property="$feature/flag-that-is-different")
 
@@ -240,6 +242,11 @@ class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIB
     def test_can_filter_for_two_is_not_event_properties(self) -> None:
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
+        for event_name in ["foo", "bar", "baz", "$pageview"]:
+            EventProperty.objects.create(team=self.team, event=event_name, property="probe-one")
+            EventProperty.objects.create(team=self.team, event=event_name, property="probe-two")
+            EventProperty.objects.create(team=self.team, event=event_name, property="$feature/target-flag-2")
+
         produce_replay_summary(
             distinct_id="user",
             session_id="1",
@@ -313,6 +320,10 @@ class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIB
     def test_can_filter_for_does_not_match_regex_event_properties(self) -> None:
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
+        for event_name in ["foo", "bar", "baz", "$pageview"]:
+            EventProperty.objects.create(team=self.team, event=event_name, property="$host")
+            EventProperty.objects.create(team=self.team, event=event_name, property="something-else")
+
         produce_replay_summary(
             distinct_id="user",
             session_id="1",
@@ -385,6 +396,11 @@ class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIB
     @snapshot_clickhouse_queries
     def test_can_filter_for_does_not_contain_event_properties(self) -> None:
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+
+        for event_name in ["foo", "bar", "baz", "$pageview"]:
+            EventProperty.objects.create(team=self.team, event=event_name, property="something")
+            EventProperty.objects.create(team=self.team, event=event_name, property="has")
+            EventProperty.objects.create(team=self.team, event=event_name, property="something-else")
 
         paul_google_session = str(uuid7())
         produce_replay_summary(
