@@ -651,10 +651,10 @@ mod tests {
 
     fn create_test_event() -> RawEvent {
         RawEvent {
-            uuid: None,
+            uuid: Some(uuid::Uuid::now_v7()),
             event: "test_event".to_string(),
-            distinct_id: Some(serde_json::Value::String("user1".to_string())),
-            token: Some("test_token".to_string()),
+            distinct_id: Some(serde_json::Value::String(uuid::Uuid::now_v7().to_string())),
+            token: Some(uuid::Uuid::now_v7().to_string()),
             properties: HashMap::new(),
             ..Default::default()
         }
@@ -951,8 +951,8 @@ mod tests {
     async fn test_cleaner_task_retention_time() {
         // Add some test stores
         let store_manager = create_test_store_manager();
-        let store1 = create_test_store("flush_all_with_stores", 0);
-        let store2 = create_test_store("flush_all_with_stores", 1);
+        let store1 = create_test_store("cleaner_task_retention_time", 0);
+        let store2 = create_test_store("cleaner_task_retention_time", 1);
 
         // Add events to the stores
         let event = create_test_event();
@@ -962,11 +962,11 @@ mod tests {
         // add dedup stores to manager
         let stores = store_manager.stores();
         stores.insert(
-            Partition::new("flush_all_with_stores".to_string(), 0),
+            Partition::new("cleaner_task_retention_time".to_string(), 0),
             store1,
         );
         stores.insert(
-            Partition::new("flush_all_with_stores".to_string(), 1),
+            Partition::new("cleaner_task_retention_time".to_string(), 1),
             store2,
         );
 
@@ -1016,8 +1016,8 @@ mod tests {
     async fn test_cleaner_task_partition_count() {
         // Add some test stores
         let store_manager = create_test_store_manager();
-        let store1 = create_test_store("flush_all_with_stores", 0);
-        let store2 = create_test_store("flush_all_with_stores", 1);
+        let store1 = create_test_store("cleaner_task_partition_count", 0);
+        let store2 = create_test_store("cleaner_task_partition_count", 1);
 
         // Add events to the stores
         let event = create_test_event();
@@ -1027,11 +1027,11 @@ mod tests {
         // add dedup stores to manager
         let stores = store_manager.stores();
         stores.insert(
-            Partition::new("flush_all_with_stores".to_string(), 0),
+            Partition::new("cleaner_task_partition_count".to_string(), 0),
             store1,
         );
         stores.insert(
-            Partition::new("flush_all_with_stores".to_string(), 1),
+            Partition::new("cleaner_task_partition_count".to_string(), 1),
             store2,
         );
 
