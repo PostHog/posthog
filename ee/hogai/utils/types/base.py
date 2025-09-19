@@ -2,7 +2,7 @@ import uuid
 from collections.abc import Sequence
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated, Any, Literal, Optional, Self, TypeVar, Union
+from typing import Annotated, Any, Generic, Literal, Optional, Self, TypeVar, Union
 
 from langchain_core.agents import AgentAction
 from langchain_core.messages import BaseMessage as LangchainBaseMessage
@@ -84,8 +84,17 @@ def append(left: Sequence, right: Sequence) -> Sequence:
     return [*left, *right]
 
 
+T = TypeVar("T")
+
+
+class ReplaceMessages(Generic[T], list[T]):
+    """
+    Replaces the existing messages with the new messages.
+    """
+
+
 def add_and_merge_messages(
-    left: Sequence[AssistantMessageUnion], right: Sequence[AssistantMessageUnion]
+    left_value: Sequence[AssistantMessageUnion], right_value: Sequence[AssistantMessageUnion]
 ) -> Sequence[AssistantMessageUnion]:
     """Merges two lists of messages, updating existing messages by ID.
 
@@ -103,8 +112,8 @@ def add_and_merge_messages(
         message from `right` will replace the message from `left`.
     """
     # coerce to list
-    left = list(left)
-    right = list(right)
+    left = list(left_value)
+    right = list(right_value)
 
     # assign missing ids
     for m in left:
@@ -114,7 +123,9 @@ def add_and_merge_messages(
         if m.id is None:
             m.id = str(uuid.uuid4())
 
-    # merge
+    if isinstance(right_value, ReplaceMessages):
+        return right
+
     left_idx_by_id = {m.id: i for i, m in enumerate(left)}
     merged = left.copy()
     for m in right:
@@ -122,7 +133,6 @@ def add_and_merge_messages(
             merged[existing_idx] = m
         else:
             merged.append(m)
-
     return merged
 
 
@@ -333,7 +343,10 @@ class AssistantState(_SharedAssistantState):
 
 
 class PartialAssistantState(_SharedAssistantState):
-    pass
+    messages: Sequence[AssistantMessageUnion] = Field(default=[])
+    """
+    Messages exposed to the user.
+    """
 
 
 class AssistantNodeName(StrEnum):
