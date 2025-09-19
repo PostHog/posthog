@@ -174,6 +174,8 @@ def filter_from_params_to_query(params: dict) -> RecordingsQuery:
     data_dict.pop("version", None)
     # we used to send `hogql_filtering` and it's not part of query, so we pop to make sure
     data_dict.pop("hogql_filtering", None)
+    # we don't want to pass add_events_to_property_queries into the model validation
+    data_dict.pop("add_events_to_property_queries", None)
 
     try:
         return RecordingsQuery.model_validate(data_dict)
@@ -562,7 +564,7 @@ class SessionRecordingViewSet(
                     )
 
                 with tracer.start_as_current_span("convert_filters"):
-                    query = filter_from_params_to_query(request.GET.dict())
+                    query = filter_from_params_to_query(**request.GET.dict())
 
                 if query.comment_text:
                     with tracer.start_as_current_span("search_comments"):
