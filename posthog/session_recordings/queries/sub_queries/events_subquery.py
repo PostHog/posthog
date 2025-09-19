@@ -58,10 +58,12 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         self,
         team: Team,
         query: RecordingsQuery,
+        allow_event_property_expansion: bool,
         hogql_query_modifiers: Optional[HogQLQueryModifiers] = None,
     ):
         super().__init__(team, query)
         self._hogql_query_modifiers = hogql_query_modifiers
+        self._allow_event_property_expansion = allow_event_property_expansion
 
     @staticmethod
     def _event_predicates(
@@ -108,8 +110,17 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             gathered_exprs += event_where_exprs
 
         for p in self.event_properties:
-            event_enriched_event_property_exprs = self.with_team_events_added(p, self._team)
-            gathered_exprs.append(event_enriched_event_property_exprs)
+            if self._allow_event_property_expansion:
+                event_enriched_event_property_exprs = self.with_team_events_added(p, self._team)
+                gathered_exprs.append(event_enriched_event_property_exprs)
+            else:
+                gathered_exprs.append(
+                    property_to_expr(
+                        p,
+                        team=self._team,
+                        scope="replay",
+                    )
+                )
 
         for p in self.group_properties:
             gathered_exprs.append(property_to_expr(p, team=self._team))

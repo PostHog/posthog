@@ -1574,6 +1574,7 @@ def list_recordings_from_query(
                 query=query,
                 team=team,
                 hogql_query_modifiers=None,
+                allow_event_property_expansion=True,
             ).run()
 
         with timer("build_recordings"), tracer.start_as_current_span("build_recordings"):
