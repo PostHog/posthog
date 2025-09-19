@@ -39,8 +39,8 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
     # NOTE: Do we need to override the scopes for the "create"
     scope_object = "named_query"
     # Special case for query - these are all essentially read actions
-    scope_object_read_actions = ["retrieve", "create", "list", "destroy", "update", "run"]
-    scope_object_write_actions: list[str] = []
+    scope_object_read_actions = ["retrieve", "list", "run"]
+    scope_object_write_actions: list[str] = ["create", "destroy", "update"]
     lookup_field = "name"
     queryset = NamedQuery.objects.all()
     filter_backends = [DjangoFilterBackend]
@@ -89,7 +89,7 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
         query = data.query
         if query:
             if query.kind != "HogQLQuery":
-                raise ValidationError("Only HogQLQuery query kind is supported (speak to us)")
+                raise ValidationError("Only HogQLQuery query kind is supported (want more? speak to us)")
         elif strict:
             raise ValidationError("Must specify query")
 
