@@ -378,6 +378,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 insight=insight,
                 layouts=existing_tile.layouts,
                 color=existing_tile.color,
+                filters_overrides=existing_tile.filters_overrides,
             )
         elif existing_tile.text:
             new_data = {
@@ -394,6 +395,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 text=text,
                 layouts=existing_tile.layouts,
                 color=existing_tile.color,
+                filters_overrides=existing_tile.filters_overrides,
             )
 
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="PATCH")
@@ -439,6 +441,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
         tiles = initial_data.pop("tiles", [])
         for tile_data in tiles:
             self._update_tiles(instance, tile_data, user)
+
+        duplicate_tiles = initial_data.pop("duplicate_tiles", [])
+        for tile_data in duplicate_tiles:
+            existing_tile = DashboardTile.objects.get(dashboard=instance, id=tile_data["id"])
+            existing_tile.layouts = {}
+            self._deep_duplicate_tiles(instance, existing_tile)
 
         if "request" in self.context:
             report_user_action(user, "dashboard updated", instance.get_analytics_metadata())
