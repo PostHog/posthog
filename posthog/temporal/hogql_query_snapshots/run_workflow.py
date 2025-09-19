@@ -155,6 +155,8 @@ async def run_snapshot_activity(inputs: RunSnapshotActivityInputs) -> tuple[str,
 
     partition_settings = None
     partition_settings = calculate_partition_settings(saved_query)
+
+    # TODO: remove this once we have a way to get the partition settings from config
     # if delta_snapshot.get_delta_table() is None:
     #     partition_settings = calculate_partition_settings(saved_query)
     # else:
