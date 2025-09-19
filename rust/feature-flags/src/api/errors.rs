@@ -206,7 +206,7 @@ impl IntoResponse for FlagError {
                     // 500 Internal Server Error - server-side issues
                     err @ (CookielessManagerError::HashError(_) |
                           CookielessManagerError::ChronoError(_) |
-                          CookielessManagerError::RedisError(_) |
+                          CookielessManagerError::RedisError(_, _) |
                           CookielessManagerError::SaltCacheError(_) |
                           CookielessManagerError::InvalidIdentifyCount(_)) => {
                         tracing::error!("Internal cookieless error: {}", err);
