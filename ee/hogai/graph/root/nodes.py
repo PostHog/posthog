@@ -552,7 +552,7 @@ class RootNode(RootNodeUIContextMixin):
             prompts.append(contextual_tools)
         if ui_context := await self._format_ui_context(self._get_ui_context(state), config):
             prompts.append(ui_context)
-        return prompts
+        return self._deduplicate_context_messages(state, prompts)
 
     def _get_contextual_tools_prompt(self, config: RunnableConfig) -> str | None:
         from ee.hogai.tool import get_contextual_tool_class
@@ -568,6 +568,11 @@ class RootNode(RootNodeUIContextMixin):
             tools = "\n".join(contextual_tools_prompt)
             return CONTEXTUAL_TOOLS_REMINDER_PROMPT.format(tools=tools)
         return None
+
+    def _deduplicate_context_messages(self, state: AssistantState, context_prompts: list[str]) -> list[str]:
+        """Naive deduplication of context messages by content."""
+        human_messages = {message.content for message in state.messages if isinstance(message, HumanMessage)}
+        return [prompt for prompt in context_prompts if prompt not in human_messages]
 
     def _inject_context_messages(
         self, state: AssistantState, context_prompts: list[str]

@@ -124,6 +124,10 @@ def should_output_assistant_message(candidate_message: AssistantMessageUnion) ->
     if isinstance(candidate_message, AssistantMessage) and not candidate_message.content:
         return False
 
+    # Filter out context messages
+    if isinstance(candidate_message, HumanMessage) and candidate_message.visible is False:
+        return False
+
     return True
 
 
