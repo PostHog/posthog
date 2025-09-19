@@ -1305,6 +1305,8 @@ class GitHubIntegration:
             logger.warning(f"Failed to refresh token for {self}", response=response.text)
             self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
             oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
+            self.integration.save()
+            raise Exception(f"Failed to refresh token for {self}: {response.text}")
         else:
             logger.info(f"Refreshed access token for {self}")
             expires_in = datetime.fromisoformat(config["expires_at"]).timestamp() - int(time.time())
@@ -1313,7 +1315,7 @@ class GitHubIntegration:
             self.integration.sensitive_config["access_token"] = config["token"]
             reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
             oauth_refresh_counter.labels(self.integration.kind, "success").inc()
-        self.integration.save()
+            self.integration.save()
 
     def organization(self) -> str:
         return dot_get(self.integration.config, "account.name")

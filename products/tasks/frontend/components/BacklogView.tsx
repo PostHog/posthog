@@ -5,11 +5,10 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { tasksLogic } from '../tasksLogic'
 import { TaskCard } from './TaskCard'
 import { TaskCreateModal } from './TaskCreateModal'
-import { TaskModal } from './TaskModal'
 
 export function BacklogView(): JSX.Element {
-    const { backlogTasks, selectedTask, isCreateModalOpen, allWorkflows } = useValues(tasksLogic)
-    const { assignTaskToWorkflow, openTaskModal, closeTaskModal, openCreateModal, closeCreateModal } = useActions(tasksLogic)
+    const { backlogTasks, isCreateModalOpen, allWorkflows } = useValues(tasksLogic)
+    const { assignTaskToWorkflow, openTaskDetail, openCreateModal, closeCreateModal } = useActions(tasksLogic)
 
     return (
         <div className="space-y-4">
@@ -32,7 +31,7 @@ export function BacklogView(): JSX.Element {
                         key={task.id} 
                         task={task} 
                         onAssignToWorkflow={assignTaskToWorkflow} 
-                        onClick={openTaskModal} 
+                        onClick={openTaskDetail} 
                         workflows={allWorkflows}
                     />
                 ))}
@@ -40,7 +39,6 @@ export function BacklogView(): JSX.Element {
 
             {backlogTasks.length === 0 && <div className="text-center py-8 text-muted">No tasks created yet</div>}
 
-            {selectedTask && <TaskModal task={selectedTask} onClose={closeTaskModal} />}
             <TaskCreateModal isOpen={isCreateModalOpen} onClose={closeCreateModal} />
         </div>
     )

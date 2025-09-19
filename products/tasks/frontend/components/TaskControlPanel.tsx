@@ -10,7 +10,7 @@ import { Task } from '../types'
 
 export function TaskControlPanel(): JSX.Element {
     const { tasks, workflowStages, allWorkflows } = useValues(tasksLogic)
-    const { openTaskModal } = useActions(tasksLogic)
+    const { openTaskDetail } = useActions(tasksLogic)
 
     // Helper to get stage key for a task
     const getTaskStageKey = (task: Task): string => {
@@ -124,7 +124,7 @@ export function TaskControlPanel(): JSX.Element {
                             needsAttention
                                 .slice(0, 5)
                                 .map((task) => (
-                                    <TaskSummaryCard key={task.id} task={task} onClick={() => openTaskModal(task.id)} />
+                                    <TaskSummaryCard key={task.id} task={task} onClick={() => openTaskDetail(task.id)} />
                                 ))
                         )}
                     </div>
@@ -142,7 +142,7 @@ export function TaskControlPanel(): JSX.Element {
                             <p className="text-muted text-sm">No completed tasks</p>
                         ) : (
                             recentlyCompleted.map((task) => (
-                                <TaskSummaryCard key={task.id} task={task} onClick={() => openTaskModal(task.id)} />
+                                <TaskSummaryCard key={task.id} task={task} onClick={() => openTaskDetail(task.id)} />
                             ))
                         )}
                     </div>

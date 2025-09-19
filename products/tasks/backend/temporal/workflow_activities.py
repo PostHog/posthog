@@ -156,7 +156,6 @@ async def move_task_to_stage_activity(
         task_id = params["task_id"]
         team_id = params["team_id"]
         target_stage_key = params["target_stage_key"]
-        transition_id = params.get("transition_id")
         
         from django.db import transaction
         from products.tasks.backend.models import Task

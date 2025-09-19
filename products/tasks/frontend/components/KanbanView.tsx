@@ -30,9 +30,8 @@ import { IconPlus, IconGear } from '@posthog/icons'
 import { cn } from 'lib/utils/css-classes'
 
 import { tasksLogic } from '../tasksLogic'
-import { Task, TaskWorkflow } from './../types'
+import { Task, TaskWorkflow, WorkflowStage } from './../types'
 import { TaskCard } from './TaskCard'
-import { TaskModal } from './TaskModal'
 import { TaskSummariesMaxTool } from './TaskSummariesMaxTool'
 import { WorkflowBuilder } from './WorkflowBuilder'
 import { workflowSettingsLogic } from './workflowSettingsLogic'
@@ -64,8 +63,8 @@ function DroppableContainer({
 type Items = Record<UniqueIdentifier, Task[]>
 
 export function KanbanView(): JSX.Element {
-    const { tasks, workflowKanbanData, selectedTask } = useValues(tasksLogic)
-    const { openTaskModal, closeTaskModal, moveTask } = useActions(tasksLogic)
+    const { tasks, workflowKanbanData } = useValues(tasksLogic)
+    const { openTaskDetail, moveTask } = useActions(tasksLogic)
     const { loadWorkflows } = useActions(workflowSettingsLogic)
 
     const [activeTask, setActiveTask] = useState<Task | null>(null)
@@ -104,7 +103,7 @@ export function KanbanView(): JSX.Element {
     }
 
     const handleTaskClick = (taskId: Task['id']): void => {
-        openTaskModal(taskId)
+        openTaskDetail(taskId)
     }
     
     const sensors = useSensors(
@@ -463,7 +462,6 @@ export function KanbanView(): JSX.Element {
                     ) : null}
                 </DragOverlay>
             </DndContext>
-            {selectedTask && <TaskModal task={selectedTask} onClose={closeTaskModal} />}
         </div>
     )
 }

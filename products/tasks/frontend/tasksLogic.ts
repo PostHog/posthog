@@ -1,6 +1,7 @@
 import { UniqueIdentifier } from '@dnd-kit/core'
 import { actions, afterMount, beforeUnmount, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -27,8 +28,7 @@ export const tasksLogic = kea<tasksLogicType>([
             destinationIndex,
             stageKey,
         }),
-        openTaskModal: (taskId: Task['id']) => ({ taskId }),
-        closeTaskModal: true,
+        openTaskDetail: (taskId: Task['id']) => ({ taskId }),
         openCreateModal: true,
         closeCreateModal: true,
         startPolling: true,
@@ -230,13 +230,6 @@ export const tasksLogic = kea<tasksLogicType>([
                 setActiveTab: (_, { tab }) => tab,
             },
         ],
-        selectedTaskId: [
-            null as string | null,
-            {
-                openTaskModal: (_, { taskId }) => taskId,
-                closeTaskModal: () => null,
-            },
-        ],
         isCreateModalOpen: [
             false,
             {
@@ -341,11 +334,6 @@ export const tasksLogic = kea<tasksLogicType>([
                 return Array.from(allStages.values()).sort((a, b) => a.position - b.position)
             },
         ],
-        selectedTask: [
-            (s) => [s.tasks, s.selectedTaskId],
-            (tasks, selectedTaskId): Task | null =>
-                selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) || null : null,
-        ],
         hasActiveTasks: [
             (s) => [s.tasks, s.allWorkflows],
             (tasks, allWorkflows): boolean =>
@@ -366,6 +354,9 @@ export const tasksLogic = kea<tasksLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
+        openTaskDetail: ({ taskId }) => {
+            router.actions.push(`/tasks/${taskId}`)
+        },
         moveTask: async ({ taskId, newStageKey, newPosition }) => {
             actions.startReordering()
 
