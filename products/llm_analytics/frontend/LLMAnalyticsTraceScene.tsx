@@ -4,20 +4,11 @@ import { BindLogic, useActions, useValues } from 'kea'
 import React, { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import {
-    IconAIText,
-    IconChat,
-    IconCopy,
-    IconListTree as IconFilter,
-    IconMessage,
-    IconReceipt,
-    IconSearch,
-} from '@posthog/icons'
+import { IconAIText, IconChat, IconCopy, IconMessage, IconReceipt, IconSearch } from '@posthog/icons'
 import {
     LemonButton,
     LemonCheckbox,
     LemonDivider,
-    LemonDropdown,
     LemonInput,
     LemonSelect,
     LemonTable,
@@ -278,7 +269,7 @@ function TraceSidebar({
                     </div>
                 )}
                 <div className="mt-2">
-                    <EventTypeFiltersDropdown />
+                    <EventTypeFilters />
                 </div>
             </div>
             <ul className="overflow-y-auto p-1 *:first:mt-0 overflow-x-hidden">
@@ -785,7 +776,7 @@ function EventTypeTag({ event, size }: { event: LLMTrace | LLMTraceEvent; size?:
     )
 }
 
-function EventTypeFiltersDropdown(): JSX.Element {
+function EventTypeFilters(): JSX.Element {
     const { availableEventTypes } = useValues(llmAnalyticsTraceDataLogic)
     const { eventTypeFilters } = useValues(llmAnalyticsTraceLogic)
     const { toggleEventTypeFilter } = useActions(llmAnalyticsTraceLogic)
@@ -795,31 +786,20 @@ function EventTypeFiltersDropdown(): JSX.Element {
     }
 
     return (
-        <LemonDropdown
-            placement="bottom-start"
-            maxContentWidth={true}
-            overlay={
-                <div className="p-1">
-                    <div className="text-xs font-medium text-muted mb-1">Expand</div>
-                    <div className="flex flex-col gap-1">
-                        {availableEventTypes.map((eventType: string) => (
-                            <LemonCheckbox
-                                key={eventType}
-                                checked={eventTypeFilters[eventType] ?? true}
-                                onChange={() => toggleEventTypeFilter(eventType)}
-                                label={<span className="capitalize">{eventType}s</span>}
-                                size="small"
-                            />
-                        ))}
-                    </div>
-                </div>
-            }
-            closeOnClickInside={false}
-        >
-            <LemonButton type="secondary" size="xsmall" icon={<IconFilter />}>
-                Options
-            </LemonButton>
-        </LemonDropdown>
+        <fieldset className="border border-border rounded p-1.5">
+            <legend className="text-xs font-medium text-muted px-1">Expand</legend>
+            <div className="flex flex-wrap gap-x-3 gap-y-1">
+                {availableEventTypes.map((eventType: string) => (
+                    <LemonCheckbox
+                        key={eventType}
+                        checked={eventTypeFilters[eventType] ?? true}
+                        onChange={() => toggleEventTypeFilter(eventType)}
+                        label={<span className="capitalize text-xs">{eventType}s</span>}
+                        size="small"
+                    />
+                ))}
+            </div>
+        </fieldset>
     )
 }
 
