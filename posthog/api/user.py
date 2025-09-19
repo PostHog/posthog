@@ -573,8 +573,12 @@ class UserViewSet(
 
     @action(methods=["POST"], detail=True)
     def two_factor_validate(self, request, **kwargs):
+        hex_key = request.session.get("django_two_factor-hex")
+        if not hex_key:
+            return Response({"success": True})
+
         form = TOTPDeviceForm(
-            request.session["django_two_factor-hex"],
+            hex_key,
             request.user,
             data={"token": request.data["token"]},
         )
