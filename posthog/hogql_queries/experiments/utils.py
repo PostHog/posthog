@@ -12,8 +12,7 @@ from posthog.schema import (
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
     ExperimentVariantTrendsBaseStats,
-    MatchedRecording,
-    MatchedRecordingEvent,
+    SessionData,
 )
 
 from posthog.hogql_queries.experiments import CONTROL_VARIANT_KEY
@@ -69,7 +68,7 @@ def get_new_variant_results(sorted_results: list[tuple]) -> list[ExperimentStats
             # Funnel metrics with sampled session IDs
             base_stats["step_counts"] = result[4]
             base_stats["step_sessions"] = [
-                [(distinct_id, session_id, event_uuid) for distinct_id, session_id, event_uuid in step_sessions]
+                [SessionData(distinct_id=d, session_id=s, event_uuid=e) for d, s, e in step_sessions]
                 for step_sessions in result[5]
             ]
 
@@ -112,8 +111,8 @@ def validate_variant_result(
     # Include funnel-specific fields if present
     if hasattr(variant_result, "step_counts") and variant_result.step_counts is not None:
         validated_result.step_counts = variant_result.step_counts
-    if hasattr(variant_result, "steps_event_data") and variant_result.steps_event_data is not None:
-        validated_result.steps_event_data = variant_result.steps_event_data
+    if hasattr(variant_result, "step_sessions") and variant_result.step_sessions is not None:
+        validated_result.step_sessions = variant_result.step_sessions
 
     # Include ratio-specific fields if present
     if hasattr(variant_result, "denominator_sum") and variant_result.denominator_sum is not None:
@@ -187,7 +186,7 @@ def get_frequentist_experiment_result(
             sum=test_variant_validated.sum,
             sum_squares=test_variant_validated.sum_squares,
             step_counts=test_variant_validated.step_counts,
-            steps_event_data=getattr(test_variant_validated, "steps_event_data", None),
+            step_sessions=getattr(test_variant_validated, "step_sessions", None),
             validation_failures=test_variant_validated.validation_failures,
         )
 
@@ -256,7 +255,7 @@ def get_bayesian_experiment_result(
             sum=test_variant_validated.sum,
             sum_squares=test_variant_validated.sum_squares,
             step_counts=test_variant_validated.step_counts,
-            steps_event_data=getattr(test_variant_validated, "steps_event_data", None),
+            step_sessions=getattr(test_variant_validated, "step_sessions", None),
             validation_failures=test_variant_validated.validation_failures,
         )
 
