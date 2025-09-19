@@ -31,6 +31,7 @@ export enum EmbeddedAnalyticsTileId {
     API_QUERIES_PER_KEY = 'API_QUERIES_PER_KEY',
     API_LAST_20_QUERIES = 'API_LAST_20_QUERIES',
     API_EXPENSIVE_QUERIES = 'API_EXPENSIVE_QUERIES',
+    API_FAILED_QUERIES = 'API_FAILED_QUERIES',
 }
 
 export const loadPriorityMap: Record<EmbeddedAnalyticsTileId, number> = {
@@ -40,6 +41,7 @@ export const loadPriorityMap: Record<EmbeddedAnalyticsTileId, number> = {
     [EmbeddedAnalyticsTileId.API_QUERIES_PER_KEY]: 4,
     [EmbeddedAnalyticsTileId.API_LAST_20_QUERIES]: 5,
     [EmbeddedAnalyticsTileId.API_EXPENSIVE_QUERIES]: 6,
+    [EmbeddedAnalyticsTileId.API_FAILED_QUERIES]: 7,
 }
 
 export interface EmbeddedBaseTile {

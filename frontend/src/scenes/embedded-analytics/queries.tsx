@@ -192,6 +192,7 @@ export const createExpensiveQueriesQuery = ({
         read_bytes / 1e12 as read_tb,
         formatReadableSize(read_bytes) as human_readable_read_size,
         cpu_microseconds / 1e6 as cpu_sec,
+        memory_usage,
         created_by
     from query_log
     where 
@@ -199,5 +200,87 @@ export const createExpensiveQueriesQuery = ({
         and event_date >= '${dateFrom}'
         and event_date <= '${dateTo}'
         ${createRequestNameFilterClause(requestNameFilter)}
-    order by read_tb desc
+    order by read_tb desc, event_time desc
+    limit 25`
+
+
+export const createFailedQueriesColumns = (): ChartAxis[] => {
+    return [
+        {
+            column: 'finished_at',
+            settings: { formatting: { prefix: '', suffix: '' } },
+        },
+        {
+            column: 'query_id',
+            settings: { formatting: { prefix: '', suffix: '' } },
+        },
+        {
+            column: 'query',
+            settings: { formatting: { prefix: '', suffix: '' } },
+        },
+        {
+            column: 'endpoint',
+            settings: { formatting: { prefix: '', suffix: '' } },
+        },
+        {
+            column: 'query_duration_ms',
+            settings: { formatting: { prefix: '', suffix: '' } },
+        },
+        {
+            column: 'name',
+            settings: { formatting: { prefix: '', suffix: '' } },
+        },
+        {
+            column: 'read_tb',
+            settings: { formatting: { prefix: '', suffix: '' } },
+        },
+        {
+            column: 'human_readable_read_size',
+            settings: { formatting: { prefix: '', suffix: '' } },
+        },
+        {
+            column: 'cpu_sec',
+            settings: { formatting: { prefix: '', suffix: '' } },
+        },
+        {
+            column: 'memory_usage',
+            settings: { formatting: { prefix: '', suffix: '' } },
+        },
+        {
+            column: 'status',
+            settings: { formatting: { prefix: '', suffix: '' } },
+        },
+        {
+            column: 'exception_code',
+            settings: { formatting: { prefix: '', suffix: '' } },
+        },
+        {
+            column: 'exception_name',
+            settings: { formatting: { prefix: '', suffix: '' } },
+        },
+    ]
+}
+
+export const createFailedQueriesQuery = ({ dateFrom, dateTo }: QueryConfig): string => `
+    select 
+        event_time as finished_at,
+        query_id,
+        endpoint,
+        query, 
+        query_duration_ms,
+        name,
+        read_bytes / 1e12 as read_tb,
+        formatReadableSize(read_bytes) as human_readable_read_size,
+        cpu_microseconds / 1e6 as cpu_sec,
+        memory_usage,
+        status,
+        exception_code, 
+        exception_name,
+    from query_log 
+    where 
+        is_personal_api_key_request
+        and exception_code != 0 
+        and event_date >= '${dateFrom}'
+        and event_date <= '${dateTo}'
+    order by read_tb desc, event_time desc
     limit 25`

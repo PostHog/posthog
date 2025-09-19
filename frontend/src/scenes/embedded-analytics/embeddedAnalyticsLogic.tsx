@@ -39,6 +39,8 @@ import {
     createExpensiveQueriesQuery,
     createLast20QueriesColumns,
     createLast20QueriesQuery,
+    createFailedQueriesColumns,
+    createFailedQueriesQuery,
 } from './queries'
 
 export interface EmbeddedAnalyticsLogicProps {
@@ -184,12 +186,15 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
 
                 const expensiveQueriesColumns = createExpensiveQueriesColumns(requestNameBreakdownEnabled)
                 const last20QueriesColumns = createLast20QueriesColumns(requestNameBreakdownEnabled)
+                const failedQueriesColumns = createFailedQueriesColumns(requestNameBreakdownEnabled)
+
                 const apiQueriesCountQuery = createApiQueriesCountQuery(queryConfig)
                 const apiReadTbQuery = createApiReadTbQuery(queryConfig)
                 const apiCpuSecondsQuery = createApiCpuSecondsQuery(queryConfig)
                 const apiQueriesPerKeyQuery = createApiQueriesPerKeyQuery(queryConfig)
                 const last20QueriesQuery = createLast20QueriesQuery(queryConfig)
                 const expensiveQueriesQuery = createExpensiveQueriesQuery(queryConfig)
+                const failedQueriesQuery = createFailedQueriesQuery(queryConfig)
 
                 return [
                     {
@@ -371,6 +376,32 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                         },
                         insightProps: {
                             dashboardItemId: 'embedded_analytics_expensive_queries',
+                            cachedInsight: null,
+                        } as InsightLogicProps,
+                        canOpenInsight: false,
+                        canOpenModal: false,
+                    },
+                    {
+                        kind: 'query',
+                        tileId: EmbeddedAnalyticsTileId.API_FAILED_QUERIES,
+                        title: 'Recently failed API request queries',
+                        layout: {
+                            colSpanClassName: 'md:col-span-full',
+                        },
+                        query: {
+                            kind: NodeKind.DataVisualizationNode,
+                            source: {
+                                kind: NodeKind.HogQLQuery,
+                                query: failedQueriesQuery,
+                            },
+                            display: ChartDisplayType.ActionsTable,
+                            tableSettings: {
+                                columns: failedQueriesColumns,
+                                conditionalFormatting: [],
+                            },
+                        },
+                        insightProps: {
+                            dashboardItemId: 'embedded_analytics_failed_queries',
                             cachedInsight: null,
                         } as InsightLogicProps,
                         canOpenInsight: false,
