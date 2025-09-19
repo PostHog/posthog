@@ -423,7 +423,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 duplicateTile: async ({ tile }) => {
                     try {
                         const newTile = { ...tile } as Partial<DashboardTile<QueryBasedInsightModel>>
-                        delete newTile.id
                         if (newTile.text) {
                             newTile.text = { body: newTile.text.body } as TextModel
                         }
@@ -431,7 +430,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         const dashboard: DashboardType<InsightModel> = await api.update(
                             `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
                             {
-                                tiles: [newTile],
+                                duplicate_tiles: [newTile],
                             }
                         )
                         return getQueryBasedDashboard(dashboard)
