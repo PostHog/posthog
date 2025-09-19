@@ -1,3 +1,4 @@
+import time
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
@@ -21,6 +22,7 @@ from posthog.schema import (
     AssistantGenerationStatusEvent,
     AssistantGenerationStatusType,
     AssistantMessage,
+    AssistantMessageMetadata,
     FailureMessage,
     HumanMessage,
     MaxBillingContext,
@@ -38,6 +40,7 @@ from ee.hogai.utils.exceptions import GenerationCanceled
 from ee.hogai.utils.helpers import (
     extract_content_from_ai_message,
     extract_stream_update,
+    extract_thinking_content_from_ai_message,
     should_output_assistant_message,
 )
 from ee.hogai.utils.state import (
@@ -202,6 +205,7 @@ class BaseAssistant(ABC):
     ) -> AsyncGenerator[AssistantOutput, None]:
         state = await self._init_or_update_state()
         config = self._get_config()
+        self.stream_start = time.time()
 
         stream_mode: list[StreamMode] = ["values", "updates", "debug", "custom"]
         if stream_message_chunks:
@@ -441,11 +445,15 @@ class BaseAssistant(ABC):
 
         # Extract and process content
         message_content = extract_content_from_ai_message(self._chunks)
+        thinking = extract_thinking_content_from_ai_message(self._chunks)
 
-        if not message_content:
+        if not message_content and not thinking:
             return None
 
-        return AssistantMessage(content=message_content)
+        return AssistantMessage(
+            content=message_content,
+            meta=AssistantMessageMetadata(thinking=thinking) if thinking else None,
+        )
 
     def _build_root_config_for_persistence(self) -> RunnableConfig:
         """
