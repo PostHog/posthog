@@ -46,6 +46,7 @@ export enum AssistantMessageType {
 
 export interface BaseAssistantMessage {
     id?: string
+    visible?: boolean
 }
 
 export interface HumanMessage extends BaseAssistantMessage {
@@ -213,7 +214,6 @@ export interface AssistantToolCallMessage extends BaseAssistantMessage {
      * Tool call messages without a ui_payload are not passed through to the frontend.
      */
     ui_payload?: Record<string, any>
-    visible?: boolean
     content: string
     tool_call_id: string
 }

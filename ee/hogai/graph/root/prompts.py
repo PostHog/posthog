@@ -133,7 +133,6 @@ Follow these guidelines when creating a dashboard:
 - The tool will search for existing insights that match the user's requirements, or create new insights if none are found, then it will combine them into a dashboard
 </dashboard_creation>
 
-{{{ui_context}}}
 {{{billing_context}}}
 """.strip()
 
@@ -244,10 +243,12 @@ You have reached the maximum number of iterations, a security measure to prevent
 """.strip()
 
 ROOT_UI_CONTEXT_PROMPT = """
-The user can provide you with additional context in the <attached_context> tag.
+<system_reminder>
+The user can provided additional context in the <attached_context> tag.
 If the user's request is ambiguous, use the context to direct your answer as much as possible.
 If the user's provided context has nothing to do with previous interactions, ignore any past interaction and use this new context instead. The user probably wants to change topic.
 You can acknowledge that you are using this context to answer the user's request.
+</system_reminder>
 <attached_context>
 {{{ui_context_dashboard}}}
 {{{ui_context_insights}}}
@@ -324,7 +325,7 @@ If the user asks about billing, their subscription, their usage, or their spendi
 CONTEXTUAL_TOOLS_REMINDER_PROMPT = """
 <system_reminder>
 Contextual tools that are available to you on this page are:
-{{{tools}}}
+{tools}
 IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.
 </system_reminder>
 """.strip()

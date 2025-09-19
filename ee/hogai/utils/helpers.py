@@ -1,6 +1,6 @@
 import xml.etree.ElementTree as ET
 from collections.abc import Sequence
-from typing import Any, Optional, TypeVar, Union
+from typing import Any, Optional, TypeVar, Union, cast
 
 from jsonref import replace_refs
 from langchain_core.messages import (
@@ -99,11 +99,18 @@ def dereference_schema(schema: dict) -> dict:
     return new_schema
 
 
-def find_start_message(messages: Sequence[AssistantMessageUnion], start_id: str | None = None) -> HumanMessage | None:
-    for msg in messages:
+def find_start_message_idx(messages: Sequence[AssistantMessageUnion], start_id: str | None = None) -> int:
+    for idx, msg in enumerate(messages):
         if isinstance(msg, HumanMessage) and msg.id == start_id:
-            return msg
-    return None
+            return idx
+    return 0
+
+
+def find_start_message(messages: Sequence[AssistantMessageUnion], start_id: str | None = None) -> HumanMessage | None:
+    if not messages:
+        return None
+    index = find_start_message_idx(messages, start_id)
+    return cast(HumanMessage, messages[index])
 
 
 def should_output_assistant_message(candidate_message: AssistantMessageUnion) -> bool:
@@ -122,9 +129,9 @@ def should_output_assistant_message(candidate_message: AssistantMessageUnion) ->
 
 def find_last_ui_context(messages: Sequence[AssistantMessageUnion]) -> MaxUIContext | None:
     """Returns the last recorded UI context from all messages."""
-    for message in reversed(messages):
-        if isinstance(message, HumanMessage) and message.ui_context is not None:
-            return message.ui_context
+    message = find_start_message(messages)
+    if isinstance(message, HumanMessage) and message.ui_context is not None:
+        return message.ui_context
     return None
 
 

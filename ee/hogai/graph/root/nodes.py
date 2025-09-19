@@ -53,12 +53,19 @@ from ee.hogai.utils.anthropic import (
     get_thinking_from_assistant_message,
     normalize_ai_anthropic_message,
 )
-from ee.hogai.utils.helpers import find_last_ui_context
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import AssistantNodeName, BaseState, BaseStateWithMessages, InsightQuery
+from ee.hogai.utils.helpers import find_last_ui_context, find_start_message, find_start_message_idx
+from ee.hogai.utils.types import (
+    AssistantMessageUnion,
+    AssistantState,
+    BaseState,
+    BaseStateWithMessages,
+    PartialAssistantState,
+)
+from ee.hogai.utils.types.base import AssistantNodeName, BaseState, BaseStateWithMessages, InsightQuery, ReplaceMessages
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
+    CONTEXTUAL_TOOLS_REMINDER_PROMPT,
     MAX_PERSONALITY_PROMPT,
     ROOT_BILLING_CONTEXT_ERROR_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
@@ -107,7 +114,7 @@ T = TypeVar("T", RootMessageUnion, BaseMessage)
 class RootNodeUIContextMixin(AssistantNode):
     """Mixin that provides UI context formatting capabilities for root nodes."""
 
-    async def _format_ui_context(self, ui_context: MaxUIContext | None, config: RunnableConfig) -> str:
+    async def _format_ui_context(self, ui_context: MaxUIContext | None, config: RunnableConfig) -> str | None:
         """
         Format UI context into template variables for the prompt.
 
@@ -197,7 +204,7 @@ class RootNodeUIContextMixin(AssistantNode):
             return self._render_user_context_template(
                 dashboard_context, insights_context, events_context, actions_context
             )
-        return ""
+        return None
 
     async def _arun_and_format_insight(
         self,
@@ -325,9 +332,19 @@ class RootNode(RootNodeUIContextMixin):
     """
 
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
-        message_window, ui_context, billing_context, core_memory = await asyncio.gather(
+        # Add context messages on start of the conversation.
+        if self._is_first_turn(state):
+            context_prompts = await self._get_context_prompts(state, config)
+            if context_prompts:
+                updated_messages = self._inject_context_messages(state, context_prompts)
+                state.messages = updated_messages
+            else:
+                updated_messages = []
+        else:
+            updated_messages = []
+
+        message_window, billing_context, core_memory = await asyncio.gather(
             self._construct_and_update_messages_window(state, config),
-            self._format_ui_context(self._get_ui_context(state), config),
             self._get_billing_info(config),
             self._aget_core_memory_text(),
         )
@@ -374,7 +391,6 @@ class RootNode(RootNodeUIContextMixin):
         ).format_messages(
             personality_prompt=MAX_PERSONALITY_PROMPT,
             core_memory=core_memory,
-            ui_context=ui_context,
             billing_context=billing_context_prompt,
         )
 
@@ -389,10 +405,13 @@ class RootNode(RootNodeUIContextMixin):
             system_prompts + history,
             config,
         )
+        assistant_message = normalize_ai_anthropic_message(message)
 
         return PartialAssistantState(
             root_conversation_start_id=new_window_id,
-            messages=[normalize_ai_anthropic_message(message)],
+            messages=ReplaceMessages([*updated_messages, assistant_message])
+            if updated_messages
+            else [assistant_message],
         )
 
     async def get_reasoning_message(
@@ -404,6 +423,12 @@ class RootNode(RootNodeUIContextMixin):
         if ui_context and (ui_context.dashboards or ui_context.insights):
             return ReasoningMessage(content="Calculating context")
         return None
+
+    def _is_first_turn(self, state: AssistantState) -> bool:
+        last_message = state.messages[-1]
+        if isinstance(last_message, HumanMessage):
+            return last_message == find_start_message(state.messages, start_id=state.start_id)
+        return False
 
     def _has_session_summarization_feature_flag(self) -> bool:
         """
@@ -521,6 +546,37 @@ class RootNode(RootNodeUIContextMixin):
             )
         return filtered_conversation
 
+    async def _get_context_prompts(self, state: AssistantState, config: RunnableConfig) -> list[str]:
+        prompts: list[str] = []
+        if contextual_tools := self._get_contextual_tools_prompt(config):
+            prompts.append(contextual_tools)
+        if ui_context := await self._format_ui_context(self._get_ui_context(state), config):
+            prompts.append(ui_context)
+        return prompts
+
+    def _get_contextual_tools_prompt(self, config: RunnableConfig) -> str | None:
+        from ee.hogai.tool import get_contextual_tool_class
+
+        contextual_tools_prompt = [
+            f"<{tool_name}>\n"
+            f"{get_contextual_tool_class(tool_name)(team=self._team, user=self._user).format_system_prompt_injection(tool_context)}\n"  # type: ignore
+            f"</{tool_name}>"
+            for tool_name, tool_context in self._get_contextual_tools(config).items()
+            if get_contextual_tool_class(tool_name) is not None
+        ]
+        if contextual_tools_prompt:
+            tools = "\n".join(contextual_tools_prompt)
+            return CONTEXTUAL_TOOLS_REMINDER_PROMPT.format(tools=tools)
+        return None
+
+    def _inject_context_messages(
+        self, state: AssistantState, context_prompts: list[str]
+    ) -> list[AssistantMessageUnion]:
+        human_messages = [HumanMessage(content=prompt, id=str(uuid4()), visible=False) for prompt in context_prompts]
+        # -1 to make the context messages appear before the start message
+        start_idx = find_start_message_idx(state.messages, state.start_id) - 1
+        return [*state.messages[:start_idx], *human_messages, *state.messages[start_idx:]]
+
     async def _construct_and_update_messages_window(
         self, state: AssistantState, config: RunnableConfig
     ) -> tuple[list[BaseMessage], str | None]:
@@ -528,7 +584,7 @@ class RootNode(RootNodeUIContextMixin):
         Retrieves the current conversation window, finds a new window if necessary, and enforces the tool call limit.
         """
 
-        history = self._construct_messages(state, config)
+        history = self._construct_messages(state)
 
         # Find a new window id and trim the history to it.
         new_window_id = await self._find_new_window_id(state, config, history)
@@ -541,7 +597,7 @@ class RootNode(RootNodeUIContextMixin):
 
         return history, new_window_id
 
-    def _construct_messages(self, state: AssistantState, config: RunnableConfig) -> list[BaseMessage]:
+    def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         # Filter out messages that are not part of the conversation window.
         conversation_window = self._get_assistant_messages_in_window(state)
 
@@ -553,15 +609,12 @@ class RootNode(RootNodeUIContextMixin):
         }
 
         history: list[BaseMessage] = []
-        start_message_idx: int | None = None
 
         for message in conversation_window:
             if isinstance(message, HumanMessage):
                 history.append(
                     LangchainHumanMessage(content=[{"type": "text", "text": message.content}], id=message.id)
                 )
-                if message.id == state.start_id:
-                    start_message_idx = len(history) - 1
             elif isinstance(message, AssistantMessage):
                 content = get_thinking_from_assistant_message(message)
                 if message.content:
@@ -601,8 +654,6 @@ class RootNode(RootNodeUIContextMixin):
                     )
                 )
 
-        history = self._inject_contextual_tools_message(history, config, start_message_idx=start_message_idx)
-
         # Append a single cache control to the last human message or last tool message
         for i in range(len(history) - 1, -1, -1):
             maybe_content_arr = history[i].content
@@ -616,34 +667,6 @@ class RootNode(RootNodeUIContextMixin):
                 break
 
         return history
-
-    def _inject_contextual_tools_message(
-        self, history: list[BaseMessage], config: RunnableConfig, start_message_idx: int | None = None
-    ) -> list[BaseMessage]:
-        contextual_tools_message = self._construct_contextual_tools_message(config)
-        if not contextual_tools_message:
-            return history
-
-        if start_message_idx is not None:
-            return [*history[:start_message_idx], contextual_tools_message, *history[start_message_idx:]]
-        return [contextual_tools_message, *history]
-
-    def _construct_contextual_tools_message(self, config: RunnableConfig) -> LangchainHumanMessage | None:
-        from ee.hogai.tool import get_contextual_tool_class
-
-        contextual_tools_prompt = [
-            f"<{tool_name}>\n"
-            f"{get_contextual_tool_class(tool_name)(team=self._team, user=self._user).format_system_prompt_injection(tool_context)}\n"  # type: ignore
-            f"</{tool_name}>"
-            for tool_name, tool_context in self._get_contextual_tools(config).items()
-            if get_contextual_tool_class(tool_name) is not None
-        ]
-        if contextual_tools_prompt:
-            tools = "\n".join(contextual_tools_prompt)
-            return LangchainHumanMessage(
-                content=f"<system_reminder>\nContextual tools that are available to you on this page are: \n{tools}\n</system_reminder>"
-            )
-        return None
 
     def _is_hard_limit_reached(self, state: AssistantState) -> bool:
         return state.root_tool_calls_count is not None and state.root_tool_calls_count >= self.MAX_TOOL_CALLS
