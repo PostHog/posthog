@@ -1,7 +1,7 @@
 import { combineUrl } from 'kea-router'
 import { useEffect, useMemo, useState } from 'react'
 
-import { LemonButton, LemonModal, LemonTable, LemonTabs, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -18,8 +18,7 @@ import { ActivityTab, PropertyFilterType, PropertyOperator } from '~/types'
 interface SampledSessionsModalProps {
     isOpen: boolean
     onClose: () => void
-    stepsEventData: SessionData[]
-    prevStepsEventData: SessionData[]
+    sessionData: SessionData[]
     stepName: string
     variant: string
 }
@@ -27,8 +26,7 @@ interface SampledSessionsModalProps {
 export function SampledSessionsModal({
     isOpen,
     onClose,
-    stepsEventData,
-    prevStepsEventData,
+    sessionData,
     stepName,
     variant,
 }: SampledSessionsModalProps): JSX.Element {
@@ -36,7 +34,6 @@ export function SampledSessionsModal({
         Map<string, { hasRecording: boolean; distinct_id?: string }>
     >(new Map())
     const [loading, setLoading] = useState(false)
-    const [activeTab, setActiveTab] = useState(stepName)
 
     // Helper function to get events URL for a session ID
     const getEventsUrlForSession = (sessionId: string): string => {
@@ -57,10 +54,10 @@ export function SampledSessionsModal({
 
     // Get all unique session IDs - memoized to prevent recreating on each render
     const allSessionIds = useMemo(() => {
-        return Array.from(new Set(stepsEventData.concat(prevStepsEventData).map((s) => s.session_id)))
-    }, [stepsEventData, prevStepsEventData])
+        return Array.from(new Set(sessionData.map((s) => s.session_id)))
+    }, [sessionData])
 
-    // Check recording availability for all sessions
+    // Check recording availability for sessions
     useEffect(() => {
         const checkRecordingAvailability = async (): Promise<void> => {
             if (!isOpen || allSessionIds.length === 0) {
@@ -159,64 +156,26 @@ export function SampledSessionsModal({
                         </LemonButton>
                     )
                 }
-
-                return <span className="text-muted text-xs">No recording available</span>
             },
             width: '60%',
         },
     ]
 
-    let tabs = [
-        {
-            key: stepName,
-            label: (
-                <div className="flex flex-col items-start">
-                    <div className="font-semibold">{stepName}</div>
-                    <div className="text-xs text-muted">{stepsEventData.length} sessions</div>
+    return (
+        <LemonModal isOpen={isOpen} onClose={onClose} title={`Sampled Sessions - ${variant}`} width={720}>
+            <div className="space-y-4">
+                <div className="text">
+                    Users in <strong>{variant}</strong> where <strong>{stepName}</strong> was their last step.
                 </div>
-            ),
-            content: (
                 <div className="mt-2">
                     <LemonTable
                         columns={columns}
-                        dataSource={stepsEventData}
+                        dataSource={sessionData}
                         size="small"
                         emptyState="No sessions sampled for this step"
                         loading={loading}
                     />
                 </div>
-            ),
-        },
-    ]
-
-    // Add a "Dropped off" tab that shows sessions from the previous step
-    if (prevStepsEventData.length > 0) {
-        tabs.push({
-            key: 'dropped',
-            label: (
-                <div className="flex flex-col items-start">
-                    <div className="font-semibold">Dropped off</div>
-                    <div className="text-xs text-muted">{prevStepsEventData.length} sessions</div>
-                </div>
-            ),
-            content: (
-                <div className="mt-2">
-                    <LemonTable
-                        columns={columns}
-                        dataSource={prevStepsEventData}
-                        size="small"
-                        emptyState="No sessions sampled"
-                        loading={loading}
-                    />
-                </div>
-            ),
-        })
-    }
-
-    return (
-        <LemonModal isOpen={isOpen} onClose={onClose} title={`Sampled Sessions - ${variant}`} width={720}>
-            <div className="space-y-4">
-                <LemonTabs activeKey={activeTab} onChange={setActiveTab} tabs={tabs} />
 
                 <div className="text-xs text-muted border-t pt-2">
                     <strong>Note:</strong> This shows a sample of up to 100 sessions per step. Session recordings are

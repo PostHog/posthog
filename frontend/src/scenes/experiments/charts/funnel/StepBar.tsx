@@ -31,23 +31,14 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element {
 
     // Get sampled sessions from the experiment result
     // Find the variant result that matches this series
-    let stepsEventData: SessionData[] | undefined
-    let prevStepsEventData: SessionData[] | undefined
+    let sessionData: SessionData[] | undefined
     if (experimentResult) {
         const variantKey = step.breakdown_value
         if (variantKey === 'control') {
-            stepsEventData = experimentResult.baseline.step_sessions[stepIndex]
-            if (stepIndex > 0) {
-                prevStepsEventData = experimentResult.baseline?.step_sessions[stepIndex - 1] as
-                    | SessionData[]
-                    | undefined
-            }
+            sessionData = experimentResult.baseline.step_sessions[stepIndex]
         } else {
             const variantResult = experimentResult.variant_results?.find((v: any) => v.key === variantKey)
-            stepsEventData = variantResult.step_sessions[stepIndex] as SessionData[] | undefined
-            if (stepIndex > 0) {
-                prevStepsEventData = variantResult.step_sessions[stepIndex - 1] as SessionData[] | undefined
-            }
+            sessionData = variantResult.step_sessions[stepIndex] as SessionData[] | undefined
         }
     }
     const handleClick = (): void => {
@@ -78,12 +69,11 @@ export function StepBar({ step, stepIndex }: StepBarProps): JSX.Element {
                 <div className="StepBar__fill" onClick={handleClick} style={{ cursor: 'pointer' }} />
             </div>
 
-            {isModalOpen && stepsEventData && (
+            {isModalOpen && sessionData && (
                 <SampledSessionsModal
                     isOpen={isModalOpen}
                     onClose={() => setIsModalOpen(false)}
-                    stepsEventData={stepsEventData}
-                    prevStepsEventData={prevStepsEventData || []}
+                    sessionData={sessionData}
                     stepName={step.name}
                     variant={String(step.breakdown_value || 'control')}
                 />
