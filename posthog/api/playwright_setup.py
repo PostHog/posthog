@@ -1,6 +1,7 @@
 """Test setup API endpoint for Playwright tests."""
 
 from django.conf import settings
+from django.http import Http404
 
 from pydantic import BaseModel
 from rest_framework import status
@@ -24,10 +25,7 @@ def setup_test(request: Request, test_name: str) -> Response:
     )
 
     if not any(test_modes):
-        return Response(
-            {"error": "Test setup endpoint only available in TEST, DEBUG, CI, or E2E_TESTING modes"},
-            status=status.HTTP_403_FORBIDDEN,
-        )
+        raise Http404()
 
     if test_name not in PLAYWRIGHT_SETUP_FUNCTIONS:
         available_tests = {name: config.description for name, config in PLAYWRIGHT_SETUP_FUNCTIONS.items()}

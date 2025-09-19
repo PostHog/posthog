@@ -4,28 +4,12 @@
 import { expect } from '@playwright/test'
 
 import { InsightVizNode, NodeKind, TrendsQuery } from '../../frontend/src/queries/schema/schema-general'
+import { SharePasswordType, SharingConfigurationType } from '../../frontend/src/types'
 import { test } from '../utils/workspace-test-base'
 
 type InsightCreationPayload = {
     name: string
     query: InsightVizNode<TrendsQuery>
-}
-
-type SharingConfigurationResponse = {
-    access_token: string
-    created_at: string
-    enabled: boolean
-    password_required: boolean
-    settings: any
-    share_passwords: any[]
-}
-
-type SharePasswordResponse = {
-    id: string
-    password: string
-    note: string
-    created_at: string
-    created_by_email: string
 }
 
 test('password-protected insight sharing', async ({ page, playwrightSetup }) => {
@@ -85,7 +69,7 @@ test('password-protected insight sharing', async ({ page, playwrightSetup }) => 
     )
 
     expect(sharingResponse.ok()).toBe(true)
-    const sharingData: SharingConfigurationResponse = await sharingResponse.json()
+    const sharingData: SharingConfigurationType = await sharingResponse.json()
     expect(sharingData.enabled).toBe(true)
     expect(sharingData.password_required).toBe(true)
     expect(sharingData.access_token).toBeTruthy()
@@ -106,7 +90,7 @@ test('password-protected insight sharing', async ({ page, playwrightSetup }) => 
     )
 
     expect(passwordResponse.ok()).toBe(true)
-    const passwordData: SharePasswordResponse = await passwordResponse.json()
+    const passwordData: SharePasswordType = await passwordResponse.json()
     expect(passwordData.password).toBe('testpassword')
     expect(passwordData.note).toBe('Test password for Playwright test')
 

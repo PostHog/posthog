@@ -12,8 +12,7 @@ class TestPlaywrightSetup(APIBaseTest):
         """Test that the endpoint is blocked when not in test/debug/CI modes"""
         with override_settings(TEST=False, DEBUG=False, CI=False, E2E_TESTING=False):
             response = self.client.post("/api/setup_test/organization_with_team/", {})
-            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-            self.assertIn("only available in", response.json()["error"])
+            self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     @override_settings(TEST=True)
     def test_organization_with_team_setup(self):
