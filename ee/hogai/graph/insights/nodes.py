@@ -25,6 +25,8 @@ from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
 from ee.hogai.graph.root.nodes import MAX_SUPPORTED_QUERY_KIND_TO_MODEL
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import AssistantNodeName
+from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
     EMPTY_DATABASE_ERROR_MESSAGE,
@@ -111,6 +113,10 @@ class InsightSearchNode(AssistantNode):
     MAX_SERIES_TO_PROCESS = 3
 
     REASONING_MESSAGE = "Searching for insights"
+
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.INSIGHTS_SEARCH
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

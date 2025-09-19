@@ -41,6 +41,7 @@ from ee.hogai.graph.deep_research.planner.prompts import (
 )
 from ee.hogai.graph.deep_research.types import (
     DeepResearchIntermediateResult,
+    DeepResearchNodeName,
     DeepResearchState,
     DeepResearchTask,
     DeepResearchTodo,
@@ -50,6 +51,7 @@ from ee.hogai.notebook.notebook_serializer import NotebookSerializer
 from ee.hogai.utils.helpers import extract_content_from_ai_message
 from ee.hogai.utils.types import WithCommentary
 from ee.hogai.utils.types.base import BaseState, BaseStateWithMessages, InsightArtifact, TaskArtifact
+from ee.hogai.utils.types.composed import MaxNodeName
 
 logger = logging.getLogger(__name__)
 
@@ -97,6 +99,10 @@ class finalize_research(WithCommentary):
 
 
 class DeepResearchPlannerNode(DeepResearchNode):
+    @property
+    def node_name(self) -> MaxNodeName:
+        return DeepResearchNodeName.PLANNER
+
     async def arun(self, state: DeepResearchState, config: RunnableConfig) -> PartialDeepResearchState:
         # We use instructions with the OpenAI Responses API
         instructions = DEEP_RESEARCH_PLANNER_PROMPT.format(
@@ -187,6 +193,10 @@ class DeepResearchPlannerNode(DeepResearchNode):
 
 
 class DeepResearchPlannerToolsNode(DeepResearchNode):
+    @property
+    def node_name(self) -> MaxNodeName:
+        return DeepResearchNodeName.PLANNER_TOOLS
+
     async def get_reasoning_message(
         self, input: BaseState, default_message: Optional[str] = None
     ) -> ReasoningMessage | None:
