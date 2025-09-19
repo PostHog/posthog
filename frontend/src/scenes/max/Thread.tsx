@@ -23,6 +23,7 @@ import {
     LemonButton,
     LemonButtonPropsBase,
     LemonCheckbox,
+    LemonCollapse,
     LemonDialog,
     LemonInput,
     LemonSkeleton,
@@ -53,6 +54,7 @@ import { Query } from '~/queries/Query/Query'
 import {
     AssistantForm,
     AssistantMessage,
+    AssistantMessageType,
     AssistantToolCallMessage,
     FailureMessage,
     MultiVisualizationMessage,
@@ -321,11 +323,12 @@ interface MessageTemplateProps {
     action?: React.ReactNode
     className?: string
     boxClassName?: string
-    children: React.ReactNode
+    children?: React.ReactNode
+    header?: React.ReactNode
 }
 
 const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(function MessageTemplate(
-    { type, children, className, boxClassName, action },
+    { type, children, className, boxClassName, action, header },
     ref
 ) {
     return (
@@ -337,15 +340,18 @@ const MessageTemplate = React.forwardRef<HTMLDivElement, MessageTemplateProps>(f
             )}
             ref={ref}
         >
-            <div
-                className={twMerge(
-                    'max-w-full border py-2 px-3 rounded-lg bg-surface-primary',
-                    type === 'human' && 'font-medium',
-                    boxClassName
-                )}
-            >
-                {children}
-            </div>
+            {header}
+            {children && (
+                <div
+                    className={twMerge(
+                        'max-w-full border py-2 px-3 rounded-lg bg-surface-primary',
+                        type === 'human' && 'font-medium',
+                        boxClassName
+                    )}
+                >
+                    {children}
+                </div>
+            )}
             {action}
         </div>
     )
@@ -396,14 +402,61 @@ const TextAnswer = React.forwardRef<HTMLDivElement, TextAnswerProps>(function Te
             boxClassName={message.status === 'error' || message.type === 'ai/failure' ? 'border-danger' : undefined}
             ref={ref}
             action={action}
+            header={
+                message.type === AssistantMessageType.Assistant && message.meta?.thinking ? (
+                    <ThinkingHeader
+                        thinking={message.meta.thinking}
+                        isActive={message.status === 'loading' && !message.content}
+                    />
+                ) : null
+            }
         >
-            <MarkdownMessage
-                content={message.content || '*Max has failed to generate an answer. Please try again.*'}
-                id={message.id || 'error'}
-            />
+            {message.status === 'error' ? (
+                <MarkdownMessage
+                    content={message.content || '*Max has failed to generate an answer. Please try again.*'}
+                    id={message.id || 'error'}
+                />
+            ) : (
+                message.content && <MarkdownMessage content={message.content} id={message.id || 'in-progress'} />
+            )}
         </MessageTemplate>
     )
 })
+
+function ThinkingHeader({
+    thinking,
+    isActive,
+}: {
+    thinking: Record<string, unknown>[]
+    isActive: boolean
+}): JSX.Element {
+    const thinkingContent = thinking.find((t) => t.type === 'thinking')
+    return (
+        <LemonCollapse
+            className="w-full mb-1"
+            size="xsmall"
+            panels={[
+                {
+                    key: 'thinking',
+                    header: {
+                        type: 'tertiary',
+                        children: 'Planning next actions',
+                        icon: null,
+                        className: 'bg-surface-secondary',
+                    },
+                    content: (
+                        <MarkdownMessage
+                            content={(thinkingContent?.thinking as string | undefined | null) || 'Thinking...'}
+                            id="reasoning"
+                            className="text-xs"
+                        />
+                    ),
+                },
+            ]}
+            activeKey={isActive ? 'thinking' : undefined}
+        />
+    )
+}
 
 interface AssistantMessageFormProps {
     form: AssistantForm
