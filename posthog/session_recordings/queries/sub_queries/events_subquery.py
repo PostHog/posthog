@@ -8,7 +8,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import MathAvailability, legacy_entity_to_node
-from posthog.models import Entity, Team
+from posthog.models import Entity, EventProperty, Team
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.utils import (
     INVERSE_OPERATOR_FOR,
@@ -105,13 +105,12 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             gathered_exprs += event_where_exprs
 
         for p in self.event_properties:
-            gathered_exprs.append(
-                property_to_expr(
-                    p,
-                    team=self._team,
-                    scope="replay",
-                )
+            event_enriched_event_property_exprs = property_to_expr(
+                self.with_team_events_added(p, self._team),
+                team=self._team,
+                scope="replay",
             )
+            gathered_exprs.append(event_enriched_event_property_exprs)
 
         for p in self.group_properties:
             gathered_exprs.append(property_to_expr(p, team=self._team))
@@ -329,3 +328,43 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             )
         else:
             return None
+
+    @staticmethod
+    def with_team_events_added(p: AnyPropertyFilter, team: Team) -> ast.Expr:
+        """
+        We support property only filters because users expect it, but unlike insights
+        we don't have event series to help us hit the good-spot of an events table query
+        and these can get slow fast.
+        this should be fixed elsewhere but in the short term,
+        we can load the events for a given property from postgres and convert a property only filter
+        into an event and property filter
+        """
+        property_type = p.type
+        if property_type is None or property_type != "event":
+            raise ValueError("property must be of type event")
+
+        events_that_have_the_property = EventProperty.objects.filter(team_id=team.id, property=p.key).values_list(
+            "event", flat=True
+        )
+
+        if not events_that_have_the_property:
+            # If no events have this property, just  return the property expression itself
+            return property_to_expr(p, team=team, scope="replay")
+
+        event_exprs = []
+        for event_name in events_that_have_the_property:
+            # Create an EventsNode with the property attached
+            entity = EventsNode(
+                event=event_name,
+                name=event_name,  # _entity_to_expr uses entity.name
+                properties=[p],  # Attach the original property filter
+            )
+
+            # Create the expression: (event =  '$pageview' AND properties.$browser = 'Chrome')
+            entity_expr = _entity_to_expr(entity=entity)
+            property_expr = property_to_expr(p, team=team, scope="replay_entity")
+
+            event_exprs.append(ast.And(exprs=[entity_expr, property_expr]))
+
+        # Combine all with OR: ((event = '$pageview' AND ...) OR(event='$pageleave' AND...))
+        return ast.Or(exprs=event_exprs)
