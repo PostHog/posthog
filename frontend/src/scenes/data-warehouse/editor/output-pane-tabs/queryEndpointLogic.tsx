@@ -1,15 +1,15 @@
-import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { EmbeddedTab } from 'scenes/embedded-analytics/common'
-import { queryEndpointsLogic } from 'scenes/embedded-analytics/query-endpoints/queryEndpointsLogic'
 import { urls } from 'scenes/urls'
 
 import { NamedQueryRequest, NodeKind } from '~/queries/schema/schema-general'
 
 import type { queryEndpointLogicType } from './queryEndpointLogicType'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 export type CodeExampleTab = 'terminal' | 'python' | 'nodejs'
 
@@ -21,10 +21,6 @@ export const queryEndpointLogic = kea<queryEndpointLogicType>([
     path(['data-warehouse', 'editor', 'output-pane-tabs', 'queryEndpointLogic']),
     props({} as QueryEndpointLogicProps),
     key((props) => props.tabId),
-    connect(() => ({
-        values: [],
-        actions: [queryEndpointsLogic, ['loadQueryEndpoints']],
-    })),
     actions({
         setQueryEndpointName: (queryEndpointName: string) => ({ queryEndpointName }),
         setQueryEndpointDescription: (queryEndpointDescription: string) => ({ queryEndpointDescription }),
@@ -90,7 +86,6 @@ export const queryEndpointLogic = kea<queryEndpointLogicType>([
         },
         deleteQueryEndpointSuccess: () => {
             lemonToast.success('Query endpoint deleted successfully')
-            actions.loadQueryEndpoints()
         },
         deleteQueryEndpointFailure: ({ error }) => {
             console.error('Failed to delete query endpoint:', error)
@@ -110,11 +105,11 @@ export const queryEndpointLogic = kea<queryEndpointLogicType>([
         },
         deactivateQueryEndpointSuccess: () => {
             lemonToast.success('Query endpoint deactivated successfully')
-            actions.loadQueryEndpoints()
         },
         deactivateQueryEndpointFailure: ({ error }) => {
             console.error('Failed to deactivate query endpoint:', error)
             lemonToast.error('Failed to deactivate query endpoint')
         },
     })),
+    permanentlyMount(),
 ])
