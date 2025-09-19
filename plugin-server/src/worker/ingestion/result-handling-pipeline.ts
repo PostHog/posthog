@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 
+import { BatchProcessingPipeline, BatchProcessingResult } from '../../ingestion/batch-processing-pipeline'
 import {
     AsyncPreprocessingStep,
     AsyncProcessingPipeline,
@@ -164,5 +165,93 @@ export class AsyncResultHandlingPipeline<T> extends BaseResultHandlingPipeline<T
             Promise.resolve({ type: PipelineStepResultType.OK, value: v })
         )
         return new AsyncResultHandlingPipeline(pipeline, originalMessage, config)
+    }
+}
+
+/**
+ * Wrapper around BatchProcessingPipeline that automatically handles result types (DLQ, DROP, REDIRECT)
+ * for each element in the batch and filters out non-success results.
+ *
+ * Requires a KafkaProducerWrapper for DLQ and redirect functionality.
+ */
+export class BatchResultHandlingPipeline<T> {
+    constructor(
+        private pipeline: BatchProcessingPipeline<T>,
+        private originalMessages: Message[],
+        private config: PipelineConfig
+    ) {}
+
+    pipe<U>(
+        step: (values: T[]) => Promise<BatchProcessingResult<U>>,
+        _stepName?: string
+    ): BatchResultHandlingPipeline<U> {
+        const newPipeline = this.pipeline.pipe(step)
+        return new BatchResultHandlingPipeline(newPipeline, this.originalMessages, this.config)
+    }
+
+    pipeConcurrently<U>(
+        stepConstructor: (value: T) => Promise<ProcessingResult<U>>,
+        _stepName?: string
+    ): BatchResultHandlingPipeline<U> {
+        const newPipeline = this.pipeline.pipeConcurrently(stepConstructor)
+        return new BatchResultHandlingPipeline(newPipeline, this.originalMessages, this.config)
+    }
+
+    async unwrap(): Promise<T[]> {
+        const results = await this.pipeline.unwrap()
+        return await this.handleBatchResults(results, 'batch_pipeline_result_handler')
+    }
+
+    private async handleBatchResults(results: BatchProcessingResult<T>, stepName: string): Promise<T[]> {
+        const successfulValues: T[] = []
+
+        for (let i = 0; i < results.length; i++) {
+            const result = results[i]
+            const originalMessage = this.originalMessages[i] || this.originalMessages[0] // Fallback to first message
+
+            if (isSuccessResult(result)) {
+                successfulValues.push(result.value)
+            } else {
+                await this.handleNonSuccessResult(result, originalMessage, stepName)
+            }
+        }
+
+        return successfulValues
+    }
+
+    private async handleNonSuccessResult(
+        result: ProcessingResult<T>,
+        originalMessage: Message,
+        stepName: string
+    ): Promise<void> {
+        if (isDlqResult(result)) {
+            await sendMessageToDLQ(
+                this.config.kafkaProducer,
+                originalMessage,
+                result.error || new Error(result.reason),
+                stepName,
+                this.config.dlqTopic
+            )
+        } else if (isDropResult(result)) {
+            logDroppedMessage(originalMessage, result.reason, stepName)
+        } else if (isRedirectResult(result)) {
+            await redirectMessageToTopic(
+                this.config.kafkaProducer,
+                this.config.promiseScheduler,
+                originalMessage,
+                result.topic,
+                stepName,
+                result.preserveKey ?? true,
+                result.awaitAck ?? true
+            )
+        }
+    }
+
+    static of<T>(
+        pipeline: BatchProcessingPipeline<T>,
+        originalMessages: Message[],
+        config: PipelineConfig
+    ): BatchResultHandlingPipeline<T> {
+        return new BatchResultHandlingPipeline(pipeline, originalMessages, config)
     }
 }

@@ -5,7 +5,7 @@ import { KafkaProducerWrapper } from '../../kafka/producer'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { dlq, drop, redirect, success } from './event-pipeline/pipeline-step-result'
 import { logDroppedMessage, redirectMessageToTopic, sendMessageToDLQ } from './pipeline-helpers'
-import { AsyncResultHandlingPipeline, PipelineConfig, ResultHandlingPipeline } from './result-handling-pipeline'
+import { BatchResultHandlingPipeline, PipelineConfig, ResultHandlingPipeline } from './result-handling-pipeline'
 
 // Mock the pipeline helpers
 jest.mock('./pipeline-helpers', () => ({
@@ -198,17 +198,16 @@ describe('ResultHandlingPipeline', () => {
     })
 
     describe('pipeAsync() - mixed sync/async steps', () => {
-        it('should transition to AsyncResultHandlingPipeline', async () => {
+        it('should execute async step and return result', async () => {
             const initialValue = { count: 1 }
             const asyncStep: AsyncPreprocessingStep<typeof initialValue, { count: number }> = async (input) => {
                 await new Promise((resolve) => setTimeout(resolve, 1))
                 return success({ count: input.count + 1 })
             }
 
-            const asyncPipeline = ResultHandlingPipeline.of(initialValue, mockMessage, config).pipeAsync(asyncStep)
-            expect(asyncPipeline).toBeInstanceOf(AsyncResultHandlingPipeline)
-
-            const result = await asyncPipeline.unwrap()
+            const result = await ResultHandlingPipeline.of(initialValue, mockMessage, config)
+                .pipeAsync(asyncStep)
+                .unwrap()
             expect(result).toEqual({ count: 2 })
         })
 
@@ -262,10 +261,10 @@ describe('ResultHandlingPipeline', () => {
     })
 })
 
-describe('AsyncResultHandlingPipeline', () => {
+describe('BatchResultHandlingPipeline', () => {
     let mockKafkaProducer: KafkaProducerWrapper
     let mockPromiseScheduler: PromiseScheduler
-    let mockMessage: Message
+    let mockMessages: Message[]
     let config: PipelineConfig
 
     beforeEach(() => {
@@ -280,15 +279,26 @@ describe('AsyncResultHandlingPipeline', () => {
             schedule: jest.fn(),
         } as unknown as PromiseScheduler
 
-        mockMessage = {
-            value: Buffer.from('test message'),
-            topic: 'test-topic',
-            partition: 0,
-            offset: 123,
-            key: 'test-key',
-            headers: [],
-            size: 12,
-        } as Message
+        mockMessages = [
+            {
+                value: Buffer.from('test message 1'),
+                topic: 'test-topic',
+                partition: 0,
+                offset: 123,
+                key: 'test-key-1',
+                headers: [],
+                size: 14,
+            } as Message,
+            {
+                value: Buffer.from('test message 2'),
+                topic: 'test-topic',
+                partition: 0,
+                offset: 124,
+                key: 'test-key-2',
+                headers: [],
+                size: 14,
+            } as Message,
+        ]
 
         config = {
             kafkaProducer: mockKafkaProducer,
@@ -298,189 +308,151 @@ describe('AsyncResultHandlingPipeline', () => {
     })
 
     describe('static methods', () => {
-        it('should create async pipeline using of()', async () => {
-            const value = { test: 'data' }
-            const pipeline = AsyncResultHandlingPipeline.of(value, mockMessage, config)
+        it('should create batch result handling pipeline using of()', async () => {
+            const { BatchProcessingPipeline } = await import('../../ingestion/batch-processing-pipeline')
+            const values = [{ test: 'data1' }, { test: 'data2' }]
+
+            const pipeline = BatchResultHandlingPipeline.of(BatchProcessingPipeline.of(values), mockMessages, config)
 
             const result = await pipeline.unwrap()
-            expect(result).toEqual(value)
+            expect(result).toEqual([{ test: 'data1' }, { test: 'data2' }])
         })
     })
 
-    describe('pipe() - synchronous steps on async pipeline', () => {
-        it('should execute sync step after async step', async () => {
-            const initialValue = { count: 1 }
-            const asyncStep: AsyncPreprocessingStep<typeof initialValue, { count: number }> = async (input) => {
-                await new Promise((resolve) => setTimeout(resolve, 1))
-                return success({ count: input.count + 1 })
-            }
-            const syncStep: SyncPreprocessingStep<{ count: number }, { count: number; final: boolean }> = (input) => {
-                return success({ count: input.count, final: true })
-            }
+    describe('pipe() - batch operations with result handling', () => {
+        it('should execute batch step and filter successful results', async () => {
+            const { BatchProcessingPipeline } = await import('../../ingestion/batch-processing-pipeline')
+            const values = [{ count: 1 }, { count: 2 }]
 
-            const result = await AsyncResultHandlingPipeline.of(initialValue, mockMessage, config)
-                .pipeAsync(asyncStep)
-                .pipe(syncStep)
-                .unwrap()
-
-            expect(result).toEqual({ count: 2, final: true })
-        })
-
-        it('should skip sync step when async result is failure', async () => {
-            const initialValue = { count: 1 }
-            const asyncStep: AsyncPreprocessingStep<typeof initialValue, { count: number }> = async () => {
-                await new Promise((resolve) => setTimeout(resolve, 1))
-                return drop('async drop')
-            }
-            const syncStep: SyncPreprocessingStep<{ count: number }, { final: boolean }> = jest.fn((_input) => {
-                return success({ final: true })
-            })
-
-            const result = await AsyncResultHandlingPipeline.of(initialValue, mockMessage, config)
-                .pipeAsync(asyncStep)
-                .pipe(syncStep)
-                .unwrap()
-
-            expect(result).toBeNull()
-            expect(syncStep).not.toHaveBeenCalled()
-            expect(mockLogDroppedMessage).toHaveBeenCalledWith(
-                mockMessage,
-                'async drop',
-                'async_pipeline_result_handler'
+            const innerPipeline = BatchProcessingPipeline.of(values).pipe((items) =>
+                Promise.resolve(items.map((item) => success({ count: item.count * 2 })))
             )
-        })
-    })
 
-    describe('pipeAsync() - chaining async steps', () => {
-        it('should chain multiple async steps', async () => {
-            const initialValue = { count: 0 }
+            const result = await BatchResultHandlingPipeline.of(innerPipeline, mockMessages, config).unwrap()
 
-            const step1: AsyncPreprocessingStep<typeof initialValue, { count: number }> = async (input) => {
-                await new Promise((resolve) => setTimeout(resolve, 1))
-                return success({ count: input.count + 1 })
-            }
-
-            const step2: AsyncPreprocessingStep<{ count: number }, { count: number; doubled: number }> = async (
-                input
-            ) => {
-                await new Promise((resolve) => setTimeout(resolve, 1))
-                return success({ count: input.count, doubled: input.count * 2 })
-            }
-
-            const result = await AsyncResultHandlingPipeline.of(initialValue, mockMessage, config)
-                .pipeAsync(step1)
-                .pipeAsync(step2)
-                .unwrap()
-
-            expect(result).toEqual({ count: 1, doubled: 2 })
+            expect(result).toEqual([{ count: 2 }, { count: 4 }])
         })
 
-        it('should stop chain when async step returns failure', async () => {
-            const initialValue = { count: 0 }
+        it('should handle mixed results and filter out non-success', async () => {
+            const { BatchProcessingPipeline } = await import('../../ingestion/batch-processing-pipeline')
+            const values = [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }]
 
-            const step1: AsyncPreprocessingStep<typeof initialValue, { count: number }> = async (input) => {
-                await new Promise((resolve) => setTimeout(resolve, 1))
-                return success({ count: input.count + 1 })
-            }
-
-            const step2: AsyncPreprocessingStep<{ count: number }, { count: number }> = async () => {
-                await new Promise((resolve) => setTimeout(resolve, 1))
-                return redirect('async redirect', 'overflow-topic', false, true)
-            }
-
-            const step3: AsyncPreprocessingStep<{ count: number }, { final: string }> = jest.fn(async (input) => {
-                await Promise.resolve()
-                return success({ final: `count: ${input.count}` })
+            const innerPipeline = BatchProcessingPipeline.of(values).pipe((items) => {
+                return Promise.resolve(
+                    items.map((item) => {
+                        switch (item.id) {
+                            case 1:
+                                return success({ processed: item.id })
+                            case 2:
+                                return drop('item 2 dropped')
+                            case 3:
+                                return redirect('item 3 redirected', 'overflow-topic')
+                            case 4:
+                                return dlq('item 4 failed', new Error('processing error'))
+                            default:
+                                return success({ processed: item.id })
+                        }
+                    })
+                )
             })
 
-            const result = await AsyncResultHandlingPipeline.of(initialValue, mockMessage, config)
-                .pipeAsync(step1)
-                .pipeAsync(step2)
-                .pipeAsync(step3)
-                .unwrap()
+            const result = await BatchResultHandlingPipeline.of(innerPipeline, mockMessages, config).unwrap()
 
-            expect(result).toBeNull()
-            expect(step3).not.toHaveBeenCalled()
+            expect(result).toEqual([{ processed: 1 }])
+
+            // Verify that non-success results were handled
+            expect(mockLogDroppedMessage).toHaveBeenCalledWith(
+                mockMessages[1],
+                'item 2 dropped',
+                'batch_pipeline_result_handler'
+            )
             expect(mockRedirectMessageToTopic).toHaveBeenCalledWith(
                 mockKafkaProducer,
                 mockPromiseScheduler,
-                mockMessage,
+                mockMessages[2] || mockMessages[0],
                 'overflow-topic',
-                'async_pipeline_result_handler',
-                false,
+                'batch_pipeline_result_handler',
+                true,
                 true
             )
-        })
-
-        it('should handle async dlq result', async () => {
-            const initialValue = { count: 1 }
-            const testError = new Error('async error')
-            const dlqStep: AsyncPreprocessingStep<typeof initialValue, { count: number }> = async () => {
-                await Promise.resolve()
-                return dlq('async dlq reason', testError)
-            }
-
-            const result = await AsyncResultHandlingPipeline.of(initialValue, mockMessage, config)
-                .pipeAsync(dlqStep)
-                .unwrap()
-
-            expect(result).toBeNull()
             expect(mockSendMessageToDLQ).toHaveBeenCalledWith(
                 mockKafkaProducer,
-                mockMessage,
-                testError,
-                'async_pipeline_result_handler',
+                mockMessages[3] || mockMessages[0],
+                expect.any(Error),
+                'batch_pipeline_result_handler',
                 'test-dlq'
             )
         })
     })
 
-    describe('mixed sync and async steps', () => {
-        it('should handle complex pipeline with mixed step types', async () => {
-            const initialValue = { value: 'start' }
+    describe('pipeConcurrently() - concurrent processing with result handling', () => {
+        it('should process items concurrently and filter successful results', async () => {
+            const { BatchProcessingPipeline } = await import('../../ingestion/batch-processing-pipeline')
+            const values = [{ count: 1 }, { count: 2 }, { count: 3 }]
 
-            const syncStep1: SyncPreprocessingStep<typeof initialValue, { value: string; step1: boolean }> = (
-                input
-            ) => {
-                return success({ value: input.value + '-sync1', step1: true })
-            }
-
-            const asyncStep1: AsyncPreprocessingStep<
-                { value: string; step1: boolean },
-                { value: string; step1: boolean; async1: boolean }
-            > = async (input) => {
+            const innerPipeline = BatchProcessingPipeline.of(values).pipeConcurrently(async (item) => {
                 await new Promise((resolve) => setTimeout(resolve, 1))
-                return success({ ...input, value: input.value + '-async1', async1: true })
-            }
+                return success({ count: item.count * 2 })
+            })
 
-            const syncStep2: SyncPreprocessingStep<
-                { value: string; step1: boolean; async1: boolean },
-                { final: string }
-            > = (input) => {
-                return success({ final: `${input.value}-sync2` })
-            }
+            const result = await BatchResultHandlingPipeline.of(innerPipeline, mockMessages, config).unwrap()
 
-            const result = await AsyncResultHandlingPipeline.of(initialValue, mockMessage, config)
-                .pipe(syncStep1)
-                .pipeAsync(asyncStep1)
-                .pipe(syncStep2)
-                .unwrap()
+            expect(result).toEqual([{ count: 2 }, { count: 4 }, { count: 6 }])
+        })
 
-            expect(result).toEqual({ final: 'start-sync1-async1-sync2' })
+        it('should handle concurrent processing failures', async () => {
+            const { BatchProcessingPipeline } = await import('../../ingestion/batch-processing-pipeline')
+            const values = [{ id: 1 }, { id: 2 }, { id: 3 }]
+
+            const innerPipeline = BatchProcessingPipeline.of(values).pipeConcurrently((item) => {
+                if (item.id === 2) {
+                    return Promise.resolve(drop('item 2 dropped'))
+                }
+                return Promise.resolve(success({ processed: item.id }))
+            })
+
+            const result = await BatchResultHandlingPipeline.of(innerPipeline, mockMessages, config).unwrap()
+
+            expect(result).toEqual([{ processed: 1 }, { processed: 3 }])
+            expect(mockLogDroppedMessage).toHaveBeenCalledWith(
+                mockMessages[1],
+                'item 2 dropped',
+                'batch_pipeline_result_handler'
+            )
         })
     })
 
-    describe('error handling', () => {
-        it('should propagate async step errors', async () => {
-            const initialValue = { count: 1 }
-            const errorStep: AsyncPreprocessingStep<typeof initialValue, { count: number }> = async () => {
-                await Promise.resolve()
-                throw new Error('Async step failed')
-            }
+    describe('message fallback handling', () => {
+        it('should handle cases where there are fewer messages than results', async () => {
+            const { BatchProcessingPipeline } = await import('../../ingestion/batch-processing-pipeline')
+            const values = [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }] // More values than messages
 
-            await expect(
-                AsyncResultHandlingPipeline.of(initialValue, mockMessage, config).pipeAsync(errorStep).unwrap()
-            ).rejects.toThrow('Async step failed')
+            const innerPipeline = BatchProcessingPipeline.of(values).pipe((items) => {
+                return Promise.resolve(
+                    items.map((item, index) => {
+                        if (index >= 2) {
+                            return drop(`item ${item.id} dropped`)
+                        }
+                        return success({ processed: item.id })
+                    })
+                )
+            })
+
+            const result = await BatchResultHandlingPipeline.of(innerPipeline, mockMessages, config).unwrap()
+
+            expect(result).toEqual([{ processed: 1 }, { processed: 2 }])
+
+            // Should fallback to first message for items without corresponding messages
+            expect(mockLogDroppedMessage).toHaveBeenCalledWith(
+                mockMessages[0], // Fallback message
+                'item 3 dropped',
+                'batch_pipeline_result_handler'
+            )
+            expect(mockLogDroppedMessage).toHaveBeenCalledWith(
+                mockMessages[0], // Fallback message
+                'item 4 dropped',
+                'batch_pipeline_result_handler'
+            )
         })
     })
 })
