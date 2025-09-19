@@ -17,7 +17,6 @@ import { Breadcrumb, FileSystemIconColor } from '~/types'
 
 import '../../panel-layout/ProjectTree/defaultTree'
 import { ProductIconWrapper, iconForType } from '../../panel-layout/ProjectTree/defaultTree'
-import { SceneActions } from '../SceneActions'
 import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 
 type ResourceType = {
@@ -68,7 +67,7 @@ type SceneMainTitleProps = {
      * If true, the actions from PageHeader will be shown
      * @default false
      */
-    actions?: boolean
+    actions?: JSX.Element
     /**
      * If provided, the back button will be forced to this breadcrumb
      * @default undefined
@@ -88,7 +87,7 @@ export function SceneTitleSection({
     forceEdit = false,
     renameDebounceMs,
     saveOnBlur = false,
-    actions = true,
+    actions,
     forceBackTo,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
@@ -108,7 +107,9 @@ export function SceneTitleSection({
                 {willShowBreadcrumbs && (
                     <div className="flex justify-between w-full">
                         <SceneBreadcrumbBackButton forceBackTo={forceBackTo} />
-                        {actions && <SceneActions className="shrink-0 ml-auto" />}
+                        <div className="pt-1 shrink-0">
+                            {actions && <div className="flex gap-2 shrink-0 ml-auto">{actions}</div>}
+                        </div>
                     </div>
                 )}
                 <div className="flex w-full justify-between gap-2">
@@ -136,7 +137,9 @@ export function SceneTitleSection({
                     </div>
                     {/* If we're not showing breadcrumbs, we want to show the actions inline with the title */}
                     {!willShowBreadcrumbs && (
-                        <div className="pt-1 shrink-0">{actions && <SceneActions className="shrink-0 ml-auto" />}</div>
+                        <div className="pt-1 shrink-0">
+                            {actions && <div className="flex gap-2 shrink-0 ml-auto">{actions}</div>}
+                        </div>
                     )}
                 </div>
                 {description !== null && (description || canEdit) && (

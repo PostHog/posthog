@@ -6,7 +6,6 @@ import { IconCopy, IconMinusSmall, IconPlusSmall, IconTrash, IconWarning } from 
 import { LemonBanner, LemonDivider, LemonFileInput, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -100,33 +99,6 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     return (
         <div className="cohort">
             <AddPersonToCohortModal id={id} />
-            <PageHeader
-                buttons={
-                    <div className="flex items-center gap-2">
-                        {isNewCohort ? (
-                            <LemonButton
-                                data-attr="cancel-cohort"
-                                type="secondary"
-                                onClick={() => {
-                                    router.actions.push(urls.cohorts())
-                                }}
-                                disabled={cohortLoading}
-                            >
-                                Cancel
-                            </LemonButton>
-                        ) : null}
-                        <LemonButton
-                            type="primary"
-                            data-attr="save-cohort"
-                            htmlType="submit"
-                            loading={cohortLoading || cohort.is_calculating}
-                            form="cohort"
-                        >
-                            Save
-                        </LemonButton>
-                    </div>
-                }
-            />
 
             <ScenePanel>
                 <ScenePanelMetaInfo>
@@ -202,6 +174,33 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                             }}
                             canEdit
                             forceEdit={isNewCohort}
+                            actions={
+                                <>
+                                    {isNewCohort ? (
+                                        <LemonButton
+                                            data-attr="cancel-cohort"
+                                            type="secondary"
+                                            onClick={() => {
+                                                router.actions.push(urls.cohorts())
+                                            }}
+                                            size="small"
+                                            disabled={cohortLoading}
+                                        >
+                                            Cancel
+                                        </LemonButton>
+                                    ) : null}
+                                    <LemonButton
+                                        type="primary"
+                                        data-attr="save-cohort"
+                                        htmlType="submit"
+                                        loading={cohortLoading || cohort.is_calculating}
+                                        form="cohort"
+                                        size="small"
+                                    >
+                                        Save
+                                    </LemonButton>
+                                </>
+                            }
                         />
                     </LemonField>
 
