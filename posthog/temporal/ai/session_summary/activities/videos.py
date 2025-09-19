@@ -1,12 +1,14 @@
+import copy
 import json
 from dataclasses import asdict
 from math import ceil
 from typing import cast
 import yaml
-
 import temporalio
 from temporalio.exceptions import ApplicationError
+from glom import glom as find_value, assign as assign_value
 
+from ee.hogai.graph.session_summaries.parsers import load_yaml_from_raw_llm_content
 from ee.hogai.session_summaries.llm.call import call_llm
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
@@ -29,6 +31,7 @@ from ee.models.session_summaries import SingleSessionSummary
 def _prepare_moment_input_from_summary_event(
     prompt: str, event: EnrichedKeyActionSerializer, session_id: str
 ) -> SessionMomentInput | None:
+    # TODO: Keep uuids for videos though
     event_id = event.data["event_id"]  # Using event id (hex) instead of uuid for simpler input/output
     ms_from_start = event.data.get("milliseconds_since_start")
     if ms_from_start is None:
@@ -71,7 +74,7 @@ async def validate_llm_single_session_summary_with_videos_activity(
         )
     summary_row = cast(SingleSessionSummary, summary_row)
     with open(f"summary_{inputs.session_id}.json", "w") as f:
-        json.dump(summary_row.summary, f, indent=4)
+        json.dump(summary_row.summary, f, indent=4, sort_keys=True)
     summary = SessionSummarySerializer(data=summary_row.summary)
     summary.is_valid(raise_exception=True)
     # Pick blocking exceptions to generate videos for
@@ -89,7 +92,7 @@ async def validate_llm_single_session_summary_with_videos_activity(
             # Collect the fields to validate/update and their current values
             # Current event fields
             for field in ["description", "exception", "abandonment", "confusion"]:
-                field_path = f"key_actions[{ki}].events[{ei}].{field}"
+                field_path = f"key_actions.{ki}.events.{ei}.{field}"
                 # TODO: Use dataclasses, avoid code repetition
                 fields_to_update_mapping[field_path] = {
                     "path": field_path,
@@ -98,13 +101,13 @@ async def validate_llm_single_session_summary_with_videos_activity(
                 }
             # Related segment outcome
             for field in ["success", "summary"]:
-                field_path = f"segment_outcomes[{segment_index}].{field}"
+                field_path = f"segment_outcomes.{segment_index}.{field}"
                 fields_to_update_mapping[field_path] = {
                     "path": field_path,
                     "current_value": summary.data["segment_outcomes"][segment_index][field],
                     "new_value": None,
                 }
-            field_path = f"segments[{segment_index}].name"
+            field_path = f"segments.{segment_index}.name"
             fields_to_update_mapping[field_path] = {
                 "path": field_path,
                 "current_value": summary.data["segments"][segment_index]["name"],
@@ -181,9 +184,11 @@ async def validate_llm_single_session_summary_with_videos_activity(
     # Generate videos and asks LLM to describe them
     # TODO: Enable after testing; Temporary disabling, as video generation surely works
     # description_results = await moments_analyzer.analyze(moments_input=moments_input)
-    # with open(f"validation_results_{inputs.session_id}.json", "w") as f:
+    # with open(f"description_results_{inputs.session_id}.json", "w") as f:
     #     json.dump(description_results, f, indent=4)
-    with open(f"/Users/woutut/Documents/Code/posthog/validation_results_01995bac-a002-7ba2-bc68-baa043d8e46c.json", "r") as f:
+    with open(
+        f"/Users/woutut/Documents/Code/posthog/validation_results_01995bac-a002-7ba2-bc68-baa043d8e46c.json", "r"
+    ) as f:
         description_results = json.load(f)
     # TODO: Update the summary with the description results
     # Generate prompt for video validation
@@ -194,9 +199,11 @@ async def validate_llm_single_session_summary_with_videos_activity(
     )
     with open(f"validation_prompt_{inputs.session_id}.txt", "w") as f:
         f.write(validation_prompt)
+    # TODO: Revert after testing
+    # Temporary disabling to focus on the last part
     # Call LLM with the validation prompt
     trace_id = temporalio.activity.info().workflow_id
-    validation_result = await call_llm(
+    validation_result_raw = await call_llm(
         input_prompt=validation_prompt,
         user_key=inputs.user_id,
         session_id=inputs.session_id,
@@ -204,7 +211,24 @@ async def validate_llm_single_session_summary_with_videos_activity(
         system_prompt=None,  # TODO: Add proper system prompt
         trace_id=trace_id,
     )
-    # Save content of the ChatCompletion object
-    with open(f"validation_result_{inputs.session_id}.txt", "w") as f:
-        f.write(validation_result.choices[0].message.content)
-    print("")
+    validation_result = load_yaml_from_raw_llm_content(
+        raw_content=validation_result_raw.choices[0].message.content, final_validation=True
+    )
+    validation_result = cast(list[dict[str, str]], validation_result)
+    with open(f"validation_result_{inputs.session_id}.json", "w") as f:
+        json.dump(validation_result, f, indent=4, sort_keys=False)
+    # with open(f"validation_result_{inputs.session_id}.json", "r") as f:
+    #     validation_result = json.load(f)
+    summary_to_update = copy.deepcopy(summary.data)
+    for field in validation_result:
+        if field.get("new_value") is None:
+            continue
+        found_value = find_value(target=summary_to_update, spec=field["path"])
+        if found_value is None:
+            temporalio.workflow.logger.error(
+                f"Field {field['path']} not found in the session summary to update for the session {inputs.session_id}, skipping"
+            )
+            continue
+        assign_value(obj=summary_to_update, path=field["path"], val=field["new_value"])
+    with open(f"updated_summary_{inputs.session_id}.json", "w") as f:
+        json.dump(summary_to_update, f, indent=4, sort_keys=True)
