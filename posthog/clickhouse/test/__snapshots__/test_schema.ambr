@@ -2559,7 +2559,10 @@
   tupleElement(p, 'gad_source') as gad_source,
   tupleElement(p, 'fbclid') as fbclid,
   tupleElement(p, 'gclsrc') as gclsrc,tupleElement(p, 'dclid') as dclid,tupleElement(p, 'gbraid') as gbraid,tupleElement(p, 'wbraid') as wbraid,tupleElement(p, 'msclkid') as msclkid,tupleElement(p, 'twclid') as twclid,tupleElement(p, 'li_fat_id') as li_fat_id,tupleElement(p, 'mc_cid') as mc_cid,tupleElement(p, 'igshid') as igshid,tupleElement(p, 'ttclid') as ttclid,tupleElement(p, 'epik') as epik,tupleElement(p, 'qclid') as qclid,tupleElement(p, 'sccid') as sccid,tupleElement(p, '_kx') as _kx,tupleElement(p, 'irclid') as irclid
-  
+  ,
+          -- attribution properties from non-pageview/screen events should be deprioritized, so make the timestamp +/- 1 year so they sort last
+          if (event = '$pageview' OR event = '$screen', timestamp, timestamp + toIntervalYear(1)) as pageview_prio_timestamp_min,
+          if (event = '$pageview' OR event = '$screen', timestamp, timestamp - toIntervalYear(1)) as pageview_prio_timestamp_max
       FROM posthog_test.sharded_events
       WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
       AND TRUE
@@ -2578,8 +2581,8 @@
   
       -- urls - only update if the event is a pageview or screen
       if(current_url IS NOT NULL AND (event = '$pageview' OR event = '$screen'), [current_url], []) AS urls,
-      initializeAggregation('argMinState', if(event = '$pageview' OR event = '$screen', current_url, NULL), timestamp) as entry_url,
-      initializeAggregation('argMaxState', if(event = '$pageview' OR event = '$screen', current_url, NULL), timestamp) as end_url,
+      initializeAggregation('argMinState', current_url, pageview_prio_timestamp_min) as entry_url,
+      initializeAggregation('argMaxState', current_url, pageview_prio_timestamp_max) as end_url,
       initializeAggregation('argMaxState', external_click_url, timestamp) as last_external_click_url,
   
       -- device
@@ -2599,34 +2602,34 @@
       initializeAggregation('argMinState', geoip_time_zone, timestamp) as geoip_time_zone,
   
       -- attribution
-      initializeAggregation('argMinState', referring_domain, timestamp) as entry_referring_domain,
-      initializeAggregation('argMinState', utm_source, timestamp) as entry_utm_source,
-      initializeAggregation('argMinState', utm_campaign, timestamp) as entry_utm_campaign,
-      initializeAggregation('argMinState', utm_medium, timestamp) as entry_utm_medium,
-      initializeAggregation('argMinState', utm_term, timestamp) as entry_utm_term,
-      initializeAggregation('argMinState', utm_content, timestamp) as entry_utm_content,
-      initializeAggregation('argMinState', gclid, timestamp) as entry_gclid,
-      initializeAggregation('argMinState', gad_source, timestamp) as entry_gad_source,
-      initializeAggregation('argMinState', fbclid, timestamp) as entry_fbclid,
+      initializeAggregation('argMinState', referring_domain, pageview_prio_timestamp_min) as entry_referring_domain,
+      initializeAggregation('argMinState', utm_source, pageview_prio_timestamp_min) as entry_utm_source,
+      initializeAggregation('argMinState', utm_campaign, pageview_prio_timestamp_min) as entry_utm_campaign,
+      initializeAggregation('argMinState', utm_medium, pageview_prio_timestamp_min) as entry_utm_medium,
+      initializeAggregation('argMinState', utm_term, pageview_prio_timestamp_min) as entry_utm_term,
+      initializeAggregation('argMinState', utm_content, pageview_prio_timestamp_min) as entry_utm_content,
+      initializeAggregation('argMinState', gclid, pageview_prio_timestamp_min) as entry_gclid,
+      initializeAggregation('argMinState', gad_source, pageview_prio_timestamp_min) as entry_gad_source,
+      initializeAggregation('argMinState', fbclid, pageview_prio_timestamp_min) as entry_fbclid,
   
       -- has gclid/fbclid for reading fewer bytes when calculating channel type
-      initializeAggregation('argMinState', gclid IS NOT NULL, timestamp) as entry_has_gclid,
-      initializeAggregation('argMinState', fbclid IS NOT NULL, timestamp) as entry_has_fbclid,
+      initializeAggregation('argMinState', gclid IS NOT NULL, pageview_prio_timestamp_min) as entry_has_gclid,
+      initializeAggregation('argMinState', fbclid IS NOT NULL, pageview_prio_timestamp_min) as entry_has_fbclid,
   
       -- other ad ids
       initializeAggregation('argMinState', (
   CAST(mapFilter((k, v) -> v IS NOT NULL, map(
   'gclsrc', gclsrc,'dclid', dclid,'gbraid', gbraid,'wbraid', wbraid,'msclkid', msclkid,'twclid', twclid,'li_fat_id', li_fat_id,'mc_cid', mc_cid,'igshid', igshid,'ttclid', ttclid,'epik', epik,'qclid', qclid,'sccid', sccid,'_kx', _kx,'irclid', irclid
   )) AS Map(String, String))
-  ), timestamp) as entry_ad_ids_map,
+  ), pageview_prio_timestamp_min) as entry_ad_ids_map,
       initializeAggregation('argMinState', (
   CAST(arrayFilter(x -> x IS NOT NULL, [
   if(gclsrc IS NOT NULL, 'gclsrc', NULL),if(dclid IS NOT NULL, 'dclid', NULL),if(gbraid IS NOT NULL, 'gbraid', NULL),if(wbraid IS NOT NULL, 'wbraid', NULL),if(msclkid IS NOT NULL, 'msclkid', NULL),if(twclid IS NOT NULL, 'twclid', NULL),if(li_fat_id IS NOT NULL, 'li_fat_id', NULL),if(mc_cid IS NOT NULL, 'mc_cid', NULL),if(igshid IS NOT NULL, 'igshid', NULL),if(ttclid IS NOT NULL, 'ttclid', NULL),if(epik IS NOT NULL, 'epik', NULL),if(qclid IS NOT NULL, 'qclid', NULL),if(sccid IS NOT NULL, 'sccid', NULL),if(_kx IS NOT NULL, '_kx', NULL),if(irclid IS NOT NULL, 'irclid', NULL)
   ]) AS Array(String))
-  ), timestamp) as entry_ad_ids_set,
+  ), pageview_prio_timestamp_min) as entry_ad_ids_set,
   
       -- channel type
-      initializeAggregation('argMinState', tuple(utm_source, utm_medium, utm_campaign, referring_domain, gclid IS NOT NULL, fbclid IS NOT NULL, gad_source), timestamp) as entry_channel_type_properties,
+      initializeAggregation('argMinState', tuple(utm_source, utm_medium, utm_campaign, referring_domain, gclid IS NOT NULL, fbclid IS NOT NULL, gad_source), pageview_prio_timestamp_min) as entry_channel_type_properties,
   
   
       -- counts
