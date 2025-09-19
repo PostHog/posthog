@@ -176,7 +176,7 @@ export function InsightMeta({
                 <TopHeading
                     query={insight.query}
                     lastRefresh={insight.last_refresh}
-                    hasTileOverrides={Object.keys(tile.filters_overrides ?? {}).length > 0}
+                    hasTileOverrides={Object.keys(tile?.filters_overrides ?? {}).length > 0}
                 />
             }
             content={
@@ -186,7 +186,7 @@ export function InsightMeta({
                         dashboardId,
                         variablesOverride,
                         filtersOverride,
-                        tile.filters_overrides
+                        tile?.filters_overrides
                     )}
                     title={name}
                     fallbackTitle={summary}
