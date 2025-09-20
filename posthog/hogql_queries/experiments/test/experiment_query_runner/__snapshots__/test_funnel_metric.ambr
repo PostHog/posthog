@@ -28,7 +28,6 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                events.event AS event,
                events.uuid AS uuid,
-               events.properties AS properties,
                if(equals(events.event, '$pageview'), 1, 0) AS step_0,
                if(equals(events.event, 'purchase'), 1, 0) AS step_1
         FROM events
@@ -85,7 +84,6 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                events.event AS event,
                events.uuid AS uuid,
-               events.properties AS properties,
                if(equals(events.event, '$pageview'), 1, 0) AS step_0,
                if(equals(events.event, 'purchase'), 1, 0) AS step_1
         FROM events
@@ -142,7 +140,6 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                events.event AS event,
                events.uuid AS uuid,
-               events.properties AS properties,
                if(equals(events.event, '$pageview'), 1, 0) AS step_0,
                if(equals(events.event, 'purchase'), 1, 0) AS step_1
         FROM events
@@ -199,7 +196,6 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                events.event AS event,
                events.uuid AS uuid,
-               events.properties AS properties,
                if(equals(events.event, '$pageview'), 1, 0) AS step_0,
                if(equals(events.event, 'purchase'), 1, 0) AS step_1
         FROM events
@@ -256,7 +252,6 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                events.event AS event,
                events.uuid AS uuid,
-               events.properties AS properties,
                if(equals(events.event, '$pageview'), 1, 0) AS step_0,
                if(equals(events.event, 'purchase'), 1, 0) AS step_1
         FROM events
@@ -313,7 +308,6 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                events.event AS event,
                events.uuid AS uuid,
-               events.properties AS properties,
                if(equals(events.event, '$pageview'), 1, 0) AS step_0,
                if(equals(events.event, 'purchase'), 1, 0) AS step_1
         FROM events
@@ -370,7 +364,6 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                events.event AS event,
                events.uuid AS uuid,
-               events.properties AS properties,
                if(equals(events.event, '$pageview'), 1, 0) AS step_0,
                if(equals(events.event, 'purchase'), 1, 0) AS step_1
         FROM events
@@ -427,7 +420,6 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                events.event AS event,
                events.uuid AS uuid,
-               events.properties AS properties,
                if(equals(events.event, '$pageview'), 1, 0) AS step_0,
                if(equals(events.event, 'add to cart'), 1, 0) AS step_1,
                if(equals(events.event, 'checkout started'), 1, 0) AS step_2,
@@ -488,7 +480,6 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                events.event AS event,
                events.uuid AS uuid,
-               events.properties AS properties,
                if(equals(events.event, '$pageview'), 1, 0) AS step_0,
                if(equals(events.event, 'purchase'), 1, 0) AS step_1,
                if(equals(events.event, 'purchase'), 1, 0) AS step_2
@@ -546,7 +537,6 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                events.event AS event,
                events.uuid AS uuid,
-               events.properties AS properties,
                if(and(equals(events.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'wizard_step'), ''), 'null'), '^"|"$', ''), 'step_1'), 0)), 1, 0) AS step_0,
                if(and(equals(events.event, '$pageview'), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, 'wizard_step'), ''), 'null'), '^"|"$', ''), 'step_2'), 0)), 1, 0) AS step_1
         FROM events
@@ -603,7 +593,6 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                events.event AS event,
                events.uuid AS uuid,
-               events.properties AS properties,
                if(equals(events.event, '$pageview'), 1, 0) AS step_0,
                if(equals(events.event, 'purchase'), 1, 0) AS step_1
         FROM events
@@ -660,7 +649,6 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                events.event AS event,
                events.uuid AS uuid,
-               events.properties AS properties,
                if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         LEFT OUTER JOIN
@@ -709,7 +697,6 @@
                events.`$group_0` AS entity_id,
                events.event AS event,
                events.uuid AS uuid,
-               events.properties AS properties,
                if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-15 12:00:00.000000', 6, 'UTC')), equals(events.event, 'purchase'))) AS metric_events ON and(equals(toString(exposures.entity_id), toString(metric_events.entity_id)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
@@ -803,7 +790,6 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                events.event AS event,
                events.uuid AS uuid,
-               events.properties AS properties,
                if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         LEFT OUTER JOIN
@@ -976,7 +962,6 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                events.event AS event,
                events.uuid AS uuid,
-               events.properties AS properties,
                if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         LEFT OUTER JOIN
@@ -1149,7 +1134,6 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                events.event AS event,
                events.uuid AS uuid,
-               events.properties AS properties,
                if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         LEFT OUTER JOIN
@@ -1332,7 +1316,6 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                events.event AS event,
                events.uuid AS uuid,
-               events.properties AS properties,
                if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         LEFT OUTER JOIN
@@ -1525,7 +1508,6 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                events.event AS event,
                events.uuid AS uuid,
-               events.properties AS properties,
                if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         LEFT OUTER JOIN
@@ -1718,7 +1700,6 @@
                if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
                events.event AS event,
                events.uuid AS uuid,
-               events.properties AS properties,
                if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         LEFT OUTER JOIN
@@ -1894,7 +1875,6 @@
                events.person_id AS entity_id,
                events.event AS event,
                events.uuid AS uuid,
-               events.properties AS properties,
                if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1), equals(events.event, 'purchase'))) AS metric_events ON and(equals(toString(exposures.entity_id), toString(metric_events.entity_id)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
@@ -2053,7 +2033,6 @@
                events.person_id AS entity_id,
                events.event AS event,
                events.uuid AS uuid,
-               events.properties AS properties,
                if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@earlierevent.com%'), 1), equals(events.event, 'purchase'))) AS metric_events ON and(equals(toString(exposures.entity_id), toString(metric_events.entity_id)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))
@@ -2212,7 +2191,6 @@
                events.person_id AS entity_id,
                events.event AS event,
                events.uuid AS uuid,
-               events.properties AS properties,
                if(equals(events.event, 'purchase'), 1, 0) AS step_0
         FROM events
         WHERE and(equals(events.team_id, 99999), greaterOrEquals(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('2020-01-31 00:00:00.000000', 6, 'UTC')), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@laterevent.com%'), 1), equals(events.event, 'purchase'))) AS metric_events ON and(equals(toString(exposures.entity_id), toString(metric_events.entity_id)), greaterOrEquals(metric_events.timestamp, exposures.first_exposure_time))

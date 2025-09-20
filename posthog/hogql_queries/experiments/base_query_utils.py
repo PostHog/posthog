@@ -543,7 +543,6 @@ def _get_metric_events_for_funnel_metric(
             ast.Alias(alias="entity_id", expr=ast.Field(chain=["events", entity_key])),
             ast.Field(chain=["events", "event"]),
             ast.Field(chain=["events", "uuid"]),
-            ast.Field(chain=["events", "properties"]),
             *step_selects,
         ],
         select_from=ast.JoinExpr(
