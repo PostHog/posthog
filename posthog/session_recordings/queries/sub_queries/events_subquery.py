@@ -122,27 +122,9 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         if event_where_exprs:
             gathered_exprs += event_where_exprs
 
-        events_to_targets: set[str] = set()
-        event_property_exprs: list[ast.Expr] = []
         for p in self.event_properties:
             if self._allow_event_property_expansion:
                 events_seen_with_this_property, property_expr = self.with_team_events_added(p, self._team)
-                events_to_targets.update(events_seen_with_this_property)
-                event_property_exprs.append(property_expr)
-            else:
-                gathered_exprs.append(
-                    property_to_expr(
-                        p,
-                        team=self._team,
-                        scope="replay",
-                    )
-                )
-
-        # if we have events that we know have been seen with any of the properties in the query
-        # then we want to restrict our events query to only those events
-        # without affecting the other parts of this query gathering
-        if events_to_targets:
-            for property_expr in event_property_exprs:
                 gathered_exprs.append(
                     ast.And(
                         # we don't particularly care which property was seen with which event
@@ -151,14 +133,20 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                             ast.CompareOperation(
                                 op=ast.CompareOperationOp.In,
                                 left=ast.Field(chain=["events", "event"]),
-                                right=ast.Constant(value=list(events_to_targets)),
+                                right=ast.Constant(value=list(events_seen_with_this_property)),
                             ),
                             property_expr,
                         ]
                     )
                 )
-        else:
-            gathered_exprs += event_property_exprs
+            else:
+                gathered_exprs.append(
+                    property_to_expr(
+                        p,
+                        team=self._team,
+                        scope="replay",
+                    )
+                )
 
         for p in self.group_properties:
             gathered_exprs.append(property_to_expr(p, team=self._team))
