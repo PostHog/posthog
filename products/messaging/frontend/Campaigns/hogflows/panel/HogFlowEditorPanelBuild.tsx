@@ -135,9 +135,11 @@ const TEMPLATE_IDS_AT_TOP_LEVEL: string[] = [
 function HogFlowEditorToolbarNode({
     action,
     onDragStart: onDragStartProp,
+    children,
 }: {
     action: CreateActionType
     onDragStart?: (event: React.DragEvent) => void
+    children?: React.ReactNode
 }): JSX.Element | null {
     const { setNewDraggingNode } = useActions(hogFlowEditorLogic)
 
@@ -161,7 +163,7 @@ function HogFlowEditorToolbarNode({
                 sideIcon={<IconDrag />}
                 fullWidth
             >
-                {action.name}
+                {children ?? action.name}
             </LemonButton>
         </div>
     )
@@ -225,10 +227,12 @@ function HogFunctionTemplatesChooser(): JSX.Element {
                             <ul className="overflow-y-auto flex-1">
                                 {actions.map((template) => (
                                     <li key={template.type}>
-                                        <HogFlowEditorToolbarNode
-                                            action={template}
-                                            // onDragStart={() => setPopoverOpen(false)}
-                                        />
+                                        <HogFlowEditorToolbarNode action={template}>
+                                            <div className="py-1">
+                                                <div>{template.name}</div>
+                                                <div className="text-xs text-muted">{template.description}</div>
+                                            </div>
+                                        </HogFlowEditorToolbarNode>
                                     </li>
                                 ))}
                             </ul>
