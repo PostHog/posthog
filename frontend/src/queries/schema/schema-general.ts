@@ -3120,12 +3120,13 @@ export enum AlertConditionType {
     ABSOLUTE_VALUE = 'absolute_value', // default alert, checks absolute value of current interval
     RELATIVE_INCREASE = 'relative_increase', // checks increase in value during current interval compared to previous interval
     RELATIVE_DECREASE = 'relative_decrease', // checks decrease in value during current interval compared to previous interval
+    ANOMALY = 'anomaly',
 }
 
 export interface AlertCondition {
     // Conditions in addition to the separate threshold
-    // TODO: Think about things like relative thresholds, rate of change, etc.
     type: AlertConditionType
+    confidence_level?: number
 }
 
 export enum AlertState {

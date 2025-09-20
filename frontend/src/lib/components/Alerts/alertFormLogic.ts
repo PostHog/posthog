@@ -18,6 +18,8 @@ import type { alertFormLogicType } from './alertFormLogicType'
 import { insightAlertsLogic } from './insightAlertsLogic'
 import { AlertType, AlertTypeWrite } from './types'
 
+export const DEFAULT_CONFIDENCE_LEVEL = 0.9
+
 export type AlertFormType = Pick<
     AlertType,
     | 'name'
@@ -100,6 +102,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                     },
                     condition: {
                         type: AlertConditionType.ABSOLUTE_VALUE,
+                        confidence_level: DEFAULT_CONFIDENCE_LEVEL,
                     },
                     subscribed_users: [],
                     checks: [],

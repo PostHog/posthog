@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from posthog.schema import AlertState, ChartDisplayType, EventsNode, TrendsFilter, TrendsFormulaNode, TrendsQuery
 
 from posthog.api.test.dashboards import DashboardAPI
+from posthog.caching.fetch_from_cache import InsightResult
 from posthog.models import AlertConfiguration
 from posthog.models.alert import AlertCheck
 from posthog.models.instance_setting import set_instance_setting
@@ -671,3 +672,83 @@ class TestAlertChecks(APIBaseTest, ClickhouseDestroyTablesMixin):
             "The insight value (Double Pageviews) for current interval (2.0) is more than upper threshold (1.0)"
             in anomalies_descriptions[0]
         )
+
+    def test_anomaly_alert_is_triggered_for_anomalous_value(
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        query_dict = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            interval="day",
+        ).model_dump()
+        timeseries_insight = self.dashboard_api.create_insight(
+            data={"name": "timeseries insight", "query": query_dict}
+        )[1]
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{self.alert['id']}",
+            data={
+                "insight": timeseries_insight["id"],
+                "condition": {"type": "anomaly", "confidence_level": 0.95},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {}}},
+            },
+        )
+
+        with patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight") as mock_calculate_insight:
+            # Create a time series with a clear anomaly at the end
+            dates = [f"2024-05-{i:02d}" for i in range(1, 21)]
+            data = [10.0] * 19 + [100.0]  # Normal values, then a spike
+            mock_insight_result = InsightResult(
+                result=[{"days": dates, "data": data, "label": "$pageview"}],
+                last_refresh=None,
+                cache_key="",
+                is_cached=False,
+                timezone="UTC",
+            )
+            mock_calculate_insight.return_value = mock_insight_result
+
+            check_alert(self.alert["id"])
+
+        assert mock_send_notifications_for_breaches.call_count == 1
+        breaches = self.get_breach_description(mock_send_notifications_for_breaches, 0)
+        assert len(breaches) == 1
+        assert "Anomaly detected for '$pageview'" in breaches[0]
+        assert "was outside the expected range" in breaches[0]
+
+    def test_anomaly_alert_is_not_triggered_for_normal_value(
+        self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        query_dict = TrendsQuery(
+            series=[EventsNode(event="$pageview")],
+            trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            interval="day",
+        ).model_dump()
+        timeseries_insight = self.dashboard_api.create_insight(
+            data={"name": "timeseries insight", "query": query_dict}
+        )[1]
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{self.alert['id']}",
+            data={
+                "insight": timeseries_insight["id"],
+                "condition": {"type": "anomaly", "confidence_level": 0.99},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {}}},
+            },
+        )
+
+        with patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight") as mock_calculate_insight:
+            # A stable time series with no anomaly
+            dates = [f"2024-05-{i:02d}" for i in range(1, 21)]
+            data = [10.0] * 20
+            mock_insight_result = InsightResult(
+                result=[{"days": dates, "data": data, "label": "$pageview"}],
+                last_refresh=None,
+                cache_key="",
+                is_cached=False,
+                timezone="UTC",
+            )
+            mock_calculate_insight.return_value = mock_insight_result
+
+            check_alert(self.alert["id"])
+
+        assert mock_send_notifications_for_breaches.call_count == 0
