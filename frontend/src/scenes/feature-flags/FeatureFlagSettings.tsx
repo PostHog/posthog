@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+import { useState } from 'react'
 
-import { IconTrash } from '@posthog/icons'
+import { IconTrash, IconUpload } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
@@ -9,6 +10,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { FeatureFlagMigrationModal } from './FeatureFlagMigration'
 import { featureFlagConfirmationSettingsLogic } from './featureFlagConfirmationSettingsLogic'
 
 export type FeatureFlagSettingsProps = {
@@ -16,6 +18,8 @@ export type FeatureFlagSettingsProps = {
 }
 
 export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProps): JSX.Element {
+    const [isMigrationModalOpen, setIsMigrationModalOpen] = useState(false)
+    const [modalKey, setModalKey] = useState(0)
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { confirmationMessageLoading } = useValues(featureFlagConfirmationSettingsLogic)
@@ -106,9 +110,35 @@ export function FeatureFlagSettings({ inModal = false }: FeatureFlagSettingsProp
                     </div>
                 )}
             </div>
+
+            <div className="space-y-2">
+                <h3 className="min-w-[25rem]">Import Feature Flags</h3>
+
+                <p>
+                    Import existing feature flags from LaunchDarkly to PostHog. This helps you migrate your feature
+                    flags while maintaining your existing configurations.
+                </p>
+
+                <LemonButton
+                    type="secondary"
+                    icon={<IconUpload />}
+                    onClick={() => {
+                        setModalKey((prev) => prev + 1) // Force new modal instance
+                        setIsMigrationModalOpen(true)
+                    }}
+                    data-attr="import-feature-flags-button"
+                >
+                    Import from external provider
+                </LemonButton>
+            </div>
+
             <div className="space-y-2">
                 <FlagsSecureApiKeys />
             </div>
+
+            {isMigrationModalOpen && (
+                <FeatureFlagMigrationModal key={modalKey} onClose={() => setIsMigrationModalOpen(false)} />
+            )}
         </div>
     )
 }

@@ -53,6 +53,7 @@ from . import (
     event_definition,
     exports,
     feature_flag,
+    feature_flag_migration,
     flag_value,
     hog,
     hog_function,
@@ -200,6 +201,12 @@ project_feature_flags_router = projects_router.register(
     r"feature_flags",
     feature_flag.FeatureFlagViewSet,
     "project_feature_flags",
+    ["project_id"],
+)
+projects_router.register(
+    r"feature_flag_migration",
+    feature_flag_migration.FeatureFlagMigrationViewSet,
+    "project_feature_flag_migration",
     ["project_id"],
 )
 project_features_router = projects_router.register(
