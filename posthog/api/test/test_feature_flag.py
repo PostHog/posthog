@@ -3258,7 +3258,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
 
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "name": "Alpha feature",
                 "key": "alpha-feature",
@@ -3298,8 +3298,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "deleted": False,
                 "active": True,
                 "ensure_experience_continuity": False,
-            },
-            sorted_flags[0],
+            }.items(),
+            sorted_flags[0].items(),
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
@@ -3368,7 +3368,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         sorted_flags = sorted(response_data["flags"], key=lambda x: x["key"])
 
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "name": "Alpha feature",
                 "key": "alpha-feature",
@@ -3408,8 +3408,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "deleted": False,
                 "active": True,
                 "ensure_experience_continuity": False,
-            },
-            sorted_flags[0],
+            }.items(),
+            sorted_flags[0].items(),
         )
 
         self.assertEqual(
@@ -3608,7 +3608,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "name": "Alpha feature",
                 "key": "alpha-feature",
@@ -3642,11 +3642,11 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "deleted": False,
                 "active": True,
                 "ensure_experience_continuity": False,
-            },
-            sorted_flags[0],
+            }.items(),
+            sorted_flags[0].items(),
         )
 
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "name": "Alpha feature",
                 "key": "alpha-feature-2",
@@ -3667,8 +3667,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 "deleted": False,
                 "active": True,
                 "ensure_experience_continuity": False,
-            },
-            sorted_flags[1],
+            }.items(),
+            sorted_flags[1].items(),
         )
 
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
@@ -4326,14 +4326,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
 
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "type": "validation_error",
                 "code": "invalid_date",
                 "detail": "Invalid date value: 6hed",
                 "attr": "filters",
-            },
-            resp.json(),
+            }.items(),
+            resp.json().items(),
         )
 
         resp = self._create_flag_with_properties(
@@ -4349,14 +4349,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
 
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "type": "validation_error",
                 "code": "invalid_date",
                 "detail": "Invalid date value: 1234-02-993284",
                 "attr": "filters",
-            },
-            resp.json(),
+            }.items(),
+            resp.json().items(),
         )
 
     def test_creating_feature_flag_with_non_existant_cohort(self):
@@ -4366,14 +4366,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
 
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "type": "validation_error",
                 "code": "cohort_does_not_exist",
                 "detail": "Cohort with id 5151 does not exist",
                 "attr": "filters",
-            },
-            cohort_request.json(),
+            }.items(),
+            cohort_request.json().items(),
         )
 
     def test_validation_payloads(self):
@@ -4565,14 +4565,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
 
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "type": "validation_error",
                 "code": "behavioral_cohort_found",
                 "detail": "Cohort 'cohort2' with filters on events cannot be used in feature flags.",
                 "attr": "filters",
-            },
-            cohort_request.json(),
+            }.items(),
+            cohort_request.json().items(),
         )
 
         cohort_request = self._create_flag_with_properties(
@@ -4605,14 +4605,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "type": "validation_error",
                 "code": "behavioral_cohort_found",
                 "detail": "Cohort 'cohort2' with filters on events cannot be used in feature flags.",
                 "attr": "filters",
-            },
-            response.json(),
+            }.items(),
+            response.json().items(),
         )
 
     def test_creating_feature_flag_with_nested_behavioral_cohort(self):
@@ -4665,14 +4665,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
 
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "type": "validation_error",
                 "code": "behavioral_cohort_found",
                 "detail": "Cohort 'cohort-behavioural' with filters on events cannot be used in feature flags.",
                 "attr": "filters",
-            },
-            cohort_request.json(),
+            }.items(),
+            cohort_request.json().items(),
         )
 
         cohort_request = self._create_flag_with_properties(
@@ -4681,14 +4681,14 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
 
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "type": "validation_error",
                 "code": "behavioral_cohort_found",
                 "detail": "Cohort 'cohort-behavioural' with filters on events cannot be used in feature flags.",
                 "attr": "filters",
-            },
-            cohort_request.json(),
+            }.items(),
+            cohort_request.json().items(),
         )
 
     def test_validation_group_properties(self):
@@ -5363,13 +5363,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "type": "validation_error",
                 "code": "invalid_input",
                 "detail": "Cannot change this flag to a group-based when linked to an Early Access Feature.",
-            },
-            response.json(),
+            }.items(),
+            response.json().items(),
         )
 
     def test_cant_create_flag_with_data_that_fails_to_query(self):
@@ -6788,7 +6788,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertDictContainsSubset({"users_affected": 4, "total_users": 10}, response_json)
+        self.assertLessEqual({"users_affected": 4, "total_users": 10}.items(), response_json.items())
 
     @freeze_time("2024-01-11")
     def test_user_blast_radius_with_relative_date_filters(self):
@@ -6819,7 +6819,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertDictContainsSubset({"users_affected": 3, "total_users": 8}, response_json)
+        self.assertLessEqual({"users_affected": 3, "total_users": 8}.items(), response_json.items())
 
     def test_user_blast_radius_with_zero_users(self):
         response = self.client.post(
@@ -6842,7 +6842,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertDictContainsSubset({"users_affected": 0, "total_users": 0}, response_json)
+        self.assertLessEqual({"users_affected": 0, "total_users": 0}.items(), response_json.items())
 
     def test_user_blast_radius_with_zero_selected_users(self):
         for i in range(5):
@@ -6872,7 +6872,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertDictContainsSubset({"users_affected": 0, "total_users": 5}, response_json)
+        self.assertLessEqual({"users_affected": 0, "total_users": 5}.items(), response_json.items())
 
     def test_user_blast_radius_with_all_selected_users(self):
         for i in range(5):
@@ -6890,7 +6890,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertDictContainsSubset({"users_affected": 5, "total_users": 5}, response_json)
+        self.assertLessEqual({"users_affected": 5, "total_users": 5}.items(), response_json.items())
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_single_cohort(self):
@@ -6934,7 +6934,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertDictContainsSubset({"users_affected": 3, "total_users": 10}, response_json)
+        self.assertLessEqual({"users_affected": 3, "total_users": 10}.items(), response_json.items())
 
         # test the same with precalculated cohort. Snapshots shouldn't have group property filter
         cohort1.calculate_people_ch(pending_version=0)
@@ -6953,7 +6953,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             response_json = response.json()
-            self.assertDictContainsSubset({"users_affected": 3, "total_users": 10}, response_json)
+            self.assertLessEqual({"users_affected": 3, "total_users": 10}.items(), response_json.items())
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_multiple_precalculated_cohorts(self):
@@ -7026,7 +7026,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             response_json = response.json()
-            self.assertDictContainsSubset({"users_affected": 2, "total_users": 10}, response_json)
+            self.assertLessEqual({"users_affected": 2, "total_users": 10}.items(), response_json.items())
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_multiple_static_cohorts(self):
@@ -7078,7 +7078,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertDictContainsSubset({"users_affected": 2, "total_users": 10}, response_json)
+        self.assertLessEqual({"users_affected": 2, "total_users": 10}.items(), response_json.items())
 
         cohort1.calculate_people_ch(pending_version=0)
         # converts to precalculated-cohort due to simplify filters
@@ -7101,7 +7101,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             response_json = response.json()
-            self.assertDictContainsSubset({"users_affected": 2, "total_users": 10}, response_json)
+            self.assertLessEqual({"users_affected": 2, "total_users": 10}.items(), response_json.items())
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_groups(self):
@@ -7139,7 +7139,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertDictContainsSubset({"users_affected": 4, "total_users": 10}, response_json)
+        self.assertLessEqual({"users_affected": 4, "total_users": 10}.items(), response_json.items())
 
     def test_user_blast_radius_with_groups_zero_selected(self):
         create_group_type_mapping_without_created_at(
@@ -7176,7 +7176,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertDictContainsSubset({"users_affected": 0, "total_users": 5}, response_json)
+        self.assertLessEqual({"users_affected": 0, "total_users": 5}.items(), response_json.items())
 
     def test_user_blast_radius_with_groups_all_selected(self):
         create_group_type_mapping_without_created_at(
@@ -7208,7 +7208,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertDictContainsSubset({"users_affected": 5, "total_users": 5}, response_json)
+        self.assertLessEqual({"users_affected": 5, "total_users": 5}.items(), response_json.items())
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_groups_multiple_queries(self):
@@ -7256,7 +7256,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        self.assertDictContainsSubset({"users_affected": 3, "total_users": 10}, response_json)
+        self.assertLessEqual({"users_affected": 3, "total_users": 10}.items(), response_json.items())
 
     @snapshot_clickhouse_queries
     def test_user_blast_radius_with_group_key_property(self):
@@ -7305,7 +7305,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
         # Should match exactly 1 group out of 11 total
-        self.assertDictContainsSubset({"users_affected": 1, "total_users": 11}, response_json)
+        self.assertLessEqual({"users_affected": 1, "total_users": 11}.items(), response_json.items())
 
         # Test filtering by group key pattern
         response = self.client.post(
@@ -7330,7 +7330,7 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_json = response.json()
         # Should match 10 groups that have "org:" in their key
-        self.assertDictContainsSubset({"users_affected": 10, "total_users": 11}, response_json)
+        self.assertLessEqual({"users_affected": 10, "total_users": 11}.items(), response_json.items())
 
     def test_user_blast_radius_with_groups_incorrect_group_type(self):
         create_group_type_mapping_without_created_at(
@@ -7377,13 +7377,13 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
         response_json = response.json()
-        self.assertDictContainsSubset(
+        self.assertLessEqual(
             {
                 "type": "validation_error",
                 "code": "invalid_input",
                 "detail": "Invalid group type index for feature flag condition.",
-            },
-            response_json,
+            }.items(),
+            response_json.items(),
         )
 
 
