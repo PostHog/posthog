@@ -11,6 +11,7 @@ use base64::{engine::general_purpose, Engine as _};
 use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 use std::io::{Read, Write};
 use thiserror::Error;
+use zstd::{Decoder, Encoder};
 
 #[derive(Error, Debug)]
 pub enum CompressionError {
@@ -32,6 +33,22 @@ pub fn decompress_gzip(bytes: &[u8]) -> Result<Vec<u8>, CompressionError> {
 /// Gzip compression
 pub fn compress_gzip(data: &[u8]) -> Result<Vec<u8>, CompressionError> {
     let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
+    encoder.write_all(data)?;
+    let compressed = encoder.finish()?;
+    Ok(compressed)
+}
+
+/// Zstd decompression (matching Django's ZstdCompressor)
+pub fn decompress_zstd(bytes: &[u8]) -> Result<Vec<u8>, CompressionError> {
+    let mut decoder = Decoder::new(bytes)?;
+    let mut decompressed = Vec::new();
+    decoder.read_to_end(&mut decompressed)?;
+    Ok(decompressed)
+}
+
+/// Zstd compression (matching Django's ZstdCompressor)
+pub fn compress_zstd(data: &[u8]) -> Result<Vec<u8>, CompressionError> {
+    let mut encoder = Encoder::new(Vec::new(), 0)?; // Level 0 matches Django's zstd_preset = 0
     encoder.write_all(data)?;
     let compressed = encoder.finish()?;
     Ok(compressed)
@@ -164,6 +181,35 @@ mod tests {
         // Data that is neither valid gzip nor valid UTF-8
         let invalid_data = vec![0xFF, 0xFE, 0xFD, 0xFC];
         let result = decompress_data(&invalid_data);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_zstd_compression_decompression() {
+        // Create a string of 1000 characters
+        let long_string = "a".repeat(1000);
+        let original = format!(
+            r#"{{"large": "json", "with": ["many", "fields"], "number": 42, "big-string": "{long_string}"}}"#
+        );
+        let compressed = compress_zstd(original.as_bytes()).unwrap();
+        let decompressed = decompress_zstd(&compressed).unwrap();
+        let decompressed_str = String::from_utf8(decompressed).unwrap();
+        assert_eq!(decompressed_str, original);
+        assert!(compressed.len() < original.len());
+    }
+
+    #[test]
+    fn test_zstd_with_empty_data() {
+        let original = b"";
+        let compressed = compress_zstd(original).unwrap();
+        let decompressed = decompress_zstd(&compressed).unwrap();
+        assert_eq!(decompressed, original);
+    }
+
+    #[test]
+    fn test_invalid_zstd_data() {
+        let corrupted_zstd = vec![0x28, 0xb5, 0x2f, 0xfd, 0x00]; // Incomplete zstd header
+        let result = decompress_zstd(&corrupted_zstd);
         assert!(result.is_err());
     }
 }

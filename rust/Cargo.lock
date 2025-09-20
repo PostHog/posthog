@@ -1703,7 +1703,8 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "flate2",
- "thiserror 2.0.12",
+ "thiserror 1.0.69",
+ "zstd",
 ]
 
 [[package]]
@@ -1760,6 +1761,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "common-hypercache"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "aws-config",
+ "aws-sdk-s3",
+ "common-compression",
+ "common-metrics",
+ "common-redis",
+ "common-s3",
+ "common-types",
+ "serde-pickle",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "common-kafka"
 version = "0.1.0"
 dependencies = [
@@ -1793,6 +1813,17 @@ dependencies = [
  "async-trait",
  "redis",
  "serde-pickle",
+ "thiserror 1.0.69",
+ "tokio",
+]
+
+[[package]]
+name = "common-s3"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "aws-config",
+ "aws-sdk-s3",
  "thiserror 1.0.69",
  "tokio",
 ]
