@@ -31,8 +31,10 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
+import { PersonType } from '~/types'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
+import { RemovePersonFromCohortButton } from './RemovePersonFromCohortButton'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
 import { createCohortDataNodeLogicKey } from './cohortUtils'
 
@@ -41,11 +43,23 @@ const RESOURCE_TYPE = 'cohort'
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
 
+    const renderRemovePersonFromCohortButton = ({ record }: { record: unknown }): JSX.Element => {
+        if (!Array.isArray(record)) {
+            console.error('Expected record to be an array for person.$delete column')
+            return <></>
+        }
+        const personRecord = record[0] as PersonType
+
+        return <RemovePersonFromCohortButton person={personRecord} cohortId={id as number} />
+    }
+
     const logic = cohortEditLogic(logicProps)
     const { deleteCohort, setOuterGroupsType, setQuery, duplicateCohort, setCohortValue } = useActions(logic)
     const modalLogic = addPersonToCohortModalLogic(logicProps)
     const { showAddPersonToCohortModal } = useActions(modalLogic)
-    const { cohort, cohortLoading, cohortMissing, query } = useValues(logic)
+    const { cohort, cohortLoading, cohortMissing, query, canRemovePersonFromCohort } =
+        useValues(logic)
+
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
 
@@ -382,6 +396,13 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                                 refresh: 'force_blocking',
                                                 fileNameForExport: cohort.name,
                                                 dataNodeLogicKey: dataNodeLogicKey,
+                                                columns: canRemovePersonFromCohort
+                                                    ? {
+                                                          'person.$delete': {
+                                                              render: renderRemovePersonFromCohortButton,
+                                                          },
+                                                      }
+                                                    : undefined,
                                             }}
                                         />
                                     )}
