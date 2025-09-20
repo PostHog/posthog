@@ -383,11 +383,11 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 # so let's just do that
                 return [], property_to_expr(p, team=team, scope="replay")
 
-            events_that_have_the_property: list[str] | None = list(
+            events_that_have_the_property: list[str] = list(
                 EventProperty.objects.filter(team_id=team.id, property=p.key).values_list("event", flat=True)
             )
 
-            return events_that_have_the_property or [], property_to_expr(p, team=team, scope="replay")
+            return events_that_have_the_property, property_to_expr(p, team=team, scope="replay")
         except Exception as e:
             posthoganalytics.capture_exception(e, properties={"replay_feature": "with_team_events_added"})
             # we can return this transformation here because this is what was always run in the past
