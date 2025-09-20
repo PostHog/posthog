@@ -1,6 +1,5 @@
 import { Optional } from '~/types'
 
-
 export enum OriginProduct {
     ERROR_TRACKING = 'error_tracking',
     EVAL_CLUSTERS = 'eval_clusters',
@@ -32,7 +31,14 @@ export interface Task {
 export type TaskUpsertProps = Optional<
     Pick<
         Task,
-        'title' | 'description' | 'origin_product' | 'position' | 'github_integration' | 'repository_config' | 'workflow' | 'current_stage'
+        | 'title'
+        | 'description'
+        | 'origin_product'
+        | 'position'
+        | 'github_integration'
+        | 'repository_config'
+        | 'workflow'
+        | 'current_stage'
     >,
     'position' | 'workflow' | 'current_stage'
 >
@@ -132,4 +138,3 @@ export interface WorkflowConfiguration {
     workflow: TaskWorkflow
     stages: WorkflowStage[]
 }
-

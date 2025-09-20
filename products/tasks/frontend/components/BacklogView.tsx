@@ -27,11 +27,11 @@ export function BacklogView(): JSX.Element {
 
             <div className="space-y-2">
                 {backlogTasks.map((task) => (
-                    <TaskCard 
-                        key={task.id} 
-                        task={task} 
-                        onAssignToWorkflow={assignTaskToWorkflow} 
-                        onClick={openTaskDetail} 
+                    <TaskCard
+                        key={task.id}
+                        task={task}
+                        onAssignToWorkflow={assignTaskToWorkflow}
+                        onClick={openTaskDetail}
                         workflows={allWorkflows}
                     />
                 ))}

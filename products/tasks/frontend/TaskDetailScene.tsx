@@ -4,8 +4,8 @@ import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { taskDetailLogic, TaskDetailLogicProps } from './taskDetailLogic'
 import { TaskDetailPage } from './components/TaskDetailPage'
+import { TaskDetailLogicProps, taskDetailLogic } from './taskDetailLogic'
 
 export const scene: SceneExport<TaskDetailLogicProps> = {
     component: TaskDetailScene,

@@ -124,7 +124,11 @@ export function TaskControlPanel(): JSX.Element {
                             needsAttention
                                 .slice(0, 5)
                                 .map((task) => (
-                                    <TaskSummaryCard key={task.id} task={task} onClick={() => openTaskDetail(task.id)} />
+                                    <TaskSummaryCard
+                                        key={task.id}
+                                        task={task}
+                                        onClick={() => openTaskDetail(task.id)}
+                                    />
                                 ))
                         )}
                     </div>
