@@ -123,8 +123,8 @@ export function Screenshot({ className }: { className?: string }): JSX.Element {
     )
 }
 
-export function PlayerController({ playerIsHovering }: { playerIsHovering: boolean }): JSX.Element {
-    const { playlistLogic, logicProps, hoverModeIsEnabled } = useValues(sessionRecordingPlayerLogic)
+export function PlayerController(): JSX.Element {
+    const { playlistLogic, logicProps, hoverModeIsEnabled, showPlayerChrome } = useValues(sessionRecordingPlayerLogic)
     const { isCinemaMode } = useValues(playerSettingsLogic)
 
     const playerMode = logicProps.mode ?? SessionRecordingPlayerMode.Standard
@@ -138,8 +138,8 @@ export function PlayerController({ playerIsHovering }: { playerIsHovering: boole
         <div
             className={cn(
                 'flex flex-col select-none',
-                hoverModeIsEnabled ? 'absolute bottom-0 left-0 right-0 transition-all duration-150 ease-out' : '',
-                hoverModeIsEnabled && playerIsHovering
+                hoverModeIsEnabled ? 'absolute bottom-0 left-0 right-0 transition-all duration-750 ease-in-out' : '',
+                hoverModeIsEnabled && showPlayerChrome
                     ? 'opacity-100 bg-surface-primary pointer-events-auto'
                     : hoverModeIsEnabled
                       ? 'opacity-0 pointer-events-none'
