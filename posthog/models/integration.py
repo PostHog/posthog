@@ -1207,13 +1207,7 @@ class GitHubIntegration:
         if not github_app_private_key:
             raise ValidationError("GITHUB_APP_PRIVATE_KEY is not configured")
 
-        # Handle common newline encoding issues in environment variables
-        # Replace literal \n with actual newlines
-        github_app_private_key = github_app_private_key.replace("\\n", "\n")
-
-        # Check if the private key has the proper PEM format
-        if not github_app_private_key.strip().startswith("-----BEGIN"):
-            raise ValidationError("GITHUB_APP_PRIVATE_KEY is not in proper PEM format. It should start with -----BEGIN")
+        github_app_private_key = github_app_private_key.replace("\\n", "\n").strip()
 
         try:
             jwt_token = jwt.encode(
