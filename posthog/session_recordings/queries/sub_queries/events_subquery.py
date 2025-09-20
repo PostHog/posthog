@@ -139,6 +139,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                             property_expr,
                         ]
                     )
+                    if events_seen_with_this_property
+                    else property_expr
                 )
             else:
                 gathered_exprs.append(
