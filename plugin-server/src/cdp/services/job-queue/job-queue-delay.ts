@@ -100,13 +100,20 @@ export class CyclotronJobQueueDelay {
     private async delayWithCancellation(delayMs: number): Promise<void> {
         const checkInterval = 1000 // Check every second
         const startTime = Date.now()
+        let lastHeartbeatTime = startTime
 
         while (Date.now() - startTime < delayMs) {
             if (this.kafkaConsumer?.isShuttingDown() || this.kafkaConsumer?.isRebalancing()) {
                 throw new Error('Delay cancelled due to consumer shutdown or rebalancing')
             }
 
-            const remainingTime = delayMs - (Date.now() - startTime)
+            const now = Date.now()
+            if (now - lastHeartbeatTime >= 25000) {
+                this.kafkaConsumer?.heartbeat()
+                lastHeartbeatTime = now
+            }
+
+            const remainingTime = delayMs - (now - startTime)
             const currentDelay = Math.min(remainingTime, checkInterval)
 
             if (currentDelay > 0) {
