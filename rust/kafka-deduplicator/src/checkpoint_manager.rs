@@ -150,11 +150,11 @@ impl CheckpointManager {
 
                         // Attempt to checkpoint each partitions' backing store in
                         // the candidate list. If the store is no longer owned by
-                        // the StoreManager, the receiver will bail out and continue
-                        // to loop. If the gating lock (is_checkpointing) is at max
-                        // capacity or an attempt for the given partition is already
-                        // in-flight, we block at this iter of 'inner loop until the
-                        // attempt can proceed or the manager's token is cancelled
+                        // the StoreManager, or a checkpoint is already in-flight
+                        // for the given partition, we skip it and continue. If the
+                        // gating lock (is_checkpointing) is at max capacity, we block
+                        // at this iteration of 'inner loop until the another attempt
+                        // completes and a new slot opens up
                         'inner: for partition in candidates {
                             let partition_tag = partition.to_string();
 
