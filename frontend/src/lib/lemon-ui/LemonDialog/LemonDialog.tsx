@@ -10,7 +10,7 @@ import { LemonModal, LemonModalProps } from 'lib/lemon-ui/LemonModal'
 import { LemonDialogFormPropsType, lemonDialogLogic } from './lemonDialogLogic'
 
 export type LemonFormDialogProps = LemonDialogFormPropsType &
-    Omit<LemonDialogProps, 'primaryButton' | 'secondaryButton'> & {
+    Omit<LemonDialogProps, 'primaryButton' | 'secondaryButton' | 'content'> & {
         initialValues: Record<string, any>
         onSubmit: (values: Record<string, any>) => void | Promise<void>
         shouldAwaitSubmit?: boolean
@@ -25,7 +25,7 @@ export type LemonDialogProps = Pick<
     secondaryButton?: LemonButtonProps | null
     tertiaryButton?: LemonButtonProps | null
     initialFormValues?: Record<string, any>
-    content?: ReactNode
+    content?: ((closeDialog: () => void) => ReactNode) | ReactNode
     onClose?: () => void
     onAfterClose?: () => void
     closeOnNavigate?: boolean
@@ -107,6 +107,13 @@ export function LemonDialog({
         lastLocation.current = currentLocation.pathname
     }, [currentLocation]) // oxlint-disable-line react-hooks/exhaustive-deps
 
+    const handleClose = (): void => {
+        setIsOpen(false)
+    }
+
+    // Resolve content, supporting both function and static content
+    const resolvedContent = typeof content === 'function' ? content(handleClose) : content
+
     return (
         <LemonModal
             {...props}
@@ -125,7 +132,7 @@ export function LemonDialog({
                 ) : null
             }
         >
-            {content}
+            {resolvedContent}
         </LemonModal>
     )
 }

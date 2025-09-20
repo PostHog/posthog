@@ -560,6 +560,7 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.is_static = validated_data.get("is_static", cohort.is_static)
         cohort.filters = validated_data.get("filters", cohort.filters)
         cohort.cohort_type = validated_data.get("cohort_type", cohort.cohort_type)
+        cohort.query = validated_data.get("query", cohort.query)
 
         deleted_state = validated_data.get("deleted", None)
 
@@ -598,12 +599,17 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.save()
 
         if not deleted_state:
-            from posthog.tasks.calculate_cohort import increment_version_and_enqueue_calculate_cohort
+            from posthog.tasks.calculate_cohort import (
+                increment_version_and_enqueue_calculate_cohort,
+                insert_cohort_from_query,
+            )
 
             if cohort.is_static:
                 # You can't update a static cohort using the trend/stickiness thing
                 if request.FILES.get("csv"):
                     self._calculate_static_by_csv(request.FILES["csv"], cohort)
+                elif validated_data.get("query"):
+                    insert_cohort_from_query.delay(cohort.pk, self.context["team_id"])
                 else:
                     increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=request.user)
             else:
@@ -640,6 +646,12 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             search_query = self.request.query_params.get("search", None)
             if search_query:
                 queryset = queryset.filter(name__icontains=search_query)
+
+            cohort_type = self.request.query_params.get("type", None)
+            if cohort_type == "static":
+                queryset = queryset.filter(is_static=True)
+            elif cohort_type == "dynamic":
+                queryset = queryset.filter(is_static=False)
 
             # TODO: remove this filter once we can support behavioral cohorts for feature flags, it's only
             # used in the feature flag property filter UI
