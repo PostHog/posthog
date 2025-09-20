@@ -425,13 +425,14 @@ impl CheckpointManager {
         partition: &Partition,
         is_checkpointing: &Arc<Mutex<HashSet<Partition>>>,
     ) -> CheckpointStatus {
-        let is_checkpointing_guard = is_checkpointing.lock().await;
+        let mut is_checkpointing_guard = is_checkpointing.lock().await;
 
         if is_checkpointing_guard.contains(partition) {
             return CheckpointStatus::InProgress;
         }
 
         if is_checkpointing_guard.len() < config.max_concurrent_checkpoints {
+            is_checkpointing_guard.insert(partition.clone());
             return CheckpointStatus::Ready;
         }
 
