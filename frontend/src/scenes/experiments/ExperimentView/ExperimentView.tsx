@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
 import { LemonTabs } from '@posthog/lemon-ui'
@@ -26,7 +26,13 @@ import {
     ResultsQuery,
 } from '../components/ResultsBreakdown'
 import { experimentLogic } from '../experimentLogic'
-import { isLegacyExperiment, isLegacyExperimentQuery } from '../utils'
+import { modalsLogic } from '../modalsLogic'
+import {
+    appendMetricToOrderingArray,
+    isLegacyExperiment,
+    isLegacyExperimentQuery,
+    removeMetricFromOrderingArray,
+} from '../utils'
 import { DistributionModal, DistributionTable } from './DistributionTable'
 import { ExperimentHeader } from './ExperimentHeader'
 import { ExposureCriteriaModal } from './ExposureCriteria'
@@ -192,7 +198,11 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentId, usesNewQueryRunner } = useValues(experimentLogic)
+    const { experimentLoading, experimentId, experiment, usesNewQueryRunner, editingPrimaryMetricUuid } =
+        useValues(experimentLogic)
+    const { restoreUnmodifiedExperiment, setExperiment, updateExperimentMetrics } = useActions(experimentLogic)
+
+    const { closePrimaryMetricModal, closeSecondaryMetricModal } = useActions(modalsLogic)
 
     const [activeTabKey, setActiveTabKey] = useState<string>('metrics')
 
@@ -238,8 +248,60 @@ export function ExperimentView(): JSX.Element {
 
                         {usesNewQueryRunner ? (
                             <>
-                                <ExperimentMetricModal experimentId={experimentId} isSecondary={true} />
-                                <ExperimentMetricModal experimentId={experimentId} isSecondary={false} />
+                                <ExperimentMetricModal
+                                    experimentId={experimentId}
+                                    isSecondary={false}
+                                    onSave={() => {
+                                        const newOrderingArray = appendMetricToOrderingArray(
+                                            experiment,
+                                            editingPrimaryMetricUuid || '',
+                                            false
+                                        )
+                                        setExperiment({
+                                            primary_metrics_ordered_uuids: newOrderingArray,
+                                        })
+                                        updateExperimentMetrics()
+                                        closePrimaryMetricModal()
+                                    }}
+                                    onDelete={() => {
+                                        //bail if we don't delete a metric
+                                        //this should be a parameter of onDelete
+                                        // onClick={onDelete(metricUuid)}
+                                        if (!editingPrimaryMetricUuid) {
+                                            return
+                                        }
+
+                                        const newOrderingArray = removeMetricFromOrderingArray(
+                                            experiment,
+                                            editingPrimaryMetricUuid,
+                                            false
+                                        )
+                                        const newMetrics = experiment.metrics.filter(
+                                            (m) => m.uuid !== editingPrimaryMetricUuid
+                                        )
+
+                                        setExperiment({
+                                            metrics: newMetrics,
+                                            primary_metrics_ordered_uuids: newOrderingArray,
+                                        })
+                                        updateExperimentMetrics()
+                                        closePrimaryMetricModal()
+                                    }}
+                                    onClose={() => {
+                                        restoreUnmodifiedExperiment()
+                                        closePrimaryMetricModal()
+                                    }}
+                                />
+                                <ExperimentMetricModal
+                                    experimentId={experimentId}
+                                    isSecondary={true}
+                                    onSave={() => {}}
+                                    onDelete={() => {}}
+                                    onClose={() => {
+                                        restoreUnmodifiedExperiment()
+                                        closeSecondaryMetricModal()
+                                    }}
+                                />
                                 <ExposureCriteriaModal />
                                 <RunningTimeCalculatorModal />
                             </>

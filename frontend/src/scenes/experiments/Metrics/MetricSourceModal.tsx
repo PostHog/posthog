@@ -43,6 +43,7 @@ export function MetricSourceModal({
 
                         const defaultMetric = usesNewQueryRunner ? getDefaultFunnelMetric() : getDefaultFunnelsMetric()
                         const newMetrics = [...experiment[metricsField], defaultMetric]
+                        //TODO: this has to go.
                         setExperiment({
                             [metricsField]: newMetrics,
                         })
