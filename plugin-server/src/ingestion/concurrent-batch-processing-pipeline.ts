@@ -1,12 +1,7 @@
 import { instrumentFn } from '../common/tracing/tracing-utils'
 import { isSuccessResult } from '../worker/ingestion/event-pipeline/pipeline-step-result'
 import { GatherBatchProcessingPipeline } from './gather-batch-processing-pipeline'
-import {
-    AsyncProcessingStep,
-    BatchProcessingPipeline,
-    BatchProcessingResult,
-    ResultWithContext,
-} from './pipeline-types'
+import { BatchProcessingPipeline, BatchProcessingResult, Processor, ResultWithContext } from './pipeline-types'
 
 export class ConcurrentBatchProcessingPipeline<TInput, TIntermediate, TOutput>
     implements BatchProcessingPipeline<TInput, TOutput>
@@ -14,7 +9,7 @@ export class ConcurrentBatchProcessingPipeline<TInput, TIntermediate, TOutput>
     private promiseQueue: Promise<ResultWithContext<TOutput>>[] = []
 
     constructor(
-        private currentStep: AsyncProcessingStep<TIntermediate, TOutput>,
+        private processor: Processor<TIntermediate, TOutput>,
         private previousPipeline: BatchProcessingPipeline<TInput, TIntermediate>
     ) {}
 
@@ -26,15 +21,12 @@ export class ConcurrentBatchProcessingPipeline<TInput, TIntermediate, TOutput>
         const previousResults = await this.previousPipeline.next()
 
         if (previousResults !== null) {
-            const stepName = this.currentStep.name || 'anonymousConcurrentStep'
+            const processorName = this.processor.constructor.name || 'anonymousProcessor'
 
             previousResults.forEach((resultWithContext) => {
                 const result = resultWithContext.result
                 if (isSuccessResult(result)) {
-                    const promise = instrumentFn(stepName, () => this.currentStep(result.value)).then((result) => ({
-                        result,
-                        context: resultWithContext.context,
-                    }))
+                    const promise = instrumentFn(processorName, () => this.processor.process(resultWithContext))
                     this.promiseQueue.push(promise)
                 } else {
                     this.promiseQueue.push(

@@ -1,349 +1,186 @@
-import { dlq, drop, redirect, success } from '../worker/ingestion/event-pipeline/pipeline-step-result'
-import { AsyncProcessingStep, ProcessingPipeline, SyncProcessingStep } from './processing-pipeline'
+import { Message } from 'node-rdkafka'
+
+import { drop, success } from '../worker/ingestion/event-pipeline/pipeline-step-result'
+import { createNewPipeline } from './pipeline-types'
+import { ProcessingPipeline } from './processing-pipeline'
 
 describe('ProcessingPipeline', () => {
-    describe('static methods', () => {
-        it('should create pipeline with success result using of()', async () => {
-            const value = { test: 'data' }
-            const pipeline = ProcessingPipeline.of(value)
+    describe('basic functionality', () => {
+        it('should process single item through pipeline', async () => {
+            const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
 
-            const result = await pipeline.unwrap()
-            expect(result).toEqual(success(value))
+            const pipeline = createNewPipeline().pipe((input) => {
+                return success({ processed: input.message.value?.toString() })
+            })
+
+            const result = await pipeline.process({ result: success({ message }), context: { message } })
+
+            expect(result).toEqual({ result: success({ processed: 'test' }), context: { message } })
+        })
+
+        it('should create pipeline with success result using create()', async () => {
+            const message: Message = { value: Buffer.from('data'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const pipeline = ProcessingPipeline.create<{ message: Message }>()
+
+            const result = await pipeline.process({ result: success({ message }), context: { message } })
+            expect(result).toEqual({ result: success({ message }), context: { message } })
         })
     })
 
     describe('pipe() - synchronous steps', () => {
         it('should execute step when result is success', async () => {
-            const initialValue = { count: 1 }
-            const step: SyncProcessingStep<typeof initialValue, { count: number }> = (input) => {
-                return success({ count: input.count + 1 })
-            }
+            const message: Message = { value: Buffer.from('1'), topic: 'test', partition: 0, offset: 1 } as Message
 
-            const result = await ProcessingPipeline.of(initialValue).pipe(step).unwrap()
+            const pipeline = createNewPipeline().pipe((input) => {
+                return success({ count: parseInt(input.message.value?.toString() || '0') + 1 })
+            })
 
-            expect(result).toEqual(success({ count: 2 }))
+            const result = await pipeline.process({ result: success({ message }), context: { message } })
+
+            expect(result).toEqual({ result: success({ count: 2 }), context: { message } })
         })
 
         it('should skip step when result is drop', async () => {
-            const initialValue = { count: 1 }
-            const dropStep: SyncProcessingStep<typeof initialValue, { count: number }> = () => {
-                return drop('dropped by first step')
-            }
-            const secondStep: SyncProcessingStep<{ count: number }, { count: number }> = jest.fn((input) => {
-                return success({ count: input.count + 1 })
+            const message: Message = { value: Buffer.from('1'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const secondStep = jest.fn((input) => {
+                return success({ count: parseInt(input.message.value?.toString() || '0') + 1 })
             })
 
-            const result = await ProcessingPipeline.of(initialValue).pipe(dropStep).pipe(secondStep).unwrap()
+            const pipeline = createNewPipeline()
+                .pipe(() => {
+                    return drop('dropped by first step')
+                })
+                .pipe(secondStep)
 
-            expect(result).toEqual(drop('dropped by first step'))
-            expect(secondStep).not.toHaveBeenCalled()
-        })
+            const result = await pipeline.process({ result: success({ message }), context: { message } })
 
-        it('should skip step when result is redirect', async () => {
-            const initialValue = { count: 1 }
-            const redirectStep: SyncProcessingStep<typeof initialValue, { count: number }> = () => {
-                return redirect('test redirect', 'overflow-topic', true, false)
-            }
-            const secondStep: SyncProcessingStep<{ count: number }, { count: number }> = jest.fn((input) => {
-                return success({ count: input.count + 1 })
-            })
-
-            const result = await ProcessingPipeline.of(initialValue).pipe(redirectStep).pipe(secondStep).unwrap()
-
-            expect(result).toEqual(redirect('test redirect', 'overflow-topic', true, false))
-            expect(secondStep).not.toHaveBeenCalled()
-        })
-
-        it('should skip step when result is dlq', async () => {
-            const initialValue = { count: 1 }
-            const dlqStep: SyncProcessingStep<typeof initialValue, { count: number }> = () => {
-                return dlq('test dlq', new Error('test error'))
-            }
-            const secondStep: SyncProcessingStep<{ count: number }, { count: number }> = jest.fn((input) => {
-                return success({ count: input.count + 1 })
-            })
-
-            const result = await ProcessingPipeline.of(initialValue).pipe(dlqStep).pipe(secondStep).unwrap()
-
-            expect(result).toEqual(dlq('test dlq', new Error('test error')))
+            expect(result).toEqual({ result: drop('dropped by first step'), context: { message } })
             expect(secondStep).not.toHaveBeenCalled()
         })
 
         it('should chain multiple synchronous steps', async () => {
-            const initialValue = { count: 0 }
+            const message: Message = { value: Buffer.from('0'), topic: 'test', partition: 0, offset: 1 } as Message
 
-            const step1: SyncProcessingStep<typeof initialValue, { count: number }> = (input) => {
-                return success({ count: input.count + 1 })
-            }
+            const pipeline = createNewPipeline()
+                .pipe((input) => {
+                    return success({ count: parseInt(input.message.value?.toString() || '0') + 1 })
+                })
+                .pipe((input) => {
+                    return success({ count: input.count, doubled: input.count * 2 })
+                })
+                .pipe((input) => {
+                    return success({ final: `count: ${input.count}, doubled: ${input.doubled}` })
+                })
 
-            const step2: SyncProcessingStep<{ count: number }, { count: number; doubled: number }> = (input) => {
-                return success({ count: input.count, doubled: input.count * 2 })
-            }
+            const result = await pipeline.process({ result: success({ message }), context: { message } })
 
-            const step3: SyncProcessingStep<{ count: number; doubled: number }, { final: string }> = (input) => {
-                return success({ final: `count: ${input.count}, doubled: ${input.doubled}` })
-            }
-
-            const result = await ProcessingPipeline.of(initialValue).pipe(step1).pipe(step2).pipe(step3).unwrap()
-
-            expect(result).toEqual(success({ final: 'count: 1, doubled: 2' }))
+            expect(result).toEqual({ result: success({ final: 'count: 1, doubled: 2' }), context: { message } })
         })
 
         it('should stop chain when step returns drop', async () => {
-            const initialValue = { count: 0 }
+            const message: Message = { value: Buffer.from('0'), topic: 'test', partition: 0, offset: 1 } as Message
 
-            const step1: SyncProcessingStep<typeof initialValue, { count: number }> = (input) => {
-                return success({ count: input.count + 1 })
-            }
-
-            const step2: SyncProcessingStep<{ count: number }, { count: number }> = () => {
-                return drop('step2 dropped')
-            }
-
-            const step3: SyncProcessingStep<{ count: number }, { final: string }> = (input) => {
+            const step3 = jest.fn((input) => {
                 return success({ final: `count: ${input.count}` })
-            }
+            })
 
-            const result = await ProcessingPipeline.of(initialValue).pipe(step1).pipe(step2).pipe(step3).unwrap()
+            const pipeline = createNewPipeline()
+                .pipe((input) => {
+                    return success({ count: parseInt(input.message.value?.toString() || '0') + 1 })
+                })
+                .pipe(() => {
+                    return drop('step2 dropped')
+                })
+                .pipe(step3)
 
-            expect(result).toEqual(drop('step2 dropped'))
+            const result = await pipeline.process({ result: success({ message }), context: { message } })
+
+            expect(result).toEqual({ result: drop('step2 dropped'), context: { message } })
         })
     })
 
     describe('pipeAsync() - mixed sync/async steps', () => {
         it('should execute async steps', async () => {
-            const initialValue = { count: 1 }
-            const asyncStep: AsyncProcessingStep<typeof initialValue, { count: number }> = async (input) => {
+            const message: Message = { value: Buffer.from('1'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const pipeline = createNewPipeline().pipeAsync(async (input) => {
                 await new Promise((resolve) => setTimeout(resolve, 1))
-                return success({ count: input.count + 1 })
-            }
+                return success({ count: parseInt(input.message.value?.toString() || '0') + 1 })
+            })
 
-            const pipeline = ProcessingPipeline.of(initialValue).pipeAsync(asyncStep)
-            expect(pipeline).toBeInstanceOf(ProcessingPipeline)
+            const result = await pipeline.process({ result: success({ message }), context: { message } })
 
-            const result = await pipeline.unwrap()
-            expect(result).toEqual(success({ count: 2 }))
+            expect(result).toEqual({ result: success({ count: 2 }), context: { message } })
         })
 
         it('should not execute async step when result is failure', async () => {
-            const initialValue = { count: 1 }
-            const dropStep: SyncProcessingStep<typeof initialValue, { count: number }> = () => {
-                return drop('initial drop')
-            }
-            const asyncStep: AsyncProcessingStep<{ count: number }, { executed: boolean }> = jest.fn(async () => {
+            const message: Message = { value: Buffer.from('1'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const asyncStep = jest.fn(async () => {
                 await Promise.resolve()
                 return success({ executed: true })
             })
 
-            const result = await ProcessingPipeline.of(initialValue).pipe(dropStep).pipeAsync(asyncStep).unwrap()
+            const pipeline = createNewPipeline()
+                .pipe(() => {
+                    return drop('initial drop')
+                })
+                .pipeAsync(asyncStep)
 
-            expect(result).toEqual(drop('initial drop'))
+            const result = await pipeline.process({ result: success({ message }), context: { message } })
+
+            expect(result).toEqual({ result: drop('initial drop'), context: { message } })
             expect(asyncStep).not.toHaveBeenCalled()
-        })
-    })
-})
-
-describe('ProcessingPipeline - Advanced Tests', () => {
-    describe('pipe() - synchronous steps on async pipeline', () => {
-        it('should execute sync step after async step', async () => {
-            const initialValue = { count: 1 }
-            const asyncStep: AsyncProcessingStep<typeof initialValue, { count: number }> = async (input) => {
-                await new Promise((resolve) => setTimeout(resolve, 1))
-                return success({ count: input.count + 1 })
-            }
-            const syncStep: SyncProcessingStep<{ count: number }, { count: number; final: boolean }> = (input) => {
-                return success({ count: input.count, final: true })
-            }
-
-            const result = await ProcessingPipeline.of(initialValue).pipeAsync(asyncStep).pipe(syncStep).unwrap()
-
-            expect(result).toEqual(success({ count: 2, final: true }))
-        })
-
-        it('should skip sync step when async result is failure', async () => {
-            const initialValue = { count: 1 }
-            const asyncStep: AsyncProcessingStep<typeof initialValue, { count: number }> = async () => {
-                await new Promise((resolve) => setTimeout(resolve, 1))
-                return drop('async drop')
-            }
-            const syncStep: SyncProcessingStep<{ count: number }, { final: boolean }> = jest.fn((_input) => {
-                return success({ final: true })
-            })
-
-            const result = await ProcessingPipeline.of(initialValue).pipeAsync(asyncStep).pipe(syncStep).unwrap()
-
-            expect(result).toEqual(drop('async drop'))
-            expect(syncStep).not.toHaveBeenCalled()
-        })
-    })
-
-    describe('pipeAsync() - chaining async steps', () => {
-        it('should chain multiple async steps', async () => {
-            const initialValue = { count: 0 }
-
-            const step1: AsyncProcessingStep<typeof initialValue, { count: number }> = async (input) => {
-                await new Promise((resolve) => setTimeout(resolve, 1))
-                return success({ count: input.count + 1 })
-            }
-
-            const step2: AsyncProcessingStep<{ count: number }, { count: number; doubled: number }> = async (input) => {
-                await new Promise((resolve) => setTimeout(resolve, 1))
-                return success({ count: input.count, doubled: input.count * 2 })
-            }
-
-            const result = await ProcessingPipeline.of(initialValue).pipeAsync(step1).pipeAsync(step2).unwrap()
-
-            expect(result).toEqual(success({ count: 1, doubled: 2 }))
-        })
-
-        it('should stop chain when async step returns failure', async () => {
-            const initialValue = { count: 0 }
-
-            const step1: AsyncProcessingStep<typeof initialValue, { count: number }> = async (input) => {
-                await new Promise((resolve) => setTimeout(resolve, 1))
-                return success({ count: input.count + 1 })
-            }
-
-            const step2: AsyncProcessingStep<{ count: number }, { count: number }> = async () => {
-                await new Promise((resolve) => setTimeout(resolve, 1))
-                return redirect('async redirect', 'overflow-topic', false, true)
-            }
-
-            const step3: AsyncProcessingStep<{ count: number }, { final: string }> = jest.fn(async (input) => {
-                await Promise.resolve()
-                return success({ final: `count: ${input.count}` })
-            })
-
-            const result = await ProcessingPipeline.of(initialValue)
-                .pipeAsync(step1)
-                .pipeAsync(step2)
-                .pipeAsync(step3)
-                .unwrap()
-
-            expect(result).toEqual(redirect('async redirect', 'overflow-topic', false, true))
-            expect(step3).not.toHaveBeenCalled()
-        })
-    })
-
-    describe('mixed sync and async steps', () => {
-        it('should handle complex pipeline with mixed step types', async () => {
-            const initialValue = { value: 'start' }
-
-            const syncStep1: SyncProcessingStep<typeof initialValue, { value: string; step1: boolean }> = (input) => {
-                return success({ value: input.value + '-sync1', step1: true })
-            }
-
-            const asyncStep1: AsyncProcessingStep<
-                { value: string; step1: boolean },
-                { value: string; step1: boolean; async1: boolean }
-            > = async (input) => {
-                await new Promise((resolve) => setTimeout(resolve, 1))
-                return success({ ...input, value: input.value + '-async1', async1: true })
-            }
-
-            const syncStep2: SyncProcessingStep<
-                { value: string; step1: boolean; async1: boolean },
-                { final: string }
-            > = (input) => {
-                return success({ final: `${input.value}-sync2` })
-            }
-
-            const result = await ProcessingPipeline.of(initialValue)
-                .pipe(syncStep1)
-                .pipeAsync(asyncStep1)
-                .pipe(syncStep2)
-                .unwrap()
-
-            expect(result).toEqual(success({ final: 'start-sync1-async1-sync2' }))
         })
     })
 
     describe('error handling', () => {
         it('should handle async step that throws an error', async () => {
-            const initialValue = { count: 1 }
-            const errorStep: AsyncProcessingStep<typeof initialValue, { count: number }> = async () => {
+            const message: Message = { value: Buffer.from('1'), topic: 'test', partition: 0, offset: 1 } as Message
+
+            const pipeline = createNewPipeline().pipeAsync(async () => {
                 await Promise.resolve()
                 throw new Error('Step failed')
-            }
+            })
 
-            await expect(ProcessingPipeline.of(initialValue).pipeAsync(errorStep).unwrap()).rejects.toThrow(
+            await expect(pipeline.process({ result: success({ message }), context: { message } })).rejects.toThrow(
                 'Step failed'
             )
         })
 
         it('should handle sync step that throws an error', async () => {
-            const initialValue = { count: 1 }
-            const errorStep: SyncProcessingStep<typeof initialValue, { count: number }> = () => {
-                throw new Error('Sync step failed')
-            }
+            const message: Message = { value: Buffer.from('1'), topic: 'test', partition: 0, offset: 1 } as Message
 
-            await expect(ProcessingPipeline.of(initialValue).pipe(errorStep).unwrap()).rejects.toThrow(
+            const pipeline = createNewPipeline().pipe(() => {
+                throw new Error('Sync step failed')
+            })
+
+            await expect(pipeline.process({ result: success({ message }), context: { message } })).rejects.toThrow(
                 'Sync step failed'
             )
         })
     })
-})
 
-describe('Type safety and generics', () => {
-    it('should maintain type safety through pipeline transformations', async () => {
-        interface Input1 {
-            a: number
-        }
-        interface Input2 {
-            b: string
-        }
-        interface Input3 {
-            c: boolean
-        }
+    describe('type safety and generics', () => {
+        it('should maintain type safety through pipeline transformations', async () => {
+            const message: Message = { value: Buffer.from('42'), topic: 'test', partition: 0, offset: 1 } as Message
 
-        const step1: SyncProcessingStep<Input1, Input2> = (input) => {
-            expect(typeof input.a).toBe('number')
-            return success({ b: input.a.toString() })
-        }
+            const pipeline = createNewPipeline()
+                .pipe((input) => {
+                    const a = parseInt(input.message.value?.toString() || '0')
+                    expect(typeof a).toBe('number')
+                    return success({ b: a.toString() })
+                })
+                .pipe((input) => {
+                    expect(typeof input.b).toBe('string')
+                    return success({ c: input.b === '42' })
+                })
 
-        const step2: SyncProcessingStep<Input2, Input3> = (input) => {
-            expect(typeof input.b).toBe('string')
-            return success({ c: input.b === '42' })
-        }
+            const result = await pipeline.process({ result: success({ message }), context: { message } })
 
-        const result = await ProcessingPipeline.of({ a: 42 }).pipe(step1).pipe(step2).unwrap()
-
-        expect(result).toEqual(success({ c: true }))
-    })
-
-    it('should work with complex nested types', async () => {
-        interface ComplexInput {
-            user: { id: string; name: string }
-            metadata: { timestamp: number; source: string }
-        }
-
-        interface ProcessedOutput {
-            userId: string
-            displayName: string
-            processedAt: string
-        }
-
-        const processStep: SyncProcessingStep<ComplexInput, ProcessedOutput> = (input) => {
-            return success({
-                userId: input.user.id,
-                displayName: input.user.name.toUpperCase(),
-                processedAt: new Date(input.metadata.timestamp).toISOString(),
-            })
-        }
-
-        const complexInput: ComplexInput = {
-            user: { id: 'user123', name: 'John Doe' },
-            metadata: { timestamp: 1640995200000, source: 'api' },
-        }
-
-        const result = await ProcessingPipeline.of(complexInput).pipe(processStep).unwrap()
-
-        expect(result).toEqual(
-            success({
-                userId: 'user123',
-                displayName: 'JOHN DOE',
-                processedAt: '2022-01-01T00:00:00.000Z',
-            })
-        )
+            expect(result).toEqual({ result: success({ c: true }), context: { message } })
+        })
     })
 })

@@ -1,340 +1,214 @@
-import { dlq, drop, redirect, success } from '../worker/ingestion/event-pipeline/pipeline-step-result'
-import { BatchProcessingPipeline, BatchProcessingResult } from './batch-processing-pipeline'
+import { Message } from 'node-rdkafka'
 
-describe('BatchProcessingPipeline', () => {
-    describe('static methods', () => {
-        it('should create pipeline with success results using of()', async () => {
-            const values = [{ test: 'data1' }, { test: 'data2' }]
-            const pipeline = BatchProcessingPipeline.of(values)
+import { dlq, drop, success } from '../worker/ingestion/event-pipeline/pipeline-step-result'
+import { SequentialBatchProcessingPipeline } from './batch-processing-pipeline'
+import { createBatch, createNewBatchPipeline } from './pipeline-types'
 
-            const results = await pipeline.unwrap()
-            expect(results).toEqual([success({ test: 'data1' }), success({ test: 'data2' })])
+describe('SequentialBatchProcessingPipeline', () => {
+    describe('basic functionality', () => {
+        it('should process batch through pipeline', async () => {
+            const messages: Message[] = [
+                { value: Buffer.from('test1'), topic: 'test', partition: 0, offset: 1 } as Message,
+                { value: Buffer.from('test2'), topic: 'test', partition: 0, offset: 2 } as Message,
+            ]
+
+            const batch = createBatch(messages)
+            const rootPipeline = createNewBatchPipeline()
+            const pipeline = SequentialBatchProcessingPipeline.from((items: any[]) => {
+                return Promise.resolve(items.map((item: any) => success({ processed: item.message.value?.toString() })))
+            }, rootPipeline)
+
+            pipeline.feed(batch)
+            const results = await pipeline.next()
+
+            expect(results).toEqual([
+                { result: success({ processed: 'test1' }), context: { message: messages[0] } },
+                { result: success({ processed: 'test2' }), context: { message: messages[1] } },
+            ])
         })
 
-        it('should create pipeline with empty array', async () => {
-            const pipeline = BatchProcessingPipeline.of([])
+        it('should handle empty batch', async () => {
+            const rootPipeline = createNewBatchPipeline()
+            const pipeline = SequentialBatchProcessingPipeline.from((items: any[]) => {
+                return Promise.resolve(items.map((item: any) => success(item)))
+            }, rootPipeline)
 
-            const results = await pipeline.unwrap()
-            expect(results).toEqual([])
+            pipeline.feed([])
+            const results = await pipeline.next()
+
+            expect(results).toEqual(null)
         })
     })
 
     describe('pipe() - batch operations', () => {
         it('should execute batch step on all successful values', async () => {
-            const values = [{ count: 1 }, { count: 2 }, { count: 3 }]
-            const batchStep = (items: typeof values) => {
-                return Promise.resolve(items.map((item) => success({ count: item.count * 2 })))
-            }
+            const messages: Message[] = [
+                { value: Buffer.from('1'), topic: 'test', partition: 0, offset: 1 } as Message,
+                { value: Buffer.from('2'), topic: 'test', partition: 0, offset: 2 } as Message,
+                { value: Buffer.from('3'), topic: 'test', partition: 0, offset: 3 } as Message,
+            ]
 
-            const results = await BatchProcessingPipeline.of(values).pipe(batchStep).unwrap()
+            const batch = createBatch(messages)
+            const rootPipeline = createNewBatchPipeline()
+            const pipeline = SequentialBatchProcessingPipeline.from((items: any[]) => {
+                return Promise.resolve(
+                    items.map((item: any) => success({ count: parseInt(item.message.value?.toString() || '0') * 2 }))
+                )
+            }, rootPipeline)
 
-            expect(results).toEqual([success({ count: 2 }), success({ count: 4 }), success({ count: 6 })])
+            pipeline.feed(batch)
+            const results = await pipeline.next()
+
+            expect(results).toEqual([
+                { result: success({ count: 2 }), context: { message: messages[0] } },
+                { result: success({ count: 4 }), context: { message: messages[1] } },
+                { result: success({ count: 6 }), context: { message: messages[2] } },
+            ])
         })
 
         it('should preserve non-success results and only process successful ones', async () => {
-            const pipeline = new BatchProcessingPipeline<{ count: number }>(
-                Promise.resolve([
-                    success({ count: 1 }),
-                    drop('dropped item'),
-                    success({ count: 3 }),
-                    dlq('dlq item', new Error('test error')),
-                ])
-            )
+            const messages: Message[] = [
+                { value: Buffer.from('1'), topic: 'test', partition: 0, offset: 1 } as Message,
+                { value: Buffer.from('drop'), topic: 'test', partition: 0, offset: 2 } as Message,
+                { value: Buffer.from('3'), topic: 'test', partition: 0, offset: 3 } as Message,
+                { value: Buffer.from('dlq'), topic: 'test', partition: 0, offset: 4 } as Message,
+            ]
 
-            const batchStep = (items: { count: number }[]) => {
+            const batch = createBatch(messages)
+            const rootPipeline = createNewBatchPipeline()
+            const firstPipeline = SequentialBatchProcessingPipeline.from((items: any[]) => {
+                return Promise.resolve(
+                    items.map((item: any) => {
+                        const value = item.message.value?.toString() || ''
+                        if (value === 'drop') {
+                            return drop('dropped item')
+                        }
+                        if (value === 'dlq') {
+                            return dlq('dlq item', new Error('test error'))
+                        }
+                        return success({ count: parseInt(value) })
+                    })
+                )
+            }, rootPipeline)
+
+            const secondPipeline = SequentialBatchProcessingPipeline.from((items: any[]) => {
                 // Should only receive successful items
                 expect(items).toEqual([{ count: 1 }, { count: 3 }])
-                return Promise.resolve(items.map((item) => success({ count: item.count * 2 })))
-            }
+                return Promise.resolve(items.map((item: any) => success({ count: item.count * 2 })))
+            }, firstPipeline)
 
-            const results = await pipeline.pipe(batchStep).unwrap()
+            secondPipeline.feed(batch)
+            const results = await secondPipeline.next()
 
             expect(results).toEqual([
-                success({ count: 2 }),
-                drop('dropped item'),
-                success({ count: 6 }),
-                dlq('dlq item', new Error('test error')),
+                { result: success({ count: 2 }), context: { message: messages[0] } },
+                { result: drop('dropped item'), context: { message: messages[1] } },
+                { result: success({ count: 6 }), context: { message: messages[2] } },
+                { result: dlq('dlq item', new Error('test error')), context: { message: messages[3] } },
             ])
-        })
-
-        it('should handle empty successful values array', async () => {
-            const pipeline = new BatchProcessingPipeline<any>(
-                Promise.resolve([
-                    drop('dropped item 1'),
-                    redirect('redirected item', 'overflow-topic'),
-                    dlq('dlq item', new Error('test error')),
-                ])
-            )
-
-            const batchStep = jest.fn((items: any[]) => {
-                return Promise.resolve(items.map((item) => success(item)))
-            })
-
-            const results = await pipeline.pipe(batchStep).unwrap()
-
-            expect(batchStep).not.toHaveBeenCalled()
-            expect(results).toEqual([
-                drop('dropped item 1'),
-                redirect('redirected item', 'overflow-topic'),
-                dlq('dlq item', new Error('test error')),
-            ])
-        })
-
-        it('should chain multiple batch operations', async () => {
-            const values = [{ value: 1 }, { value: 2 }]
-
-            const step1 = (items: { value: number }[]) => {
-                return Promise.resolve(items.map((item) => success({ value: item.value + 10 })))
-            }
-
-            const step2 = (items: { value: number }[]) => {
-                return Promise.resolve(items.map((item) => success({ value: item.value * 2 })))
-            }
-
-            const results = await BatchProcessingPipeline.of(values).pipe(step1).pipe(step2).unwrap()
-
-            expect(results).toEqual([success({ value: 22 }), success({ value: 24 })])
         })
     })
 
     describe('pipeConcurrently() - concurrent individual processing', () => {
         it('should process each item concurrently', async () => {
-            const values = [{ count: 1 }, { count: 2 }, { count: 3 }]
-            const stepConstructor = jest.fn(async (item: { count: number }) => {
-                await new Promise((resolve) => setTimeout(resolve, 1))
-                return success({ count: item.count * 2 })
-            })
+            const messages: Message[] = [
+                { value: Buffer.from('1'), topic: 'test', partition: 0, offset: 1 } as Message,
+                { value: Buffer.from('2'), topic: 'test', partition: 0, offset: 2 } as Message,
+                { value: Buffer.from('3'), topic: 'test', partition: 0, offset: 3 } as Message,
+            ]
 
-            const results = await BatchProcessingPipeline.of(values).pipeConcurrently(stepConstructor).unwrap()
+            const batch = createBatch(messages)
+            const processor = {
+                async process(input: any) {
+                    await new Promise((resolve) => setTimeout(resolve, 1))
+                    const count = parseInt(input.result.value.message.value?.toString() || '0')
+                    return { result: success({ count: count * 2 }), context: input.context }
+                },
+            }
 
-            expect(results).toEqual([success({ count: 2 }), success({ count: 4 }), success({ count: 6 })])
-            expect(stepConstructor).toHaveBeenCalledTimes(3)
+            const pipeline = createNewBatchPipeline().pipeConcurrently(processor)
+
+            pipeline.feed(batch)
+
+            // Collect all results by calling next() until it returns null
+            const allResults = []
+            let result = await pipeline.next()
+            while (result !== null) {
+                allResults.push(...result) // Flatten the array
+                result = await pipeline.next()
+            }
+
+            expect(allResults).toEqual([
+                { result: success({ count: 2 }), context: { message: messages[0] } },
+                { result: success({ count: 4 }), context: { message: messages[1] } },
+                { result: success({ count: 6 }), context: { message: messages[2] } },
+            ])
         })
 
         it('should preserve order despite concurrent execution', async () => {
-            const values = [{ delay: 30 }, { delay: 10 }, { delay: 20 }]
-            const stepConstructor = async (item: { delay: number }) => {
-                await new Promise((resolve) => setTimeout(resolve, item.delay))
-                return success({ processed: item.delay })
+            const messages: Message[] = [
+                { value: Buffer.from('30'), topic: 'test', partition: 0, offset: 1 } as Message,
+                { value: Buffer.from('10'), topic: 'test', partition: 0, offset: 2 } as Message,
+                { value: Buffer.from('20'), topic: 'test', partition: 0, offset: 3 } as Message,
+            ]
+
+            const batch = createBatch(messages)
+            const processor = {
+                async process(input: any) {
+                    const delay = parseInt(input.result.value.message.value?.toString() || '0')
+                    await new Promise((resolve) => setTimeout(resolve, delay))
+                    return { result: success({ processed: delay }), context: input.context }
+                },
             }
 
-            const results = await BatchProcessingPipeline.of(values).pipeConcurrently(stepConstructor).unwrap()
+            const pipeline = createNewBatchPipeline().pipeConcurrently(processor)
 
-            expect(results).toEqual([
-                success({ processed: 30 }),
-                success({ processed: 10 }),
-                success({ processed: 20 }),
-            ])
-        })
+            pipeline.feed(batch)
 
-        it('should preserve non-success results without processing them', async () => {
-            const pipeline = new BatchProcessingPipeline<{ count: number }>(
-                Promise.resolve([
-                    success({ count: 1 }),
-                    drop('dropped item'),
-                    success({ count: 3 }),
-                    redirect('redirected item', 'overflow-topic'),
-                ])
-            )
-
-            const stepConstructor = jest.fn((item: { count: number }) => {
-                return Promise.resolve(success({ count: item.count * 2 }))
-            })
-
-            const results = await pipeline.pipeConcurrently(stepConstructor).unwrap()
-
-            expect(results).toEqual([
-                success({ count: 2 }),
-                drop('dropped item'),
-                success({ count: 6 }),
-                redirect('redirected item', 'overflow-topic'),
-            ])
-            expect(stepConstructor).toHaveBeenCalledTimes(2)
-            expect(stepConstructor).toHaveBeenCalledWith({ count: 1 })
-            expect(stepConstructor).toHaveBeenCalledWith({ count: 3 })
-        })
-
-        it('should handle individual step failures', async () => {
-            const values = [{ count: 1 }, { count: 2 }, { count: 3 }]
-            const stepConstructor = (item: { count: number }) => {
-                if (item.count === 2) {
-                    return Promise.resolve(drop('item 2 dropped'))
-                }
-                return Promise.resolve(success({ count: item.count * 2 }))
+            // Collect all results by calling next() until it returns null
+            const allResults = []
+            let result = await pipeline.next()
+            while (result !== null) {
+                allResults.push(...result) // Flatten the array
+                result = await pipeline.next()
             }
 
-            const results = await BatchProcessingPipeline.of(values).pipeConcurrently(stepConstructor).unwrap()
-
-            expect(results).toEqual([success({ count: 2 }), drop('item 2 dropped'), success({ count: 6 })])
-        })
-
-        it('should handle mixed result types from individual processing', async () => {
-            const values = [{ id: 1 }, { id: 2 }, { id: 3 }, { id: 4 }]
-            const stepConstructor = (item: { id: number }) => {
-                switch (item.id) {
-                    case 1:
-                        return Promise.resolve(success({ processed: item.id }))
-                    case 2:
-                        return Promise.resolve(drop('item 2 dropped'))
-                    case 3:
-                        return Promise.resolve(redirect('item 3 redirected', 'overflow-topic'))
-                    case 4:
-                        return Promise.resolve(dlq('item 4 failed', new Error('processing error')))
-                    default:
-                        return Promise.resolve(success({ processed: item.id }))
-                }
-            }
-
-            const results = await BatchProcessingPipeline.of(values).pipeConcurrently(stepConstructor).unwrap()
-
-            expect(results).toEqual([
-                success({ processed: 1 }),
-                drop('item 2 dropped'),
-                redirect('item 3 redirected', 'overflow-topic'),
-                dlq('item 4 failed', new Error('processing error')),
-            ])
-        })
-
-        it('should chain pipeConcurrently operations', async () => {
-            const values = [{ value: 1 }, { value: 2 }]
-
-            const step1 = (item: { value: number }) => {
-                return Promise.resolve(success({ value: item.value + 10 }))
-            }
-
-            const step2 = (item: { value: number }) => {
-                return Promise.resolve(success({ value: item.value * 2 }))
-            }
-
-            const results = await BatchProcessingPipeline.of(values)
-                .pipeConcurrently(step1)
-                .pipeConcurrently(step2)
-                .unwrap()
-
-            expect(results).toEqual([success({ value: 22 }), success({ value: 24 })])
-        })
-    })
-
-    describe('mixed operations', () => {
-        it('should chain pipe and pipeConcurrently operations', async () => {
-            const values = [{ count: 1 }, { count: 2 }, { count: 3 }]
-
-            // First batch operation: double all values
-            const batchStep = (items: { count: number }[]) => {
-                return Promise.resolve(items.map((item) => success({ count: item.count * 2 })))
-            }
-
-            // Then individual operation: add 10 to each
-            const individualStep = (item: { count: number }) => {
-                return Promise.resolve(success({ count: item.count + 10 }))
-            }
-
-            const results = await BatchProcessingPipeline.of(values)
-                .pipe(batchStep)
-                .pipeConcurrently(individualStep)
-                .unwrap()
-
-            expect(results).toEqual([success({ count: 12 }), success({ count: 14 }), success({ count: 16 })])
-        })
-
-        it('should handle failures in mixed operations', async () => {
-            const values = [{ name: 'a' }, { name: 'drop' }, { name: 'c' }, { name: 'dlq' }]
-
-            // Batch operation that drops one item
-            const batchStep = (items: { name: string }[]): Promise<BatchProcessingResult<{ name: string }>> => {
-                return Promise.resolve(
-                    items.map((item) => {
-                        if (item.name === 'drop') {
-                            return drop('batch dropped item')
-                        }
-                        return success({ name: item.name + '-batch' })
-                    })
-                )
-            }
-
-            // Individual operation that fails one item
-            const individualStep = (item: { name: string }) => {
-                if (item.name === 'dlq-batch') {
-                    return Promise.resolve(dlq('individual failed item', new Error('processing error')))
-                }
-                return Promise.resolve(success({ name: item.name + '-individual' }))
-            }
-
-            const results = await BatchProcessingPipeline.of(values)
-                .pipe(batchStep)
-                .pipeConcurrently(individualStep)
-                .unwrap()
-
-            expect(results).toEqual([
-                success({ name: 'a-batch-individual' }),
-                drop('batch dropped item'), // Preserved from batch step
-                success({ name: 'c-batch-individual' }),
-                dlq('individual failed item', new Error('processing error')), // dlq-batch -> DLQ'd
+            expect(allResults).toEqual([
+                { result: success({ processed: 30 }), context: { message: messages[0] } },
+                { result: success({ processed: 10 }), context: { message: messages[1] } },
+                { result: success({ processed: 20 }), context: { message: messages[2] } },
             ])
         })
     })
 
     describe('error handling', () => {
         it('should propagate errors from batch operations', async () => {
-            const values = [{ count: 1 }]
-            const errorStep = () => {
-                return Promise.reject(new Error('Batch step failed'))
-            }
+            const messages: Message[] = [{ value: Buffer.from('1'), topic: 'test', partition: 0, offset: 1 } as Message]
 
-            await expect(BatchProcessingPipeline.of(values).pipe(errorStep).unwrap()).rejects.toThrow(
-                'Batch step failed'
-            )
+            const batch = createBatch(messages)
+            const rootPipeline = createNewBatchPipeline()
+            const pipeline = SequentialBatchProcessingPipeline.from(() => {
+                return Promise.reject(new Error('Batch step failed'))
+            }, rootPipeline)
+
+            pipeline.feed(batch)
+            await expect(pipeline.next()).rejects.toThrow('Batch step failed')
         })
 
         it('should propagate errors from concurrent operations', async () => {
-            const values = [{ count: 1 }]
-            const errorStep = () => {
-                return Promise.reject(new Error('Concurrent step failed'))
+            const messages: Message[] = [{ value: Buffer.from('1'), topic: 'test', partition: 0, offset: 1 } as Message]
+
+            const batch = createBatch(messages)
+            const processor = {
+                process() {
+                    return Promise.reject(new Error('Concurrent step failed'))
+                },
             }
 
-            await expect(BatchProcessingPipeline.of(values).pipeConcurrently(errorStep).unwrap()).rejects.toThrow(
-                'Concurrent step failed'
-            )
-        })
+            const pipeline = createNewBatchPipeline().pipeConcurrently(processor)
 
-        it('should handle partial failures in concurrent operations', async () => {
-            const values = [{ count: 1 }, { count: 2 }, { count: 3 }]
-            const stepConstructor = (item: { count: number }) => {
-                if (item.count === 2) {
-                    return Promise.reject(new Error('Item 2 failed'))
-                }
-                return Promise.resolve(success({ count: item.count * 2 }))
-            }
-
-            await expect(BatchProcessingPipeline.of(values).pipeConcurrently(stepConstructor).unwrap()).rejects.toThrow(
-                'Item 2 failed'
-            )
-        })
-    })
-
-    describe('type safety', () => {
-        it('should maintain type safety through transformations', async () => {
-            interface Input1 {
-                value: number
-            }
-            interface Input2 {
-                doubled: number
-            }
-
-            const step1 = (items: Input1[]) => {
-                return Promise.resolve(items.map((item) => success({ doubled: item.value * 2 })))
-            }
-
-            const step2 = (item: Input2) => {
-                return Promise.resolve(success({ final: `doubled: ${item.doubled}` }))
-            }
-
-            const results = await BatchProcessingPipeline.of([{ value: 5 }, { value: 10 }])
-                .pipe(step1)
-                .pipeConcurrently(step2)
-                .unwrap()
-
-            expect(results).toEqual([success({ final: 'doubled: 10' }), success({ final: 'doubled: 20' })])
+            pipeline.feed(batch)
+            await expect(pipeline.next()).rejects.toThrow('Concurrent step failed')
         })
     })
 })

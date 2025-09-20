@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { PipelineStepResult, success } from '../worker/ingestion/event-pipeline/pipeline-step-result'
+import { ProcessingPipeline } from './processing-pipeline'
 import { RootBatchProcessingPipeline } from './root-batch-processing-pipeline'
 
 /**
@@ -39,6 +40,13 @@ export type AsyncProcessingStep<T, U> = (value: T) => Promise<ProcessingResult<U
 export type BatchProcessingResult<T> = ResultWithContext<T>[]
 
 /**
+ * Interface for single-item processors
+ */
+export interface Processor<TInput, TOutput> {
+    process(input: ResultWithContext<TInput>): Promise<ResultWithContext<TOutput>>
+}
+
+/**
  * Interface for batch processing pipelines
  */
 export interface BatchProcessingPipeline<TInput, TIntermediate> {
@@ -47,10 +55,17 @@ export interface BatchProcessingPipeline<TInput, TIntermediate> {
 }
 
 /**
+ * Helper function to create a new processing pipeline for single items
+ */
+export function createNewPipeline<T = { message: Message }>(): ProcessingPipeline<T, T, T> {
+    return ProcessingPipeline.create<T>()
+}
+
+/**
  * Helper function to create a new batch processing pipeline starting with a root pipeline
  */
-export function createNewPipeline(): RootBatchProcessingPipeline {
-    return new RootBatchProcessingPipeline()
+export function createNewBatchPipeline<T = { message: Message }>(): RootBatchProcessingPipeline<T> {
+    return new RootBatchProcessingPipeline<T>()
 }
 
 /**

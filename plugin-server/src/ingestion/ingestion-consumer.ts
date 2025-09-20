@@ -44,9 +44,7 @@ import {
     createResolveTeamStep,
     createValidateEventUuidStep,
 } from './event-preprocessing'
-import { createBatch, createNewPipeline } from './pipeline-types'
-import { ProcessingResult } from './pipeline-types'
-import { ProcessingPipeline } from './processing-pipeline'
+import { createBatch, createNewBatchPipeline, createNewPipeline } from './pipeline-types'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 
 const ingestionEventOverflowed = new Counter({
@@ -221,40 +219,30 @@ export class IngestionConsumer {
             promiseScheduler: this.promiseScheduler,
         }
 
-        // Create single message processing step
-        const preprocessingStep = async (input: { message: Message }): Promise<ProcessingResult<PreprocessedEvent>> => {
-            try {
-                const pipeline = ProcessingPipeline.create<{ message: Message }>()
-                    .pipe(createParseHeadersStep())
-                    .pipe(createApplyDropRestrictionsStep(this.eventIngestionRestrictionManager))
-                    .pipe(
-                        createApplyForceOverflowRestrictionsStep(this.eventIngestionRestrictionManager, {
-                            overflowEnabled: this.overflowEnabled(),
-                            overflowTopic: this.overflowTopic || '',
-                            preservePartitionLocality: this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
-                        })
-                    )
-                    .pipe(createParseKafkaMessageStep())
-                    .pipeAsync(createResolveTeamStep(this.hub))
-                    .pipe(createApplyPersonProcessingRestrictionsStep(this.eventIngestionRestrictionManager))
-                    .pipeAsync(createValidateEventUuidStep(this.hub))
-
-                const result = await pipeline.process(input)
-                return result as ProcessingResult<PreprocessedEvent>
-            } catch (error) {
-                console.error('Error processing message in pipeline:', error)
-                throw error
-            }
-        }
+        // Create preprocessing pipeline
+        const preprocessingPipeline = createNewPipeline()
+            .pipe(createParseHeadersStep())
+            .pipe(createApplyDropRestrictionsStep(this.eventIngestionRestrictionManager))
+            .pipe(
+                createApplyForceOverflowRestrictionsStep(this.eventIngestionRestrictionManager, {
+                    overflowEnabled: this.overflowEnabled(),
+                    overflowTopic: this.overflowTopic || '',
+                    preservePartitionLocality: this.hub.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
+                })
+            )
+            .pipe(createParseKafkaMessageStep())
+            .pipeAsync(createResolveTeamStep(this.hub))
+            .pipe(createApplyPersonProcessingRestrictionsStep(this.eventIngestionRestrictionManager))
+            .pipeAsync(createValidateEventUuidStep(this.hub))
 
         // Create the batch processing pipeline with fluent API
-        const pipeline = createNewPipeline()
-            .pipeConcurrently(preprocessingStep)
+        const batchPipeline = createNewBatchPipeline()
+            .pipeConcurrently(preprocessingPipeline)
             .gather()
             .pipeBatch(createApplyCookielessProcessingStep(this.hub))
 
         // Wrap it in the result handling pipeline
-        this.batchPreprocessingPipeline = ResultHandlingPipeline.of(pipeline, pipelineConfig)
+        this.batchPreprocessingPipeline = ResultHandlingPipeline.of(batchPipeline, pipelineConfig)
     }
 
     public async stop(): Promise<void> {

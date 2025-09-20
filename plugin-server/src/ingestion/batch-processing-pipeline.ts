@@ -4,13 +4,7 @@ import {
     PipelineStepResultOk,
     isSuccessResult,
 } from '../worker/ingestion/event-pipeline/pipeline-step-result'
-import { ConcurrentBatchProcessingPipeline } from './concurrent-batch-processing-pipeline'
-import {
-    AsyncProcessingStep,
-    BatchProcessingPipeline,
-    BatchProcessingResult,
-    ResultWithContext,
-} from './pipeline-types'
+import { BatchProcessingPipeline, BatchProcessingResult, ResultWithContext } from './pipeline-types'
 
 /**
  * Type guard for ResultWithContext that asserts the result is successful
@@ -68,10 +62,6 @@ export class SequentialBatchProcessingPipeline<TInput, TIntermediate, TOutput>
                 }
             }
         })
-    }
-
-    pipeConcurrently<U>(step: AsyncProcessingStep<TOutput, U>): ConcurrentBatchProcessingPipeline<TInput, TOutput, U> {
-        return new ConcurrentBatchProcessingPipeline(step, this)
     }
 
     static from<TInput, TIntermediate, TOutput>(

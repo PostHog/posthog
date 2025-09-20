@@ -1,14 +1,16 @@
 import { instrumentFn } from '../common/tracing/tracing-utils'
 import { isSuccessResult, success } from '../worker/ingestion/event-pipeline/pipeline-step-result'
-import { AsyncProcessingStep, ProcessingResult, SyncProcessingStep } from './pipeline-types'
-
-interface Processor<TInput, TIntermediate> {
-    process(element: TInput): Promise<ProcessingResult<TIntermediate>>
-}
+import {
+    AsyncProcessingStep,
+    ProcessingResult,
+    Processor,
+    ResultWithContext,
+    SyncProcessingStep,
+} from './pipeline-types'
 
 export class NoopProcessingPipeline<T> implements Processor<T, T> {
-    async process(element: T): Promise<ProcessingResult<T>> {
-        return Promise.resolve(success(element))
+    async process(input: ResultWithContext<T>): Promise<ResultWithContext<T>> {
+        return Promise.resolve(input)
     }
 }
 
@@ -34,17 +36,26 @@ export class ProcessingPipeline<TInput, TIntermediate, TOutput> implements Proce
         return new ProcessingPipeline<TInput, TOutput, U>(wrappedStep, this)
     }
 
-    async process(element: TInput): Promise<ProcessingResult<TOutput>> {
-        // Process through the previous pipeline first (with the same input)
-        const previousResult = await this.previousPipeline.process(element)
+    async process(input: ResultWithContext<TInput>): Promise<ResultWithContext<TOutput>> {
+        // Process through the previous pipeline first
+        const previousResultWithContext = await this.previousPipeline.process(input)
 
-        // If the previous step failed, return the failure
+        // If the previous step failed, return the failure with preserved context
+        const previousResult = previousResultWithContext.result
         if (!isSuccessResult(previousResult)) {
-            return previousResult
+            return {
+                result: previousResult,
+                context: previousResultWithContext.context,
+            }
         }
 
         // Apply the current step to the successful result value from previous pipeline
-        return await this.currentStep(previousResult.value)
+        const currentResult = await this.currentStep(previousResult.value)
+
+        return {
+            result: currentResult,
+            context: previousResultWithContext.context,
+        }
     }
 
     static create<T>(): ProcessingPipeline<T, T, T> {
