@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime
 from typing import Any, Optional, cast
 
 from freezegun import freeze_time
@@ -56,7 +56,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_list_event_definitions(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
 
         response = self.client.get("/api/projects/@current/event_definitions/")
@@ -93,7 +93,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_retrieve_existing_event_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
         event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="enterprise event", owner=self.user)
         tag = Tag.objects.create(name="deprecated", team_id=self.demo_team.id)
@@ -115,7 +115,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_retrieve_create_event_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
         event = EventDefinition.objects.create(team=self.demo_team, name="event")
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
@@ -128,7 +128,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_search_event_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
         enterprise_property = EnterpriseEventDefinition.objects.create(
             team=self.demo_team, name="enterprise event", owner=self.user
@@ -173,7 +173,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_update_event_definition(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime(2038, 1, 19, 3, 14, 7)
         )
         event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="enterprise event", owner=self.user)
         response = self.client.patch(
@@ -229,7 +229,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_with_expired_license(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=datetime.datetime(2010, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime(2010, 1, 19, 3, 14, 7)
         )
         event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="description test")
         response = self.client.patch(
@@ -244,7 +244,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_can_get_event_verification_data(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
         event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="enterprise event", owner=self.user)
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
@@ -261,7 +261,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_verify_then_unverify(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
         event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="enterprise event", owner=self.user)
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
@@ -291,7 +291,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_verify_then_verify_again_no_change(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
         event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="enterprise event", owner=self.user)
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
@@ -330,7 +330,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_cannot_update_verified_meta_properties_directly(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
         event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="enterprise event", owner=self.user)
         response = self.client.get(f"/api/projects/@current/event_definitions/{event.id}")
@@ -361,7 +361,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key_123",
             plan="enterprise",
-            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+            valid_until=datetime(2038, 1, 19, 3, 14, 7),
         )
         event = EnterpriseEventDefinition.objects.create(team=self.demo_team, name="enterprise event")
         response = self.client.patch(
@@ -373,7 +373,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_exclude_hidden_events(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
         # Create some events with hidden flag
         EnterpriseEventDefinition.objects.create(team=self.demo_team, name="visible_event")
@@ -414,7 +414,7 @@ class TestEventDefinitionEnterpriseAPI(APIBaseTest):
 
     def test_event_type_event(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
-            plan="enterprise", valid_until=datetime.datetime(2500, 1, 19, 3, 14, 7)
+            plan="enterprise", valid_until=datetime(2500, 1, 19, 3, 14, 7)
         )
         EnterpriseEventDefinition.objects.create(team=self.demo_team, name="rated_app")
         EnterpriseEventDefinition.objects.create(team=self.demo_team, name="installed_app")
