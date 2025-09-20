@@ -299,13 +299,6 @@ class Command(BaseCommand):
         # immediately and is non-blocking.
         client = DagsterGraphQLClient(DAGSTER_UI_HOST, port_number=DAGSTER_UI_PORT)
 
-        # Launch the hourly job (non-partitioned)
-        client.submit_job_execution(
-            job_name="web_pre_aggregate_current_day_hourly_job",
-            repository_location_name="dags.locations.web_analytics",
-            repository_name="__repository__",
-        )
-
         # Submit partitioned runs for daily jobs.
         # DagsterGraphQLClient doesn't provide a nice way to do this, so we have to use the raw GraphQL mutation.
         end_date = dt.datetime.now()
@@ -313,22 +306,39 @@ class Command(BaseCommand):
             (end_date - dt.timedelta(days=backfill_days - i)).strftime("%Y-%m-%d") for i in range(backfill_days + 1)
         ]
 
-        asset_names = ["web_pre_aggregated_stats", "web_pre_aggregated_bounces"]
+        print("Backfilling web_analytics_team_selection_v2...")
         result = client._execute(
             self.backfill_mutation_gql(),
             {
                 "backfillParams": {
                     "tags": [{"key": "generate_demo_data", "value": "true"}],
-                    "assetSelection": [{"path": [asset_name]} for asset_name in asset_names],
-                    "partitionNames": partition_list,
+                    "assetSelection": [{"path": ["web_analytics_team_selection_v2"]}],
                     "fromFailure": False,
+                    "allPartitions": True,
                 }
             },
         )
-
         backfill_result = result["launchPartitionBackfill"]
         if backfill_result["__typename"] != "LaunchBackfillSuccess":
             raise Exception(backfill_result)
+
+        for asset_name in ["web_pre_aggregated_stats", "web_pre_aggregated_bounces"]:
+            print(f"Backfilling {asset_name}...")
+            result = client._execute(
+                self.backfill_mutation_gql(),
+                {
+                    "backfillParams": {
+                        "tags": [{"key": "generate_demo_data", "value": "true"}],
+                        "assetSelection": [{"path": [asset_name]}],
+                        "partitionNames": partition_list,
+                        "fromFailure": False,
+                    }
+                },
+            )
+
+            backfill_result = result["launchPartitionBackfill"]
+            if backfill_result["__typename"] != "LaunchBackfillSuccess":
+                raise Exception(backfill_result)
 
     def backfill_mutation_gql(self):
         # this comes straight out of the network tab, sadly not supported by the client SDK
