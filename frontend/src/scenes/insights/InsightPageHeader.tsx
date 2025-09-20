@@ -556,6 +556,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 forceEdit={insightMode === ItemMode.Edit}
                 // Renaming insights is too fast, so we need to debounce it
                 renameDebounceMs={1000}
+                // Use onBlur-only saves to prevent autosave while typing
+                saveOnBlur={true}
             />
             <SceneDivider />
         </>
