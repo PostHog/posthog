@@ -88,6 +88,7 @@ const _itemTypes = [
     'browser-visibility',
     'inactivity',
     'inspector-summary',
+    'app-state',
 ] as const
 
 export type InspectorListItemType = (typeof _itemTypes)[number]
@@ -147,6 +148,13 @@ export type InspectorListItemDoctor = InspectorListItemBase & {
     window_id?: string
 }
 
+export type InspectorListItemAppState = InspectorListItemBase & {
+    type: 'app-state'
+    action: string
+    stateEvent?: Record<string, any>
+    window_id?: string
+}
+
 export type InspectorListItemSummary = InspectorListItemBase & {
     type: 'inspector-summary'
     clickCount: number | null
@@ -165,6 +173,7 @@ export type InspectorListItem =
     | InspectorListItemNotebookComment
     | InspectorListItemSummary
     | InspectorListItemInactivity
+    | InspectorListItemAppState
 
 export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicProps {
     matchingEventsMatchType?: MatchingEventsMatchType
@@ -722,6 +731,52 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
 
+        appStateItems: [
+            (s) => [s.start, s.sessionPlayerData, s.windowNumberForID],
+            (start, sessionPlayerData, windowNumberForID): InspectorListItemAppState[] => {
+                if (!start) {
+                    return []
+                }
+
+                const items: InspectorListItemAppState[] = []
+
+                Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([windowId, snapshots]) => {
+                    snapshots.forEach((snapshot: eventWithTime) => {
+                        if (_isCustomSnapshot(snapshot)) {
+                            const customEvent = snapshot as customEvent
+                            const tag = customEvent.data.tag
+
+                            if (tag !== 'app-state') {
+                                return
+                            }
+
+                            const { timestamp, timeInRecording } = timeRelativeToStart(snapshot, start)
+
+                            const payload = customEvent.data.payload as any
+                            const actionTitle = payload?.title as string
+                            const stateEvent = payload?.stateEvent as Record<string, any>
+                            if (actionTitle && stateEvent) {
+                                const stateLogItem: InspectorListItemAppState = {
+                                    type: 'app-state',
+                                    timestamp,
+                                    timeInRecording,
+                                    action: actionTitle,
+                                    search: actionTitle,
+                                    window_id: windowId,
+                                    windowId: windowId,
+                                    windowNumber: windowNumberForID(windowId),
+                                    stateEvent,
+                                }
+                                items.push(stateLogItem)
+                            }
+                        }
+                    })
+                })
+
+                return items
+            },
+        ],
+
         allItems: [
             (s) => [
                 s.start,
@@ -734,6 +789,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.commentItems,
                 s.notebookCommentItems,
                 s.sessionPlayerData,
+                s.appStateItems,
             ],
             (
                 start,
@@ -745,7 +801,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 allContextItems,
                 commentItems,
                 notebookCommentItems,
-                sessionPlayerData
+                sessionPlayerData,
+                appStateItems
             ): InspectorListItem[] => {
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
                 // and then do the filtering of what items are shown, elsewhere
@@ -842,6 +899,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                 for (const notebookComment of notebookCommentItems || []) {
                     items.push(notebookComment)
+                }
+
+                for (const stateLogItem of appStateItems || []) {
+                    items.push(stateLogItem)
                 }
 
                 // NOTE: Native JS sorting is relatively slow here - be careful changing this
@@ -1088,6 +1149,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     'console-info': [],
                     'console-warn': [],
                     'console-error': [],
+                    'console-app-state': [],
                     'performance-fetch': [],
                     'performance-document': [],
                     'performance-assets-js': [],
