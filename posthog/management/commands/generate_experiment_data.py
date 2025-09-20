@@ -14,6 +14,7 @@ import posthoganalytics
 from pydantic import BaseModel, Field, ValidationError
 
 from posthog.models import Team, User
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 
 def initialize_self_capture():
@@ -33,6 +34,7 @@ def initialize_self_capture():
             posthoganalytics.api_key = team.api_token
             posthoganalytics.host = settings.SITE_URL
             logging.info(f"Self-capture initialized with team {team.name} (API key: {team.api_token[:10]}...)")
+            return team
         else:
             logging.warning("No team found for self-capture initialization. Aborting")
             sys.exit(1)
@@ -177,6 +179,208 @@ def get_default_config(type) -> ExperimentConfig:
 class Command(BaseCommand):
     help = "Generate experiment test data"
 
+    # Lists for generating realistic person properties
+    FIRST_NAMES = [
+        "John",
+        "Jane",
+        "Michael",
+        "Sarah",
+        "David",
+        "Emma",
+        "Alex",
+        "Lisa",
+        "Chris",
+        "Anna",
+        "James",
+        "Mary",
+        "Robert",
+        "Patricia",
+        "William",
+        "Jennifer",
+        "Daniel",
+        "Linda",
+        "Joseph",
+        "Barbara",
+        "Thomas",
+        "Elizabeth",
+        "Charles",
+        "Susan",
+        "Christopher",
+        "Jessica",
+        "Matthew",
+        "Karen",
+        "Anthony",
+        "Nancy",
+        "Mark",
+        "Betty",
+        "Donald",
+        "Dorothy",
+        "Paul",
+        "Sandra",
+        "Steven",
+        "Ashley",
+        "Kenneth",
+        "Kimberly",
+        "Kevin",
+        "Donna",
+        "Brian",
+        "Michelle",
+        "George",
+        "Carol",
+        "Edward",
+        "Amanda",
+        "Ronald",
+        "Melissa",
+    ]
+
+    LAST_NAMES = [
+        "Smith",
+        "Johnson",
+        "Williams",
+        "Brown",
+        "Jones",
+        "Garcia",
+        "Miller",
+        "Davis",
+        "Rodriguez",
+        "Martinez",
+        "Anderson",
+        "Taylor",
+        "Thomas",
+        "Jackson",
+        "White",
+        "Harris",
+        "Martin",
+        "Thompson",
+        "Moore",
+        "Young",
+        "Allen",
+        "King",
+        "Wright",
+        "Scott",
+        "Green",
+        "Baker",
+        "Hill",
+        "Adams",
+        "Nelson",
+        "Campbell",
+        "Mitchell",
+        "Roberts",
+        "Carter",
+        "Phillips",
+        "Evans",
+        "Turner",
+        "Torres",
+        "Parker",
+        "Collins",
+        "Edwards",
+        "Stewart",
+        "Flores",
+        "Morris",
+        "Nguyen",
+        "Murphy",
+        "Rivera",
+        "Cook",
+        "Rogers",
+        "Morgan",
+        "Peterson",
+    ]
+
+    COMPANIES = [
+        "Acme Corp",
+        "TechStart Inc",
+        "Global Solutions",
+        "Innovation Labs",
+        "Digital Dynamics",
+        "Future Systems",
+        "Creative Agency",
+        "DataWorks",
+        "CloudTech",
+        "Smart Solutions",
+        "NextGen Industries",
+        "Elite Consulting",
+        "Peak Performance",
+        "Visionary Ventures",
+        "Strategic Partners",
+        "Dynamic Solutions",
+        "Progressive Systems",
+        "Advanced Analytics",
+        "Quantum Computing",
+        "AI Innovations",
+        "Blockchain Solutions",
+        "Cyber Security Inc",
+        "Green Energy Co",
+        "BioTech Labs",
+        "Space Technologies",
+        "Robotics International",
+        "Virtual Reality Studios",
+        "Augmented Systems",
+        "Machine Learning Corp",
+        "Data Science Hub",
+    ]
+
+    CITIES = [
+        "New York",
+        "London",
+        "San Francisco",
+        "Berlin",
+        "Tokyo",
+        "Sydney",
+        "Toronto",
+        "Paris",
+        "Chicago",
+        "Los Angeles",
+        "Boston",
+        "Seattle",
+        "Austin",
+        "Denver",
+        "Miami",
+        "Portland",
+        "Amsterdam",
+        "Singapore",
+        "Hong Kong",
+        "Dubai",
+        "Stockholm",
+        "Copenhagen",
+        "Munich",
+        "Zurich",
+        "Barcelona",
+        "Madrid",
+        "Rome",
+        "Milan",
+        "Vienna",
+        "Prague",
+        "Warsaw",
+        "Budapest",
+    ]
+
+    COUNTRIES = [
+        "US",
+        "UK",
+        "CA",
+        "AU",
+        "DE",
+        "FR",
+        "JP",
+        "IN",
+        "NL",
+        "SG",
+        "HK",
+        "AE",
+        "SE",
+        "DK",
+        "CH",
+        "ES",
+        "IT",
+        "AT",
+        "CZ",
+        "PL",
+        "HU",
+        "KR",
+        "BR",
+        "MX",
+    ]
+
     def add_arguments(self, parser):
         parser.add_argument(
             "--type",
@@ -193,13 +397,35 @@ class Command(BaseCommand):
         )
         parser.add_argument("--experiment-id", type=str, help="Experiment ID (feature flag name)")
         parser.add_argument("--config", type=str, help="Path to experiment config file")
+        parser.add_argument(
+            "--generate-session-replays",
+            action="store_true",
+            help="Generate session replay data for a subset of sessions",
+        )
+        parser.add_argument(
+            "--replay-probability",
+            type=float,
+            default=0.3,
+            help="Probability (0.0 to 1.0) that a session will have replay data (default: 0.3)",
+        )
+        parser.add_argument(
+            "--create-person-profiles",
+            action="store_true",
+            help="Create person profiles with properties for generated users",
+        )
+        parser.add_argument(
+            "--person-properties-ratio",
+            type=float,
+            default=0.7,
+            help="Ratio of users to get detailed person properties (0.0 to 1.0, default: 0.7)",
+        )
 
     def handle(self, *args, **options):
         # Make sure this runs in development environment only
         if not settings.DEBUG:
             raise ValueError("This command should only be run in development! DEBUG must be True.")
 
-        initialize_self_capture()
+        team = initialize_self_capture()
 
         experiment_type = options.get("type")
 
@@ -234,6 +460,14 @@ class Command(BaseCommand):
         variants = list(experiment_config.variants.keys())
         variant_counts = {variant: 0 for variant in variants}
 
+        generate_replays = options.get("generate_session_replays", False)
+        replay_probability = options.get("replay_probability", 0.3)
+        replay_count = 0
+
+        create_person_profiles = options.get("create_person_profiles", False)
+        person_properties_ratio = options.get("person_properties_ratio", 0.7)
+        persons_created = 0
+
         for _ in range(experiment_config.number_of_users):
             variant = random.choices(
                 variants,
@@ -241,6 +475,7 @@ class Command(BaseCommand):
             )[0]
             variant_counts[variant] += 1
             distinct_id = str(uuid.uuid4())
+            session_id = str(uuid.uuid4())
             feature_flag_property = f"$feature/{experiment_id}"
             random_timestamp = datetime.fromtimestamp(
                 random.uniform(
@@ -248,6 +483,23 @@ class Command(BaseCommand):
                     experiment_config.end_timestamp.timestamp() - 3600,
                 )
             )
+
+            # Create person profile if enabled
+            if create_person_profiles:
+                is_identified = random.random() < person_properties_ratio
+                person_properties = self._generate_person_properties(is_identified)
+
+                # Send $identify event to create/update person profile
+                # In backend SDKs, we need to send an event with $set properties
+                posthoganalytics.capture(
+                    distinct_id=distinct_id,
+                    event="$identify",
+                    timestamp=random_timestamp,
+                    properties={
+                        "$set": person_properties,
+                    },
+                )
+                persons_created += 1
 
             posthoganalytics.capture(
                 distinct_id=distinct_id,
@@ -257,6 +509,7 @@ class Command(BaseCommand):
                     feature_flag_property: variant,
                     "$feature_flag_response": variant,
                     "$feature_flag": experiment_id,
+                    "$session_id": session_id,
                 },
             )
 
@@ -268,6 +521,7 @@ class Command(BaseCommand):
                         # Prepare properties dictionary
                         properties: dict[str, Any] = {
                             f"$feature/{experiment_id}": variant,
+                            "$session_id": session_id,
                         }
 
                         # Add custom properties, sampling from distributions if needed
@@ -295,9 +549,141 @@ class Command(BaseCommand):
                 if should_stop:
                     break
 
+            # Generate session replay data for this session if enabled
+            if generate_replays and random.random() < replay_probability:
+                replay_count += 1
+                # Generate session replay with some activity
+                produce_replay_summary(
+                    team_id=team.pk,
+                    session_id=session_id,
+                    distinct_id=distinct_id,
+                    first_timestamp=random_timestamp,
+                    last_timestamp=random_timestamp + timedelta(minutes=random.randint(5, 30)),
+                    first_url=f"https://example.com/experiment/{experiment_id}/{variant}",
+                    click_count=random.randint(5, 50),
+                    keypress_count=random.randint(10, 100),
+                    mouse_activity_count=random.randint(20, 200),
+                    active_milliseconds=random.randint(30000, 300000),  # 30s to 5min active time
+                    console_log_count=random.randint(0, 10),
+                    console_warn_count=random.randint(0, 3),
+                    console_error_count=random.randint(0, 2),
+                    ensure_analytics_event_in_session=False,  # We already have events from above
+                    retention_period_days=90,
+                )
+
         # TODO: need to figure out how to wait for the data to be flushed. shutdown() doesn't work as expected.
-        time.sleep(2)
+        time.sleep(3)
         posthoganalytics.shutdown()
 
         logging.info(f"Generated data for {experiment_id}")
         logging.info(f"Variant counts: {variant_counts}")
+        if generate_replays:
+            logging.info(
+                f"Generated {replay_count} session replays ({replay_count/experiment_config.number_of_users:.1%} of sessions)"
+            )
+        if create_person_profiles:
+            logging.info(
+                f"Created {persons_created} person profiles ({persons_created/experiment_config.number_of_users:.1%} of users)"
+            )
+
+    def _generate_person_properties(self, is_identified: bool) -> dict[str, Any]:
+        """Generate realistic person properties based on identification status"""
+        if is_identified:
+            first_name = random.choice(self.FIRST_NAMES)
+            last_name = random.choice(self.LAST_NAMES)
+            email = self._generate_email(first_name, last_name)
+
+            # Generate comprehensive properties for identified users
+            properties = {
+                "email": email,
+                "name": f"{first_name} {last_name}",
+                "first_name": first_name,
+                "last_name": last_name,
+                "username": self._generate_username(first_name, last_name),
+                "company": random.choice(self.COMPANIES),
+                "plan": random.choice(["free", "starter", "pro", "enterprise"]),
+                "country": random.choice(self.COUNTRIES),
+                "city": random.choice(self.CITIES),
+                "utm_source": random.choice(["google", "twitter", "linkedin", "direct", "github", "facebook"]),
+                "utm_medium": random.choice(["cpc", "social", "email", "organic", "referral"]),
+                "utm_campaign": random.choice(["summer2024", "product_launch", "black_friday", "q4_promo", None]),
+                "signup_date": self._generate_date_string(365),  # Within last year
+                "last_login": self._generate_date_string(30),  # Within last month
+                "total_events": random.randint(10, 5000),
+                "sessions_count": random.randint(1, 100),
+                "is_experiment_demo": True,
+                "user_segment": random.choice(["power_user", "regular", "occasional", "new"]),
+                "industry": random.choice(["tech", "finance", "healthcare", "retail", "education", "other"]),
+                "team_size": random.choice(["1-10", "11-50", "51-200", "201-500", "500+"]),
+            }
+        else:
+            # Generate minimal properties for anonymous users
+            properties = {
+                "utm_source": random.choice(["google", "twitter", "linkedin", "direct", "github", None]),
+                "utm_medium": random.choice(["cpc", "social", "email", "organic", None]),
+                "utm_campaign": random.choice(["summer2024", "product_launch", "black_friday", None]),
+                "browser": random.choice(["Chrome", "Firefox", "Safari", "Edge"]),
+                "os": random.choice(["Windows", "Mac OS X", "Linux", "iOS", "Android"]),
+                "is_experiment_demo": True,
+            }
+
+        return properties
+
+    def _generate_email(self, first_name: str, last_name: str) -> str:
+        """Generate a realistic email address"""
+        domains = [
+            "gmail.com",
+            "yahoo.com",
+            "hotmail.com",
+            "outlook.com",
+            "icloud.com",
+            "company.com",
+            "startup.io",
+            "example.com",
+            "test.com",
+            "demo.com",
+        ]
+
+        first = first_name.lower()
+        last = last_name.lower()
+        domain = random.choice(domains)
+
+        # Add variety in email formats
+        format_choice = random.random()
+        if format_choice < 0.3:
+            email = f"{first}.{last}@{domain}"
+        elif format_choice < 0.5:
+            email = f"{first}{random.randint(1, 999)}@{domain}"
+        elif format_choice < 0.7:
+            email = f"{first}_{last}@{domain}"
+        elif format_choice < 0.85:
+            email = f"{first[0]}{last}@{domain}"
+        else:
+            email = f"{first}{last[0]}{random.randint(1, 99)}@{domain}"
+
+        return email
+
+    def _generate_username(self, first_name: str, last_name: str) -> str:
+        """Generate a realistic username"""
+        first = first_name.lower()
+        last = last_name.lower()
+
+        format_choice = random.random()
+        if format_choice < 0.2:
+            username = f"{first}.{last}"
+        elif format_choice < 0.4:
+            username = f"{first}{random.randint(1, 999)}"
+        elif format_choice < 0.6:
+            username = f"{first}_{last}"
+        elif format_choice < 0.8:
+            username = f"{first}{last[0]}"
+        else:
+            username = f"{last}.{first}{random.randint(1, 99)}"
+
+        return username
+
+    def _generate_date_string(self, max_days_ago: int) -> str:
+        """Generate a date string within the specified number of days ago"""
+        days_ago = random.randint(1, max_days_ago)
+        date = datetime.now() - timedelta(days=days_ago)
+        return date.strftime("%Y-%m-%d")

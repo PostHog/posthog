@@ -5,21 +5,27 @@ import { IconRewindPlay } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { humanFriendlyNumber } from 'lib/utils'
-import { ResultsBreakdown } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdown'
-import { ResultsBreakdownSkeleton } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdownSkeleton'
-import { ResultsInsightInfoBanner } from 'scenes/experiments/components/ResultsBreakdown/ResultsInsightInfoBanner'
-import { ResultsQuery } from 'scenes/experiments/components/ResultsBreakdown/ResultsQuery'
+import { FunnelChart } from 'scenes/experiments/charts/funnel/FunnelChart'
 import { getViewRecordingFilters } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
 import {
-    CachedExperimentQueryResponse,
+    CachedNewExperimentQueryResponse,
     ExperimentMetric,
+    NodeKind,
     isExperimentFunnelMetric,
     isExperimentMeanMetric,
     isExperimentRatioMetric,
 } from '~/queries/schema/schema-general'
-import { Experiment, FilterLogicalOperator, RecordingUniversalFilters, ReplayTabs } from '~/types'
+import {
+    EntityType,
+    Experiment,
+    FilterLogicalOperator,
+    FunnelStep,
+    FunnelStepWithNestedBreakdown,
+    RecordingUniversalFilters,
+    ReplayTabs,
+} from '~/types'
 
 import {
     ExperimentVariantResult,
@@ -32,14 +38,81 @@ import {
     isFrequentistResult,
 } from '../shared/utils'
 
+/**
+ * Convert new experiment results directly to DataDrivenFunnel format
+ */
+function convertExperimentResultToFunnelSteps(
+    result: CachedNewExperimentQueryResponse,
+    metric: ExperimentMetric,
+    experiment: Experiment
+): FunnelStepWithNestedBreakdown[] {
+    const variants = experiment.parameters?.feature_flag_variants || []
+
+    const allResults = [result.baseline, ...(result.variant_results || [])]
+    const numSteps = (result.baseline.step_counts?.length || 0) + 1
+    const funnelSteps: FunnelStepWithNestedBreakdown[] = []
+
+    for (let stepIndex = 0; stepIndex < numSteps; stepIndex++) {
+        const variantSteps: FunnelStep[] = allResults.map((variantResult, variantIndex) => {
+            const variantKey = variants[variantIndex]?.key || (variantIndex === 0 ? 'control' : `test_${variantIndex}`)
+
+            let count: number
+            if (stepIndex === 0) {
+                count = variantResult.number_of_samples
+            } else {
+                count = variantResult.step_counts?.[stepIndex - 1] || 0
+            }
+
+            let stepName: string
+            if (stepIndex === 0) {
+                stepName = 'Experiment exposure'
+            } else if (isExperimentFunnelMetric(metric) && metric.series?.[stepIndex - 1]) {
+                const series = metric.series[stepIndex - 1]
+                if (series.kind === NodeKind.EventsNode) {
+                    stepName = series.name || series.event || `Step ${stepIndex}`
+                } else {
+                    stepName = series.name || `Action ${series.id}`
+                }
+            } else {
+                stepName = `Step ${stepIndex}`
+            }
+
+            return {
+                action_id: `step_${stepIndex}`,
+                name: stepName,
+                custom_name: null,
+                order: stepIndex,
+                count: count,
+                type: 'events' as EntityType,
+                average_conversion_time: null,
+                median_conversion_time: null,
+                converted_people_url: '',
+                dropped_people_url: null,
+                breakdown_value: variantKey,
+                breakdownIndex: variantIndex,
+            } as FunnelStep & { breakdownIndex: number }
+        })
+
+        const baseStep = variantSteps[0]
+        const totalCount = variantSteps.reduce((sum, step) => sum + step.count, 0)
+
+        funnelSteps.push({
+            ...baseStep,
+            count: totalCount,
+            nested_breakdown: variantSteps,
+        })
+    }
+
+    return funnelSteps
+}
+
 export function ResultDetails({
     experiment,
     result,
     metric,
-    isSecondary,
 }: {
     experiment: Experiment
-    result: CachedExperimentQueryResponse
+    result: CachedNewExperimentQueryResponse
     metric: ExperimentMetric
     isSecondary: boolean
 }): JSX.Element {
@@ -165,36 +238,13 @@ export function ResultDetails({
         <div className="space-y-2">
             <LemonTable columns={columns} dataSource={dataSource} loading={false} />
             {isExperimentFunnelMetric(metric) && (
-                <ResultsBreakdown
-                    result={result}
-                    experiment={experiment}
-                    metricUuid={metric.uuid || ''}
-                    isPrimary={!isSecondary}
-                >
-                    {({
-                        query,
-                        breakdownResultsLoading,
-                        breakdownResults,
-                        exposureDifference,
-                        breakdownLastRefresh,
-                    }) => {
-                        return (
-                            <>
-                                {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
-                                {query && breakdownResults && (
-                                    <>
-                                        <ResultsInsightInfoBanner exposureDifference={exposureDifference} />
-                                        <ResultsQuery
-                                            query={query}
-                                            breakdownResults={breakdownResults}
-                                            breakdownLastRefresh={breakdownLastRefresh}
-                                        />
-                                    </>
-                                )}
-                            </>
-                        )
-                    }}
-                </ResultsBreakdown>
+                <FunnelChart
+                    steps={convertExperimentResultToFunnelSteps(result, metric, experiment)}
+                    showPersonsModal={false}
+                    disableBaseline={true}
+                    inCardView={true}
+                    experimentResult={result}
+                />
             )}
         </div>
     )
