@@ -723,7 +723,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             {
                 setIsHovering: (state, { isHovering }) => (isHovering ? false : state),
                 allowPlayerChromeToHide: () => {
-                    // oxlint-disable-next-line no-console
+                    return false
                     return false
                 },
             },
