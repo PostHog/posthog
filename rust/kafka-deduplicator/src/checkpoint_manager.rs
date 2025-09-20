@@ -1077,4 +1077,59 @@ mod tests {
             find_local_checkpoint_files(Path::new(&config.local_checkpoint_dir)).unwrap();
         assert!(found_files.is_empty());
     }
+
+    #[tokio::test]
+    async fn test_max_inflight_checkpoints() {
+        // Add some test stores
+        let store_manager = create_test_store_manager();
+        let stores = store_manager.stores();
+
+        for i in 1..=6 {
+            let event = create_test_event();
+            let part = Partition::new("max_inflight_checkpoints".to_string(), i);
+            let store = create_test_store(part.topic(), part.partition_number());
+            store.handle_event_with_raw(&event).unwrap();
+            stores.insert(part, store);
+        }
+
+        let tmp_checkpoint_dir = TempDir::new().unwrap();
+
+        // configure frequent checkpoints and long retention, cleanup interval
+        let config = CheckpointConfig {
+            checkpoint_interval: Duration::from_millis(3),
+            cleanup_interval: Duration::from_secs(120),
+            max_concurrent_checkpoints: 2,
+            local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+
+        // start the manager and produce some local checkpoint files
+        let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
+        manager.start();
+
+        tokio::time::sleep(Duration::from_millis(0)).await;
+        let mut hit_expected_cap = false;
+        let mut never_above_zero = true;
+
+        for _ in 0..1000000 {
+            let inflight = manager.is_checkpointing.lock().await.len();
+            if inflight == config.max_concurrent_checkpoints {
+                hit_expected_cap = true;
+            }
+            if inflight > config.max_concurrent_checkpoints {
+                panic!("Inflight count exceeded expected cap, got: {inflight}",);
+            }
+            if inflight == 0 {
+                never_above_zero = false;
+            }
+        }
+        assert!(hit_expected_cap);
+        assert!(!never_above_zero);
+
+        manager.stop().await;
+
+        let found_files =
+            find_local_checkpoint_files(Path::new(&config.local_checkpoint_dir)).unwrap();
+        assert!(!found_files.is_empty());
+    }
 }
