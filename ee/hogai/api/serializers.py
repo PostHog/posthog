@@ -3,6 +3,8 @@ from asgiref.sync import async_to_sync
 from langgraph.graph.state import CompiledStateGraph
 from rest_framework import serializers
 
+from posthog.api.shared import UserBasicSerializer
+
 from ee.hogai.graph.deep_research.graph import DeepResearchAssistantGraph
 from ee.hogai.graph.deep_research.types import DeepResearchState
 from ee.hogai.graph.graph import AssistantGraph
@@ -11,7 +13,7 @@ from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.composed import AssistantMaxGraphState
 from ee.models.assistant import Conversation
 
-_conversation_fields = ["id", "status", "title", "created_at", "updated_at", "type"]
+_conversation_fields = ["id", "status", "title", "user", "created_at", "updated_at", "type"]
 
 MaxGraphType = DeepResearchAssistantGraph | AssistantGraph
 
@@ -28,8 +30,10 @@ class ConversationMinimalSerializer(serializers.ModelSerializer):
         fields = _conversation_fields
         read_only_fields = fields
 
+    user = UserBasicSerializer(read_only=True)
 
-class ConversationSerializer(serializers.ModelSerializer):
+
+class ConversationSerializer(ConversationMinimalSerializer):
     class Meta:
         model = Conversation
         fields = [*_conversation_fields, "messages"]

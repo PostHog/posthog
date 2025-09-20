@@ -1,7 +1,16 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import React from 'react'
 
-import { IconArrowLeft, IconChevronLeft, IconClockRewind, IconExternal, IconPlus, IconSidePanel } from '@posthog/icons'
+import {
+    IconArrowLeft,
+    IconChevronLeft,
+    IconClockRewind,
+    IconExpand45,
+    IconLock,
+    IconPlus,
+    IconShare,
+    IconSidePanel,
+} from '@posthog/icons'
 import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -9,6 +18,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -69,8 +79,15 @@ export interface MaxInstanceProps {
 }
 
 export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxInstanceProps): JSX.Element {
-    const { threadVisible, conversationHistoryVisible, chatTitle, backButtonDisabled, threadLogicKey, conversation } =
-        useValues(maxLogic)
+    const {
+        threadVisible,
+        conversationHistoryVisible,
+        chatTitle,
+        backButtonDisabled,
+        threadLogicKey,
+        conversationId,
+        conversation,
+    } = useValues(maxLogic)
     const { startNewConversation, toggleConversationHistory, goBack } = useActions(maxLogic)
 
     const threadProps: MaxThreadLogicProps = {
@@ -98,6 +115,28 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                 tooltip="Open chat history"
                 tooltipPlacement="bottom"
             />
+            {conversationId && (
+                <LemonButton
+                    size="small"
+                    icon={<IconShare />}
+                    tooltip={
+                        <>
+                            Copy conversation sharing link
+                            <br />
+                            <em>
+                                <IconLock /> Access is behind organization login
+                            </em>
+                        </>
+                    }
+                    onClick={() => {
+                        copyToClipboard(
+                            urls.absolute(urls.currentProject(urls.max(conversationId))),
+                            'conversation sharing link'
+                        )
+                    }}
+                    tooltipPlacement="bottom"
+                />
+            )}
         </>
     )
 
@@ -146,9 +185,31 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                                 tooltipPlacement="bottom"
                             />
                         )}
+                        {conversationId && (
+                            <LemonButton
+                                size="small"
+                                icon={<IconShare />}
+                                tooltip={
+                                    <>
+                                        Copy conversation sharing link
+                                        <br />
+                                        <em>
+                                            <IconLock /> Access is behind organization login
+                                        </em>
+                                    </>
+                                }
+                                onClick={() => {
+                                    copyToClipboard(
+                                        urls.absolute(urls.currentProject(urls.max(conversationId))),
+                                        'conversation sharing link'
+                                    )
+                                }}
+                                tooltipPlacement="bottom"
+                            />
+                        )}
                         <LemonButton
                             size="small"
-                            sideIcon={<IconExternal />}
+                            sideIcon={<IconExpand45 />}
                             to={urls.max()}
                             onClick={() => closeSidePanel()}
                             tooltip="Open as main focus"
