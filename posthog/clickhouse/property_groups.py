@@ -61,6 +61,12 @@ class PropertyGroupManager:
     ) -> None:
         self.__groups = groups
 
+    def get_groups(
+        self,
+    ) -> Mapping[TableName, Mapping[PropertySourceColumnName, Mapping[PropertyGroupName, PropertyGroupDefinition]]]:
+        """Get all registered property groups"""
+        return self.__groups
+
     def get_property_group_columns(
         self, table: TableName, source_column: PropertySourceColumnName, property_key: str
     ) -> Iterable[str]:
@@ -185,6 +191,13 @@ event_property_group_definitions = {
             "key like '$feature/%'",
             lambda key: key.startswith("$feature/"),
             column_type_name="group",
+        ),
+        "system": PropertyGroupDefinition(
+            "key LIKE '$%' AND key NOT LIKE '$ai_%' AND key NOT LIKE '$feature/%'",
+            lambda key: key.startswith("$") and not key.startswith("$ai_") and not key.startswith("$feature/"),
+            column_type_name="group",
+            is_materialized=True,
+            hidden=True,
         ),
     },
     "person_properties": {
