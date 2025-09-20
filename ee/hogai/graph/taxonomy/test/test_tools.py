@@ -1,8 +1,6 @@
-from ee.hogai.graph.taxonomy.tools import (
-    get_dynamic_entity_tools,
-    base_final_answer,
-)
 from posthog.test.base import BaseTest
+
+from ee.hogai.graph.taxonomy.tools import base_final_answer, get_dynamic_entity_tools
 
 
 class TestDynamicEntityTools(BaseTest):

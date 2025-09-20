@@ -1,20 +1,13 @@
 from datetime import datetime
 from typing import Any, cast
+
 from freezegun import freeze_time
+from posthog.test.base import BaseTest, _create_event, _create_person, flush_persons_and_events
+
+from posthog.schema import EventsNode, ExperimentFunnelMetric, ExperimentMeanMetric
 
 from posthog.hogql_queries.experiments.experiment_timeseries import ExperimentTimeseries
 from posthog.models import Experiment, FeatureFlag
-from posthog.schema import (
-    EventsNode,
-    ExperimentMeanMetric,
-    ExperimentFunnelMetric,
-)
-from posthog.test.base import (
-    BaseTest,
-    _create_event,
-    _create_person,
-    flush_persons_and_events,
-)
 
 
 class TestExperimentTimeseries(BaseTest):

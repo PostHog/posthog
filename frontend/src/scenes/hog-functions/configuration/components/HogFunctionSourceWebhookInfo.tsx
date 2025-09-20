@@ -1,9 +1,10 @@
 import { useValues } from 'kea'
+
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
+import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 
 import { hogFunctionConfigurationLogic } from '../hogFunctionConfigurationLogic'
-import { publicWebhooksHostOrigin } from 'lib/utils/apiHost'
 
 export function HogFunctionSourceWebhookInfo(): JSX.Element {
     const { logicProps } = useValues(hogFunctionConfigurationLogic)

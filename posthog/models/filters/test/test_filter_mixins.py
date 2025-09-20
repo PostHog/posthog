@@ -1,5 +1,6 @@
-from posthog.models.filters.mixins.funnel import FunnelWindowDaysMixin
 from posthog.test.base import BaseTest
+
+from posthog.models.filters.mixins.funnel import FunnelWindowDaysMixin
 
 
 class TestFilterMixins(BaseTest):

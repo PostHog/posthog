@@ -1,7 +1,8 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 // eslint-disable-next-line no-restricted-imports
 import { fetch } from 'undici'
 import { v4 } from 'uuid'
+
+import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 import { PersonRepository } from '~/worker/ingestion/persons/repositories/person-repository'
@@ -61,14 +62,7 @@ describe('Event Pipeline integration test', () => {
             hub.groupRepository,
             hub.clickhouseGroupRepository
         )
-        const runner = new EventPipelineRunner(
-            hub,
-            event,
-            undefined,
-            undefined,
-            personsStoreForBatch,
-            groupStoreForBatch
-        )
+        const runner = new EventPipelineRunner(hub, event, undefined, personsStoreForBatch, groupStoreForBatch)
         const result = await runner.runEventPipeline(event, team)
         const postIngestionEvent = convertToPostIngestionEvent(result.args[0])
         return Promise.all([processWebhooksStep(postIngestionEvent, actionMatcher, hookCannon)])

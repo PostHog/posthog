@@ -1,0 +1,52 @@
+FROM python:3.11.13-slim-bookworm AS python-base
+FROM cruizba/ubuntu-dind:latest
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
+# Copy Python base
+COPY --from=python-base /usr/local /usr/local
+
+# Set working directory
+WORKDIR /code
+
+# Copy Docker scripts
+COPY docker/ ./docker/
+
+# Install system dependencies
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    "build-essential" \
+    "git" \
+    "libpq-dev" \
+    "libxmlsec1" \
+    "libxmlsec1-dev" \
+    "libffi-dev" \
+    "zlib1g-dev" \
+    "pkg-config" \
+    "netcat-openbsd" \
+    "postgresql-client"
+
+# Copy uv dependencies
+COPY pyproject.toml uv.lock docker-compose.base.yml docker-compose.dev.yml ./
+
+# Install python deps
+RUN rm -rf /var/lib/apt/lists/* && \
+pip install uv~=0.7.0 --no-cache-dir && \
+UV_PROJECT_ENVIRONMENT=/python-runtime uv sync --frozen --no-cache --compile-bytecode \
+--no-binary-package lxml --no-binary-package xmlsec
+
+# Copy project files
+COPY bin/ ./bin/
+COPY manage.py manage.py
+COPY common/esbuilder common/esbuilder
+COPY common/hogvm common/hogvm/
+COPY posthog posthog/
+COPY products/ products/
+COPY ee ee/
+
+ENV PATH=/python-runtime/bin:$PATH \
+    PYTHONPATH=/python-runtime
+
+# Make scripts executable
+RUN chmod +x bin/*
+
+CMD bin/docker-ai-evals

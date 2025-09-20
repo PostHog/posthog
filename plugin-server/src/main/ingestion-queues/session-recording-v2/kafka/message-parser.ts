@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
-import { promisify } from 'node:util'
 import { Message } from 'node-rdkafka'
+import { promisify } from 'node:util'
 import { gunzip } from 'zlib'
 
 import { parseJSON } from '../../../../utils/json-parse'
@@ -8,6 +8,7 @@ import { logger } from '../../../../utils/logger'
 import { KafkaMetrics } from './metrics'
 import { EventSchema, ParsedMessageData, RawEventMessageSchema, SnapshotEvent, SnapshotEventSchema } from './types'
 
+const MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS = 7
 const GZIP_HEADER = Uint8Array.from([0x1f, 0x8b, 0x08, 0x00])
 const decompressWithGzip = promisify(gunzip)
 
@@ -60,7 +61,7 @@ export class KafkaMessageParser {
 
     private async parseMessage(message: Message): Promise<ParsedMessageData | null> {
         const dropMessage = (reason: string, extra?: Record<string, any>) => {
-            KafkaMetrics.incrementMessageDropped('session_recordings_blob_ingestion', reason)
+            KafkaMetrics.incrementMessageDropped('session_recordings_blob_ingestion_v2', reason)
 
             logger.warn('⚠️', 'invalid_message', {
                 reason,
@@ -120,6 +121,12 @@ export class KafkaMessageParser {
             return dropMessage('message_contained_no_valid_rrweb_events')
         }
         const { validEvents, startDateTime, endDateTime } = result
+
+        const startDiff = Math.abs(startDateTime.diffNow('day').days)
+        const endDiff = Math.abs(endDateTime.diffNow('day').days)
+        if (startDiff >= MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS || endDiff >= MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS) {
+            return dropMessage('message_timestamp_diff_too_large')
+        }
 
         return {
             metadata: {

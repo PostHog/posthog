@@ -1,10 +1,12 @@
-import { IconX } from '@posthog/icons'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { IconX } from '@posthog/icons'
+import { LemonButton, LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
+
 import { BurningMoneyHog } from 'lib/components/hedgehogs'
 
-import { billingLogic } from './billingLogic'
 import { PurchaseCreditsModal } from './PurchaseCreditsModal'
+import { billingLogic } from './billingLogic'
 
 export const DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD = 500
 
@@ -17,6 +19,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
         showCreditCTAHero,
     } = useValues(billingLogic)
     const { showPurchaseCreditsModal, toggleCreditCTAHeroDismissed } = useActions(billingLogic)
+    const { estimatedMonthlyCreditAmountUsd } = useValues(billingLogic)
 
     if (!showCreditCTAHero) {
         return null
@@ -34,15 +37,13 @@ export const CreditCTAHero = (): JSX.Element | null => {
                             className="w-8 h-8 group-hover:animate-bounce"
                             style={{ animationDuration: '0.75s' }}
                         />
-                        <span>Get {computedDiscount * 100}% off</span>
+                        <span>Get {computedDiscount! * 100}% off</span>
                     </span>
                 </div>
             </div>
         )
     }
 
-    const estimatedMonthlyCreditAmountUsd =
-        creditOverview?.estimated_monthly_credit_amount_usd || DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD
     return (
         <div className="relative rounded-lg bg-surface-primary border mb-2">
             <div className="absolute top-2 right-2 z-10">
@@ -80,27 +81,46 @@ export const CreditCTAHero = (): JSX.Element | null => {
                                 <h2 className="mb-0">
                                     Stop burning money.{' '}
                                     <span className="text-success-light">
-                                        Prepay and save {computedDiscount * 100}%
+                                        Prepay and save{' '}
+                                        {computedDiscount !== null ? (
+                                            computedDiscount * 100
+                                        ) : (
+                                            <LemonSkeleton className="inline-block h-5 w-18 rounded align-text-bottom" />
+                                        )}
+                                        %
                                     </span>{' '}
                                     over the next 12 months.
                                 </h2>
                                 <p className="mt-2 mb-0">
                                     Based on your usage, your monthly bill is forecasted to be an average of{' '}
-                                    <strong>${estimatedMonthlyCreditAmountUsd.toFixed(0)}/month</strong> over the next
-                                    year.
+                                    {estimatedMonthlyCreditAmountUsd === null ? (
+                                        <LemonSkeleton className="inline-block h-4 w-18 rounded align-text-bottom" />
+                                    ) : (
+                                        <strong>{estimatedMonthlyCreditAmountUsd.toFixed(0)}/month</strong>
+                                    )}{' '}
+                                    over the next year.
                                 </p>
                                 <p className="mt-2 mb-0">
-                                    This qualifies you for a <strong>{computedDiscount * 100}% discount</strong> by
-                                    pre-purchasing usage credits. Which gives you a net savings of{' '}
-                                    <strong>
-                                        $
-                                        {Math.round(
-                                            estimatedMonthlyCreditAmountUsd * computedDiscount * 12
-                                        ).toLocaleString('en-US', {
-                                            minimumFractionDigits: 0,
-                                            maximumFractionDigits: 0,
-                                        })}
-                                    </strong>{' '}
+                                    This qualifies you for a{' '}
+                                    {estimatedMonthlyCreditAmountUsd === null ? (
+                                        <LemonSkeleton className="inline-block h-4 w-18 rounded align-text-bottom" />
+                                    ) : (
+                                        <strong>{computedDiscount! * 100}% discount</strong>
+                                    )}{' '}
+                                    by pre-purchasing usage credits. Which gives you a net savings of{' '}
+                                    {estimatedMonthlyCreditAmountUsd === null ? (
+                                        <LemonSkeleton className="inline-block h-4 w-18 rounded align-text-bottom" />
+                                    ) : (
+                                        <strong>
+                                            $
+                                            {Math.round(
+                                                estimatedMonthlyCreditAmountUsd * computedDiscount! * 12
+                                            ).toLocaleString('en-US', {
+                                                minimumFractionDigits: 0,
+                                                maximumFractionDigits: 0,
+                                            })}
+                                        </strong>
+                                    )}{' '}
                                     over the next year.
                                 </p>
                                 <p className="mt-2 mb-0">Ready to save money on your PostHog usage?</p>

@@ -1,7 +1,7 @@
 import itertools
 from collections import OrderedDict
-from typing import Any
 from collections.abc import Generator
+from typing import Any
 
 from more_itertools import unique_everseen
 from rest_framework_csv.renderers import CSVRenderer

@@ -2,9 +2,8 @@ from typing import Optional
 
 from django.db.models import QuerySet
 
-from rest_framework import serializers, viewsets, mixins
-from rest_framework.pagination import PageNumberPagination, CursorPagination, BasePagination
-
+from rest_framework import mixins, serializers, viewsets
+from rest_framework.pagination import BasePagination, CursorPagination, PageNumberPagination
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer

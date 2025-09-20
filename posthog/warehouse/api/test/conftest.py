@@ -1,7 +1,8 @@
 import logging
 
-import psycopg
 import pytest
+
+import psycopg
 import pytest_asyncio
 from asgiref.sync import async_to_sync
 from psycopg import sql

@@ -1,6 +1,7 @@
+from posthog.test.base import BaseTest
+
 from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.models.assistant import CoreMemory
-from posthog.test.base import BaseTest
 
 
 class TestAssistantNodeMixin(BaseTest):

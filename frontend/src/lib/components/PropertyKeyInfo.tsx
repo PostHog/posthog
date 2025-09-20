@@ -1,17 +1,20 @@
 import './PropertyKeyInfo.scss'
 
-import { LemonDivider, TooltipProps } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { Popover } from 'lib/lemon-ui/Popover'
 import React, { useState } from 'react'
 
-import { getCoreFilterDefinition, PropertyKey } from '~/taxonomy/helpers'
+import { LemonDivider, TooltipProps } from '@posthog/lemon-ui'
+
+import { Popover } from 'lib/lemon-ui/Popover'
+
+import { PropertyKey, getCoreFilterDefinition } from '~/taxonomy/helpers'
 
 import { TaxonomicFilterGroupType } from './TaxonomicFilter/types'
 
 interface PropertyKeyInfoProps {
     value: PropertyKey
     type?: TaxonomicFilterGroupType
+    displayText?: string
     tooltipPlacement?: TooltipProps['placement']
     disablePopover?: boolean
     disableIcon?: boolean
@@ -28,6 +31,7 @@ export const PropertyKeyInfo = React.forwardRef<HTMLSpanElement, PropertyKeyInfo
         disableIcon = false,
         ellipsis = true,
         className = '',
+        displayText,
     },
     ref
 ): JSX.Element {
@@ -36,7 +40,7 @@ export const PropertyKeyInfo = React.forwardRef<HTMLSpanElement, PropertyKeyInfo
     value = value?.toString() ?? '' // convert to string
 
     const coreDefinition = getCoreFilterDefinition(value, type)
-    const valueDisplayText = (coreDefinition ? coreDefinition.label : value)?.trim() ?? ''
+    const valueDisplayText = displayText || ((coreDefinition ? coreDefinition.label : value)?.trim() ?? '')
     const valueDisplayElement = valueDisplayText === '' ? <i>(empty string)</i> : valueDisplayText
 
     const recognizedSource: 'posthog' | 'langfuse' | null =
@@ -85,10 +89,15 @@ export const PropertyKeyInfo = React.forwardRef<HTMLSpanElement, PropertyKeyInfo
                             </div>
                         </>
                     ) : null}
-                    <LemonDivider className="my-3" />
-                    <div>
-                        Sent as <code>{value}</code>
-                    </div>
+
+                    {!coreDefinition.virtual && (
+                        <>
+                            <LemonDivider className="my-3" />
+                            <div>
+                                Sent as <code>{value}</code>
+                            </div>
+                        </>
+                    )}
                 </div>
             }
             visible={popoverVisible}

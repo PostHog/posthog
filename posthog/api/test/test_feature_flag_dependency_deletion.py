@@ -2,10 +2,11 @@
 Tests for preventing deletion of feature flags that other flags depend on.
 """
 
+from posthog.test.base import APIBaseTest
+
 from rest_framework import status
 
 from posthog.models import FeatureFlag
-from posthog.test.base import APIBaseTest
 
 
 class TestFeatureFlagDependencyDeletion(APIBaseTest):

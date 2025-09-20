@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { eventPassesMetadataSwitchoverTest } from '~/main/utils'
+import { sanitizeForUTF8 } from '~/utils/strings'
 
 import { SessionRecordingV2MetadataSwitchoverDate, TimestampFormat } from '../../../../types'
 import { castTimestampOrNow } from '../../../../utils/utils'
@@ -29,16 +30,6 @@ const levelMapping: Record<string, ConsoleLogLevel> = {
 
 function safeLevel(level: unknown): ConsoleLogLevel {
     return levelMapping[typeof level === 'string' ? level : 'info'] || ConsoleLogLevel.Info
-}
-
-function sanitizeForUTF8(input: string): string {
-    // the JS console truncates some logs...
-    // when it does that it doesn't check if the output is valid UTF-8
-    // and so it can truncate halfway through a UTF-16 pair 🤷
-    // the simplest way to fix this is to convert to a buffer and back
-    // annoyingly Node 20 has `toWellFormed` which might have been useful
-    const buffer = Buffer.from(input)
-    return buffer.toString()
 }
 
 function payloadToSafeString(payload: unknown[]): string {

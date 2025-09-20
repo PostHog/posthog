@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from posthog.test.base import APIBaseTest
+
 from django.db import IntegrityError
+
 from rest_framework import status
 
 from posthog.models.file_system.persisted_folder import PersistedFolder
 from posthog.models.user import User
-from posthog.test.base import APIBaseTest
 
 
 class _Base(APIBaseTest):

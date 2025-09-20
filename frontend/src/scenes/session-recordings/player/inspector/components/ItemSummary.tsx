@@ -1,6 +1,8 @@
+import clsx from 'clsx'
+
 import { IconCursor, IconKeyboard, IconWarning } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
+
 import { pluralize } from 'lib/utils'
 
 import { InspectorListItemSummary } from '../playerInspectorLogic'

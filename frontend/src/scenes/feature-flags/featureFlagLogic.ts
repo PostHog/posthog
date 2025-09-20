@@ -1,20 +1,20 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { DeepPartialMap, forms, ValidationErrorType } from 'kea-forms'
+import { DeepPartialMap, ValidationErrorType, forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+
 import api, { PaginatedResponse } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { sum, toParams } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
-import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
-import { featureFlagsLogic, FeatureFlagsTab } from 'scenes/feature-flags/featureFlagsLogic'
+import { FeatureFlagsTab, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { projectLogic } from 'scenes/projectLogic'
@@ -23,10 +23,11 @@ import { NEW_SURVEY, NewSurvey, SURVEY_CREATED_SOURCE } from 'scenes/surveys/con
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import {
@@ -63,6 +64,8 @@ import {
     Survey,
     SurveyQuestionType,
 } from '~/types'
+
+import { NEW_EARLY_ACCESS_FEATURE } from 'products/early_access_features/frontend/earlyAccessFeatureLogic'
 
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
@@ -288,8 +291,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             ['aggregationLabel'],
             userLogic,
             ['hasAvailableFeature'],
-            dashboardsLogic,
-            ['dashboards'],
+            dashboardsModel,
+            ['nameSortedDashboards as dashboards'],
             organizationLogic,
             ['currentOrganization'],
             enabledFeaturesLogic,
@@ -344,6 +347,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             defaults: {
                 ...NEW_FLAG,
                 ensure_experience_continuity: values.currentTeam?.flags_persistence_default || false,
+                _should_create_usage_dashboard: true,
             },
             errors: ({ key, filters, is_remote_configuration }) => {
                 return {
@@ -998,11 +1002,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
         },
         submitFeatureFlagFailure: async () => {
-            // When errors occur, scroll to the error, but wait for errors to be set in the DOM first
-            setTimeout(
-                () => document.querySelector(`.Field--error`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }),
-                1
-            )
+            scrollToFormError()
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
@@ -1347,12 +1347,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
     }),
-    urlToAction(({ actions, props }) => ({
-        [urls.featureFlag(props.id ?? 'new')]: (_, __, ___, { method }) => {
+    urlToAction(({ actions, props, values }) => ({
+        [urls.featureFlag(props.id ?? 'new')]: (_, searchParams, ___, { method }) => {
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
             if (method === 'PUSH') {
                 if (props.id) {
+                    // When there is sourceId, we load the feature flag
+                    if (props.id === 'new' && searchParams.sourceId != null) {
+                        actions.loadFeatureFlag()
+                        return
+                    }
+                    // When pushing to `/new` and the feature flag has no id, do not load the flag again
+                    if (props.id === 'new' && values.featureFlag.id == null) {
+                        return
+                    }
                     actions.loadFeatureFlag()
                 } else {
                     actions.resetFeatureFlag()

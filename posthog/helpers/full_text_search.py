@@ -1,6 +1,7 @@
-import functools
 import re
+import functools
 from typing import Literal
+
 from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
 from django.db.models.expressions import CombinedExpression
 

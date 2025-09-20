@@ -82,24 +82,11 @@ export const manualCosts: ModelRow[] = [
     },
     // google gen ai
     {
-        model: 'gemini-2.0-flash',
-        cost: {
-            prompt_token: 0.00000015,
-            completion_token: 0.000000075,
-        },
-    },
-    {
-        model: 'gemini-2.5-pro-preview',
-        cost: {
-            prompt_token: 0.00000125,
-            completion_token: 0.00001,
-        },
-    },
-    {
         model: 'gemini-2.5-pro-preview:large',
         cost: {
             prompt_token: 0.0000025,
             completion_token: 0.000015,
+            cache_read_token: 0.000000625,
         },
     },
     // Other

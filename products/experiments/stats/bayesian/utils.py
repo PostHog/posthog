@@ -9,12 +9,7 @@ import numpy as np
 from scipy.stats import norm, truncnorm
 
 from ..shared.enums import DifferenceType
-from ..shared.statistics import (
-    ProportionStatistic,
-    RatioStatistic,
-    SampleMeanStatistic,
-    StatisticError,
-)
+from ..shared.statistics import ProportionStatistic, RatioStatistic, SampleMeanStatistic, StatisticError
 from ..shared.utils import get_mean, get_sample_size, get_variance, validate_test_inputs
 from .priors import GaussianPrior
 

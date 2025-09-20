@@ -1,6 +1,7 @@
+from django.conf import settings
+
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.temporal.common.codec import EncryptionCodec
-from django.conf import settings
 
 REDACTED_PAYLOAD_VALUE = '"********* (encrypted)"'
 

@@ -1,17 +1,22 @@
-import { IconEllipsis, IconSort, IconTrash } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconEllipsis, IconSort, IconTrash } from '@posthog/icons'
+import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner } from '@posthog/lemon-ui'
+
+import { getAccessControlDisabledReason } from 'lib/components/AccessControlAction'
+import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
-import { RecordingUniversalFilters } from '~/types'
+import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
+
+import { AccessControlLevel, AccessControlResourceType, RecordingUniversalFilters } from '~/types'
+import { ReplayTabs } from '~/types'
+
 import { playerSettingsLogic } from '../player/playerSettingsLogic'
 import {
-    MAX_SELECTED_RECORDINGS,
     DELETE_CONFIRMATION_TEXT,
+    MAX_SELECTED_RECORDINGS,
     sessionRecordingsPlaylistLogic,
 } from './sessionRecordingsPlaylistLogic'
-import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
-import { ReplayTabs } from '~/types'
-import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner } from '@posthog/lemon-ui'
-import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 
 const SortingKeyToLabel = {
     start_time: 'Latest',
@@ -255,12 +260,18 @@ export function SessionRecordingsPlaylistTopSettings({
     const recordings = type === 'filters' ? sessionRecordings : pinnedRecordings
     const checked = recordings.length > 0 && selectedRecordingsIds.length === recordings.length
 
+    const accessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.SessionRecording,
+        AccessControlLevel.Editor
+    )
+
     const getActionsMenuItems = (): LemonMenuItem[] => {
         const menuItems: LemonMenuItem[] = [
             {
                 label: 'Add to new collection...',
                 onClick: () => setIsNewCollectionDialogOpen(true),
                 'data-attr': 'add-to-new-collection',
+                disabledReason: accessControlDisabledReason,
             },
         ]
 
@@ -282,7 +293,7 @@ export function SessionRecordingsPlaylistTopSettings({
                       label: <span className="truncate">{playlist.name || playlist.derived_name || 'Unnamed'}</span>,
                       onClick: () => handleBulkAddToPlaylist(playlist.short_id),
                   })),
-            disabledReason: collections.length === 0 ? 'There are no collections' : undefined,
+            disabledReason: collections.length === 0 ? 'There are no collections' : accessControlDisabledReason,
             'data-attr': 'add-to-collection',
         })
 
@@ -291,6 +302,7 @@ export function SessionRecordingsPlaylistTopSettings({
                 label: 'Remove from this collection',
                 onClick: () => handleBulkDeleteFromPlaylist(shortId),
                 'data-attr': 'remove-from-collection',
+                disabledReason: accessControlDisabledReason,
             })
         }
 
@@ -312,6 +324,7 @@ export function SessionRecordingsPlaylistTopSettings({
             icon: <IconTrash />,
             'data-attr': 'delete-recordings',
             status: 'danger' as const,
+            disabledReason: accessControlDisabledReason,
         })
 
         return menuItems
@@ -330,7 +343,7 @@ export function SessionRecordingsPlaylistTopSettings({
                     onChange={(checked) => handleSelectUnselectAll(checked, type)}
                     stopPropagation
                     className="ml-2"
-                    dataAttr="select-all-recordings"
+                    data-attr="select-all-recordings"
                     aria-label="Select all recordings"
                 />
                 {filters && setFilters ? (

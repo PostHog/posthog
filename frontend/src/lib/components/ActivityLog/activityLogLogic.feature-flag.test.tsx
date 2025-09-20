@@ -1,7 +1,7 @@
-import '@testing-library/jest-dom'
-
-import { render } from '@testing-library/react'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
+
+import '@testing-library/jest-dom'
+import { render } from '@testing-library/react'
 
 import { ActivityScope } from '~/types'
 

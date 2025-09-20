@@ -1,8 +1,9 @@
 from posthog.test.base import BaseTest, ClickhouseTestMixin
-from posthog.clickhouse.client import sync_execute
-from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
+from unittest.mock import call, patch
 
-from unittest.mock import patch, call
+from posthog.clickhouse.client import sync_execute
+
+from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
 
 
 class TestMaterializedColumnsAnalyze(ClickhouseTestMixin, BaseTest):

@@ -1,24 +1,18 @@
+from collections.abc import Generator
 from datetime import timedelta
 from os.path import abspath, dirname, join
-from collections.abc import Generator
 from zoneinfo import ZoneInfo
 
-from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 
-from posthog.api.dead_letter_queue import (
-    get_dead_letter_queue_size,
-)
+import posthoganalytics
+from dateutil.relativedelta import relativedelta
+
+from posthog.api.dead_letter_queue import get_dead_letter_queue_size
 from posthog.cache_utils import cache_for
 from posthog.clickhouse.client import query_with_columns, sync_execute
-from posthog.models.event.util import (
-    get_event_count,
-    get_event_count_for_last_month,
-    get_event_count_month_to_date,
-)
-from posthog.session_recordings.models.system_status_queries import (
-    get_recording_status_month_to_date,
-)
+from posthog.models.event.util import get_event_count, get_event_count_for_last_month, get_event_count_month_to_date
+from posthog.session_recordings.models.system_status_queries import get_recording_status_month_to_date
 
 SLOW_THRESHOLD_MS = 10000
 SLOW_AFTER = relativedelta(hours=6)
@@ -56,23 +50,28 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
         "value": get_event_count_month_to_date(),
     }
 
-    recordings_status = get_recording_status_month_to_date()
+    recordings_status = None
+    try:
+        recordings_status = get_recording_status_month_to_date()
+    except Exception as ex:
+        posthoganalytics.capture_exception(ex)
+
     yield {
         "key": "clickhouse_session_recordings_count_month_to_date",
         "metric": "Session recordings month to date",
-        "value": recordings_status.count,
+        "value": recordings_status.count if recordings_status else "N/A",
     }
 
     yield {
         "key": "clickhouse_session_recordings_events_count_month_to_date",
         "metric": "Session recordings events month to date",
-        "value": recordings_status.events,
+        "value": recordings_status.events if recordings_status else "N/A",
     }
 
     yield {
         "key": "clickhouse_session_recordings_events_size_ingested",
         "metric": "Session recordings events data ingested month to date",
-        "value": recordings_status.size,
+        "value": recordings_status.size if recordings_status else "N/A",
     }
 
     disk_status = sync_execute(

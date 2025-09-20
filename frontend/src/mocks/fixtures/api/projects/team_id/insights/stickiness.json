@@ -159,7 +159,8 @@
                     "name": "$pageview",
                     "math": "dau"
                 }
-            ]
+            ],
+            "version": 2
         },
         "full": true
     }

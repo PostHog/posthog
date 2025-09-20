@@ -1,5 +1,6 @@
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database, serialize_database
+
 from posthog.sync import database_sync_to_async
 
 

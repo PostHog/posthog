@@ -1,28 +1,20 @@
-// eslint-disable-next-line simple-import-sort/imports
 import { mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { PluginEvent } from '@posthog/plugin-scaffold/src/types'
 
-import { PostgresPersonRepository } from '../../src/worker/ingestion/persons/repositories/postgres-person-repository'
+import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 
 import { Hub, LogLevel, Team } from '../../src/types'
 import { closeHub, createHub } from '../../src/utils/db/hub'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
 import { BatchWritingGroupStoreForBatch } from '../../src/worker/ingestion/groups/batch-writing-group-store'
-import { generateEventDeadLetterQueueMessage } from '../../src/worker/ingestion/utils'
-import { createOrganization, createTeam, getTeam, resetTestDatabase } from '../helpers/sql'
+import { PostgresPersonRepository } from '../../src/worker/ingestion/persons/repositories/postgres-person-repository'
 import { forSnapshot } from '../helpers/snapshots'
-import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
+import { createOrganization, createTeam, getTeam, resetTestDatabase } from '../helpers/sql'
 
 jest.setTimeout(60000) // 60 sec timeout
 jest.mock('../../src/utils/logger')
-jest.mock('../../src/worker/ingestion/utils', () => {
-    const { generateEventDeadLetterQueueMessage } = jest.requireActual('../../src/worker/ingestion/utils')
-    return {
-        generateEventDeadLetterQueueMessage: jest.fn().mockImplementation(generateEventDeadLetterQueueMessage),
-    }
-})
 
 class MockEventsProcessor {
     public async processEvent() {
@@ -81,7 +73,6 @@ describe('events dead letter queue', () => {
             hub,
             event,
             null,
-            [],
             personsStoreForBatch,
             groupStoreForBatch
         ).runEventPipeline(event, team)
@@ -90,7 +81,6 @@ describe('events dead letter queue', () => {
             error: 'database unavailable',
             args: expect.anything(),
         })
-        expect(generateEventDeadLetterQueueMessage).toHaveBeenCalled()
 
         expect(
             forSnapshot(mockProducerObserver.getProducedKafkaMessagesForTopic('events_dead_letter_queue_test'))

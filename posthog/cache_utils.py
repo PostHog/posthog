@@ -1,13 +1,14 @@
-from dataclasses import dataclass, field
 import threading
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Generic, ParamSpec, TypeVar
 
-import orjson
-from rest_framework.utils.encoders import JSONEncoder
 from django.utils.timezone import now
+
+import orjson
 from django_redis.serializers.base import BaseSerializer
+from rest_framework.utils.encoders import JSONEncoder
 
 from posthog.settings import TEST
 

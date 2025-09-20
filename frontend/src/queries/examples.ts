@@ -1,10 +1,9 @@
 // This file contains example queries, used in storybook and in the /query interface.
-import { RETENTION_FIRST_TIME } from 'lib/constants'
+import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import {
     ActionsNode,
-    CalendarHeatmapQuery,
     DataTableNode,
     DataVisualizationNode,
     EventsNode,
@@ -208,13 +207,16 @@ const InsightTrendsQuery: TrendsQuery = {
     },
 }
 
-const InsightCalendarHeatmapQuery: CalendarHeatmapQuery = {
-    kind: NodeKind.CalendarHeatmapQuery,
+const InsightCalendarHeatmapQuery: TrendsQuery = {
+    kind: NodeKind.TrendsQuery,
     properties: [],
     filterTestAccounts,
     series,
     dateRange: {
         date_from: '-7d',
+    },
+    trendsFilter: {
+        display: ChartDisplayType.CalendarHeatmap,
     },
 }
 
@@ -500,7 +502,7 @@ const WebAnalyticsRetention: InsightVizNode<RetentionQuery> = {
         },
         filterTestAccounts: false,
         retentionFilter: {
-            retentionType: RETENTION_FIRST_TIME,
+            retentionType: RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
             retentionReference: 'total',
             totalIntervals: 8,
             period: RetentionPeriod.Week,
@@ -532,7 +534,7 @@ export const queryExamples: Record<string, Node> = {
     InsightCalendarHeatmap: {
         kind: NodeKind.InsightVizNode,
         source: InsightCalendarHeatmapQuery,
-    } as InsightVizNode<CalendarHeatmapQuery>,
+    } as InsightVizNode<TrendsQuery>,
     InsightFunnelsQuery,
     InsightFunnels: { kind: NodeKind.InsightVizNode, source: InsightFunnelsQuery } as InsightVizNode<FunnelsQuery>,
     InsightRetentionQuery,

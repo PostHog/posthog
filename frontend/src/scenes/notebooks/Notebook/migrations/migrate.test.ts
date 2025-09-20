@@ -1,11 +1,12 @@
+import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { NotebookType } from 'scenes/notebooks/types'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
 
 import mockNotebook from '../__mocks__/notebook-12345.json'
 import { migrate } from './migrate'
-import { initKeaTests } from '~/test/init'
-import { useMocks } from '~/mocks/jest'
-import { JSONContent } from 'lib/components/RichContentEditor/types'
-import { NotebookType } from 'scenes/notebooks/types'
 
 describe('migrate()', () => {
     beforeEach(() => {
@@ -65,7 +66,7 @@ describe('migrate()', () => {
                 {
                     type: 'ph-query',
                     attrs: {
-                        query: '{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","properties":{"type":"AND","values":[{"type":"AND","values":[]}]},"filterTestAccounts":true,"dateRange":{"date_to":null,"date_from":"-90d"},"series":[{"kind":"EventsNode","event":"$pageview","name":"$pageview","properties":[{"key":"$referring_domain","type":"event","value":"google|duckduckgo|brave|bing","operator":"regex"},{"key":"utm_source","type":"event","value":"is_not_set","operator":"is_not_set"},{"key":"$host","type":"event","value":["posthog.com"],"operator":"exact"}],"math":"dau"}],"interval":"week","breakdown":{"breakdown_type":"event","breakdown":"$referring_domain"},"trendsFilter":{"compare":true,"display":"ActionsBar"}}}',
+                        query: '{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","properties":{"type":"AND","values":[{"type":"AND","values":[]}]},"filterTestAccounts":true,"dateRange":{"date_to":null,"date_from":"-90d"},"series":[{"kind":"EventsNode","event":"$pageview","name":"$pageview","properties":[{"key":"$referring_domain","type":"event","value":"google|duckduckgo|brave|bing","operator":"regex"},{"key":"utm_source","type":"event","value":"is_not_set","operator":"is_not_set"},{"key":"$host","type":"event","value":["posthog.com"],"operator":"exact"}],"math":"dau"}],"interval":"week","breakdown":{"breakdown_type":"event","breakdown":"$referring_domain"},"trendsFilter":{"compare":true,"display":"ActionsBar"},"version":2}}',
                         title: 'SEO trend last 90 days',
                         __init: null,
                         height: null,
@@ -112,6 +113,7 @@ describe('migrate()', () => {
                                 breakdownFilter: { breakdown_type: 'event', breakdown: '$referring_domain' },
                                 trendsFilter: { display: 'ActionsBar' },
                                 compareFilter: { compare: true },
+                                version: 2,
                             },
                         },
                         title: 'SEO trend last 90 days',
@@ -363,6 +365,7 @@ describe('migrate()', () => {
                                     show_legend: true,
                                 },
                                 filterTestAccounts: false,
+                                version: 2,
                             },
                         },
                         title: 'Rollout of users on 3000',
@@ -407,6 +410,7 @@ describe('migrate()', () => {
                                     showLegend: true,
                                 },
                                 filterTestAccounts: false,
+                                version: 2,
                             },
                         },
                         title: 'Rollout of users on 3000',
@@ -469,6 +473,7 @@ describe('migrate()', () => {
                                 trendsFilter: { display: 'ActionsBar' },
                                 compareFilter: { compare: true, compare_to: '-4w' },
                                 filterTestAccounts: true,
+                                version: 2,
                             },
                         },
                         title: 'SEO trend last 90 days',
@@ -528,6 +533,7 @@ describe('migrate()', () => {
                                 trendsFilter: { display: 'ActionsBar' },
                                 compareFilter: { compare: true, compare_to: '-4w' },
                                 filterTestAccounts: true,
+                                version: 2,
                             },
                         },
                         title: 'SEO trend last 90 days',
@@ -718,6 +724,7 @@ describe('migrate()', () => {
                                     compare: true,
                                 },
                                 filterTestAccounts: false,
+                                version: 2,
                             },
                         },
                         title: 'Weekly Org Signups',
@@ -848,6 +855,7 @@ describe('migrate()', () => {
                                 },
                                 compareFilter: { compare: true },
                                 filterTestAccounts: false,
+                                version: 2,
                             },
                         },
                         title: 'Weekly Org Signups',
@@ -879,6 +887,7 @@ describe('migrate()', () => {
                                     compare: true,
                                     aggregationAxisFormat: 'percentage',
                                 },
+                                version: 2,
                             },
                         },
                         title: 'Some insight',
@@ -909,6 +918,7 @@ describe('migrate()', () => {
                                 compareFilter: {
                                     compare: true,
                                 },
+                                version: 2,
                             },
                         },
                         title: 'Some insight',
@@ -941,6 +951,7 @@ describe('migrate()', () => {
                                     compare: true,
                                     showValuesOnSeries: true,
                                 },
+                                version: 2,
                             },
                         },
                         title: 'Some insight',
@@ -971,6 +982,7 @@ describe('migrate()', () => {
                                 compareFilter: {
                                     compare: true,
                                 },
+                                version: 2,
                             },
                         },
                         title: 'Some insight',

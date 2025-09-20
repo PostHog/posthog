@@ -1,41 +1,48 @@
 import json
 from typing import Any, cast
 
-from unittest.mock import patch
 import pytest
+from posthog.test.base import BaseTest, FuzzyInt, QueryMatchingTest, snapshot_postgres_queries
+from unittest.mock import patch
+
 from django.test import override_settings
+
 from parameterized import parameterized
 
+from posthog.schema import (
+    DatabaseSchemaDataWarehouseTable,
+    DataWarehouseEventsModifier,
+    HogQLQueryModifiers,
+    PersonsOnEventsMode,
+)
+
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database, serialize_database
 from posthog.hogql.database.models import (
+    DANGEROUS_NoTeamIdCheckTable,
+    ExpressionField,
     FieldTraverser,
     LazyJoin,
+    LazyTable,
     StringDatabaseField,
-    ExpressionField,
     Table,
 )
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import print_ast
-from posthog.hogql.context import HogQLContext
-from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.organization import Organization
-from posthog.models.team.team import Team
-from posthog.schema import (
-    DataWarehouseEventsModifier,
-    DatabaseSchemaDataWarehouseTable,
-    HogQLQueryModifiers,
-    PersonsOnEventsMode,
-)
-from posthog.test.base import BaseTest, QueryMatchingTest, FuzzyInt
-from posthog.warehouse.models import DataWarehouseTable, DataWarehouseCredential, DataWarehouseSavedQuery
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
+
+from posthog.models.organization import Organization
+from posthog.models.team.team import Team
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
+from posthog.warehouse.models import DataWarehouseCredential, DataWarehouseSavedQuery, DataWarehouseTable
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
 from posthog.warehouse.models.join import DataWarehouseJoin
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 class TestDatabase(BaseTest, QueryMatchingTest):
@@ -230,7 +237,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             source_id="source_id",
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
         )
         credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
         warehouse_table = DataWarehouseTable.objects.create(
@@ -287,7 +294,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             source_id="source_id_1",
             connection_id="connection_id_1",
             status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
         )
         credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
         warehouse_table = DataWarehouseTable.objects.create(
@@ -311,7 +318,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         database = create_hogql_database(team=self.team)
 
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(4):
             serialize_database(HogQLContext(team_id=self.team.pk, database=database))
 
         for i in range(5):
@@ -320,7 +327,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 source_id=f"source_id_{i + 2}",
                 connection_id=f"connection_id_{i + 2}",
                 status=ExternalDataSource.Status.COMPLETED,
-                source_type=ExternalDataSource.Type.STRIPE,
+                source_type=ExternalDataSourceType.STRIPE,
             )
             warehouse_table = DataWarehouseTable.objects.create(
                 name=f"table_{i + 2}",
@@ -345,7 +352,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
         database = create_hogql_database(team=self.team)
 
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(4):
             serialize_database(HogQLContext(team_id=self.team.pk, database=database))
 
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
@@ -374,8 +381,73 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             f"SELECT whatever.id AS id FROM s3(%(hogql_val_0_sensitive)s, %(hogql_val_3_sensitive)s, %(hogql_val_4_sensitive)s, %(hogql_val_1)s, %(hogql_val_2)s) AS whatever LIMIT 100 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1",
         )
 
+    @snapshot_postgres_queries
+    @patch("posthog.hogql.query.sync_execute", return_value=([], []))
+    def test_database_with_warehouse_tables_and_saved_queries_n_plus_1(self, patch_execute):
+        max_queries = FuzzyInt(7, 8)
+        credential = DataWarehouseCredential.objects.create(
+            team=self.team, access_key="_accesskey", access_secret="_secret"
+        )
+        DataWarehouseTable.objects.create(
+            name="whatever",
+            team=self.team,
+            columns={"id": "String"},
+            credential=credential,
+            url_pattern="",
+        )
+
+        for i in range(5):
+            new_credential = DataWarehouseCredential.objects.create(
+                team=self.team, access_key="_accesskey", access_secret="_secret"
+            )
+            table = DataWarehouseTable.objects.create(
+                name=f"whatever{i}",
+                team=self.team,
+                columns={"id": "String"},
+                credential=new_credential,
+                url_pattern="",
+            )
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=f"whatever_view{i}",
+                query={"query": f"SELECT id FROM whatever{i}"},
+                columns={"id": "String"},
+                table=table,
+                status=DataWarehouseSavedQuery.Status.COMPLETED,
+            )
+
+        with self.assertNumQueries(max_queries):
+            modifiers = create_default_modifiers_for_team(
+                self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
+            )
+            create_hogql_database(team=self.team, modifiers=modifiers)
+
+        for i in range(5):
+            table = DataWarehouseTable.objects.create(
+                name=f"whatever{i + 5}",
+                team=self.team,
+                columns={"id": "String"},
+                credential=new_credential,
+                url_pattern="",
+            )
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=f"whatever_view{i + 5}",
+                query={"query": f"SELECT id FROM whatever{i + 5}"},
+                columns={"id": "String"},
+                table=table,
+                status=DataWarehouseSavedQuery.Status.COMPLETED,
+            )
+
+        # initialization team query doesn't run
+        with self.assertNumQueries(6):
+            modifiers = create_default_modifiers_for_team(
+                self.team, modifiers=HogQLQueryModifiers(useMaterializedViews=True)
+            )
+            create_hogql_database(team=self.team, modifiers=modifiers)
+
     def test_database_group_type_mappings(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="test", group_type_index=0
         )
         db = create_hogql_database(team=self.team)
@@ -383,7 +455,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert db.events.fields["test"] == FieldTraverser(chain=["group_0"])
 
     def test_database_group_type_mappings_overwrite(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="event", group_type_index=0
         )
         db = create_hogql_database(team=self.team)
@@ -687,12 +759,12 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 },
             )
 
-            with self.assertNumQueries(FuzzyInt(5, 7)):
+            with self.assertNumQueries(FuzzyInt(6, 9)):
                 create_hogql_database(team=self.team)
 
     # We keep adding sources, credentials and tables, number of queries should be stable
     def test_external_data_source_is_not_n_plus_1(self) -> None:
-        num_queries = FuzzyInt(5, 10)
+        num_queries = FuzzyInt(5, 11)
 
         for i in range(10):
             source = ExternalDataSource.objects.create(
@@ -700,7 +772,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 source_id=f"source_id_{i}",
                 connection_id=f"connection_id_{i}",
                 status=ExternalDataSource.Status.COMPLETED,
-                source_type=ExternalDataSource.Type.STRIPE,
+                source_type=ExternalDataSourceType.STRIPE,
             )
             credentials = DataWarehouseCredential.objects.create(
                 access_key=f"blah-{i}", access_secret="blah", team=self.team
@@ -805,7 +877,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         source = ExternalDataSource.objects.create(
             team=self.team,
             source_id="source_id",
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
         )
         DataWarehouseTable.objects.create(
             name="stripe_table",
@@ -1018,3 +1090,15 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         print_ast(parse_select("SELECT events.distinct_id FROM subscriptions"), context, dialect="clickhouse")
+
+    def test_team_id_on_all_tables(self):
+        db = create_hogql_database(team=self.team)
+
+        tables = db.get_all_tables()
+        for table_name in tables:
+            table = db.get_table(table_name)
+            assert table is not None
+            assert isinstance(table, Table)
+            if isinstance(table, LazyTable | DANGEROUS_NoTeamIdCheckTable):
+                continue
+            assert "team_id" in table.fields, f"Table {table_name} must have a team_id column"

@@ -9,6 +9,7 @@ mod tests {
     use crate::{
         api::types::{FlagValue, LegacyFlagsResponse},
         cohorts::cohort_cache_manager::CohortCacheManager,
+        database::postgres_router::PostgresRouter,
         flags::{
             flag_group_type_mapping::GroupTypeMappingCache,
             flag_match_reason::FeatureFlagMatchReason,
@@ -79,12 +80,17 @@ mod tests {
         .unwrap();
 
         // Matcher for a matching distinct_id
+        let router = crate::database::PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             None,
             None,
@@ -100,12 +106,17 @@ mod tests {
         assert_eq!(match_result.variant, None);
 
         // Matcher for a non-matching distinct_id
+        let router2 = crate::database::PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher = FeatureFlagMatcher::new(
             not_matching_distinct_id.clone(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router2,
             cohort_cache.clone(),
             None,
             None,
@@ -121,12 +132,17 @@ mod tests {
         assert_eq!(match_result.variant, None);
 
         // Matcher for a distinct_id that does not exist
+        let router3 = crate::database::PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher = FeatureFlagMatcher::new(
             "other_distinct_id".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router3,
             cohort_cache.clone(),
             None,
             None,
@@ -181,12 +197,17 @@ mod tests {
 
         let overrides = HashMap::from([("email".to_string(), json!("override@example.com"))]);
 
+        let router = crate::database::PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
             team.project_id,
-            reader,
-            writer,
+            router,
             cohort_cache,
             None,
             None,
@@ -262,8 +283,12 @@ mod tests {
             "test_user".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            crate::database::PostgresRouter::new(
+                reader.clone(),
+                writer.clone(),
+                reader.clone(),
+                writer.clone(),
+            ),
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             Some(groups),
@@ -338,12 +363,17 @@ mod tests {
             FlagValue::Boolean(true),
         );
 
+        let router = crate::database::PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
             team.project_id,
-            reader,
-            writer,
+            router,
             cohort_cache,
             None,
             None,
@@ -493,12 +523,17 @@ mod tests {
             FlagValue::String("control".to_string()),
         );
 
+        let router = crate::database::PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
             team.project_id,
-            reader,
-            writer,
+            router,
             cohort_cache,
             None,
             None,
@@ -651,8 +686,12 @@ mod tests {
             "test_user_distinct_id".to_string(),
             team.id,
             team.project_id,
-            reader,
-            writer,
+            crate::database::PostgresRouter::new(
+                reader.clone(),
+                writer.clone(),
+                reader.clone(),
+                writer.clone(),
+            ),
             cohort_cache,
             None,
             None,
@@ -674,7 +713,7 @@ mod tests {
             .await;
         // Add this assertion to check the call count
         let fetch_calls = get_fetch_calls_count();
-        assert_eq!(fetch_calls, 1, "Expected fetch_and_locally_cache_all_relevant_properties to be called exactly 1 time, but it was called {} times", fetch_calls);
+        assert_eq!(fetch_calls, 1, "Expected fetch_and_locally_cache_all_relevant_properties to be called exactly 1 time, but it was called {fetch_calls} times");
         assert_eq!(
             result.flags.get("leaf_flag").unwrap().to_value(),
             FlagValue::Boolean(true)
@@ -768,12 +807,17 @@ mod tests {
             FlagValue::Boolean(true),
         );
 
+        let router = crate::database::PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
             team.project_id,
-            reader,
-            writer,
+            router,
             cohort_cache,
             None,
             None,
@@ -918,12 +962,17 @@ mod tests {
             FlagValue::Boolean(true), // KEY DIFFERENCE FROM PREVIOUS TEST
         );
 
+        let router = crate::database::PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
             team.project_id,
-            reader,
-            writer,
+            router,
             cohort_cache,
             None,
             None,
@@ -1012,8 +1061,12 @@ mod tests {
             "test_user".to_string(),
             1,
             1,
-            reader.clone(),
-            writer.clone(),
+            crate::database::PostgresRouter::new(
+                reader.clone(),
+                writer.clone(),
+                reader.clone(),
+                writer.clone(),
+            ),
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             Some(groups),
@@ -1038,12 +1091,17 @@ mod tests {
         let mut group_type_mapping_cache = GroupTypeMappingCache::new(team.project_id);
         group_type_mapping_cache.init(reader.clone()).await.unwrap();
 
+        let router = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             None,
@@ -1091,8 +1149,12 @@ mod tests {
             "test_user".to_string(),
             1,
             1,
-            reader,
-            writer,
+            crate::database::PostgresRouter::new(
+                reader.clone(),
+                writer.clone(),
+                reader.clone(),
+                writer.clone(),
+            ),
             cohort_cache,
             None,
             None,
@@ -1148,8 +1210,12 @@ mod tests {
             "test_user".to_string(),
             1,
             1,
-            reader,
-            writer,
+            crate::database::PostgresRouter::new(
+                reader.clone(),
+                writer.clone(),
+                reader.clone(),
+                writer.clone(),
+            ),
             cohort_cache,
             None,
             None,
@@ -1247,12 +1313,17 @@ mod tests {
         let person_property_overrides =
             HashMap::from([("email".to_string(), json!("test@example.com"))]);
 
+        let router = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             None,
             None,
@@ -1276,8 +1347,7 @@ mod tests {
         assert_eq!(
             fetch_calls,
             0,
-            "Expected fetch_and_locally_cache_all_relevant_properties to be called exactly 0 times, but it was called {} times", 
-            fetch_calls
+            "Expected fetch_and_locally_cache_all_relevant_properties to be called exactly 0 times, but it was called {fetch_calls} times", 
         );
         let legacy_response = LegacyFlagsResponse::from_response(result);
         assert!(!legacy_response.errors_while_computing_flags);
@@ -1325,12 +1395,17 @@ mod tests {
             let writer_clone = writer.clone();
             let cohort_cache_clone = cohort_cache.clone();
             handles.push(tokio::spawn(async move {
-                let matcher = FeatureFlagMatcher::new(
-                    format!("test_user_{}", i),
-                    team.id,
-                    team.project_id,
+                let router = PostgresRouter::new(
+                    reader_clone.clone(),
+                    writer_clone.clone(),
                     reader_clone,
                     writer_clone,
+                );
+                let matcher = FeatureFlagMatcher::new(
+                    format!("test_user_{i}"),
+                    team.id,
+                    team.project_id,
+                    router,
                     cohort_cache_clone,
                     None,
                     None,
@@ -1404,12 +1479,17 @@ mod tests {
         .await
         .unwrap();
 
+        let router = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             None,
             None,
@@ -1456,8 +1536,12 @@ mod tests {
             "".to_string(),
             1,
             1,
-            reader,
-            writer,
+            crate::database::PostgresRouter::new(
+                reader.clone(),
+                writer.clone(),
+                reader.clone(),
+                writer.clone(),
+            ),
             cohort_cache,
             None,
             None,
@@ -1465,7 +1549,9 @@ mod tests {
 
         let result = matcher.get_match(&flag, None, None).unwrap();
 
-        assert!(!result.matches);
+        // With empty distinct_id and 100% rollout, the flag should match
+        // This is consistent with the Python implementation
+        assert!(result.matches);
     }
 
     #[tokio::test]
@@ -1499,8 +1585,12 @@ mod tests {
             "test_user".to_string(),
             1,
             1,
-            reader,
-            writer,
+            crate::database::PostgresRouter::new(
+                reader.clone(),
+                writer.clone(),
+                reader.clone(),
+                writer.clone(),
+            ),
             cohort_cache,
             None,
             None,
@@ -1551,8 +1641,12 @@ mod tests {
             "test_user".to_string(),
             1,
             1,
-            reader,
-            writer,
+            crate::database::PostgresRouter::new(
+                reader.clone(),
+                writer.clone(),
+                reader.clone(),
+                writer.clone(),
+            ),
             cohort_cache,
             None,
             None,
@@ -1564,7 +1658,7 @@ mod tests {
 
         // Run the test multiple times to simulate distribution
         for i in 0..1000 {
-            matcher.distinct_id = format!("user_{}", i);
+            matcher.distinct_id = format!("user_{i}");
             let variant = matcher.get_matching_variant(&flag, None).unwrap();
             match variant.as_deref() {
                 Some("control") => control_count += 1,
@@ -1626,8 +1720,12 @@ mod tests {
             "test_user".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            crate::database::PostgresRouter::new(
+                reader.clone(),
+                writer.clone(),
+                reader.clone(),
+                writer.clone(),
+            ),
             cohort_cache,
             None,
             None,
@@ -1688,8 +1786,12 @@ mod tests {
             "test_user".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            crate::database::PostgresRouter::new(
+                reader.clone(),
+                writer.clone(),
+                reader.clone(),
+                writer.clone(),
+            ),
             cohort_cache,
             None,
             None,
@@ -1732,8 +1834,12 @@ mod tests {
             "test_user".to_string(),
             1,
             1,
-            reader.clone(),
-            writer.clone(),
+            crate::database::PostgresRouter::new(
+                reader.clone(),
+                writer.clone(),
+                reader.clone(),
+                writer.clone(),
+            ),
             cohort_cache,
             None,
             None,
@@ -1810,8 +1916,12 @@ mod tests {
             "test_user".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            crate::database::PostgresRouter::new(
+                reader.clone(),
+                writer.clone(),
+                reader.clone(),
+                writer.clone(),
+            ),
             cohort_cache,
             None,
             None,
@@ -2036,12 +2146,17 @@ mod tests {
             ("test_user_5", true),                                 // @leads.io
             ("test_user_6", false),                                // random@example.com
         ] {
+            let router = PostgresRouter::new(
+                reader.clone(),
+                writer.clone(),
+                reader.clone(),
+                writer.clone(),
+            );
             let mut matcher = FeatureFlagMatcher::new(
                 user_id.to_string(),
                 team.id,
                 team.project_id,
-                reader.clone(),
-                writer.clone(),
+                router,
                 cohort_cache.clone(),
                 None,
                 None,
@@ -2146,12 +2261,17 @@ mod tests {
             .await
             .unwrap();
 
+        let router = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher_test_id = FeatureFlagMatcher::new(
             "test_id".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -2161,8 +2281,7 @@ mod tests {
             "lil_id".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -2172,8 +2291,7 @@ mod tests {
             "another_id".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             None,
             None,
@@ -2281,12 +2399,17 @@ mod tests {
             None,
         );
 
+        let router = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher = FeatureFlagMatcher::new(
             "test_id".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             None,
             None,
@@ -2387,12 +2510,17 @@ mod tests {
             None,
         );
 
+        let router = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher_test_id = FeatureFlagMatcher::new(
             "test_id".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -2402,8 +2530,7 @@ mod tests {
             "lil_id".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router.clone(),
             cohort_cache.clone(),
             None,
             None,
@@ -2413,8 +2540,7 @@ mod tests {
             "another_id".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             None,
             None,
@@ -2533,12 +2659,17 @@ mod tests {
             None,
         );
 
+        let router = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             None,
             None,
@@ -2626,12 +2757,17 @@ mod tests {
             None,
         );
 
+        let router = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             None,
             None,
@@ -2719,12 +2855,17 @@ mod tests {
             None,
         );
 
+        let router = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             None,
             None,
@@ -2833,12 +2974,17 @@ mod tests {
             None,
         );
 
+        let router = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             None,
             None,
@@ -2926,12 +3072,17 @@ mod tests {
             None,
         );
 
+        let router = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             None,
             None,
@@ -3017,12 +3168,17 @@ mod tests {
             None,
         );
 
+        let router = crate::database::PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             None,
             None,
@@ -3102,12 +3258,17 @@ mod tests {
             None,
         );
 
+        let router = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             None,
             None,
@@ -3182,12 +3343,17 @@ mod tests {
             None,
         );
 
+        let router = crate::database::PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             None,
             None,
@@ -3275,12 +3441,17 @@ mod tests {
             None,
         );
 
+        let router = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             None,
             None,
@@ -3346,8 +3517,14 @@ mod tests {
         );
 
         // Set hash key override
-        set_feature_flag_hash_key_overrides(
+        let router = crate::database::PostgresRouter::new(
+            reader.clone(),
             writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
+        set_feature_flag_hash_key_overrides(
+            &router,
             team.id,
             vec![distinct_id.clone()],
             team.project_id,
@@ -3360,12 +3537,17 @@ mod tests {
             flags: vec![flag.clone()],
         };
 
+        let router = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let result = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             None,
@@ -3446,12 +3628,17 @@ mod tests {
             flags: vec![flag.clone()],
         };
 
+        let router = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let result = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             None,
@@ -3554,8 +3741,14 @@ mod tests {
         );
 
         // Set hash key override for the continuity flag
-        set_feature_flag_hash_key_overrides(
+        let router2 = crate::database::PostgresRouter::new(
+            reader.clone(),
             writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
+        set_feature_flag_hash_key_overrides(
+            &router2,
             team.id,
             vec![distinct_id.clone()],
             team.project_id,
@@ -3568,12 +3761,17 @@ mod tests {
             flags: vec![flag_continuity.clone(), flag_no_continuity.clone()],
         };
 
+        let router = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let result = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             None,
@@ -3671,12 +3869,17 @@ mod tests {
             None,
         );
 
+        let router = crate::database::PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             None,
             None,
@@ -3899,12 +4102,17 @@ mod tests {
         );
 
         // regular flag evaluation when outside holdout
+        let router = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher = FeatureFlagMatcher::new(
             "example_id".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             None,
             None,
@@ -3921,12 +4129,17 @@ mod tests {
         assert_eq!(result.reason, FeatureFlagMatchReason::ConditionMatch);
 
         // Test inside holdout behavior - should get holdout variant override
+        let router2 = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher2 = FeatureFlagMatcher::new(
             "example_id2".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router2,
             cohort_cache.clone(),
             None,
             None,
@@ -4030,12 +4243,17 @@ mod tests {
         };
 
         // Test user "11" - should get first-variant
+        let router = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let matcher = FeatureFlagMatcher::new(
             "11".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             None,
             None,
@@ -4053,12 +4271,17 @@ mod tests {
         );
 
         // Test user "example_id" - should get second-variant
+        let router = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let matcher = FeatureFlagMatcher::new(
             "example_id".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             None,
             None,
@@ -4076,12 +4299,17 @@ mod tests {
         );
 
         // Test user "3" - should get third-variant
+        let router = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let matcher = FeatureFlagMatcher::new(
             "3".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             None,
             None,
@@ -4166,12 +4394,17 @@ mod tests {
             None,
         );
 
+        let router = crate::database::PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             None,
             None,
@@ -4229,12 +4462,17 @@ mod tests {
         let person_property_overrides =
             HashMap::from([("email".to_string(), json!("test@example.com"))]);
 
+        let router = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher = FeatureFlagMatcher::new(
             "nonexistent_user".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             None,
             None,
@@ -4294,12 +4532,17 @@ mod tests {
 
         // Test with numeric group key
         let groups_numeric = HashMap::from([("organization".to_string(), json!(123))]);
+        let router = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher_numeric = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups_numeric),
@@ -4314,12 +4557,17 @@ mod tests {
 
         // Test with string group key (same value)
         let groups_string = HashMap::from([("organization".to_string(), json!("123"))]);
+        let router2 = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher_string = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router2,
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups_string),
@@ -4346,12 +4594,17 @@ mod tests {
 
         // Test with a float value to ensure it works too
         let groups_float = HashMap::from([("organization".to_string(), json!(123.0))]);
+        let router3 = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher_float = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router3,
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups_float),
@@ -4367,12 +4620,17 @@ mod tests {
 
         // Test with invalid group key type (should use empty string and not match this specific case)
         let groups_bool = HashMap::from([("organization".to_string(), json!(true))]);
+        let router4 = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher_bool = FeatureFlagMatcher::new(
             "test_user".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router4,
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups_bool),
@@ -4508,12 +4766,17 @@ mod tests {
         .unwrap();
 
         // Test super condition user
+        let router = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher = FeatureFlagMatcher::new(
             "super_user".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             None,
             None,
@@ -4533,12 +4796,17 @@ mod tests {
         );
 
         // Test PostHog user
+        let router2 = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher = FeatureFlagMatcher::new(
             "posthog_user".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router2,
             cohort_cache.clone(),
             None,
             None,
@@ -4558,12 +4826,17 @@ mod tests {
         );
 
         // Test regular user
+        let router3 = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher = FeatureFlagMatcher::new(
             "regular_user".to_string(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router3,
             cohort_cache.clone(),
             None,
             None,
@@ -4625,12 +4898,17 @@ mod tests {
         .unwrap();
 
         // Matcher for a matching distinct_id
+        let router = crate::database::PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             None,
             None,
@@ -4742,12 +5020,17 @@ mod tests {
             ("email".to_string(), json!("override-test@example.com")), // Different email, won't match condition 2
         ]);
 
+        let router = crate::database::PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             None,
             None,
@@ -4773,8 +5056,7 @@ mod tests {
         assert_eq!(
             fetch_calls,
             1,
-            "Expected fetch_and_locally_cache_all_relevant_properties to be called exactly 1 time, but it was called {} times", 
-            fetch_calls
+            "Expected fetch_and_locally_cache_all_relevant_properties to be called exactly 1 time, but it was called {fetch_calls} times", 
         );
         assert!(!result.errors_while_computing_flags);
         // The flag should evaluate using DB properties for condition 1 (which has focus="all-of-the-above")
@@ -4788,12 +5070,17 @@ mod tests {
             ("email".to_string(), json!("flag-test@example.com")), // Matches condition 2
         ]);
 
+        let router2 = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher2 = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router2,
             cohort_cache.clone(),
             None,
             None,
@@ -4822,12 +5109,17 @@ mod tests {
             ("email".to_string(), json!("wrong@email.com")), // Doesn't match either email condition
         ]);
 
+        let router3 = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher3 = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router3,
             cohort_cache.clone(),
             None,
             None,
@@ -4858,12 +5150,17 @@ mod tests {
             ("os".to_string(), json!("iOS")),
         ]);
 
+        let router4 = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher4 = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router4,
             cohort_cache.clone(),
             None,
             None,
@@ -4996,12 +5293,17 @@ mod tests {
             ]),
         )]);
 
+        let router = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router,
             cohort_cache.clone(),
             None,
             Some(groups.clone()),
@@ -5040,12 +5342,17 @@ mod tests {
             ]),
         )]);
 
+        let router2 = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher2 = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router2,
             cohort_cache.clone(),
             None,
             Some(groups.clone()),
@@ -5080,12 +5387,17 @@ mod tests {
             ]),
         )]);
 
+        let router3 = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher3 = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router3,
             cohort_cache.clone(),
             None,
             Some(groups.clone()),
@@ -5116,12 +5428,17 @@ mod tests {
             ]),
         )]);
 
+        let router4 = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher4 = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router4,
             cohort_cache.clone(),
             None,
             Some(groups.clone()),
@@ -5156,12 +5473,17 @@ mod tests {
             ]),
         )]);
 
+        let router5 = PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
         let mut matcher5 = FeatureFlagMatcher::new(
             distinct_id.clone(),
             team.id,
             team.project_id,
-            reader.clone(),
-            writer.clone(),
+            router5,
             cohort_cache.clone(),
             None,
             Some(groups),
@@ -5184,5 +5506,138 @@ mod tests {
         // - Condition 1: plan=pro (matches), region=us-west-2 (matches regex), feature_access=full (from DB merge)
         // - Condition 2: billing_email matches exactly
         assert!(flag_result5.enabled);
+    }
+
+    #[tokio::test]
+    async fn test_condition_evaluation_order_with_variant_overrides() {
+        // Unlike decide, we don't sort conditions with variant overrides to the top.
+        // This test ensures that the order is maintained regardless of the presence of a variant override.
+        let reader = setup_pg_reader_client(None).await;
+        let writer = setup_pg_writer_client(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+
+        let team = insert_new_team_in_pg(reader.clone(), None)
+            .await
+            .expect("Failed to insert team");
+
+        // Create a flag with:
+        // 1. First condition: specific user match (no variant override)
+        // 2. Second condition: catch-all with variant="test"
+        let flag = FeatureFlag {
+            id: 1,
+            team_id: team.id,
+            name: Some("Test Order Flag".to_string()),
+            key: "test_order_flag".to_string(),
+            filters: FlagFilters {
+                groups: vec![
+                    FlagPropertyGroup {
+                        variant: None, // No variant override
+                        properties: Some(vec![PropertyFilter {
+                            key: "email".to_string(),
+                            value: Some(json!("specific@example.com")),
+                            operator: Some(OperatorType::Exact),
+                            prop_type: PropertyType::Person,
+                            group_type_index: None,
+                            negation: None,
+                        }]),
+                        rollout_percentage: Some(100.0),
+                    },
+                    FlagPropertyGroup {
+                        variant: Some("test".to_string()), // Has variant override
+                        properties: Some(vec![]),          // Catch-all
+                        rollout_percentage: Some(100.0),
+                    },
+                ],
+                multivariate: Some(MultivariateFlagOptions {
+                    variants: vec![
+                        MultivariateFlagVariant {
+                            key: "control".to_string(),
+                            name: Some("Control".to_string()),
+                            rollout_percentage: 100.0,
+                        },
+                        MultivariateFlagVariant {
+                            key: "test".to_string(),
+                            name: Some("Test".to_string()),
+                            rollout_percentage: 0.0,
+                        },
+                    ],
+                }),
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+                holdout_groups: None,
+            },
+            deleted: false,
+            active: true,
+            ensure_experience_continuity: Some(false),
+            version: Some(1),
+            evaluation_runtime: Some("all".to_string()),
+        };
+
+        let router = crate::database::PostgresRouter::new(
+            reader.clone(),
+            writer.clone(),
+            reader.clone(),
+            writer.clone(),
+        );
+
+        // Test 1: User with email "specific@example.com" should match first condition
+        let matcher = FeatureFlagMatcher::new(
+            "specific_user".to_string(),
+            team.id,
+            team.project_id,
+            router.clone(),
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        // Pass email as a property override to avoid database lookup
+        let mut user_properties = HashMap::new();
+        user_properties.insert("email".to_string(), json!("specific@example.com"));
+
+        let result = matcher
+            .get_match(&flag, Some(user_properties), None)
+            .unwrap();
+        assert!(result.matches, "Flag should match for specific user");
+        assert_eq!(
+            result.variant,
+            Some("control".to_string()), 
+            "Specific user should get 'control' from multivariate rollout (100% control), not 'test' from catch-all"
+        );
+        assert_eq!(
+            result.condition_index,
+            Some(0),
+            "Should match first condition (index 0)"
+        );
+
+        // Test 2: Different user should match second condition (catch-all)
+        let matcher2 = FeatureFlagMatcher::new(
+            "other_user".to_string(),
+            team.id,
+            team.project_id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        let mut other_properties = HashMap::new();
+        other_properties.insert("email".to_string(), json!("other@example.com"));
+
+        let result2 = matcher2
+            .get_match(&flag, Some(other_properties), None)
+            .unwrap();
+        assert!(result2.matches, "Flag should match for other user");
+        assert_eq!(
+            result2.variant,
+            Some("test".to_string()),
+            "Other user should get 'test' from catch-all variant override"
+        );
+        assert_eq!(
+            result2.condition_index,
+            Some(1),
+            "Should match second condition (index 1)"
+        );
     }
 }

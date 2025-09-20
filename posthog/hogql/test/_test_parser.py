@@ -1,36 +1,35 @@
-from typing import Literal, cast, Optional
-
 import math
+from typing import Literal, Optional, cast
+
+from posthog.test.base import BaseTest, MemoryLeakTestMixin
+
+from posthog.hogql import ast
 from posthog.hogql.ast import (
-    VariableAssignment,
-    Constant,
     ArithmeticOperation,
-    Field,
-    ExprStatement,
-    Call,
     ArithmeticOperationOp,
-    CompareOperationOp,
-    CompareOperation,
-    JoinExpr,
-    SelectQuery,
-    Program,
-    IfStatement,
-    Block,
-    WhileStatement,
-    Function,
     Array,
+    Block,
+    Call,
+    CompareOperation,
+    CompareOperationOp,
+    Constant,
     Dict,
-    VariableDeclaration,
+    ExprStatement,
+    Field,
+    Function,
+    IfStatement,
+    JoinExpr,
+    Program,
+    SelectQuery,
     SelectSetNode,
     SelectSetQuery,
+    VariableAssignment,
+    VariableDeclaration,
+    WhileStatement,
 )
-
-from posthog.hogql.parser import parse_program
-from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError, SyntaxError
-from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select, parse_string_template
+from posthog.hogql.parser import parse_expr, parse_order_expr, parse_program, parse_select, parse_string_template
 from posthog.hogql.visitor import clear_locations
-from posthog.test.base import BaseTest, MemoryLeakTestMixin
 
 
 def parser_test_factory(backend: Literal["python", "cpp"]):

@@ -1,5 +1,6 @@
-import requests
 from django.conf import settings
+
+import requests
 from dlt.common.pendulum import pendulum
 from dlt.sources.helpers.rest_client.auth import BearerTokenAuth
 

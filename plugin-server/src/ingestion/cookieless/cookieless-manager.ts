@@ -1,5 +1,3 @@
-import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
-import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
 import { randomBytes } from 'crypto'
 import { Pool as GenericPool } from 'generic-pool'
 import Redis from 'ioredis'
@@ -10,13 +8,25 @@ import { Message } from 'node-rdkafka'
 import { Counter } from 'prom-client'
 import { getDomain } from 'tldts'
 
+import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
+import * as siphashDouble from '@posthog/siphash/lib/siphash-double'
+
+import { instrumentFn } from '~/common/tracing/tracing-utils'
+
 import { cookielessRedisErrorCounter, eventDroppedCounter } from '../../main/ingestion-queues/metrics'
-import { runInstrumentedFunction } from '../../main/utils'
-import { CookielessServerHashMode, IncomingEventWithTeam, PipelineEvent, PluginsServerConfig, Team } from '../../types'
+import {
+    CookielessServerHashMode,
+    EventHeaders,
+    IncomingEventWithTeam,
+    PipelineEvent,
+    PluginsServerConfig,
+    Team,
+} from '../../types'
 import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/db/error'
 import { TeamManager } from '../../utils/team-manager'
-import { bufferToUint32ArrayLE, uint32ArrayLEToBuffer, UUID7 } from '../../utils/utils'
+import { UUID7, bufferToUint32ArrayLE, uint32ArrayLEToBuffer } from '../../utils/utils'
+import { compareTimestamps } from '../../worker/ingestion/timestamp-comparison'
 import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../../worker/ingestion/timestamps'
 import { RedisHelpers } from './redis-helpers'
 
@@ -80,6 +90,7 @@ interface CookielessConfig {
     identifiesTtlSeconds: number
     sessionTtlSeconds: number
     saltTtlSeconds: number
+    timestampLoggingSampleRate: number
     sessionInactivityMs: number
 }
 
@@ -104,6 +115,7 @@ export class CookielessManager {
             saltTtlSeconds: config.COOKIELESS_SALT_TTL_SECONDS,
             sessionInactivityMs: config.COOKIELESS_SESSION_INACTIVITY_MS,
             identifiesTtlSeconds: config.COOKIELESS_IDENTIFIES_TTL_SECONDS,
+            timestampLoggingSampleRate: config.TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE,
         }
 
         this.redisHelpers = new RedisHelpers(redis)
@@ -269,10 +281,7 @@ export class CookielessManager {
             return this.dropAllCookielessEvents(events, 'cookieless_globally_disabled')
         }
         try {
-            return await runInstrumentedFunction({
-                func: () => this.doBatchInner(events),
-                statsKey: 'cookieless-batch',
-            })
+            return await instrumentFn(`cookieless-batch`, () => this.doBatchInner(events))
         } catch (e) {
             if (e instanceof RedisOperationError) {
                 cookielessRedisErrorCounter.labels({
@@ -292,10 +301,10 @@ export class CookielessManager {
 
         // do a first pass just to extract properties and compute the base hash for stateful cookieless events
         const eventsWithStatus: EventWithStatus[] = []
-        for (const { event, team, message } of events) {
+        for (const { event, team, message, headers } of events) {
             if (!event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
                 // push the event as is, we don't need to do anything with it, but preserve the ordering
-                eventsWithStatus.push({ event, team, message })
+                eventsWithStatus.push({ event, team, message, headers })
                 continue
             }
 
@@ -350,6 +359,16 @@ export class CookielessManager {
                 continue
             }
 
+            // Compare timestamp from headers with current parsing logic
+            compareTimestamps(
+                timestamp,
+                headers,
+                team.id,
+                event.uuid,
+                'cookieless_processing',
+                this.config.timestampLoggingSampleRate
+            )
+
             const {
                 userAgent,
                 ip,
@@ -388,6 +407,7 @@ export class CookielessManager {
                 event,
                 team,
                 message,
+                headers,
                 firstPass: {
                     timestampMs,
                     eventTimeZone,
@@ -593,7 +613,7 @@ export class CookielessManager {
         }
 
         // remove the extra processing state from the returned object
-        return eventsWithStatus.map(({ event, team, message }) => ({ event, team, message }))
+        return eventsWithStatus.map(({ event, team, message, headers }) => ({ event, team, message, headers }))
     }
 
     dropAllCookielessEvents(events: IncomingEventWithTeam[], dropCause: string): IncomingEventWithTeam[] {
@@ -618,6 +638,7 @@ type EventWithStatus = {
     message: Message
     event: PipelineEvent
     team: Team
+    headers: EventHeaders
     // Store temporary processing state. Nest the passes to make type-checking easier
     firstPass?: {
         timestampMs: number

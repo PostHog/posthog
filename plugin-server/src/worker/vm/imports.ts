@@ -1,11 +1,12 @@
 import * as pubsub from '@google-cloud/pubsub'
 import * as gcs from '@google-cloud/storage'
-import * as scaffold from '@posthog/plugin-scaffold'
 import * as AWS from 'aws-sdk'
 import crypto from 'crypto'
 import * as genericPool from 'generic-pool'
 import { PassThrough } from 'stream'
 import * as url from 'url'
+
+import * as scaffold from '@posthog/plugin-scaffold'
 
 import { isTestEnv } from '../../utils/env-utils'
 import { legacyFetch } from '../../utils/request'

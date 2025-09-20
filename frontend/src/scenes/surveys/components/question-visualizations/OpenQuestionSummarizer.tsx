@@ -1,11 +1,12 @@
+import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+import { useState } from 'react'
+
 import { IconSparkles, IconThumbsDown, IconThumbsDownFilled, IconThumbsUp, IconThumbsUpFilled } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
 
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import posthog from 'posthog-js'
-import { useState } from 'react'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
@@ -16,11 +17,16 @@ export function ResponseSummariesButton({
 }: {
     questionIndex: number | undefined
     questionId: string | undefined
-}): JSX.Element {
+}): JSX.Element | null {
     const { summarize } = useActions(surveyLogic)
-    const { responseSummary, responseSummaryLoading } = useValues(surveyLogic)
+    const { responseSummary, responseSummaryLoading, isSurveyAnalysisMaxToolEnabled } = useValues(surveyLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
     const [showConsentPopover, setShowConsentPopover] = useState(false)
+
+    // Not showing if the MaxTool is enabled, as it's a better version of this
+    if (isSurveyAnalysisMaxToolEnabled) {
+        return null
+    }
 
     const summarizeQuestion = (): void => {
         summarize({ questionIndex, questionId })

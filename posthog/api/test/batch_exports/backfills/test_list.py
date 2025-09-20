@@ -1,27 +1,18 @@
 import datetime as dt
 
 import pytest
+
 from django.test.client import Client as HttpClient
 
-from posthog.api.test.batch_exports.fixtures import (
-    create_backfill,
-    create_batch_export,
-    create_destination,
-    create_organization,
-)
+from posthog.api.test.batch_exports.fixtures import create_backfill, create_batch_export, create_destination
 from posthog.api.test.batch_exports.operations import list_batch_export_backfills_ok
-from posthog.api.test.test_team import create_team
-from posthog.api.test.test_user import create_user
 from posthog.batch_exports.models import BatchExportBackfill
 
 pytestmark = [pytest.mark.django_db]
 
 
-def test_list_batch_export_backfills(client: HttpClient):
+def test_list_batch_export_backfills(client: HttpClient, organization, team, user):
     """Test that we can list batch export backfills."""
-    organization = create_organization("Test Org")
-    team = create_team(organization)
-    user = create_user("test@user.com", "Test User", organization)
     destination = create_destination()
     batch_export = create_batch_export(team, destination)
     create_backfill(
@@ -46,14 +37,10 @@ def test_list_batch_export_backfills(client: HttpClient):
     assert len(response["results"]) == 2
 
 
-def test_cannot_list_batch_export_backfills_for_other_organizations(client: HttpClient):
+def test_cannot_list_batch_export_backfills_for_other_organizations(client: HttpClient, organization, team, user):
     """
     Should not be able to list batch export backfills for other organizations.
     """
-    organization = create_organization("Test Org")
-    team = create_team(organization)
-    user = create_user("test@user.com", "Test User", organization)
-
     destination = create_destination()
     batch_export = create_batch_export(team, destination)
     create_backfill(
@@ -72,6 +59,10 @@ def test_cannot_list_batch_export_backfills_for_other_organizations(client: Http
         BatchExportBackfill.Status.COMPLETED,
         dt.datetime(2025, 1, 1, 1, 0, 0, tzinfo=dt.UTC),
     )
+
+    from posthog.api.test.batch_exports.fixtures import create_organization
+    from posthog.api.test.test_team import create_team
+    from posthog.api.test.test_user import create_user
 
     other_organization = create_organization("Other Test Org")
     other_team = create_team(other_organization)
@@ -88,15 +79,13 @@ def test_cannot_list_batch_export_backfills_for_other_organizations(client: Http
     assert len(response["results"]) == 0
 
 
-def test_list_is_partitioned_by_team(client: HttpClient):
+def test_list_is_partitioned_by_team(client: HttpClient, organization, team, user):
     """
     Should be able to list batch export backfills for a specific team.
     """
-    organization = create_organization("Test Org")
-    team = create_team(organization)
-    another_team = create_team(organization)
-    user = create_user("test@user.com", "Test User", organization)
+    from posthog.api.test.test_team import create_team
 
+    another_team = create_team(organization)
     destination = create_destination()
     batch_export = create_batch_export(team, destination)
     create_backfill(

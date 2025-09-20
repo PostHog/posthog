@@ -11,6 +11,16 @@
     &.Spinner--textColored {
         --spinner-color: currentColor;
     }
+
+    &.Spinner--medium {
+        width: 1.5em;
+        height: 1.5em;
+    }
+
+    &.Spinner--large {
+        width: 30px;
+        height: 30px;
+    }
 }
 
 .Spinner__layer {

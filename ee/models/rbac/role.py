@@ -1,10 +1,11 @@
 from django.db import models
 
+from posthog.models.utils import UUIDTModel
+
 from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
-from posthog.models.utils import UUIDModel
 
 
-class Role(UUIDModel):
+class Role(UUIDTModel):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["organization", "name"], name="unique_role_name")]
 
@@ -37,7 +38,7 @@ class Role(UUIDModel):
     )
 
 
-class RoleMembership(UUIDModel):
+class RoleMembership(UUIDTModel):
     class Meta:
         constraints = [models.UniqueConstraint(fields=["role", "user"], name="unique_user_and_role")]
 

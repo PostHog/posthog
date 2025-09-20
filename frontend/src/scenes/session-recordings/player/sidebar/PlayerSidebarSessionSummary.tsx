@@ -1,3 +1,10 @@
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import React, { ReactNode, useEffect, useState } from 'react'
+import { Transition } from 'react-transition-group'
+import { ENTERED, ENTERING } from 'react-transition-group/Transition'
+import useResizeObserver from 'use-resize-observer'
+
 import {
     IconAIText,
     IconClock,
@@ -11,16 +18,12 @@ import {
     IconWarning,
 } from '@posthog/icons'
 import { LemonBanner, LemonDivider, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import React, { ReactNode, useEffect, useState } from 'react'
-import { Transition } from 'react-transition-group'
-import { ENTERED, ENTERING } from 'react-transition-group/Transition'
 import { playerMetaLogic } from 'scenes/session-recordings/player/player-meta/playerMetaLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import useResizeObserver from 'use-resize-observer'
 
 import { playerInspectorLogic } from '../inspector/playerInspectorLogic'
 import {
@@ -30,7 +33,6 @@ import {
     SessionSegmentKeyActions,
     SessionSegmentOutcome,
 } from '../player-meta/types'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 function formatEventMetaInfo(event: SessionKeyAction): JSX.Element {
     return (

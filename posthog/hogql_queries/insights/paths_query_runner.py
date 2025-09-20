@@ -1,50 +1,49 @@
 import itertools
-from posthog.hogql.constants import HogQLGlobalSettings, MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
 from collections import defaultdict
 from datetime import datetime, timedelta
 from math import ceil
 from re import escape
-from typing import Any, Literal, cast
-from typing import Optional
+from typing import Any, Literal, Optional, cast
 
-from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
-from posthog.constants import PAGEVIEW_EVENT, SCREEN_EVENT, HOGQL
+from posthog.schema import (
+    CachedPathsQueryResponse,
+    FunnelConversionWindowTimeUnit,
+    FunnelPathType,
+    FunnelsActorsQuery,
+    FunnelsFilter,
+    HogQLQueryModifiers,
+    PathCleaningFilter,
+    PathsFilter,
+    PathsQuery,
+    PathsQueryResponse,
+    PathType,
+)
+
 from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_select, parse_expr
+from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings, LimitContext
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
+
+from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
+from posthog.constants import HOGQL, PAGEVIEW_EVENT, SCREEN_EVENT
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql
-from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.queries.util import correct_result_for_sampling
-from posthog.schema import (
-    CachedPathsQueryResponse,
-    FunnelsActorsQuery,
-    FunnelsFilter,
-    HogQLQueryModifiers,
-    PathsQueryResponse,
-    PathCleaningFilter,
-    PathsFilter,
-    PathType,
-    FunnelPathType,
-    FunnelConversionWindowTimeUnit,
-)
-from posthog.schema import PathsQuery
 
 EVENT_IN_SESSION_LIMIT_DEFAULT = 5
 SESSION_TIME_THRESHOLD_DEFAULT_SECONDS = 30 * 60  # 30 minutes
 EDGE_LIMIT_DEFAULT = 50
 
 
-class PathsQueryRunner(QueryRunner):
+class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
     query: PathsQuery
-    response: PathsQueryResponse
     cached_response: CachedPathsQueryResponse
 
     def __init__(
@@ -841,7 +840,7 @@ class PathsQueryRunner(QueryRunner):
 
         return validated_results
 
-    def calculate(self) -> PathsQueryResponse:
+    def _calculate(self) -> PathsQueryResponse:
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team)
 

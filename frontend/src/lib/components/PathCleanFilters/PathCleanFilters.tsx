@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react'
+import { DndContext, PointerSensor, closestCenter, useSensor, useSensors } from '@dnd-kit/core'
+import { restrictToParentElement } from '@dnd-kit/modifiers'
+import { SortableContext, rectSortingStrategy } from '@dnd-kit/sortable'
+import { useEffect, useState } from 'react'
+
 import { PathCleaningFilter } from '~/types'
 
 import { PathCleanFilterAddItemButton } from './PathCleanFilterAddItemButton'
-import { ensureFilterOrder, updateFilterOrder } from './pathCleaningUtils'
 import { PathCleanFilterItem } from './PathCleanFilterItem'
-import { closestCenter, DndContext, PointerSensor, useSensor, useSensors } from '@dnd-kit/core'
-import { restrictToParentElement } from '@dnd-kit/modifiers'
-import { rectSortingStrategy, SortableContext } from '@dnd-kit/sortable'
+import { ensureFilterOrder, updateFilterOrder } from './pathCleaningUtils'
 
 export interface PathCleanFiltersProps {
     filters?: PathCleaningFilter[]

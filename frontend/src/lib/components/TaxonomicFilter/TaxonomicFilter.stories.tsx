@@ -1,15 +1,16 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { useActions, useMountedLogic } from 'kea'
+
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { useAvailableFeatures } from '~/mocks/features'
 import { actionsModel } from '~/models/actionsModel'
 import { AvailableFeature } from '~/types'
 
-import { infiniteListLogic } from './infiniteListLogic'
 import { TaxonomicFilter } from './TaxonomicFilter'
-import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { infiniteListLogic } from './infiniteListLogic'
 
 const meta: Meta<typeof TaxonomicFilter> = {
     title: 'Filters/Taxonomic Filter',
@@ -125,6 +126,26 @@ Properties.parameters = {
     docs: {
         description: {
             story: 'TaxonomicFilter showing Event Properties and Person Properties tabs.',
+        },
+    },
+}
+
+export const NumericalProperties: StoryFn<typeof TaxonomicFilter> = (args) => {
+    return (
+        <div className="w-fit border rounded p-2 bg-surface-primary">
+            <TaxonomicFilter {...args} />
+        </div>
+    )
+}
+NumericalProperties.args = {
+    taxonomicFilterLogicKey: 'properties',
+    taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties],
+    showNumericalPropsOnly: true,
+}
+NumericalProperties.parameters = {
+    docs: {
+        description: {
+            story: 'TaxonomicFilter showing numerical properties only includes a small icon to indicate.',
         },
     },
 }

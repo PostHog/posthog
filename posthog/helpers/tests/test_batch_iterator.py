@@ -1,5 +1,6 @@
-from posthog.helpers.batch_iterators import ArrayBatchIterator, FunctionBatchIterator
 import pytest
+
+from posthog.helpers.batch_iterators import ArrayBatchIterator, FunctionBatchIterator
 
 
 class TestArrayBatchIterator:

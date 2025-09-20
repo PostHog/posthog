@@ -3,8 +3,10 @@ from typing import Any, Optional, cast
 from uuid import UUID
 
 import pytest
-from django.test import override_settings
 from freezegun import freeze_time
+from posthog.test.base import BaseTest
+
+from django.test import override_settings
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
@@ -12,11 +14,11 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.database.models import (
     DateTimeDatabaseField,
-    Table,
     ExpressionField,
     FieldTraverser,
     StringDatabaseField,
     StringJSONDatabaseField,
+    Table,
     TableGroup,
 )
 from posthog.hogql.database.schema.events import EventsTable
@@ -26,7 +28,6 @@ from posthog.hogql.printer import print_ast, print_prepared_ast
 from posthog.hogql.resolver import ResolutionError, resolve_types
 from posthog.hogql.test.utils import pretty_dataclasses
 from posthog.hogql.visitor import clone_expr
-from posthog.test.base import BaseTest
 
 
 class TestResolver(BaseTest):
@@ -778,3 +779,13 @@ class TestResolver(BaseTest):
         self.database.__setattr__("nested", table_group)
         query = "SELECT * FROM nested.events.some.other.table"
         resolve_types(self._select(query), self.context, dialect="hogql")
+
+    def test_lambda_scope(self):
+        query = "SELECT arrayMap(a -> e.timestamp, [1]) as a FROM events e"
+        resolve_types(self._select(query), self.context, dialect="hogql")
+        resolve_types(self._select(query), self.context, dialect="clickhouse")
+
+    def test_lambda_scope_mixed_scopes(self):
+        query = "SELECT arrayMap(a -> concat(a, e.event), ['str']) FROM events e"
+        resolve_types(self._select(query), self.context, dialect="hogql")
+        resolve_types(self._select(query), self.context, dialect="clickhouse")

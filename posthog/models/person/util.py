@@ -1,22 +1,20 @@
-import datetime
 import json
+import datetime
 from contextlib import ExitStack
 from typing import Optional, Union
 from uuid import UUID
-
 from zoneinfo import ZoneInfo
-from dateutil.parser import isoparse
+
 from django.db.models.query import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from django.utils.timezone import now
 
+from dateutil.parser import isoparse
+
 from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.client import ClickhouseProducer
-from posthog.kafka_client.topics import (
-    KAFKA_PERSON,
-    KAFKA_PERSON_DISTINCT_ID,
-)
+from posthog.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.person import READ_DB_FOR_PERSONS
 from posthog.models.person.sql import (

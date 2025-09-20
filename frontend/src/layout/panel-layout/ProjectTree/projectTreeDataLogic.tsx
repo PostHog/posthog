@@ -1,6 +1,8 @@
-import { IconPlus } from '@posthog/icons'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
+import { IconPlus } from '@posthog/icons'
+
 import api from 'lib/api'
 import { GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -18,7 +20,7 @@ import {
     getDefaultTreePersons,
     getDefaultTreeProducts,
 } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { projectTreeLogic, RecentResults, SearchResults } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+import { RecentResults, SearchResults, projectTreeLogic } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { FolderState, ProjectTreeAction } from '~/layout/panel-layout/ProjectTree/types'
 import {
     appendResultsToFolders,
@@ -30,12 +32,13 @@ import {
     sortFilesAndFolders,
     splitPath,
 } from '~/layout/panel-layout/ProjectTree/utils'
-import { groupsModel } from '~/models/groupsModel'
-import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
-import { UserBasicType } from '~/types'
 import { FEATURE_FLAGS } from '~/lib/constants'
+import { groupsModel } from '~/models/groupsModel'
+import { FileSystemEntry, FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
+import { UserBasicType } from '~/types'
 
 import type { projectTreeDataLogicType } from './projectTreeDataLogicType'
+import { getExperimentalProductsTree } from './projectTreeWebAnalyticsExperiment'
 
 const MOVE_ALERT_LIMIT = 50
 const DELETE_ALERT_LIMIT = 0
@@ -569,7 +572,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                           {
                               path: 'Groups',
                               category: 'Groups',
-                              iconType: 'cohort',
+                              iconType: 'group',
                               href: urls.groups(0),
                               visualOrder: 30,
                           },
@@ -577,7 +580,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     : Array.from(groupTypes.values()).map((groupType) => ({
                           path: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
                           category: 'Groups',
-                          iconType: 'cohort',
+                          iconType: 'group',
                           href: urls.groups(groupType.group_type_index),
                           visualOrder: 30 + groupType.group_type_index,
                       }))
@@ -592,7 +595,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                               path: shortcut.path,
                               type: shortcut.type,
                               category: 'Saved Views',
-                              iconType: 'database' as const,
+                              iconType: 'group' as FileSystemIconType,
                               href: shortcut.href || '',
                               visualOrder: 100,
                               shortcut: true,
@@ -707,7 +710,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                     })
                 return function getStaticItems(searchTerm: string, onlyFolders: boolean): TreeDataItem[] {
                     const data: [string, FileSystemImport[]][] = [
-                        ['products://', getDefaultTreeProducts()],
+                        ['products://', getExperimentalProductsTree(featureFlags) || getDefaultTreeProducts()],
                         ['data://', getDefaultTreeData()],
                         ['persons://', [...getDefaultTreePersons(), ...groupItems]],
                         ['new://', getDefaultTreeNew()],

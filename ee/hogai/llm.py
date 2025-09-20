@@ -1,14 +1,14 @@
 import datetime
 from typing import TYPE_CHECKING, Any
-from posthog.settings import CLOUD_DEPLOYMENT
 
-from langchain_core.outputs import LLMResult
+import pytz
+from asgiref.sync import sync_to_async
 from langchain_core.messages import BaseMessage, SystemMessage
+from langchain_core.outputs import LLMResult
 from langchain_core.prompts import SystemMessagePromptTemplate
 from langchain_openai import ChatOpenAI
-import pytz
 
-from asgiref.sync import sync_to_async
+from posthog.settings import CLOUD_DEPLOYMENT
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -31,6 +31,8 @@ class MaxChatOpenAI(ChatOpenAI):
     def __init__(self, *args, user: "User", team: "Team", **kwargs):
         if "max_retries" not in kwargs:
             kwargs["max_retries"] = 3
+        if "stream_usage" not in kwargs:
+            kwargs["stream_usage"] = True
         super().__init__(*args, **kwargs)
         self._user = user
         self._team = team

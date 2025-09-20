@@ -1,6 +1,8 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
+import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { AlertConditionType, GoalLine, InsightThresholdType } from '~/queries/schema/schema-general'
@@ -29,7 +31,12 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
 
     connect((props: InsightAlertsLogicProps) => ({
         actions: [insightVizDataLogic(props.insightLogicProps), ['setQuery']],
-        values: [insightVizDataLogic(props.insightLogicProps), ['showAlertThresholdLines']],
+        values: [
+            insightVizDataLogic(props.insightLogicProps),
+            ['showAlertThresholdLines'],
+            insightLogic(props.insightLogicProps),
+            ['insight'],
+        ],
     })),
 
     loaders(({ props }) => ({
@@ -37,16 +44,12 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
             __default: [] as AlertType[],
             loadAlerts: async () => {
                 const response = await api.alerts.list(props.insightId)
-
                 return response.results
             },
         },
     })),
 
     reducers({
-        alerts: {
-            deleteAlert: (state, { alertId }) => state.filter((a) => a.id !== alertId),
-        },
         shouldShowAlertDeletionWarning: [
             false,
             {
@@ -58,8 +61,8 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
     selectors({
         alertThresholdLines: [
             (s) => [s.alerts, s.showAlertThresholdLines],
-            (alerts: AlertType[], showAlertThresholdLines: boolean): GoalLine[] =>
-                alerts.flatMap((alert) => {
+            (alerts: AlertType[], showAlertThresholdLines: boolean): GoalLine[] => {
+                const result = alerts.flatMap((alert) => {
                     if (
                         !showAlertThresholdLines ||
                         alert.threshold.configuration.type !== InsightThresholdType.ABSOLUTE ||
@@ -87,14 +90,13 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
                     }
 
                     return annotations
-                }),
+                })
+                return result
+            },
         ],
     }),
 
     listeners(({ actions, values }) => ({
-        deleteAlert: async ({ alertId }) => {
-            await api.alerts.delete(alertId)
-        },
         setQuery: ({ query }) => {
             if (values.alerts.length === 0 || areAlertsSupportedForInsight(query)) {
                 actions.setShouldShowAlertDeletionWarning(false)
@@ -104,5 +106,13 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
         },
     })),
 
-    afterMount(({ actions }) => actions.loadAlerts()),
+    afterMount(({ actions, values }) => {
+        // If the insight has an alerts property (even if empty), use it - this means the backend sent us the alerts data
+        if (values.insight?.alerts && Array.isArray(values.insight.alerts)) {
+            actions.loadAlertsSuccess(values.insight.alerts)
+        } else {
+            // No alerts property means we need to fetch from API (e.g., when viewing insight in isolation)
+            actions.loadAlerts()
+        }
+    }),
 ])

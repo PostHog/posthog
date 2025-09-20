@@ -1,14 +1,11 @@
+from posthog.test.base import BaseTest
+
 from django.utils import timezone
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Plugin, PluginConfig
-from posthog.models.plugin import (
-    PluginLogEntrySource,
-    PluginLogEntryType,
-    fetch_plugin_log_entries,
-)
+from posthog.models.plugin import PluginLogEntrySource, PluginLogEntryType, fetch_plugin_log_entries
 from posthog.models.utils import UUIDT
-from posthog.test.base import BaseTest
 
 
 def create_plugin_log_entry(

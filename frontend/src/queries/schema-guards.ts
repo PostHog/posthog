@@ -8,9 +8,8 @@ import {
 import { AnyPropertyFilter, SessionPropertyFilter } from '~/types'
 
 import schema from './schema.json'
-const ajv = new Ajv({
-    allowUnionTypes: true,
-})
+
+const ajv = new Ajv({ allowUnionTypes: true })
 ajv.addSchema(schema)
 
 export const isAnyPropertyFilters = (data: unknown): data is AnyPropertyFilter[] => {

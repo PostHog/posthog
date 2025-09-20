@@ -1,14 +1,17 @@
-from unittest.mock import MagicMock, patch
-from django.test import override_settings
-from django.urls import reverse
-from rest_framework import status
-from django.core.cache import cache
-from posthog.api.wizard.http import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
 import json
 
-from posthog.cloud_utils import get_api_host
 from posthog.test.base import APIBaseTest
-from posthog.models import User, Organization
+from unittest.mock import MagicMock, patch
+
+from django.core.cache import cache
+from django.test import override_settings
+from django.urls import reverse
+
+from rest_framework import status
+
+from posthog.api.wizard.http import SETUP_WIZARD_CACHE_PREFIX, SETUP_WIZARD_CACHE_TIMEOUT
+from posthog.cloud_utils import get_api_host
+from posthog.models import Organization, User
 
 
 class SetupWizardTests(APIBaseTest):

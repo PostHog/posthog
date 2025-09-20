@@ -6,6 +6,9 @@ import { eventPassesMetadataSwitchoverTest, parseSessionRecordingV2MetadataSwitc
 import { ClickHouseTimestamp, SessionRecordingV2MetadataSwitchoverDate } from '../src/types'
 import { safeClickhouseString } from '../src/utils/db/utils'
 import {
+    UUID,
+    UUID7,
+    UUIDT,
     bufferToStream,
     bufferToUint32ArrayLE,
     clickHouseTimestampToDateTime,
@@ -17,9 +20,6 @@ import {
     sanitizeSqlIdentifier,
     stringify,
     uint32ArrayLEToBuffer,
-    UUID,
-    UUID7,
-    UUIDT,
 } from '../src/utils/utils'
 
 // .zip in Base64: github repo posthog/helloworldplugin

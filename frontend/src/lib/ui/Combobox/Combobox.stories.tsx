@@ -1,15 +1,17 @@
 import type { Meta } from '@storybook/react'
 
-import { ButtonGroupPrimitive, ButtonPrimitive } from '../Button/ButtonPrimitives'
-import { Combobox } from './Combobox'
-import { Link } from 'lib/lemon-ui/Link'
 import { IconGear, IconPlusSmall } from '@posthog/icons'
+
+import { Link } from 'lib/lemon-ui/Link'
+
+import { ButtonGroupPrimitive, ButtonPrimitive } from '../Button/ButtonPrimitives'
+import { DropdownMenuOpenIndicator } from '../DropdownMenu/DropdownMenu'
 import {
     PopoverPrimitive,
     PopoverPrimitiveContent,
     PopoverPrimitiveTrigger,
 } from '../PopoverPrimitive/PopoverPrimitive'
-import { DropdownMenuOpenIndicator } from '../DropdownMenu/DropdownMenu'
+import { Combobox } from './Combobox'
 
 const meta = {
     title: 'UI/Combobox',

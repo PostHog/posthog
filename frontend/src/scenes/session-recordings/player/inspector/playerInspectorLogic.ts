@@ -1,18 +1,21 @@
+import FuseClass from 'fuse.js'
+import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+
 import {
-    customEvent,
     EventType as RRWebEventType,
+    customEvent,
     eventWithTime,
     fullSnapshotEvent,
     pluginEvent,
 } from '@posthog/rrweb-types'
-import FuseClass from 'fuse.js'
-import { actions, connect, events, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventToDescription, humanizeBytes, objectsEqual, toParams } from 'lib/utils'
+import { getText } from 'scenes/comments/Comment'
 import {
     InspectorListItemPerformance,
     performanceEventDataLogic,
@@ -23,12 +26,12 @@ import {
 } from 'scenes/session-recordings/player/inspector/inspectorListFiltering'
 import {
     MiniFilterKey,
-    miniFiltersLogic,
     SharedListMiniFilter,
+    miniFiltersLogic,
 } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import {
-    convertUniversalFiltersToRecordingsQuery,
     MatchingEventsMatchType,
+    convertUniversalFiltersToRecordingsQuery,
 } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
 
@@ -38,13 +41,13 @@ import {
     CommentType,
     MatchedRecordingEvent,
     PerformanceEvent,
+    RRWebRecordingConsoleLogPayload,
     RecordingConsoleLogV2,
     RecordingEventType,
-    RRWebRecordingConsoleLogPayload,
 } from '~/types'
 
 import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
-import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
+import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import type { playerInspectorLogicType } from './playerInspectorLogicType'
 
 const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
@@ -335,7 +338,12 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         if (!matchingEventsMatchType?.eventUUIDs) {
                             console.error('UUID matching events type must include its event ids')
                         }
-                        return matchingEventsMatchType.eventUUIDs.map((x) => ({ uuid: x }) as MatchedRecordingEvent)
+                        return matchingEventsMatchType.eventUUIDs.map(
+                            (x) =>
+                                ({
+                                    uuid: x,
+                                }) as MatchedRecordingEvent
+                        )
                     }
 
                     const filters = matchingEventsMatchType?.filters
@@ -349,7 +357,12 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     }
 
                     const response = await api.recordings.getMatchingEvents(toParams(params))
-                    return response.results.map((x) => ({ uuid: x }) as MatchedRecordingEvent)
+                    return response.results.map(
+                        (x) =>
+                            ({
+                                uuid: x,
+                            }) as MatchedRecordingEvent
+                    )
                 },
             },
         ],
@@ -623,7 +636,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             windowId: windowIdForTimestamp(timestamp.valueOf()),
                             windowNumber: windowNumberForID(windowIdForTimestamp(timestamp.valueOf())),
                             data: comment,
-                            search: comment.content,
+                            search: getText(comment),
                         }
                         items.push(item)
                     }

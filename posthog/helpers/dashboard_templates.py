@@ -1,12 +1,9 @@
-from typing import Optional
 from collections.abc import Callable
+from typing import Optional
 
 import structlog
 
-from posthog.constants import (
-    AvailableFeature,
-    ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER,
-)
+from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER, AvailableFeature
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.dashboard_tile import DashboardTile, Text

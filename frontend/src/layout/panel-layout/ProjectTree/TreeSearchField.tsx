@@ -1,5 +1,7 @@
-import { IconCdCase, IconDocument, IconPlug, IconUser } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconCdCase, IconDocument, IconPlug, IconUser } from '@posthog/icons'
+
 import { SearchAutocomplete } from 'lib/components/SearchAutocomplete/SearchAutocomplete'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -7,6 +9,7 @@ import { fileSystemTypes } from '~/products'
 import { FileSystemType } from '~/types'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
+import { iconForType } from './defaultTree'
 import { projectTreeLogic } from './projectTreeLogic'
 
 const missingProductTypes: { value: string; label: string; icon?: React.ReactNode; flag?: string }[] = [
@@ -22,7 +25,7 @@ const productTypesMapped = [
         ([key, value]): { value: string; label: string; icon: React.ReactNode; flag?: string } => ({
             value: value.filterKey || key,
             label: value.name,
-            icon: value.icon,
+            icon: iconForType(value.iconType),
             flag: value.flag,
         })
     ),

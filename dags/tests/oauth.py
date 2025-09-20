@@ -1,19 +1,23 @@
-import unittest.mock
 from datetime import timedelta
-from django.test import TestCase, override_settings
-from django.utils import timezone
-import dagster
+
+import unittest.mock
 from freezegun import freeze_time
 
-from dags.oauth import (
-    clear_expired_oauth_tokens,
-    oauth_clear_expired_oauth_tokens_job,
-    batch_delete_model,
-    clear_expired_tokens_by_type,
-)
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
-from posthog.models import Organization, User
 from django.db.models import Q
+from django.test import TestCase, override_settings
+from django.utils import timezone
+
+import dagster
+
+from posthog.models import Organization, User
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthRefreshToken
+
+from dags.oauth import (
+    batch_delete_model,
+    clear_expired_oauth_tokens,
+    clear_expired_tokens_by_type,
+    oauth_clear_expired_oauth_tokens_job,
+)
 
 
 class TestOAuthTokenCleanup(TestCase):

@@ -1,23 +1,25 @@
-import asyncio
-import collections.abc
-import contextlib
-import dataclasses
-import datetime as dt
-import functools
 import io
 import json
-import logging
 import time
 import typing
+import asyncio
+import logging
+import datetime as dt
+import functools
+import contextlib
+import dataclasses
+import collections.abc
+
+from django.conf import settings
 
 import pyarrow as pa
 import snowflake.connector
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
-from django.conf import settings
 from snowflake.connector.connection import SnowflakeConnection
 from snowflake.connector.cursor import ResultMetadata
 from snowflake.connector.errors import InterfaceError, OperationalError
+from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -31,13 +33,11 @@ from posthog.batch_exports.service import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import (
-    bind_contextvars,
-    get_external_logger,
-    get_logger,
-)
+from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
+
 from products.batch_exports.backend.temporal.batch_exports import (
     FinishBatchExportRunInputs,
+    OverBillingLimitError,
     StartBatchExportRunInputs,
     default_fields,
     execute_batch_export_insert_activity,
@@ -53,12 +53,8 @@ from products.batch_exports.backend.temporal.pipeline.consumer import (
     Consumer as ConsumerFromStage,
     run_consumer_from_stage,
 )
-from products.batch_exports.backend.temporal.pipeline.entrypoint import (
-    execute_batch_export_using_internal_stage,
-)
-from products.batch_exports.backend.temporal.pipeline.producer import (
-    Producer as ProducerFromInternalStage,
-)
+from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
+from products.batch_exports.backend.temporal.pipeline.producer import Producer as ProducerFromInternalStage
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.record_batch_model import resolve_batch_exports_model
 from products.batch_exports.backend.temporal.spmc import (
@@ -68,18 +64,16 @@ from products.batch_exports.backend.temporal.spmc import (
     run_consumer,
     wait_for_schema_or_producer,
 )
-from products.batch_exports.backend.temporal.temporary_file import (
-    BatchExportTemporaryFile,
-    WriterFormat,
-)
+from products.batch_exports.backend.temporal.temporary_file import BatchExportTemporaryFile, WriterFormat
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
     handle_non_retryable_errors,
+    make_retryable_with_exponential_backoff,
     set_status_to_running_task,
 )
 
-LOGGER = get_logger(__name__)
-EXTERNAL_LOGGER = get_external_logger()
+LOGGER = get_write_only_logger(__name__)
+EXTERNAL_LOGGER = get_produce_only_logger("EXTERNAL")
 
 
 class NamedBytesIO(io.BytesIO):
@@ -109,6 +103,10 @@ NON_RETRYABLE_ERROR_TYPES = (
     "InvalidPrivateKeyError",
     # Raised when a valid authentication method is not provided.
     "SnowflakeAuthenticationError",
+    # Raised when a Warehouse is suspended.
+    "SnowflakeWarehouseSuspendedError",
+    # Raised when the destination table schema is incompatible with the schema of the file we are trying to load.
+    "SnowflakeIncompatibleSchemaError",
 )
 
 
@@ -142,6 +140,12 @@ class SnowflakeRetryableConnectionError(Exception):
     pass
 
 
+class SnowflakeWarehouseSuspendedError(Exception):
+    """Raised when a Warehouse is suspended."""
+
+    pass
+
+
 class SnowflakeTableNotFoundError(Exception):
     """Raised when a table is not found in Snowflake."""
 
@@ -161,6 +165,15 @@ class InvalidPrivateKeyError(Exception):
 
     def __init__(self, message: str):
         super().__init__(message)
+
+
+class SnowflakeIncompatibleSchemaError(Exception):
+    """Raised when the destination table schema is incompatible with the schema of the file we are trying to load."""
+
+    def __init__(self, err_msg: str):
+        super().__init__(
+            f"The data being loaded into the destination table is incompatible with the schema of the destination table: {err_msg}"
+        )
 
 
 @dataclasses.dataclass
@@ -521,7 +534,7 @@ class SnowflakeClient:
             else:
                 await self.aremove_internal_stage_files(table_name, table_stage_prefix)
 
-    async def put_file_to_snowflake_table(
+    async def put_file_to_snowflake_table_stage(
         self,
         file: BatchExportTemporaryFile | NamedBytesIO,
         table_stage_prefix: str,
@@ -573,30 +586,86 @@ class SnowflakeClient:
                 raise TypeError(f"Expected tuple from Snowflake PUT query but got: '{result.__class__.__name__}'")
 
         status, message = result[6:8]
-        if status != "UPLOADED":
+        if status != "UPLOADED" and status != "SKIPPED":
             raise SnowflakeFileNotUploadedError(table_name, status, message)
 
     async def copy_loaded_files_to_snowflake_table(
         self,
         table_name: str,
         table_stage_prefix: str,
+        table_fields: list[SnowflakeField],
+        # TODO: remove this once we've migrated to the new pipeline
+        file_format: typing.Literal["Parquet", "JSONLines"],
+        known_json_columns: list[str],
     ) -> None:
-        """Execute a COPY query in Snowflake to load any files PUT into the table.
+        """Execute a COPY query in Snowflake to load any files PUT into the table stage.
 
         The query is executed asynchronously using Snowflake's polling API.
 
         Args:
-            connection: A SnowflakeConnection as returned by snowflake.connector.connect.
             table_name: The table we are COPY-ing files into.
+            table_stage_prefix: The prefix of the table stage.
+            table_fields: The fields of the table.
+            file_format: The format of the files to load.
+            known_json_columns: The columns that are JSON (NOTE: we can't just inspect the schema of the table fields to
+                check for VARIANT columns since not all VARIANT columns will be JSON, eg `elements`).
         """
-        query = f"""
-        COPY INTO "{table_name}"
-        FROM '@%"{table_name}"/{table_stage_prefix}'
-        FILE_FORMAT = (TYPE = 'JSON')
-        MATCH_BY_COLUMN_NAME = CASE_SENSITIVE
-        PURGE = TRUE
-        """
-        result = await self.execute_async_query(query, poll_interval=1.0)
+        if file_format == "Parquet":
+            col_names = [field[0] for field in table_fields]
+            select_fields = ", ".join(
+                f'PARSE_JSON($1:"{field}")' if field in known_json_columns else f'$1:"{field}"' for field in col_names
+            )
+            query = f"""
+            COPY INTO "{table_name}" ({', '.join(f'"{col_name}"' for col_name in col_names)})
+            FROM (
+                SELECT {select_fields} FROM '@%"{table_name}"/{table_stage_prefix}'
+            )
+            FILE_FORMAT = (TYPE = 'PARQUET')
+            PURGE = TRUE
+            """
+        else:
+            query = f"""
+            COPY INTO "{table_name}"
+            FROM '@%"{table_name}"/{table_stage_prefix}'
+            FILE_FORMAT = (TYPE = 'JSON')
+            MATCH_BY_COLUMN_NAME = CASE_SENSITIVE
+            PURGE = TRUE
+            """
+
+        # Handle cases where the Warehouse is suspended (sometimes we can recover from this)
+        max_attempts = 3
+        execute_copy_into = make_retryable_with_exponential_backoff(
+            self.execute_async_query,
+            max_attempts=max_attempts,
+            retryable_exceptions=(snowflake.connector.errors.ProgrammingError,),
+            # 608 = Warehouse suspended error
+            is_exception_retryable=lambda e: isinstance(e, snowflake.connector.errors.ProgrammingError)
+            and e.errno == 608,
+        )
+
+        # We need to explicitly catch exceptions here because otherwise they seem to be swallowed
+        try:
+            result = await execute_copy_into(query, poll_interval=1.0)
+        except snowflake.connector.errors.ProgrammingError as e:
+            self.logger.exception(f"Error executing COPY INTO query: {e}")
+
+            if e.errno == 608:
+                err_msg = (
+                    f"Failed to execute COPY INTO query after {max_attempts} attempts due to warehouse being suspended"
+                )
+                if e.msg is not None:
+                    err_msg += f": {e.msg}"
+                raise SnowflakeWarehouseSuspendedError(err_msg)
+            elif e.errno == 904 and e.msg is not None and "invalid identifier" in e.msg:
+                raise SnowflakeIncompatibleSchemaError(e.msg)
+
+            raise SnowflakeFileNotLoadedError(
+                table_name,
+                "NO STATUS",
+                0,
+                e.msg or "NO ERROR MESSAGE",
+            )
+
         assert result is not None
         results, _ = result
 
@@ -758,7 +827,7 @@ class SnowflakeConsumer(Consumer):
             self.snowflake_table,
         )
 
-        await self.snowflake_client.put_file_to_snowflake_table(
+        await self.snowflake_client.put_file_to_snowflake_table_stage(
             batch_export_file,
             self.snowflake_table_stage_prefix,
             self.snowflake_table,
@@ -781,6 +850,7 @@ def _get_snowflake_table_settings(
         [field.with_nullable(True) for field in record_batch_schema if field.name != "_inserted_at"]
     )
 
+    # although `elements` is JSON, it is extremely expensive to parse it as JSON, so we'll just keep it as a string.
     known_variant_columns = ["properties", "people_set", "people_set_once", "person_properties"]
 
     if model is None or (isinstance(model, BatchExportModel) and model.name == "events"):
@@ -857,7 +927,7 @@ class SnowflakeConsumerFromStage(ConsumerFromStage):
         # Simple file management - no concurrent uploads for now
         self.current_file_index = 0
         self.current_buffer = NamedBytesIO(
-            b"", name=f"{self.snowflake_table_stage_prefix}/{self.current_file_index}.jsonl"
+            b"", name=f"{self.snowflake_table_stage_prefix}/{self.current_file_index}.parquet.zst"
         )
 
     async def consume_chunk(self, data: bytes):
@@ -872,7 +942,7 @@ class SnowflakeConsumerFromStage(ConsumerFromStage):
         """Start a new file (reset state for file splitting)."""
         self.current_file_index += 1
         self.current_buffer = NamedBytesIO(
-            b"", name=f"{self.snowflake_table_stage_prefix}/{self.current_file_index}.jsonl"
+            b"", name=f"{self.snowflake_table_stage_prefix}/{self.current_file_index}.parquet.zst"
         )
 
     async def _upload_current_buffer(self):
@@ -881,7 +951,7 @@ class SnowflakeConsumerFromStage(ConsumerFromStage):
         if buffer_size == 0:
             return  # Nothing to upload
 
-        self.logger.debug(
+        self.logger.info(
             "Uploading file %d with %d bytes to Snowflake table '%s'",
             self.current_file_index,
             buffer_size,
@@ -890,7 +960,7 @@ class SnowflakeConsumerFromStage(ConsumerFromStage):
 
         self.current_buffer.seek(0)
 
-        await self.snowflake_client.put_file_to_snowflake_table(
+        await self.snowflake_client.put_file_to_snowflake_table_stage(
             file=self.current_buffer,
             table_stage_prefix=self.snowflake_table_stage_prefix,
             table_name=self.snowflake_table,
@@ -935,7 +1005,7 @@ def get_snowflake_fields_from_record_schema(
                 snowflake_type = "STRING"
 
         elif pa.types.is_binary(pa_field.type):
-            snowflake_type = "BYNARY"
+            snowflake_type = "BINARY"
 
         elif pa.types.is_signed_integer(pa_field.type) or pa.types.is_unsigned_integer(pa_field.type):
             snowflake_type = "INTEGER"
@@ -1128,7 +1198,11 @@ async def insert_into_snowflake_activity(inputs: SnowflakeInsertInputs) -> Batch
                 # a heartbeat, we can continue without losing data
                 finally:
                     await snow_client.copy_loaded_files_to_snowflake_table(
-                        snow_stage_table if requires_merge else snow_table, data_interval_end_str
+                        snow_stage_table if requires_merge else snow_table,
+                        data_interval_end_str,
+                        table_fields,
+                        file_format="JSONLines",
+                        known_json_columns=known_variant_columns,
                     )
 
                     if requires_merge:
@@ -1187,7 +1261,7 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
             batch_export_id=inputs.batch_export_id,
             data_interval_start=inputs.data_interval_start,
             data_interval_end=inputs.data_interval_end,
-            max_record_batch_size_bytes=1024 * 1024 * 60,  # 60MB
+            max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
         )
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
@@ -1237,9 +1311,8 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
                     consumer=consumer,
                     producer_task=producer_task,
                     schema=record_batch_schema,
-                    # TODO - look into using a different file format, like Parquet to improve performance
-                    file_format="JSONLines",
-                    compression=None,
+                    file_format="Parquet",
+                    compression="zstd",
                     include_inserted_at=False,
                     max_file_size_bytes=settings.BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES,
                     json_columns=known_variant_columns,
@@ -1248,7 +1321,11 @@ async def insert_into_snowflake_activity_from_stage(inputs: SnowflakeInsertInput
                 # TODO - maybe move this into the consumer finalize method?
                 # Copy all staged files to the table
                 await snow_client.copy_loaded_files_to_snowflake_table(
-                    snow_stage_table if requires_merge else snow_table, data_interval_end_str
+                    snow_stage_table if requires_merge else snow_table,
+                    data_interval_end_str,
+                    table_fields,
+                    file_format="Parquet",
+                    known_json_columns=known_variant_columns,
                 )
 
                 if requires_merge:
@@ -1296,17 +1373,20 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
         )
-        run_id = await workflow.execute_activity(
-            start_batch_export_run,
-            start_batch_export_run_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=RetryPolicy(
-                initial_interval=dt.timedelta(seconds=10),
-                maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=0,
-                non_retryable_error_types=["NotNullViolation", "IntegrityError"],
-            ),
-        )
+        try:
+            run_id = await workflow.execute_activity(
+                start_batch_export_run,
+                start_batch_export_run_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=60),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+                ),
+            )
+        except OverBillingLimitError:
+            return
 
         finish_inputs = FinishBatchExportRunInputs(
             id=run_id,
@@ -1341,8 +1421,10 @@ class SnowflakeBatchExportWorkflow(PostHogWorkflow):
             destination_default_fields=snowflake_default_fields(),
         )
 
-        # Use stage consumer for specific team IDs, otherwise use the original activity
-        if str(inputs.team_id) in settings.BATCH_EXPORT_SNOWFLAKE_USE_STAGE_TEAM_IDS:
+        if (
+            str(inputs.team_id) in settings.BATCH_EXPORT_SNOWFLAKE_USE_STAGE_TEAM_IDS
+            or inputs.team_id % 100 < settings.BATCH_EXPORT_SNOWFLAKE_USE_INTERNAL_STAGE_ROLLOUT_PERCENTAGE
+        ):
             await execute_batch_export_using_internal_stage(
                 insert_into_snowflake_activity_from_stage,
                 insert_inputs,

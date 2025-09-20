@@ -5,6 +5,7 @@ from posthog.constants import (
     CUSTOM_EVENT,
     END_POINT,
     FUNNEL_PATHS,
+    HOGQL,
     LOCAL_PATH_CLEANING_FILTERS,
     PAGEVIEW_EVENT,
     PATH_DROPOFF_KEY,
@@ -16,14 +17,13 @@ from posthog.constants import (
     PATH_REPLACEMENTS,
     PATH_START_KEY,
     PATH_TYPE,
-    PATHS_HOGQL_EXPRESSION,
     PATHS_EXCLUDE_EVENTS,
+    PATHS_HOGQL_EXPRESSION,
     PATHS_INCLUDE_CUSTOM_EVENTS,
     PATHS_INCLUDE_EVENT_TYPES,
     SCREEN_EVENT,
     START_POINT,
     STEP_LIMIT,
-    HOGQL,
 )
 from posthog.models.filters.mixins.common import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property, include_dict

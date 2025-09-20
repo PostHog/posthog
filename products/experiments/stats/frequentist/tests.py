@@ -1,15 +1,15 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
-from ..shared.statistics import AnyStatistic, StatisticError
 from ..shared.enums import DifferenceType
+from ..shared.statistics import AnyStatistic, StatisticError
 from .utils import (
+    calculate_confidence_interval,
+    calculate_p_value,
     calculate_point_estimate,
+    calculate_t_statistic,
     calculate_variance_pooled,
     calculate_welch_satterthwaite_df,
-    calculate_t_statistic,
-    calculate_p_value,
-    calculate_confidence_interval,
     validate_sample_sizes,
 )
 

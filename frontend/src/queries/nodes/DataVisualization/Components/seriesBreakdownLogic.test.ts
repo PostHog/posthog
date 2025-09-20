@@ -1,12 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { ChartDisplayType, ItemMode } from '~/types'
+import { ChartDisplayType } from '~/types'
 
 import { dataNodeLogic } from '../../DataNode/dataNodeLogic'
-import { dataVisualizationLogic, DataVisualizationLogicProps } from '../dataVisualizationLogic'
+import { DataVisualizationLogicProps, dataVisualizationLogic } from '../dataVisualizationLogic'
 import { seriesBreakdownLogic } from './seriesBreakdownLogic'
 
 const testUniqueKey = 'testUniqueKey'
@@ -63,7 +64,7 @@ const dummyDataVisualizationLogicProps: DataVisualizationLogicProps = {
     setQuery: (query) => {
         globalQuery = query
     },
-    insightMode: ItemMode.View,
+    editMode: false,
     dataNodeCollectionId: 'new-test-SQL',
 }
 

@@ -1,11 +1,14 @@
-from datetime import timedelta
 import uuid
-from django.test import TestCase, override_settings
+from datetime import timedelta
+
 from freezegun import freeze_time
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
-from posthog.models import Organization, User
-from django.utils import timezone
+
 from django.core.exceptions import ValidationError
+from django.test import TestCase, override_settings
+from django.utils import timezone
+
+from posthog.models import Organization, User
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthGrant, OAuthIDToken, OAuthRefreshToken
 
 
 class TestOAuthModels(TestCase):

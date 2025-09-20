@@ -13,13 +13,12 @@ import {
     selectors,
 } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
+import { v4 as uuidv4 } from 'uuid'
+
 import api from 'lib/api'
 import { isEmptyProperty } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { objectsEqual, range } from 'lib/utils'
-import { v4 as uuidv4 } from 'uuid'
-import posthog from 'posthog-js'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -32,6 +31,7 @@ import {
     PropertyFilterType,
     UserBlastRadiusType,
 } from '~/types'
+
 import type { featureFlagReleaseConditionsLogicType } from './featureFlagReleaseConditionsLogicType'
 
 // Helper function to move a condition set to a new index
@@ -41,6 +41,23 @@ function moveConditionSet<T>(groups: T[], index: number, newIndex: number): T[] 
     updatedGroups.splice(index, 1)
     updatedGroups.splice(newIndex, 0, item)
     return updatedGroups
+}
+
+// Helper function to swap affected users between two indices
+function swapAffectedUsers(
+    affectedUsers: Record<number, number | undefined>,
+    actions: { setAffectedUsers: (index: number, count?: number) => void },
+    fromIndex: number,
+    toIndex: number
+): void {
+    if (!(fromIndex in affectedUsers) || !(toIndex in affectedUsers)) {
+        return
+    }
+
+    const fromCount = affectedUsers[fromIndex]
+    const toCount = affectedUsers[toIndex]
+    actions.setAffectedUsers(toIndex, fromCount)
+    actions.setAffectedUsers(fromIndex, toCount)
 }
 
 // TODO: Type onChange errors properly
@@ -85,12 +102,14 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             index: number,
             newRolloutPercentage?: number,
             newProperties?: AnyPropertyFilter[],
-            newVariant?: string | null
+            newVariant?: string | null,
+            newDescription?: string | null
         ) => ({
             index,
             newRolloutPercentage,
             newProperties,
             newVariant,
+            newDescription,
         }),
         setAffectedUsers: (index: number, count?: number) => ({ index, count }),
         setTotalUsers: (count: number) => ({ count }),
@@ -149,7 +168,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 ]
                 return { ...state, groups }
             },
-            updateConditionSet: (state, { index, newRolloutPercentage, newProperties, newVariant }) => {
+            updateConditionSet: (state, { index, newRolloutPercentage, newProperties, newVariant, newDescription }) => {
                 if (!state) {
                     return state
                 }
@@ -165,6 +184,11 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
 
                 if (newVariant !== undefined) {
                     groups[index] = { ...groups[index], variant: newVariant }
+                }
+
+                if (newDescription !== undefined) {
+                    const description = newDescription && newDescription.trim() ? newDescription : null
+                    groups[index] = { ...groups[index], description }
                 }
 
                 return { ...state, groups }
@@ -402,6 +426,12 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 actions.setFlagKeysLoading(false)
             }
         },
+        moveConditionSetUp: ({ index }) => {
+            swapAffectedUsers(values.affectedUsers, actions, index, index - 1)
+        },
+        moveConditionSetDown: ({ index }) => {
+            swapAffectedUsers(values.affectedUsers, actions, index, index + 1)
+        },
     })),
     selectors({
         // Get the appropriate groups based on isSuper
@@ -428,9 +458,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 } else {
                     targetGroupTypes.push(TaxonomicFilterGroupType.PersonProperties)
                     targetGroupTypes.push(TaxonomicFilterGroupType.Cohorts)
-                    if (posthog.featureFlags.isFeatureEnabled(FEATURE_FLAGS.FEATURE_FLAGS_FLAG_DEPENDENCY)) {
-                        targetGroupTypes.push(TaxonomicFilterGroupType.FeatureFlags)
-                    }
+                    targetGroupTypes.push(TaxonomicFilterGroupType.FeatureFlags)
                     targetGroupTypes.push(TaxonomicFilterGroupType.Metadata)
                 }
 

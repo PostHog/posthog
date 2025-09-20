@@ -1,12 +1,8 @@
 import uuid
 from abc import ABC, abstractmethod
 
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_person,
-    cleanup_materialized_columns,
-)
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, cleanup_materialized_columns
+
 from ee.clickhouse.materialized_columns.columns import materialize
 
 
@@ -34,6 +30,9 @@ class WebAnalyticsPreAggregatedTestBase(ClickhouseTestMixin, APIBaseTest, ABC):
         "$geoip_city_name",
         "$geoip_subdivision_1_code",
         "$pathname",
+        # EU-specific customer fields
+        "metadata.loggedIn",
+        "metadata.backend",
     ]
 
     def setUp(self):

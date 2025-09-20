@@ -1,10 +1,11 @@
 import json
 from pathlib import Path
 
-import structlog
 from django.db.models import Q
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
+
+import structlog
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import SAFE_METHODS, BasePermission

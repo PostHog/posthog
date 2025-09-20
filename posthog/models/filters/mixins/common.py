@@ -1,13 +1,16 @@
-import datetime
-import json
 import re
+import json
+import datetime
 from math import ceil
 from typing import Any, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo
 
-from dateutil.relativedelta import relativedelta
 from django.utils import timezone
+
+from dateutil.relativedelta import relativedelta
 from rest_framework.exceptions import ValidationError
+
+from posthog.hogql.constants import BREAKDOWN_VALUES_LIMIT, BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
 
 from posthog.constants import (
     ACTIONS,
@@ -50,15 +53,9 @@ from posthog.constants import (
     TRENDS_WORLD_MAP,
     BreakdownAttributionType,
 )
-from posthog.hogql.constants import BREAKDOWN_VALUES_LIMIT, BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES
 from posthog.models.entity import Entity, ExclusionEntity, MathType
 from posthog.models.filters.mixins.base import BaseParamMixin, BreakdownType
-from posthog.models.filters.mixins.utils import (
-    cached_property,
-    include_dict,
-    include_query_tags,
-    process_bool,
-)
+from posthog.models.filters.mixins.utils import cached_property, include_dict, include_query_tags, process_bool
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse_with_delta_mapping
 

@@ -1,8 +1,7 @@
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from freezegun import freeze_time
-
-from ee.tasks.slack import handle_slack_event
 from posthog import settings
 from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset
@@ -10,7 +9,8 @@ from posthog.models.insight import Insight
 from posthog.models.integration import Integration
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.subscription import Subscription
-from posthog.test.base import APIBaseTest
+
+from ee.tasks.slack import handle_slack_event
 
 
 def create_mock_unfurl_event(team_id: str, links: list[str]):

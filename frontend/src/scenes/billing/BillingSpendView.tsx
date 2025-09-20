@@ -1,25 +1,28 @@
 import './BillingUsage.scss'
 
+import { useActions, useValues } from 'kea'
+
 import { IconInfo } from '@posthog/icons'
 import { LemonButton, LemonCheckbox } from '@posthog/lemon-ui'
 import { LemonSelect } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import { currencyFormatter, buildBillingCsv } from './billing-utils'
+import { ExporterFormat } from '~/types'
+
 import { BillingDataTable } from './BillingDataTable'
 import { BillingEarlyAccessBanner } from './BillingEarlyAccessBanner'
 import { BillingEmptyState } from './BillingEmptyState'
 import { BillingLineGraph } from './BillingLineGraph'
 import { BillingNoAccess } from './BillingNoAccess'
+import { buildBillingCsv, currencyFormatter } from './billing-utils'
 import { billingSpendLogic } from './billingSpendLogic'
-import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
-import { ExporterFormat } from '~/types'
 import { USAGE_TYPES } from './constants'
 
 export function BillingSpendView(): JSX.Element {

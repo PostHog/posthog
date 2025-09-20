@@ -1,13 +1,15 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api, { ApiError, PaginatedResponse } from 'lib/api'
 
+import { HogQLQuery } from '~/queries/schema/schema-general'
 import { DataWarehouseSavedQueryDraft } from '~/types'
 
 import type { draftsLogicType } from './draftsLogicType'
-import { loaders } from 'kea-loaders'
-import { HogQLQuery } from '~/queries/schema/schema-general'
-import { lemonToast } from '@posthog/lemon-ui'
-import posthog from 'posthog-js'
 import { QueryTab } from './multitabEditorLogic'
 
 export const draftsLogic = kea<draftsLogicType>([

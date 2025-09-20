@@ -1,6 +1,8 @@
 from typing import cast
-from unittest.mock import patch
 from uuid import uuid4
+
+from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
@@ -9,11 +11,11 @@ from langchain_core.messages import (
 )
 from langchain_core.runnables import RunnableLambda
 
+from posthog.schema import AssistantMessage, AssistantToolCallMessage, HumanMessage
+
 from ee.hogai.graph.inkeep_docs.nodes import InkeepDocsNode
 from ee.hogai.graph.inkeep_docs.prompts import INKEEP_DATA_CONTINUATION_PHRASE
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.schema import AssistantMessage, AssistantToolCallMessage, HumanMessage
-from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 
 class TestInkeepDocsNode(ClickhouseTestMixin, BaseTest):

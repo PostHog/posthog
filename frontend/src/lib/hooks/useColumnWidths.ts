@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+
 import { DEFAULT_COLUMN_WIDTH } from '../lemon-ui/LemonTable/columnUtils'
 import { determineColumnKey } from '../lemon-ui/LemonTable/columnUtils'
 import { LemonTableColumn } from '../lemon-ui/LemonTable/types'

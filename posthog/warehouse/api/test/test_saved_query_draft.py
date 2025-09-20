@@ -1,7 +1,8 @@
 from posthog.test.base import APIBaseTest
-from posthog.warehouse.models.datawarehouse_saved_query_draft import DataWarehouseSavedQueryDraft
-from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
 from posthog.models import Team
+from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from posthog.warehouse.models.datawarehouse_saved_query_draft import DataWarehouseSavedQueryDraft
 
 
 class TestDataWarehouseSavedQueryDraft(APIBaseTest):

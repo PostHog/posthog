@@ -15,6 +15,7 @@ Most survey logic lives in the [PostHog JS SDK](https://github.com/PostHog/posth
 
 2. To test SDK changes in the main PostHog app:
     - Update `package.json` to use your local SDK:
+
     ```json
     "posthog-js": "file:../posthog-js"
     ```

@@ -3,15 +3,14 @@ Helper methods for creating the kafka-python KafkaProducer and KafkaConsumer obj
 https://github.com/heroku/kafka-helper
 """
 
-import base64
-import json
 import os
 import ssl
+import json
+import base64
+from base64 import standard_b64encode
 from tempfile import NamedTemporaryFile
 
 from django.conf import settings
-
-from base64 import standard_b64encode
 
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization

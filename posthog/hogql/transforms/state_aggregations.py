@@ -1,8 +1,9 @@
+from typing import Union, cast
+
 from posthog.hogql import ast
 from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS
-from posthog.hogql.visitor import CloningVisitor
-from typing import Union, cast
 from posthog.hogql.parser import parse_select
+from posthog.hogql.visitor import CloningVisitor
 
 QueryType = Union[ast.SelectQuery, ast.SelectSetQuery]
 

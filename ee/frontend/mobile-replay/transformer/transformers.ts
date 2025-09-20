@@ -1,29 +1,31 @@
+import posthog from 'posthog-js'
+
 import {
+    EventType,
+    IncrementalSource,
     addedNodeMutation,
     customEvent,
-    EventType,
     fullSnapshotEvent,
     incrementalSnapshotEvent,
-    IncrementalSource,
     metaEvent,
     mutationData,
     removedNodeMutation,
 } from '@posthog/rrweb-types'
+
 import { isObject } from 'lib/utils'
-import posthog from 'posthog-js'
 import { PLACEHOLDER_SVG_DATA_IMAGE_URL } from 'scenes/session-recordings/player/rrweb'
 
 import {
-    attributes,
-    documentNode,
-    elementNode,
     fullSnapshotEvent as MobileFullSnapshotEvent,
-    keyboardEvent,
-    metaEvent as MobileMetaEvent,
     MobileIncrementalSnapshotEvent,
+    metaEvent as MobileMetaEvent,
     MobileNodeMutation,
     MobileNodeType,
     NodeType,
+    attributes,
+    documentNode,
+    elementNode,
+    keyboardEvent,
     serializedNodeWithId,
     textNode,
     wireframe,

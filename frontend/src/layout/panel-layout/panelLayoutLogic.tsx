@@ -1,5 +1,8 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { router } from 'kea-router'
+
 import { LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import type { panelLayoutLogicType } from './panelLayoutLogicType'
@@ -38,6 +41,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         setPanelIsResizing: (isResizing: boolean) => ({ isResizing }),
         setPanelWillHide: (willHide: boolean) => ({ willHide }),
         resetPanelLayout: (keyboardAction: boolean) => ({ keyboardAction }),
+        setMainContentRect: (rect: DOMRect) => ({ rect }),
     }),
     reducers({
         isLayoutNavbarVisibleForDesktop: [
@@ -136,8 +140,14 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                 setPanelWidth: (_, { width }) => width <= PANEL_LAYOUT_MIN_WIDTH - 1,
             },
         ],
+        mainContentRect: [
+            null as DOMRect | null,
+            {
+                setMainContentRect: (_, { rect }) => rect,
+            },
+        ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         setPanelIsResizing: ({ isResizing }) => {
             // If we're not resizing and the panel is at or below the minimum width, hide it
             if (!isResizing && values.panelWidth <= PANEL_LAYOUT_MIN_WIDTH - 1) {
@@ -161,11 +171,71 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                 values.mainContentRef?.current?.focus()
             }
         },
+        setMainContentRef: ({ ref }) => {
+            // Clean up old ResizeObserver
+            if (cache.resizeObserver) {
+                cache.resizeObserver.disconnect()
+                cache.resizeObserver = null
+            }
+
+            // Measure width immediately when container ref is set
+            if (ref?.current) {
+                actions.setMainContentRect(ref.current.getBoundingClientRect())
+
+                // Set up new ResizeObserver for the new container
+                if (typeof ResizeObserver !== 'undefined') {
+                    cache.resizeObserver = new ResizeObserver(() => {
+                        if (ref?.current) {
+                            actions.setMainContentRect(ref.current.getBoundingClientRect())
+                        }
+                    })
+                    cache.resizeObserver.observe(ref.current)
+                }
+            }
+        },
     })),
     selectors({
         isLayoutNavCollapsed: [
             (s) => [s.isLayoutNavCollapsedDesktop, s.mobileLayout],
             (isLayoutNavCollapsedDesktop, mobileLayout): boolean => !mobileLayout && isLayoutNavCollapsedDesktop,
         ],
+        activePanelIdentifierFromUrl: [
+            () => [router.selectors.location],
+            (location): PanelLayoutNavIdentifier | '' => {
+                const cleanPath = removeProjectIdIfPresent(location.pathname)
+
+                if (cleanPath.startsWith('/data-management/')) {
+                    return 'DataManagement'
+                }
+
+                if (cleanPath === '/persons' || cleanPath === '/cohorts' || cleanPath.startsWith('/groups/')) {
+                    return 'People'
+                }
+
+                return ''
+            },
+        ],
+    }),
+    afterMount(({ actions, cache, values }) => {
+        const handleResize = (): void => {
+            const mainContentRef = values.mainContentRef
+            if (mainContentRef?.current) {
+                actions.setMainContentRect(mainContentRef.current.getBoundingClientRect())
+            }
+        }
+        cache.handleResize = handleResize
+
+        // Watch for window resize
+        if (typeof window !== 'undefined') {
+            window.addEventListener('resize', handleResize)
+        }
+    }),
+    beforeUnmount(({ cache }) => {
+        if (typeof window !== 'undefined' && cache.handleResize) {
+            window.removeEventListener('resize', cache.handleResize)
+        }
+        if (cache.resizeObserver) {
+            cache.resizeObserver.disconnect()
+        }
     }),
 ])

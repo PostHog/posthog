@@ -1,9 +1,9 @@
 from django.db import models
 
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import UUIDTModel
 
 
-class MessageTemplate(UUIDModel):
+class MessageTemplate(UUIDTModel):
     """
     A model for storing message templates used for email and eventually other messaging channels.
     """

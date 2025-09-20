@@ -1,14 +1,18 @@
-import { mergeAttributes, Node, NodeViewProps } from '@tiptap/core'
+import { Node, NodeViewProps, mergeAttributes } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
-import { dayjs } from 'lib/dayjs'
 import clsx from 'clsx'
-import { urls } from 'scenes/urls'
-import { LemonButton } from '@posthog/lemon-ui'
-import { notebookLogic } from '../Notebook/notebookLogic'
 import { useValues } from 'kea'
 import { useMemo } from 'react'
-import { openNotebook } from '~/models/notebooksModel'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { dayjs } from 'lib/dayjs'
+import { urls } from 'scenes/urls'
+
+import { openNotebook } from '~/models/notebooksModel'
+
+import { notebookLogic } from '../Notebook/notebookLogic'
 import { NotebookNodeType, NotebookTarget } from '../types'
 
 export interface NotebookNodeReplayTimestampAttrs {

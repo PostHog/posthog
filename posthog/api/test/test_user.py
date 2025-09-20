@@ -1,27 +1,29 @@
-import datetime
 import uuid
+import datetime
 from typing import cast
+from urllib.parse import quote, unquote
+
+from freezegun.api import freeze_time
+from posthog.test.base import APIBaseTest
 from unittest import mock
 from unittest.mock import ANY, patch
-from urllib.parse import quote, unquote
 
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.core.cache import cache
 from django.utils import timezone
 from django.utils.text import slugify
+
 from django_otp.plugins.otp_static.models import StaticDevice
 from django_otp.plugins.otp_totp.models import TOTPDevice
-from freezegun.api import freeze_time
 from rest_framework import status
 
 from posthog.api.email_verification import email_verification_token_generator
 from posthog.models import Dashboard, Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
-from posthog.models.utils import generate_random_token_personal
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
-from posthog.test.base import APIBaseTest
+from posthog.models.utils import generate_random_token_personal
 
 
 def create_user(email: str, password: str, organization: Organization):
@@ -159,6 +161,45 @@ class TestUserAPI(APIBaseTest):
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(response.json(), self.unauthenticated_response())
+
+    def test_non_admin_filter_users_by_email(self):
+        org = Organization.objects.create()
+        user = User.objects.create(
+            email="foo@bar.com",
+            password="<PASSWORD>",
+            organization=org,
+            current_team=Team.objects.create(organization=org, name="Another team"),
+        )
+
+        response = self.client.get(f"/api/users/?email={user.email}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 0, "Should not return users from another orgs")
+
+    def test_admin_filter_users_by_email(self):
+        admin = User.objects.create(
+            email="admin@admin.com",
+            password="pw",
+            organization=self.organization,
+            current_team=self.team,
+            is_staff=True,
+        )
+        self.client.force_authenticate(admin)
+        org = Organization.objects.create()
+        user = User.objects.create(
+            email="foo@bar.com",
+            password="<PASSWORD>",
+            organization=org,
+            current_team=Team.objects.create(organization=org, name="Another team"),
+        )
+
+        response = self.client.get(f"/api/users/?email={user.email}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1, "Admin users should be able to list users from other orgs")
+        response_user = response.json()["results"][0]
+        self.assertEqual(response_user["email"], user.email)
+        self.assertEqual(response_user["id"], user.id, "User id should be returned")
 
     # CREATING USERS
 
@@ -1423,16 +1464,6 @@ class TestEmailVerificationAPI(APIBaseTest):
 
         # assert events were captured
         mock_capture.assert_any_call(
-            event="user logged in",
-            distinct_id=self.user.distinct_id,
-            properties={"social_provider": ""},
-            groups={
-                "instance": ANY,
-                "organization": str(self.team.organization_id),
-                "project": str(self.team.uuid),
-            },
-        )
-        mock_capture.assert_any_call(
             event="user verified email",
             distinct_id=self.user.distinct_id,
             properties={"$set": ANY},
@@ -1445,7 +1476,7 @@ class TestEmailVerificationAPI(APIBaseTest):
                 "organization": str(self.team.organization_id),
             },
         )
-        self.assertEqual(mock_capture.call_count, 3)
+        self.assertEqual(mock_capture.call_count, 2)
 
     def test_cant_verify_if_email_is_not_configured(self):
         set_instance_setting("EMAIL_HOST", "")
@@ -1549,7 +1580,7 @@ class TestEmailVerificationAPI(APIBaseTest):
             },
         )
 
-    def test_email_verification_logs_in_user(self):
+    def test_email_verification_does_not_log_in_user(self):
         token = email_verification_token_generator.make_token(self.user)
 
         self.client.logout()
@@ -1560,7 +1591,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         # NOTE: Posting sets the session user id but doesn't log in the test client hence we just check the session id
         self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
         session_user_id = self.client.session.get("_auth_user_id")
-        assert session_user_id == str(self.user.id)
+        assert session_user_id is None
 
     def test_email_verification_logs_in_correctuser(self):
         other_token = email_verification_token_generator.make_token(self.other_user)
@@ -1570,7 +1601,8 @@ class TestEmailVerificationAPI(APIBaseTest):
         # NOTE: The user id in path should basically be ignored
         self.client.post(f"/api/users/verify_email/", {"uuid": self.other_user.uuid, "token": other_token})
         session_user_id = self.client.session.get("_auth_user_id")
-        assert session_user_id == str(self.other_user.id)
+        # user should still be logged out
+        assert session_user_id is None
 
     def test_email_verification_does_not_apply_to_current_logged_in_user(self):
         other_token = email_verification_token_generator.make_token(self.other_user)
@@ -1580,7 +1612,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.user.refresh_from_db()
         self.other_user.refresh_from_db()
         # Should now be logged in as other user
-        assert self.client.session.get("_auth_user_id") == str(self.other_user.id)
+        assert self.client.session.get("_auth_user_id") is None
         assert not self.user.is_email_verified
         assert self.other_user.is_email_verified
 

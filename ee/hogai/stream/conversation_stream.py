@@ -1,29 +1,31 @@
-import structlog
 import asyncio
-from typing import Any
 from collections.abc import AsyncGenerator
+from typing import Any
 from uuid import uuid4
 
-from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
+import structlog
 from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
+from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
+
+from posthog.schema import AssistantEventType, FailureMessage
+
+from posthog.constants import MAX_AI_TASK_QUEUE
+from posthog.temporal.ai.conversation import (
+    AssistantConversationRunnerWorkflow,
+    AssistantConversationRunnerWorkflowInputs,
+)
+from posthog.temporal.common.client import async_connect
 
 from ee.hogai.stream.redis_stream import (
-    ConversationRedisStream,
-    StreamError,
     ConversationEvent,
-    StreamEvent,
+    ConversationRedisStream,
     MessageEvent,
+    StreamError,
+    StreamEvent,
     get_conversation_stream_key,
 )
 from ee.hogai.utils.types import AssistantOutput
 from ee.models.assistant import Conversation
-from posthog.constants import MAX_AI_TASK_QUEUE
-from posthog.schema import AssistantEventType, FailureMessage
-from posthog.temporal.common.client import async_connect
-from posthog.temporal.ai.conversation import (
-    AssistantConversationRunnerWorkflowInputs,
-    AssistantConversationRunnerWorkflow,
-)
 
 logger = structlog.get_logger(__name__)
 

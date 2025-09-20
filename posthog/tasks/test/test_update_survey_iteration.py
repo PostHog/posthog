@@ -1,8 +1,11 @@
-from posthog.models import Survey, Organization, Team, User, FeatureFlag
-from django.test import TestCase
-from datetime import timedelta, datetime
-from django.utils.timezone import now
+from datetime import datetime, timedelta
+
 from posthog.test.base import ClickhouseTestMixin
+
+from django.test import TestCase
+from django.utils.timezone import now
+
+from posthog.models import FeatureFlag, Organization, Survey, Team, User
 from posthog.tasks.update_survey_iteration import update_survey_iteration
 
 

@@ -5,11 +5,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.constants import PROPERTIES, PropertyOperatorType
 from posthog.models.filters.mixins.base import BaseParamMixin
-from posthog.models.filters.mixins.utils import (
-    cached_property,
-    include_dict,
-    include_query_tags,
-)
+from posthog.models.filters.mixins.utils import cached_property, include_dict, include_query_tags
 from posthog.models.property import Property, PropertyGroup
 
 

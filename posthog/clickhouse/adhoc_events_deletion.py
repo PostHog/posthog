@@ -1,8 +1,5 @@
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.table_engines import (
-    ReplacingMergeTreeDeleted,
-)
-
+from posthog.clickhouse.table_engines import ReplacingMergeTreeDeleted
 
 ADHOC_EVENTS_DELETION_TABLE = "adhoc_events_deletion"
 

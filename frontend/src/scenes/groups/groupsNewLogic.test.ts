@@ -1,7 +1,7 @@
 import { initKeaTests } from '~/test/init'
-import {} from '~/types'
+import '~/types'
 
-import { flattenProperties, groupsNewLogic, GroupsNewLogicProps } from './groupsNewLogic'
+import { GroupsNewLogicProps, flattenProperties, groupsNewLogic } from './groupsNewLogic'
 
 describe('groupsNewLogic', () => {
     let logic: ReturnType<typeof groupsNewLogic.build>

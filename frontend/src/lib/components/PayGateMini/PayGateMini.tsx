@@ -1,11 +1,13 @@
-import { IconInfo, IconOpenSidebar, IconUnlock } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect } from 'react'
-import { billingLogic } from 'scenes/billing/billingLogic'
+
+import { IconInfo, IconOpenSidebar, IconUnlock } from '@posthog/icons'
+import { LemonButton, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
+
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 import { getProductIcon } from 'scenes/products/Products'
 import { userLogic } from 'scenes/userLogic'
 
@@ -13,7 +15,7 @@ import { AvailableFeature, BillingFeatureType, BillingProductV2AddonType, Billin
 
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { PayGateButton } from './PayGateButton'
-import { payGateMiniLogic, PayGateMiniLogicProps } from './payGateMiniLogic'
+import { PayGateMiniLogicProps, payGateMiniLogic } from './payGateMiniLogic'
 
 export type PayGateMiniProps = PayGateMiniLogicProps & {
     /**
@@ -52,7 +54,7 @@ export function PayGateMini({
     loadingSkeleton,
     handleSubmit,
 }: PayGateMiniProps): JSX.Element | null {
-    const { productWithFeature, featureInfo, gateVariant, bypassPaywall } = useValues(
+    const { productWithFeature, featureInfo, gateVariant, bypassPaywall, isTrialFlow } = useValues(
         payGateMiniLogic({ feature, currentUsage })
     )
     const { setBypassPaywall } = useActions(payGateMiniLogic({ feature, currentUsage }))
@@ -75,7 +77,9 @@ export function PayGateMini({
         if (handleSubmit) {
             handleSubmit()
         }
-        hideUpgradeModal()
+        if (!isTrialFlow) {
+            hideUpgradeModal()
+        }
         posthog.capture('pay gate CTA clicked', {
             product_key: productWithFeature?.type,
             feature: feature,

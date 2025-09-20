@@ -1,29 +1,7 @@
 import json
-from ee.clickhouse.materialized_columns.analyze import materialize
 from datetime import datetime, timedelta
-from typing import Optional, Any
-from unittest import mock
-from unittest.mock import patch, MagicMock
+from typing import Any, Optional
 
-from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test.client import Client
-from django.utils import timezone
-from rest_framework import status
-from rest_framework.test import APIClient
-
-from posthog.api.test.test_exports import TestExportMixin
-from posthog.clickhouse.client.execute import sync_execute
-from posthog.models import FeatureFlag, Person, Action
-from posthog.models.async_deletion.async_deletion import AsyncDeletion
-from posthog.models.cohort import Cohort
-from posthog.models.team.team import Team
-from posthog.schema import PropertyOperator, PersonsOnEventsMode
-from posthog.tasks.calculate_cohort import (
-    calculate_cohort_ch,
-    calculate_cohort_from_list,
-    get_cohort_calculation_candidates_queryset,
-    increment_version_and_enqueue_calculate_cohort,
-)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -32,6 +10,34 @@ from posthog.test.base import (
     _create_person,
     flush_persons_and_events,
 )
+from unittest import mock
+from unittest.mock import MagicMock, patch
+
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test.client import Client
+from django.utils import timezone
+
+from parameterized import parameterized
+from rest_framework import status
+
+from posthog.schema import PersonsOnEventsMode, PropertyOperator
+
+from posthog.api.test.test_exports import TestExportMixin
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.models import Action, FeatureFlag, Person
+from posthog.models.async_deletion.async_deletion import AsyncDeletion
+from posthog.models.cohort import Cohort
+from posthog.models.cohort.cohort import CohortType
+from posthog.models.property import BehavioralPropertyType
+from posthog.models.team.team import Team
+from posthog.tasks.calculate_cohort import (
+    calculate_cohort_ch,
+    calculate_cohort_from_list,
+    get_cohort_calculation_candidates_queryset,
+    increment_version_and_enqueue_calculate_cohort,
+)
+
+from ee.clickhouse.materialized_columns.analyze import materialize
 
 
 class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -281,7 +287,7 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(13):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 1
 
@@ -296,25 +302,113 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         )
         self.assertEqual(response.status_code, 201, response.content)
 
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(13):
             response = self.client.get(f"/api/projects/{self.team.id}/cohorts")
             assert len(response.json()["results"]) == 3
 
-    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
-    def test_static_cohort_csv_upload(self, patch_calculate_cohort_from_list):
+    def test_static_cohort_csv_upload_end_to_end(self):
+        """Test CSV upload end-to-end with actual celery task execution"""
         self.team.app_urls = ["http://somewebsite.com"]
         self.team.save()
         Person.objects.create(team=self.team, properties={"email": "email@example.org"})
         Person.objects.create(team=self.team, distinct_ids=["123"])
         Person.objects.create(team=self.team, distinct_ids=["456"])
+        Person.objects.create(team=self.team, distinct_ids=["0"])  # Test edge case: '0' as distinct_id
 
         csv = SimpleUploadedFile(
             "example.csv",
             str.encode(
                 """
-User ID,
-email@example.org,
+User ID
+email@example.org
 123
+0
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/cohorts/",
+                {"name": "test", "csv": csv, "is_static": True},
+                format="multipart",
+            )
+
+        self.assertEqual(response.status_code, 201)
+        cohort = Cohort.objects.get(pk=response.json()["id"])
+        self.assertFalse(cohort.is_calculating)
+        # Verify CSV parsing worked correctly - should include 123 and 0 (only existing distinct_ids)
+        cohort_people = Person.objects.filter(cohort__id=cohort.id)
+        distinct_ids = set()
+        for person in cohort_people:
+            distinct_ids.update(person.distinct_ids)
+        self.assertEqual(distinct_ids, {"123", "0"})
+
+        # Test CSV update
+        csv_update = SimpleUploadedFile(
+            "example.csv",
+            str.encode(
+                """
+User ID
+456
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{cohort.id}",
+                {"name": "test", "csv": csv_update},
+                format="multipart",
+            )
+
+        self.assertEqual(response.status_code, 200)
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        # Verify CSV update worked - 456 should now be included
+        cohort_people = Person.objects.filter(cohort__id=cohort.id)
+        distinct_ids = set()
+        for person in cohort_people:
+            distinct_ids.update(person.distinct_ids)
+        self.assertIn("456", distinct_ids)  # New ID should be included
+
+        # Test name-only update without CSV
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.id}",
+            {"name": "test2"},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        cohort.refresh_from_db()
+        self.assertFalse(cohort.is_calculating)
+        self.assertEqual(cohort.name, "test2")
+        # Verify distinct_ids remain the same after name-only update
+        cohort_people = Person.objects.filter(cohort__id=cohort.id)
+        distinct_ids = set()
+        for person in cohort_people:
+            distinct_ids.update(person.distinct_ids)
+        self.assertIn("456", distinct_ids)  # Should still contain 456
+
+    @parameterized.expand([("distinct-id",), ("distinct_id",)])
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay", side_effect=calculate_cohort_from_list)
+    def test_static_cohort_csv_upload_with_distinct_id_column(
+        self, distinct_id_column_header, patch_calculate_cohort_from_list
+    ):
+        """Test multi-column CSV upload with distinct_id column"""
+        person1 = Person.objects.create(team=self.team, distinct_ids=["user123"])
+        person2 = Person.objects.create(team=self.team, distinct_ids=["user456"])
+        person3 = Person.objects.create(team=self.team, distinct_ids=["0"])  # Test edge case: '0' as distinct_id
+
+        csv = SimpleUploadedFile(
+            "multicolumn.csv",
+            str.encode(
+                f"""name,{distinct_id_column_header},email
+John Doe,user123,john@example.com
+Jane Smith,user456,jane@example.com
+Zero User,0,zero@example.com
 """
             ),
             content_type="application/csv",
@@ -322,57 +416,458 @@ email@example.org,
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/cohorts/",
-            {"name": "test", "csv": csv, "is_static": True},
+            {"name": "test_multicolumn", "csv": csv, "is_static": True},
             format="multipart",
         )
+
         self.assertEqual(response.status_code, 201)
-        self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
-        self.assertFalse(response.json()["is_calculating"], False)
-        self.assertFalse(Cohort.objects.get(pk=response.json()["id"]).is_calculating)
+        cohort = Cohort.objects.get(pk=response.json()["id"])
 
-        calculate_cohort_from_list(response.json()["id"], ["email@example.org", "123"])
-        self.assertEqual(Cohort.objects.get(pk=response.json()["id"]).count, 1)
+        # Verify all three persons were actually added to the cohort
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        self.assertEqual(people_in_cohort.count(), 3)
 
+        # Verify specific persons are in the cohort
+        person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
+        self.assertIn(str(person1.uuid), person_uuids_in_cohort)
+        self.assertIn(str(person2.uuid), person_uuids_in_cohort)
+        self.assertIn(str(person3.uuid), person_uuids_in_cohort)
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_upload_multicolumn_without_distinct_id_fails(self, patch_calculate_cohort_from_list):
+        """Test that multi-column CSV without distinct_id column fails with clear error"""
         csv = SimpleUploadedFile(
-            "example.csv",
+            "no_distinct_id.csv",
             str.encode(
-                """
-User ID,
-456
+                """name,email,age
+John Doe,john@example.com,30
+Jane Smith,jane@example.com,25
 """
             ),
             content_type="application/csv",
         )
 
-        #  A weird issue with pytest client, need to user Rest framework's one
-        #  see https://stackoverflow.com/questions/39906956/patch-and-put-dont-work-as-expected-when-pytest-is-interacting-with-rest-framew
-        client = APIClient()
-        client.force_login(self.user)
-        response = client.patch(
-            f"/api/projects/{self.team.id}/cohorts/{response.json()['id']}",
-            {"name": "test", "csv": csv},
-            format="multipart",
-        )
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(patch_calculate_cohort_from_list.call_count, 2)
-        self.assertFalse(response.json()["is_calculating"], False)
-        self.assertFalse(Cohort.objects.get(pk=response.json()["id"]).is_calculating)
-
-        calculate_cohort_from_list(response.json()["id"], ["456"])
-        self.assertEqual(Cohort.objects.get(pk=response.json()["id"]).count, 2)
-
-        # Only change name without updating CSV
-        response = client.patch(
-            f"/api/projects/{self.team.id}/cohorts/{response.json()['id']}",
-            {"name": "test2"},
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_fail", "csv": csv, "is_static": True},
             format="multipart",
         )
 
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(patch_calculate_cohort_from_list.call_count, 2)
-        self.assertFalse(response.json()["is_calculating"], False)
-        self.assertFalse(Cohort.objects.get(pk=response.json()["id"]).is_calculating)
-        self.assertEqual(Cohort.objects.get(pk=response.json()["id"]).name, "test2")
+        self.assertEqual(response.status_code, 400)
+        response_data = response.json()
+        self.assertEqual(response_data["attr"], "csv")
+        self.assertIn("distinct_id", response_data["detail"])
+        self.assertIn("name, email, age", response_data["detail"])
+        self.assertEqual(patch_calculate_cohort_from_list.call_count, 0)
+
+    @parameterized.expand([("person-id",), ("person_id",), ("Person .id",)])
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay", side_effect=calculate_cohort_from_list)
+    def test_static_cohort_csv_upload_with_person_uuid_column(
+        self, person_id_column_header, patch_calculate_cohort_from_list
+    ):
+        """Test CSV upload with person_id column using async task"""
+        person1 = Person.objects.create(team=self.team, distinct_ids=["user123"])
+        person2 = Person.objects.create(team=self.team, distinct_ids=["user456"])
+
+        csv = SimpleUploadedFile(
+            f"{person_id_column_header}.csv",
+            str.encode(
+                f"""name,{person_id_column_header},email
+John Doe,{person1.uuid},john@example.com
+Jane Smith,{person2.uuid},jane@example.com
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": f"test_{person_id_column_header}", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort = Cohort.objects.get(pk=response.json()["id"])
+
+        # Verify the persons were actually added to the cohort
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        self.assertEqual(people_in_cohort.count(), 2)
+
+        # Verify specific persons are in the cohort
+        person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
+        self.assertIn(str(person1.uuid), person_uuids_in_cohort)
+        self.assertIn(str(person2.uuid), person_uuids_in_cohort)
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_upload_person_id_preference_over_distinct_id(self, patch_calculate_cohort_from_list):
+        """Test that person_id is preferred over distinct_id when both columns are present"""
+        person1 = Person.objects.create(team=self.team, distinct_ids=["distinct123"])
+        person2 = Person.objects.create(team=self.team, distinct_ids=["distinct456"])
+
+        csv = SimpleUploadedFile(
+            "both_columns.csv",
+            str.encode(
+                f"""name,person_id,distinct_id,email
+John Doe,{person1.uuid},ignore_this_distinct_id,john@example.com
+Jane Smith,{person2.uuid},ignore_this_too,jane@example.com
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_preference", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        # Should use person_id task, not distinct_id task
+        patch_calculate_cohort_from_list.assert_called_once_with(
+            response.json()["id"], [str(person1.uuid), str(person2.uuid)], team_id=self.team.id, id_type="person_id"
+        )
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_upload_with_empty_person_ids(self, patch_calculate_cohort_from_list):
+        """Test CSV with person_id column but some empty values"""
+        person1 = Person.objects.create(team=self.team, distinct_ids=["user123"])
+
+        csv = SimpleUploadedFile(
+            "empty_person_ids.csv",
+            str.encode(
+                f"""name,person_id,email
+John Doe,{person1.uuid},john@example.com
+Empty Person,,empty@example.com
+Jane Smith,   ,jane@example.com
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_empty_person_ids", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        # Should only include the non-empty person_id
+        patch_calculate_cohort_from_list.assert_called_once_with(
+            response.json()["id"], [str(person1.uuid)], team_id=self.team.id, id_type="person_id"
+        )
+
+    def test_static_cohort_csv_upload_multicolumn_without_any_id_fails(self):
+        """Test that multi-column CSV without person_id or distinct_id column fails with updated error message"""
+        csv = SimpleUploadedFile(
+            "no_id_columns.csv",
+            str.encode(
+                """name,email,age
+John Doe,john@example.com,30
+Jane Smith,jane@example.com,25
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_fail", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        response_data = response.json()
+        self.assertEqual(response_data["attr"], "csv")
+        # Should reference all supported ID column types with clearer messaging
+        self.assertIn("at least one column with a supported ID header", response_data["detail"])
+        self.assertIn("person_id", response_data["detail"])
+        self.assertIn("distinct_id", response_data["detail"])
+        self.assertIn("name, email, age", response_data["detail"])
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_upload_empty_file_fails(self, patch_calculate_cohort_from_list):
+        """Test that empty CSV file fails with clear error"""
+        csv = SimpleUploadedFile(
+            "empty.csv",
+            str.encode(""),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_empty", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        response_data = response.json()
+        self.assertEqual(response_data["attr"], "csv")
+        self.assertIn("empty", response_data["detail"])
+        self.assertEqual(patch_calculate_cohort_from_list.call_count, 0)
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_upload_no_valid_ids_fails(self, patch_calculate_cohort_from_list):
+        """Test that CSV with no valid distinct IDs fails with clear error"""
+        csv = SimpleUploadedFile(
+            "no_ids.csv",
+            str.encode(
+                """,,,
+,
+,
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_no_ids", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        response_data = response.json()
+        self.assertEqual(response_data["attr"], "csv")
+        self.assertIn("no valid person or distinct IDs", response_data["detail"])
+        self.assertEqual(patch_calculate_cohort_from_list.call_count, 0)
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_upload_single_column_backwards_compatibility(self, patch_calculate_cohort_from_list):
+        """Test that single-column CSV still works (backwards compatibility)"""
+        Person.objects.create(team=self.team, distinct_ids=["legacy_user"])
+
+        csv = SimpleUploadedFile(
+            "single_column.csv",
+            str.encode(
+                """legacy_user
+another_user
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_legacy", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
+        patch_calculate_cohort_from_list.assert_called_with(
+            response.json()["id"], ["legacy_user", "another_user"], team_id=self.team.id, id_type="distinct_id"
+        )
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_upload_single_column_person_ids(self, patch_calculate_cohort_from_list):
+        """Test that single-column CSV with person_id header is treated as person UUIDs"""
+        person1 = Person.objects.create(team=self.team)
+        person2 = Person.objects.create(team=self.team)
+
+        csv = SimpleUploadedFile(
+            "person_ids.csv",
+            str.encode(
+                f"""person_id
+{person1.uuid}
+{person2.uuid}
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_person_ids", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
+        # Single column format with person_id header uses person UUID processing
+        patch_calculate_cohort_from_list.assert_called_with(
+            response.json()["id"], [str(person1.uuid), str(person2.uuid)], team_id=self.team.id, id_type="person_id"
+        )
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_upload_whitespace_handling(self, patch_calculate_cohort_from_list):
+        """Test that whitespace is properly trimmed from distinct IDs in multi-column CSV"""
+        Person.objects.create(team=self.team, distinct_ids=["user123"])
+        Person.objects.create(team=self.team, distinct_ids=["user456"])
+
+        csv = SimpleUploadedFile(
+            "whitespace.csv",
+            str.encode(
+                """name,distinct_id,email
+John Doe,  user123  ,john@example.com
+Jane Smith,	user456	,jane@example.com
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_whitespace", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
+        # Verify whitespace is trimmed from distinct IDs
+        patch_calculate_cohort_from_list.assert_called_with(
+            response.json()["id"], ["user123", "user456"], team_id=self.team.id, id_type="distinct_id"
+        )
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_upload_with_commas_in_distinct_ids(self, patch_calculate_cohort_from_list):
+        """Test that CSV quoting/escaping works when distinct IDs contain commas"""
+        Person.objects.create(team=self.team, distinct_ids=["user,123"])
+        Person.objects.create(team=self.team, distinct_ids=["user,456,special"])
+
+        csv = SimpleUploadedFile(
+            "comma_ids.csv",
+            str.encode(
+                """name,distinct_id,email
+"John Doe","user,123","john@example.com"
+"Jane Smith","user,456,special","jane@example.com"
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_comma_ids", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
+        # Verify comma-containing distinct IDs are correctly parsed
+        patch_calculate_cohort_from_list.assert_called_with(
+            response.json()["id"], ["user,123", "user,456,special"], team_id=self.team.id, id_type="distinct_id"
+        )
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_upload_with_quotes_in_distinct_ids(self, patch_calculate_cohort_from_list):
+        """Test that CSV escaping works when distinct IDs contain quotes"""
+        Person.objects.create(team=self.team, distinct_ids=['user"123'])
+        Person.objects.create(team=self.team, distinct_ids=['user"special"456'])
+
+        csv = SimpleUploadedFile(
+            "quote_ids.csv",
+            str.encode(
+                """name,distinct_id,email
+"John Doe","user""123","john@example.com"
+"Jane Smith","user""special""456","jane@example.com"
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_quote_ids", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
+        # Verify quote-containing distinct IDs are correctly parsed
+        patch_calculate_cohort_from_list.assert_called_with(
+            response.json()["id"], ['user"123', 'user"special"456'], team_id=self.team.id, id_type="distinct_id"
+        )
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_upload_with_inconsistent_column_count(self, patch_calculate_cohort_from_list):
+        """Test that rows with incorrect column count are gracefully skipped in multi-column CSV"""
+        Person.objects.create(team=self.team, distinct_ids=["user123"])
+        Person.objects.create(team=self.team, distinct_ids=["user456"])
+
+        csv = SimpleUploadedFile(
+            "inconsistent_columns.csv",
+            str.encode(
+                """email,distinct_id
+myemail@posthog.com,user123
+incomplete_row_missing_distinct_id
+anotheremail@posthog.com,user456
+another_incomplete_row
+user789
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_inconsistent", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
+        # Verify only rows with correct column count are processed
+        # Should skip: "incomplete_row_missing_distinct_id", "another_incomplete_row", "user789"
+        # Should include: "user123", "user456"
+        patch_calculate_cohort_from_list.assert_called_with(
+            response.json()["id"], ["user123", "user456"], team_id=self.team.id, id_type="distinct_id"
+        )
+
+    @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
+    def test_static_cohort_csv_sets_is_calculating(self, patch_calculate_cohort_from_list):
+        """Test that is_calculating is set to True immediately when CSV is uploaded"""
+        Person.objects.create(team=self.team, distinct_ids=["user123"])
+
+        csv = SimpleUploadedFile(
+            "test.csv",
+            str.encode("""distinct_id
+user123
+user456
+"""),
+            content_type="application/csv",
+        )
+
+        # Create cohort with CSV upload
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_calculating", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort_id = response.json()["id"]
+
+        # Check that is_calculating was set to True
+        cohort = Cohort.objects.get(pk=cohort_id)
+        self.assertTrue(cohort.is_calculating, "is_calculating should be True immediately after CSV upload")
+
+        # Verify the task was called
+        patch_calculate_cohort_from_list.assert_called_once()
+
+    def test_static_cohort_csv_resets_is_calculating_on_error(self):
+        """Test that is_calculating is reset to False when CSV processing fails"""
+        # Try to upload an invalid CSV that will cause an error
+        csv = SimpleUploadedFile(
+            "invalid.csv",
+            str.encode(""),  # Empty CSV will trigger an error
+            content_type="application/csv",
+        )
+
+        # Try to create cohort with invalid CSV
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_error", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        # Should get an error response
+        self.assertEqual(response.status_code, 400)
+
+        # Check that no cohort was created with is_calculating stuck at True
+        # (The cohort shouldn't be created at all, but if error handling was wrong
+        # it might leave a cohort in calculating state)
+        calculating_cohorts = Cohort.objects.filter(team=self.team, name="test_error", is_calculating=True)
+        self.assertEqual(calculating_cohorts.count(), 0, "No cohort should be left in calculating state after error")
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_ch.delay")
@@ -402,8 +897,9 @@ email@example.org,
         )
         self.assertEqual(response.status_code, 201)
         self.assertEqual(patch_calculate_cohort_from_list.call_count, 1)
-        self.assertFalse(response.json()["is_calculating"], False)
-        self.assertFalse(Cohort.objects.get(pk=response.json()["id"]).is_calculating)
+        # After CSV upload, is_calculating should be True since processing starts immediately
+        self.assertTrue(response.json()["is_calculating"])
+        self.assertTrue(Cohort.objects.get(pk=response.json()["id"]).is_calculating)
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/cohorts/{response.json()['id']}",
@@ -1973,6 +2469,8 @@ email@example.org,
                                 "event_type": "events",
                                 "operator": "gte",
                                 "operator_value": 5,
+                                "time_value": 30,
+                                "time_interval": "day",
                             }
                         ],
                     }
@@ -2003,6 +2501,8 @@ email@example.org,
                                 "value": "performed_event",
                                 "event_type": "events",
                                 "operator_value": 5,
+                                "time_value": 30,
+                                "time_interval": "day",
                             }
                         ],
                     }
@@ -2085,6 +2585,8 @@ email@example.org,
                                 "event_type": "events",
                                 "seq_event": "reauthentication_completed",
                                 "seq_event_type": "events",
+                                "time_value": 30,
+                                "time_interval": "day",
                             }
                         ],
                     }
@@ -2109,6 +2611,8 @@ email@example.org,
                                 "event_type": "events",
                                 "seq_event": 1,  # action ID
                                 "seq_event_type": "actions",
+                                "time_value": 30,
+                                "time_interval": "day",
                             }
                         ],
                     }
@@ -2133,6 +2637,8 @@ email@example.org,
                                 "event_type": "events",
                                 "seq_event": None,
                                 "seq_event_type": None,
+                                "time_value": 30,
+                                "time_interval": "day",
                             }
                         ],
                     }
@@ -2221,8 +2727,9 @@ class TestCalculateCohortCommand(APIBaseTest):
             groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
         )
         # Call the command
-        from django.core.management import call_command
         from io import StringIO
+
+        from django.core.management import call_command
 
         out = StringIO()
         with patch("posthog.management.commands.calculate_cohort.calculate_cohort_ch") as mock_calculate_cohort:
@@ -2241,8 +2748,9 @@ class TestCalculateCohortCommand(APIBaseTest):
             groups=[{"properties": [{"key": "$some_prop", "value": "something", "type": "person"}]}],
         )
         # Call the command
-        from django.core.management import call_command
         from io import StringIO
+
+        from django.core.management import call_command
 
         out = StringIO()
         with patch(
@@ -2267,3 +2775,242 @@ def create_cohort_ok(client: Client, team_id: int, name: str, groups: list[dict[
     response = create_cohort(client=client, team_id=team_id, name=name, groups=groups)
     assert response.status_code == 201, response.content
     return response.json()
+
+
+class TestCohortTypeIntegration(APIBaseTest):
+    """Test cohort type determination in API endpoints"""
+
+    def test_update_cohort_preserves_type_on_unrelated_changes(self):
+        """Updating unrelated fields should not change cohort_type"""
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            cohort_type=CohortType.BEHAVIORAL,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": "$pageview",
+                                    "type": "behavioral",
+                                    "value": BehavioralPropertyType.PERFORMED_EVENT,
+                                    "negation": False,
+                                    "event_type": "events",
+                                    "time_value": "30",
+                                    "time_interval": "day",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        # Update only the name (unrelated to type)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.id}/", {"name": "Updated Name"}, format="json"
+        )
+
+        self.assertEqual(response.status_code, 200)
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.cohort_type, CohortType.BEHAVIORAL)  # Should remain unchanged
+        self.assertEqual(response.data["cohort_type"], CohortType.BEHAVIORAL)
+
+    def test_cohort_type_not_set_when_not_provided(self):
+        """cohort_type should remain None when not provided"""
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {
+                "name": "Test Cohort",
+                "filters": {
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {"type": "person", "key": "email", "operator": "icontains", "value": "@posthog.com"}
+                        ],
+                    }
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort = Cohort.objects.get(id=response.data["id"])
+        # Should be None since no explicit type was provided
+        self.assertIsNone(cohort.cohort_type)
+        self.assertIsNone(response.data["cohort_type"])
+
+    def test_api_response_includes_cohort_type(self):
+        """API responses should include the cohort_type field"""
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            cohort_type=CohortType.BEHAVIORAL,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "key": "$pageview",
+                                    "type": "behavioral",
+                                    "value": BehavioralPropertyType.PERFORMED_EVENT,
+                                    "negation": False,
+                                    "event_type": "events",
+                                    "time_value": "30",
+                                    "time_interval": "day",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        # Test GET request
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("cohort_type", response.data)
+        self.assertEqual(response.data["cohort_type"], CohortType.BEHAVIORAL)
+
+        # Test LIST request
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertGreaterEqual(len(response.data["results"]), 1)
+        cohort_data = next(c for c in response.data["results"] if c["id"] == cohort.id)
+        self.assertIn("cohort_type", cohort_data)
+        self.assertEqual(cohort_data["cohort_type"], CohortType.BEHAVIORAL)
+
+    def test_explicit_cohort_type_validation_success(self):
+        """Should accept valid explicit cohort types"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {
+                "name": "Test Cohort",
+                "cohort_type": CohortType.BEHAVIORAL,
+                "filters": {
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "type": "behavioral",
+                                "value": BehavioralPropertyType.PERFORMED_EVENT,
+                                "negation": False,
+                                "event_type": "events",
+                                "time_value": "30",
+                                "time_interval": "day",
+                            }
+                        ],
+                    }
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort = Cohort.objects.get(id=response.data["id"])
+        self.assertEqual(cohort.cohort_type, CohortType.BEHAVIORAL)
+        self.assertEqual(response.data["cohort_type"], CohortType.BEHAVIORAL)
+
+    def test_explicit_cohort_type_validation_failure(self):
+        """Should reject mismatched explicit cohort types"""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {
+                "name": "Test Cohort",
+                "cohort_type": CohortType.PERSON_PROPERTY,  # Wrong type for behavioral filters
+                "filters": {
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "type": "behavioral",
+                                "value": BehavioralPropertyType.PERFORMED_EVENT,
+                                "negation": False,
+                                "event_type": "events",
+                                "time_value": "30",
+                                "time_interval": "day",
+                            }
+                        ],
+                    }
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("does not match the filters", str(response.data))
+        self.assertIn("Expected type: 'behavioral'", str(response.data))
+
+    def test_explicit_cohort_type_update_validation(self):
+        """Should validate explicit cohort type matches filters on updates"""
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "@posthog.com"}],
+                }
+            },
+        )
+
+        # Invalid update - wrong type for existing filters
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.id}/",
+            {"cohort_type": CohortType.BEHAVIORAL},  # Wrong - filters are person_property
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("does not match the filters", str(response.data))
+        self.assertIn("Expected type: 'person_property'", str(response.data))
+
+        # Valid update - correct type for existing filters
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.id}/",
+            {"cohort_type": CohortType.PERSON_PROPERTY},  # Correct type
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.cohort_type, CohortType.PERSON_PROPERTY)
+
+        # Update both filters and type together
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.id}/",
+            {
+                "cohort_type": CohortType.BEHAVIORAL,  # Now matches the new behavioral filters
+                "filters": {
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "key": "$pageview",
+                                "type": "behavioral",
+                                "value": BehavioralPropertyType.PERFORMED_EVENT,
+                                "negation": False,
+                                "event_type": "events",
+                                "time_value": "30",
+                                "time_interval": "day",
+                            }
+                        ],
+                    }
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        cohort.refresh_from_db()
+        self.assertEqual(cohort.cohort_type, CohortType.BEHAVIORAL)

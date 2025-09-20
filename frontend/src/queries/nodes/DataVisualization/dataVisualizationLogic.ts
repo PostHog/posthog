@@ -1,8 +1,9 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
-import { dayjs } from 'lib/dayjs'
-import { lightenDarkenColor, objectsEqual, RGBToHex, uuid } from 'lib/utils'
 import mergeObject from 'lodash.merge'
+
+import { dayjs } from 'lib/dayjs'
+import { RGBToHex, lightenDarkenColor, objectsEqual, uuid } from 'lib/utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -19,10 +20,10 @@ import {
     HogQLVariable,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
-import { ChartDisplayType, DashboardType, ItemMode } from '~/types'
+import { ChartDisplayType, DashboardType } from '~/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
-import { getQueryFeatures, QueryFeature } from '../DataTable/queryFeatures'
+import { QueryFeature, getQueryFeatures } from '../DataTable/queryFeatures'
 import type { dataVisualizationLogicType } from './dataVisualizationLogicType'
 import { ColumnScalar, FORMATTING_TEMPLATES } from './types'
 
@@ -64,7 +65,7 @@ export interface AxisSeries<T> {
 export interface DataVisualizationLogicProps {
     key: string
     query: DataVisualizationNode
-    insightMode: ItemMode
+    editMode?: boolean
     dataNodeCollectionId: string
     setQuery?: (node: DataVisualizationNode) => void
     context?: QueryContext<DataVisualizationNode>
@@ -242,7 +243,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             themeLogic,
             ['isDarkModeOn'],
             sceneLogic,
-            ['activeScene'],
+            ['activeSceneId'],
         ],
         actions: [
             dataNodeLogic({
@@ -583,19 +584,18 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         ],
         dashboardId: [() => [(_, props) => props.dashboardId], (dashboardId) => dashboardId ?? null],
         showEditingUI: [
-            (state, props) => [props.insightMode, state.dashboardId],
-            (insightMode, dashboardId) => {
+            (s) => [(_, props: DataVisualizationLogicProps) => props.editMode, s.dashboardId],
+            (editMode, dashboardId) => {
                 if (dashboardId) {
                     return false
                 }
-
-                return insightMode == ItemMode.Edit
+                return !!editMode
             },
         ],
         showResultControls: [
-            (state, props) => [props.insightMode, state.dashboardId],
-            (insightMode, dashboardId) => {
-                if (insightMode === ItemMode.Edit) {
+            (s) => [(_, props: DataVisualizationLogicProps) => props.editMode, s.dashboardId],
+            (editMode, dashboardId) => {
+                if (editMode) {
                     return true
                 }
 
@@ -603,12 +603,12 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         presetChartHeight: [
-            (state, props) => [props.key, state.dashboardId, state.activeScene],
-            (key, dashboardId, activeScene) => {
+            (state, props) => [props.key, state.dashboardId, state.activeSceneId],
+            (key, dashboardId, activeSceneId) => {
                 // Key for SQL editor based visiaulizations
-                const sqlEditorScene = activeScene === Scene.SQLEditor
+                const sqlEditorScene = activeSceneId === Scene.SQLEditor
 
-                if (activeScene === Scene.Insight) {
+                if (activeSceneId === Scene.Insight) {
                     return true
                 }
 

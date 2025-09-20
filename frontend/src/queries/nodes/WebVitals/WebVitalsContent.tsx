@@ -1,16 +1,15 @@
-import { IconInfo } from '@posthog/icons'
-import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { useMemo } from 'react'
+
+import { IconInfo } from '@posthog/icons'
+import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
+
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { WebVitalsQueryResponse } from '~/queries/schema/schema-general'
 
 import {
     EXPERIENCE_PER_BAND,
-    getMetric,
-    getMetricBand,
-    getThresholdColor,
     GRADE_PER_BAND,
     ICON_PER_BAND,
     LONG_METRIC_NAME,
@@ -19,6 +18,9 @@ import {
     QUANTIFIER_PER_BAND,
     VALUES_PER_BAND,
     WEB_VITALS_THRESHOLDS,
+    getMetric,
+    getMetricBand,
+    getThresholdColor,
 } from './definitions'
 
 type WebVitalsContentProps = {

@@ -1,17 +1,18 @@
-from typing import Optional
-from unittest.mock import patch
 import uuid
+from typing import Optional
+
 from freezegun import freeze_time
+from posthog.test.base import FuzzyInt
+from unittest.mock import patch
+
 from rest_framework.status import (
     HTTP_200_OK,
     HTTP_204_NO_CONTENT,
+    HTTP_400_BAD_REQUEST,
     HTTP_403_FORBIDDEN,
     HTTP_404_NOT_FOUND,
-    HTTP_400_BAD_REQUEST,
 )
 
-from ee.api.test.base import APILicensedTest
-from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient
 from posthog.models.dashboard import Dashboard
 from posthog.models.organization import Organization, OrganizationMembership
@@ -19,7 +20,9 @@ from posthog.models.project import Project
 from posthog.models.team import Team
 from posthog.models.team.team_caching import get_team_in_cache
 from posthog.models.user import User
-from posthog.test.base import FuzzyInt
+
+from ee.api.test.base import APILicensedTest
+from ee.models.explicit_team_membership import ExplicitTeamMembership
 
 
 def team_enterprise_api_test_factory():  # type: ignore
@@ -105,9 +108,9 @@ def team_enterprise_api_test_factory():  # type: ignore
             response_2_data = response_2.json()
             self.assertEqual(
                 response_2_data.get("detail"),
-                "You must upgrade your PostHog plan to be able to create and manage more environments per project."
+                "You have reached the maximum limit of allowed environments for your current plan. Upgrade your plan to be able to create and manage more environments."
                 if self.client_class is not EnvironmentToProjectRewriteClient
-                else "You must upgrade your PostHog plan to be able to create and manage more projects.",
+                else "You have reached the maximum limit of allowed projects for your current plan. Upgrade your plan to be able to create and manage more projects.",
             )
             self.assertEqual(response_2_data.get("type"), "authentication_error")
             self.assertEqual(response_2_data.get("code"), "permission_denied")
@@ -183,84 +186,6 @@ def team_enterprise_api_test_factory():  # type: ignore
             self.assertEqual(Team.objects.filter(organization=organization).count(), 2)
 
         # Updating projects
-
-        def test_enable_access_control_as_org_member_forbidden(self):
-            self.organization_membership.level = OrganizationMembership.Level.MEMBER
-            self.organization_membership.save()
-
-            response = self.client.patch(f"/api/environments/@current/", {"access_control": True})
-            self.team.refresh_from_db()
-
-            self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
-            self.assertFalse(self.team.access_control)
-
-        def test_enable_access_control_as_org_admin_allowed(self):
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-
-            response = self.client.patch(f"/api/environments/@current/", {"access_control": True})
-            self.team.refresh_from_db()
-
-            self.assertEqual(response.status_code, HTTP_200_OK)
-            self.assertTrue(self.team.access_control)
-
-        def test_enable_access_control_as_org_member_and_team_admin_forbidden(self):
-            self.organization_membership.level = OrganizationMembership.Level.MEMBER
-            self.organization_membership.save()
-            ExplicitTeamMembership.objects.create(
-                team=self.team,
-                parent_membership=self.organization_membership,
-                level=ExplicitTeamMembership.Level.ADMIN,
-            )
-
-            response = self.client.patch(f"/api/environments/@current/", {"access_control": True})
-            self.team.refresh_from_db()
-
-            self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
-            self.assertFalse(self.team.access_control)
-
-        def test_disable_access_control_as_org_member_forbidden(self):
-            self.organization_membership.level = OrganizationMembership.Level.MEMBER
-            self.organization_membership.save()
-            self.team.access_control = True
-            self.team.save()
-
-            response = self.client.patch(f"/api/environments/@current/", {"access_control": False})
-            self.team.refresh_from_db()
-
-            self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
-            self.assertTrue(self.team.access_control)
-
-        def test_disable_access_control_as_org_member_and_team_admin_forbidden(self):
-            # Only org-wide admins+ should be allowed to make the project open,
-            # because if a project-specific admin who is only an org member did it, they wouldn't be able to reenable it
-            self.organization_membership.level = OrganizationMembership.Level.MEMBER
-            self.organization_membership.save()
-            self.team.access_control = True
-            self.team.save()
-            ExplicitTeamMembership.objects.create(
-                team=self.team,
-                parent_membership=self.organization_membership,
-                level=ExplicitTeamMembership.Level.ADMIN,
-            )
-
-            response = self.client.patch(f"/api/environments/@current/", {"access_control": False})
-            self.team.refresh_from_db()
-
-            self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
-            self.assertTrue(self.team.access_control)
-
-        def test_disable_access_control_as_org_admin_allowed(self):
-            self.organization_membership.level = OrganizationMembership.Level.ADMIN
-            self.organization_membership.save()
-            self.team.access_control = True
-            self.team.save()
-
-            response = self.client.patch(f"/api/environments/@current/", {"access_control": False})
-            self.team.refresh_from_db()
-
-            self.assertEqual(response.status_code, HTTP_200_OK)
-            self.assertFalse(self.team.access_control)
 
         def test_can_update_and_retrieve_person_property_names_excluded_from_correlation(self):
             response = self.client.patch(
@@ -497,26 +422,6 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
         )
         self.assertEqual(self.organization.teams.count(), 2)
 
-    def test_create_team_with_access_control(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-        self.assertEqual(Team.objects.count(), 1)
-        self.assertEqual(Project.objects.count(), 1)
-        response = self.client.post("/api/projects/@current/environments/", {"name": "Test", "access_control": True})
-        self.assertEqual(response.status_code, 201)
-        self.assertEqual(Team.objects.count(), 2)
-        self.assertEqual(Project.objects.count(), 1)  # Created under the same project, not a new one!
-        response_data = response.json()
-        self.assertDictContainsSubset(
-            {
-                "name": "Test",
-                "access_control": True,
-                "effective_membership_level": OrganizationMembership.Level.ADMIN,
-            },
-            response_data,
-        )
-        self.assertEqual(self.organization.teams.count(), 2)
-
     def test_cannot_create_team_not_under_project(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
@@ -621,7 +526,7 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
         projects_response = self.client.get(f"/api/environments/")
 
         # 9 (above):
-        with self.assertNumQueries(FuzzyInt(14, 15)):
+        with self.assertNumQueries(FuzzyInt(15, 16)):
             current_org_response = self.client.get(f"/api/organizations/{self.organization.id}/")
 
         self.assertEqual(projects_response.status_code, HTTP_200_OK)

@@ -1,14 +1,16 @@
 import './CardMeta.scss'
 
-import { IconPieChart } from '@posthog/icons'
 import clsx from 'clsx'
+import React from 'react'
+import { Transition } from 'react-transition-group'
+
+import { IconPieChart } from '@posthog/icons'
+
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import React from 'react'
-import { Transition } from 'react-transition-group'
+import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
 
 import { InsightColor } from '~/types'
 
@@ -28,13 +30,15 @@ export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>
     content?: JSX.Element | null
     metaDetails?: JSX.Element | null
     /** Buttons to show in the editing controls dropdown. */
-    moreButtons: JSX.Element
+    moreButtons?: JSX.Element
     /** Tooltip for the editing controls dropdown. */
     moreTooltip?: string
     /** Tooltip for the details button. */
     detailsTooltip?: string
     topHeading?: JSX.Element | null
     samplingFactor?: number | null
+    /** Additional controls to show in the top controls area */
+    extraControls?: JSX.Element | null
 }
 
 export function CardMeta({
@@ -51,6 +55,7 @@ export function CardMeta({
     detailsTooltip,
     className,
     samplingFactor,
+    extraControls,
 }: CardMetaProps): JSX.Element {
     const { ref: primaryRef, width: primaryWidth } = useResizeObserver()
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
@@ -82,6 +87,7 @@ export function CardMeta({
                             )}
                         </h5>
                         <div className="CardMeta__controls">
+                            {extraControls}
                             {showDetailsControls && setAreDetailsShown && (
                                 <Tooltip title={detailsTooltip}>
                                     <LemonButton

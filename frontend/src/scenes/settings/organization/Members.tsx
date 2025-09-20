@@ -1,11 +1,14 @@
+import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
+
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -19,14 +22,13 @@ import {
     membershipLevelToName,
     organizationMembershipLevelIntegers,
 } from 'lib/utils/permissioning'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { twoFactorLogic } from 'scenes/authentication/twoFactorLogic'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, OrganizationMemberType } from '~/types'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 function RemoveMemberModal({ member }: { member: OrganizationMemberType }): JSX.Element {
     const { user } = useValues(userLogic)

@@ -1,5 +1,6 @@
 import { actions, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 
 import type { stackFrameLogicType } from './stackFrameLogicType'
@@ -39,6 +40,7 @@ export const stackFrameLogic = kea<stackFrameLogicType>([
                         return values.stackFrameRecords
                     }
                     const { results } = await api.errorTracking.stackFrames(rawIds)
+
                     return mapStackFrameRecords(results, values.stackFrameRecords)
                 },
                 loadForSymbolSet: async ({ symbolSetId }) => {

@@ -1,6 +1,6 @@
+from collections.abc import Callable
 from functools import lru_cache
 from typing import Optional, TypeVar, Union
-from collections.abc import Callable
 
 from posthog.utils import str_to_bool
 

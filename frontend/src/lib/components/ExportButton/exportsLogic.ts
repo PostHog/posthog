@@ -1,11 +1,13 @@
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
+
 import api from 'lib/api'
-import { downloadBlob, downloadExportedAsset, TriggerExportProps } from 'lib/components/ExportButton/exporter'
+import { TriggerExportProps, downloadBlob, downloadExportedAsset } from 'lib/components/ExportButton/exporter'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { delay } from 'lib/utils'
+import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -31,16 +33,21 @@ export const exportsLogic = kea<exportsLogicType>([
         addFresh: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
         removeFresh: (exportedAsset: ExportedAssetType) => ({ exportedAsset }),
         createStaticCohort: (name: string, query: AnyDataNode) => ({ query, name }),
+        setAssetFormat: (format: ExporterFormat | null) => ({ format }),
         startReplayExport: (
             sessionRecordingId: string,
+            format?: ExporterFormat,
             timestamp?: number,
+            duration?: number,
+            mode?: SessionRecordingPlayerMode,
             options?: {
                 width?: number
                 height?: number
                 css_selector?: string
                 filename?: string
             }
-        ) => ({ sessionRecordingId, timestamp, options }),
+        ) => ({ sessionRecordingId, format, timestamp, duration, mode, options }),
+        startHeatmapExport: (export_context: ExportContext) => ({ export_context }),
     }),
 
     connect(() => ({
@@ -52,6 +59,12 @@ export const exportsLogic = kea<exportsLogicType>([
             [] as ExportedAssetType[],
             {
                 loadExportsSuccess: (_, { exports }) => exports,
+            },
+        ],
+        assetFormat: [
+            null as ExporterFormat | null,
+            {
+                setAssetFormat: (_, { format }) => format,
             },
         ],
         freshUndownloadedExports: [
@@ -119,9 +132,19 @@ export const exportsLogic = kea<exportsLogicType>([
                 lemonToast.error('Cohort save failed')
             }
         },
-        startReplayExport: async ({ sessionRecordingId, timestamp, options }) => {
+        setAssetFormat: () => {
+            actions.loadExports()
+        },
+        startReplayExport: async ({
+            sessionRecordingId,
+            format = ExporterFormat.PNG,
+            timestamp,
+            duration = 5,
+            mode = SessionRecordingPlayerMode.Screenshot,
+            options,
+        }) => {
             const exportData: TriggerExportProps = {
-                export_format: ExporterFormat.PNG,
+                export_format: format,
                 export_context: {
                     session_recording_id: sessionRecordingId,
                     timestamp: timestamp,
@@ -129,20 +152,38 @@ export const exportsLogic = kea<exportsLogicType>([
                     width: options?.width || 1400,
                     height: options?.height || 600,
                     filename: options?.filename || `replay-${sessionRecordingId}${timestamp ? `-t${timestamp}` : ''}`,
+                    duration: duration,
+                    mode: mode,
                 },
+            }
+
+            actions.startExport(exportData)
+        },
+        startHeatmapExport: async ({ export_context }) => {
+            const exportData: TriggerExportProps = {
+                export_format: ExporterFormat.PNG,
+                export_context: export_context,
             }
 
             actions.startExport(exportData)
         },
     })),
 
-    loaders(() => ({
+    loaders(({ values }) => ({
         exports: [
             [] as ExportedAssetType[],
             {
                 loadExports: async (_, breakpoint) => {
                     await breakpoint(100)
-                    const response = await api.exports.list()
+                    const params: Record<string, any> = {}
+
+                    // Add format filter if set
+                    const format = values.assetFormat
+                    if (format) {
+                        params.export_format = format
+                    }
+
+                    const response = await api.exports.list(undefined, params)
                     breakpoint()
 
                     return response.results

@@ -9,7 +9,6 @@ interface DetailsModalProps {
     isOpen: boolean
     onClose: () => void
     metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery
-    metricIndex: number
     isSecondary: boolean
     result: any
     experiment: Experiment
@@ -21,7 +20,6 @@ export function DetailsModal({
     metric,
     result,
     experiment,
-    metricIndex,
     isSecondary,
 }: DetailsModalProps): JSX.Element {
     // :KLUDGE: workaround until we pass metric into the Frequentist result response
@@ -43,7 +41,6 @@ export function DetailsModal({
                 result={result}
                 experiment={experiment}
                 metric={metric as ExperimentMetric}
-                metricIndex={metricIndex}
                 isSecondary={isSecondary}
             />
         </LemonModal>

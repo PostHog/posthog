@@ -1,12 +1,8 @@
 from django.conf import settings
 
-from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
-from posthog.clickhouse.table_engines import (
-    Distributed,
-    ReplicationScheme,
-    AggregatingMergeTree,
-)
+from posthog.clickhouse.kafka_engine import trim_quotes_expr
+from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
 
 # V1 Sessions table
 TABLE_BASE_NAME = "sessions"

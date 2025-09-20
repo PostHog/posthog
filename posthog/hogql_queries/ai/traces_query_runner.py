@@ -6,13 +6,6 @@ from uuid import UUID
 import orjson
 import structlog
 
-from posthog.hogql import ast
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_select
-from posthog.hogql.property import property_to_expr
-from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.hogql_queries.query_runner import QueryRunner
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import (
     CachedTracesQueryResponse,
     IntervalType,
@@ -23,6 +16,15 @@ from posthog.schema import (
     TracesQuery,
     TracesQueryResponse,
 )
+
+from posthog.hogql import ast
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.parser import parse_select
+from posthog.hogql.property import property_to_expr
+
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 logger = structlog.get_logger(__name__)
 
@@ -48,9 +50,8 @@ class TracesQueryDateRange(QueryDateRange):
         return super().date_to() + timedelta(minutes=self.CAPTURE_RANGE_MINUTES)
 
 
-class TracesQueryRunner(QueryRunner):
+class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
     query: TracesQuery
-    response: TracesQueryResponse
     cached_response: CachedTracesQueryResponse
     paginator: HogQLHasMorePaginator
 
@@ -62,7 +63,7 @@ class TracesQueryRunner(QueryRunner):
             offset=self.query.offset,
         )
 
-    def calculate(self):
+    def _calculate(self):
         with self.timings.measure("traces_query_hogql_execute"):
             # Calculate max number of events needed with current offset and limit
             limit_value = self.query.limit if self.query.limit else 100
@@ -74,7 +75,6 @@ class TracesQueryRunner(QueryRunner):
                 placeholders={
                     "subquery_conditions": self._get_subquery_filter(),
                     "filter_conditions": self._get_where_clause(),
-                    "return_full_trace": ast.Constant(value=1 if self.query.traceId is not None else 0),
                     "pagination_limit": ast.Constant(value=pagination_limit),
                 },
                 team=self.team,
@@ -102,7 +102,7 @@ class TracesQueryRunner(QueryRunner):
             WITH relevant_trace_ids AS (
                 SELECT properties.$ai_trace_id as trace_id
                 FROM events
-                WHERE event IN ('$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback', '$ai_trace')
+                WHERE event IN ('$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace')
                   AND properties.$ai_trace_id IS NOT NULL
                   AND {subquery_conditions}
                 ORDER BY timestamp DESC
@@ -121,7 +121,7 @@ class TracesQueryRunner(QueryRunner):
                 round(
                     sumIf(toFloat(properties.$ai_latency),
                         properties.$ai_parent_id IS NULL
-                        OR properties.$ai_parent_id = properties.$ai_trace_id
+                        OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
                     ), 2
                 ) AS total_latency,
                 sumIf(toFloat(properties.$ai_input_tokens),
@@ -145,21 +145,11 @@ class TracesQueryRunner(QueryRunner):
                           event = '$ai_generation'
                     ), 4
                 ) AS total_cost,
-                IF({return_full_trace},
-                    arraySort(
-                        x -> x.3,
+                arrayDistinct(
+                    arraySort(x -> x.3,
                         groupArrayIf(
                             tuple(uuid, event, timestamp, properties),
-                            event != '$ai_trace'
-                        )
-                    ),
-                    arrayFilter(
-                        x -> x.2 IN ('$ai_metric','$ai_feedback'),
-                        arraySort(x -> x.3,
-                            groupArrayIf(
-                                tuple(uuid, event, timestamp, properties),
-                                event != '$ai_trace'
-                            )
+                            event IN ('$ai_metric', '$ai_feedback') OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
                         )
                     )
                 ) AS events,
@@ -169,14 +159,20 @@ class TracesQueryRunner(QueryRunner):
                 argMinIf(properties.$ai_output_state,
                          timestamp, event = '$ai_trace'
                 ) AS output_state,
-                argMinIf(
-                    ifNull(properties.$ai_span_name, properties.$ai_trace_name),
-                    timestamp,
-                    event = '$ai_trace'
+                ifNull(
+                    argMinIf(
+                        ifNull(properties.$ai_span_name, properties.$ai_trace_name),
+                        timestamp,
+                        event = '$ai_trace'
+                    ),
+                    argMin(
+                        ifNull(properties.$ai_span_name, properties.$ai_trace_name),
+                        timestamp,
+                    )
                 ) AS trace_name
             FROM events
             WHERE event IN (
-                '$ai_span', '$ai_generation', '$ai_metric', '$ai_feedback', '$ai_trace'
+                '$ai_span', '$ai_generation', '$ai_embedding', '$ai_metric', '$ai_feedback', '$ai_trace'
             )
               AND properties.$ai_trace_id IN (SELECT trace_id FROM relevant_trace_ids)
               AND {filter_conditions}
@@ -312,15 +308,6 @@ class TracesQueryRunner(QueryRunner):
             with self.timings.measure("test_account_filters"):
                 for prop in self.team.test_account_filters or []:
                     where_exprs.append(property_to_expr(prop, self.team))
-
-        if self.query.traceId is not None:
-            where_exprs.append(
-                ast.CompareOperation(
-                    left=ast.Field(chain=["properties", "$ai_trace_id"]),
-                    op=ast.CompareOperationOp.Eq,
-                    right=ast.Constant(value=self.query.traceId),
-                ),
-            )
 
         return ast.And(exprs=where_exprs)
 

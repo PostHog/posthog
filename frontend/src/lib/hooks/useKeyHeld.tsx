@@ -1,5 +1,6 @@
-import { useEventListener } from 'lib/hooks/useEventListener'
 import { DependencyList, useEffect, useRef, useState } from 'react'
+
+import { useEventListener } from 'lib/hooks/useEventListener'
 
 export function useKeyHeld(key: string, deps?: DependencyList): boolean {
     const keysHeldRef = useRef(new Set<string>())

@@ -1,9 +1,10 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { randomBytes } from 'crypto'
 import crypto from 'crypto'
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 import { Readable } from 'stream'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import {
     ClickHouseTimestamp,

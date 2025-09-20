@@ -1,12 +1,13 @@
 import { Meta } from '@storybook/react'
 import { useActions } from 'kea'
+
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { mswDecorator } from '~/mocks/browser'
 
 import { CommandBar } from './CommandBar'
-import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const SEARCH_RESULT = {
     results: [

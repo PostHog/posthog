@@ -1,34 +1,37 @@
-import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+
 import { PropertyStatusControl } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { definitionEditLogic } from 'scenes/data-management/definition/definitionEditLogic'
-import { definitionLogic, DefinitionLogicProps } from 'scenes/data-management/definition/definitionLogic'
+import { DefinitionLogicProps, definitionLogic } from 'scenes/data-management/definition/definitionLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
 import { getFilterLabel, isCoreFilter } from '~/taxonomy/helpers'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { AvailableFeature } from '~/types'
 
-export const scene: SceneExport = {
+import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
+
+export const scene: SceneExport<DefinitionLogicProps> = {
     component: DefinitionEdit,
     logic: definitionLogic,
-    paramsToProps: ({ params: { id } }): DefinitionLogicProps => ({
-        id,
-    }),
+    paramsToProps: ({ params: { id } }) => ({ id }),
 }
 
-export function DefinitionEdit(props: DefinitionLogicProps = {}): JSX.Element {
+export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
     const logic = definitionEditLogic(props)
     const { definitionLoading, definitionMissing, hasTaxonomyFeatures, isProperty } = useValues(definitionLogic(props))
     const { editDefinition } = useValues(logic)
@@ -73,6 +76,29 @@ export function DefinitionEdit(props: DefinitionLogicProps = {}): JSX.Element {
                 }
             />
 
+            <SceneTitleSection
+                name={getFilterLabel(editDefinition.name, TaxonomicFilterGroupType.Events) || ''}
+                resourceType={{
+                    type: isProperty ? 'property definition' : 'event definition',
+                    forceIcon: isProperty
+                        ? getPropertyDefinitionIcon(editDefinition)
+                        : getEventDefinitionIcon(editDefinition),
+                }}
+                forceBackTo={
+                    isProperty
+                        ? {
+                              path: urls.propertyDefinitions(),
+                              name: 'Property definitions',
+                              key: 'properties',
+                          }
+                        : {
+                              path: urls.eventDefinitions(),
+                              name: 'Event definitions',
+                              key: 'events',
+                          }
+                }
+            />
+
             {definitionLoading ? (
                 <div className="deprecated-space-y-4 mt-4">
                     <LemonSkeleton className="h-10 w-1/3" />
@@ -81,12 +107,9 @@ export function DefinitionEdit(props: DefinitionLogicProps = {}): JSX.Element {
                 </div>
             ) : (
                 <div className="my-4 deprecated-space-y-4">
-                    <div>
-                        <h1>Editing "{getFilterLabel(editDefinition.name, TaxonomicFilterGroupType.Events) || ''}"</h1>
-                        <div className="flex flex-wrap items-center gap-2 text-secondary">
-                            <div>{isProperty ? 'Property' : 'Event'} name:</div>
-                            <LemonTag className="font-mono">{editDefinition.name}</LemonTag>
-                        </div>
+                    <div className="flex flex-wrap items-center gap-2 text-secondary">
+                        <div>{isProperty ? 'Property' : 'Event'} name:</div>
+                        <LemonTag className="font-mono">{editDefinition.name}</LemonTag>
                     </div>
                     {hasTaxonomyFeatures ? (
                         <>

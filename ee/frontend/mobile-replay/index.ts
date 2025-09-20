@@ -1,6 +1,7 @@
-import { eventWithTime } from '@posthog/rrweb-types'
 import Ajv, { ErrorObject } from 'ajv'
 import posthog from 'posthog-js'
+
+import { eventWithTime } from '@posthog/rrweb-types'
 
 import { mobileEventWithTime } from './mobile.types'
 import mobileSchema from './schema/mobile/rr-mobile-schema.json'

@@ -1,14 +1,10 @@
 from django.conf import settings
 
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine, ttl_period
-from posthog.clickhouse.table_engines import (
-    Distributed,
-    ReplacingMergeTree,
-    ReplicationScheme,
-)
+from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS
-from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 
 SESSION_RECORDING_EVENTS_DATA_TABLE = lambda: "sharded_session_recording_events"
 

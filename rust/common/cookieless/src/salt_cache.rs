@@ -307,7 +307,7 @@ mod tests {
         let salt_base64 = "AAAAAAAAAAAAAAAAAAAAAA=="; // 16 bytes of zeros
         let salt = general_purpose::STANDARD.decode(salt_base64).unwrap();
         let today = Utc::now().format("%Y-%m-%d").to_string();
-        let redis_key = format!("cookieless_salt:{}", today);
+        let redis_key = format!("cookieless_salt:{today}");
 
         mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
         let redis_client = Arc::new(mock_redis);
@@ -335,7 +335,7 @@ mod tests {
         let salt_base64 = "AAAAAAAAAAAAAAAAAAAAAA=="; // 16 bytes of zeros
         let salt = general_purpose::STANDARD.decode(salt_base64).unwrap();
         let today = Utc::now().format("%Y-%m-%d").to_string();
-        let redis_key = format!("cookieless_salt:{}", today);
+        let redis_key = format!("cookieless_salt:{today}");
 
         mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
         let redis_client = Arc::new(mock_redis);

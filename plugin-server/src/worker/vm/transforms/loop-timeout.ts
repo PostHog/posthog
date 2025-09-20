@@ -1,7 +1,6 @@
 // Inspiration:
 // https://medium.com/@bvjebin/js-infinite-loops-killing-em-e1c2f5f2db7f
 // https://github.com/jsbin/loop-protect/blob/master/lib/index.js
-
 import * as types from '@babel/types'
 
 import { PluginGen } from './common'

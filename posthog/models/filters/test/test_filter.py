@@ -1,15 +1,9 @@
-import datetime
 import json
-from typing import Any, Optional, cast
+import datetime
 from collections.abc import Callable
+from typing import Any, Optional, cast
 
-from django.db.models import Q, Func, F, CharField
 from freezegun import freeze_time
-
-from posthog.constants import FILTER_TEST_ACCOUNTS
-from posthog.models import Cohort, Filter, Person, Team
-from posthog.models.property import Property
-from posthog.queries.base import properties_to_Q, property_group_to_Q
 from posthog.test.base import (
     BaseTest,
     QueryMatchingTest,
@@ -18,6 +12,13 @@ from posthog.test.base import (
     snapshot_postgres_queries,
     snapshot_postgres_queries_context,
 )
+
+from django.db.models import CharField, F, Func, Q
+
+from posthog.constants import FILTER_TEST_ACCOUNTS
+from posthog.models import Cohort, Filter, Person, Team
+from posthog.models.property import Property
+from posthog.queries.base import properties_to_Q, property_group_to_Q
 
 
 class TestFilter(BaseTest):

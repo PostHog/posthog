@@ -1,12 +1,16 @@
 import { useValues } from 'kea'
+import { combineUrl } from 'kea-router'
+
+import { IconChevronRight } from '@posthog/icons'
+
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
     DropdownMenuItem,
-    DropdownMenuSub,
-    DropdownMenuSubTrigger,
-    DropdownMenuSubContent,
     DropdownMenuSeparator,
+    DropdownMenuSub,
+    DropdownMenuSubContent,
+    DropdownMenuSubTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { urls } from 'scenes/urls'
@@ -14,8 +18,6 @@ import { urls } from 'scenes/urls'
 import { ReplayTabs } from '~/types'
 
 import { CustomMenuProps } from '../types'
-import { combineUrl } from 'kea-router'
-import { IconChevronRight } from '@posthog/icons'
 
 export function SessionReplayMenuItems({
     MenuItem = DropdownMenuItem,

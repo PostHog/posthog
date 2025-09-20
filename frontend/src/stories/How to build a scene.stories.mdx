@@ -41,7 +41,7 @@ export const scene: SceneExport = {
 Create the logic: `frontend/src/scenes/dashboard/dashboardsLogic.tsx`
 
 ```ts
-import { kea, reducers, path } from 'kea'
+import { kea, path, reducers } from 'kea'
 
 export const dashboardsLogic = kea([
     path(['scenes', 'dashboard', 'dashboardsLogic']),
@@ -150,7 +150,7 @@ export function Dashboard ({ id }: { id?: string } = {}): JSX.Element {
 Create the logic: `frontend/src/scenes/dashboard/dashboardLogic.tsx`
 
 ```ts
-import { kea, reducers, path, props, key } from 'kea'
+import { kea, key, path, props, reducers } from 'kea'
 
 export interface DashboardLogicProps {
     id: number | 'new'
@@ -234,13 +234,15 @@ In the same folder as your component, create a file like `frontend/src/scenes/da
 If you need a lot of `.json` files for mocked data, create a `__mocks__` subdirectory for those files, just like you would with `jest`.
 
 ```tsx
-import { useEffect } from 'react'
 import { Meta, StoryObj } from '@storybook/react'
-import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
-import { App } from 'scenes/App'
 import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
+import { useEffect } from 'react'
+
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { App } from 'scenes/App'
+import { urls } from 'scenes/urls'
+
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 
 export default {
     title: 'Scenes-App/Dashboard',

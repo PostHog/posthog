@@ -1,11 +1,12 @@
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+
+from django.utils.timezone import now
+
+from dateutil.relativedelta import relativedelta
+
 from posthog.models import Team
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
-from posthog.test.base import ClickhouseTestMixin, APIBaseTest
-from dateutil.relativedelta import relativedelta
-from django.utils.timezone import now
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 
 class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
@@ -23,6 +24,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             keypress_count=2,
             mouse_activity_count=2,
             active_milliseconds=50 * 1000 * 0.5,
+            retention_period_days=30,
         )
         produce_replay_summary(
             session_id="2",
@@ -38,6 +40,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             block_urls=["s3://block-1"],
             block_first_timestamps=[self.base_time],
             block_last_timestamps=[self.base_time + relativedelta(seconds=2)],
+            retention_period_days=90,
         )
         produce_replay_summary(
             session_id="3",
@@ -59,6 +62,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
                 self.base_time + relativedelta(seconds=2),
                 self.base_time + relativedelta(seconds=3),
             ],
+            retention_period_days=365,
         )
 
     def test_get_metadata(self) -> None:
@@ -78,6 +82,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "first_url": "https://example.io/home",
             "keypress_count": 2,
             "mouse_activity_count": 2,
+            "retention_period_days": 30,
             "start_time": self.base_time,
             "snapshot_source": "web",
         }
@@ -99,6 +104,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "duration": 2,
             "first_url": "https://example.io/home",
             "keypress_count": 200,
+            "retention_period_days": 90,
             "mouse_activity_count": 300,
             "snapshot_source": "web",
         }
@@ -127,6 +133,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "first_url": "https://example.io/1",
             "keypress_count": 20,
             "mouse_activity_count": 30,
+            "retention_period_days": 365,
             "snapshot_source": "web",
         }
 
@@ -168,6 +175,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "first_url": "https://example.io/home",
             "keypress_count": 2,
             "mouse_activity_count": 2,
+            "retention_period_days": 30,
             "start_time": self.base_time,
             "snapshot_source": "web",
         }
@@ -187,6 +195,7 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
             "first_url": "https://example.io/home",
             "keypress_count": 200,
             "mouse_activity_count": 300,
+            "retention_period_days": 90,
             "snapshot_source": "web",
         }
 

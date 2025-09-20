@@ -1,9 +1,10 @@
-import posthoganalytics
 from django.contrib.auth.models import AbstractBaseUser
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
-from rest_framework import exceptions
-from posthog.exceptions_capture import capture_exception
 
+import posthoganalytics
+from rest_framework import exceptions
+
+from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.tasks.email import send_email_verification
 
@@ -27,7 +28,7 @@ class EmailVerificationTokenGenerator(PasswordResetTokenGenerator):
         usable_user: User = User.objects.get(pk=user.pk)
         login_timestamp = "" if user.last_login is None else user.last_login.replace(microsecond=0, tzinfo=None)
 
-        return f"{usable_user.pk}{usable_user.email}{usable_user.pending_email}{login_timestamp}{timestamp}"
+        return f"{usable_user.pk}{usable_user.email}{usable_user.is_email_verified}{usable_user.pending_email}{login_timestamp}{timestamp}"
 
 
 email_verification_token_generator = EmailVerificationTokenGenerator()

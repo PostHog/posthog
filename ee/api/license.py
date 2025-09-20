@@ -1,16 +1,18 @@
-import posthoganalytics
-import requests
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
+
+import requests
+import posthoganalytics
 from rest_framework import mixins, request, serializers, viewsets
 from rest_framework.response import Response
 
-from ee.models.license import License, LicenseError
 from posthog.cloud_utils import is_cloud
 from posthog.event_usage import groups
 from posthog.models.organization import Organization
 from posthog.models.team import Team
+
+from ee.models.license import License, LicenseError
 
 
 class LicenseSerializer(serializers.ModelSerializer):

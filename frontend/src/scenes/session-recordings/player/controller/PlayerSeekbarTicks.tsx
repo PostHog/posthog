@@ -1,21 +1,23 @@
 import clsx from 'clsx'
+import React, { MutableRefObject, memo } from 'react'
+
+import { IconComment } from '@posthog/icons'
+
+import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { autoCaptureEventToDescription } from 'lib/utils'
-import React, { memo, MutableRefObject } from 'react'
 import {
     InspectorListItem,
     InspectorListItemComment,
     InspectorListItemEvent,
     InspectorListItemNotebookComment,
 } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+import { isSingleEmoji } from 'scenes/session-recordings/utils'
 
 import { UserActivity } from './UserActivity'
-import { isSingleEmoji } from 'scenes/session-recordings/utils'
-import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
-import { IconComment } from '@posthog/icons'
 
 function isEventItem(x: InspectorListItem): x is InspectorListItemEvent {
     return 'data' in x && !!x.data && 'event' in x.data

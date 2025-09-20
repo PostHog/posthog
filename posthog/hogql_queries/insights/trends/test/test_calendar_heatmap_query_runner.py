@@ -1,23 +1,13 @@
 from typing import Optional
 
 from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+
+from posthog.schema import ActionConversionGoal, CalendarHeatmapQuery, CustomEventConversionGoal, DateRange, EventsNode
 
 from posthog.hogql_queries.insights.trends.calendar_heatmap_query_runner import CalendarHeatmapQueryRunner
-from posthog.models.utils import uuid7
-from posthog.schema import (
-    DateRange,
-    CalendarHeatmapQuery,
-    EventsNode,
-    ActionConversionGoal,
-    CustomEventConversionGoal,
-)
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-)
 from posthog.models import Action
+from posthog.models.utils import uuid7
 
 
 class TestCalendarHeatmapQueryRunner(ClickhouseTestMixin, APIBaseTest):

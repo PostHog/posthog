@@ -1,23 +1,26 @@
+import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
 import { IconArrowLeft, IconArrowRight, IconChatHelp, IconCopy } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonInput, LemonModal, LemonTabs, SpinnerOverlay } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { useEffect, useState } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { InviteMembersButton } from '~/layout/navigation/TopBar/AccountPopover'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { type SDK, SDKInstructionsMap, SDKTag, SidePanelTab, OnboardingStepKey, ProductKey } from '~/types'
+import { InviteMembersButton } from '~/layout/navigation/TopBar/AccountPopover'
+import { OnboardingStepKey, ProductKey, type SDK, SDKInstructionsMap, SDKTag, SidePanelTab } from '~/types'
 
-import { onboardingLogic } from '../onboardingLogic'
 import { OnboardingStep } from '../OnboardingStep'
-import { useInstallationComplete } from './hooks/useInstallationComplete'
+import { onboardingLogic } from '../onboardingLogic'
 import { RealtimeCheckIndicator } from './RealtimeCheckIndicator'
-import { sdksLogic } from './sdksLogic'
 import { SDKSnippet } from './SDKSnippet'
+import { useInstallationComplete } from './hooks/useInstallationComplete'
+import { sdksLogic } from './sdksLogic'
+
 export type SDKsProps = {
     sdkInstructionMap: SDKInstructionsMap
     productKey: ProductKey

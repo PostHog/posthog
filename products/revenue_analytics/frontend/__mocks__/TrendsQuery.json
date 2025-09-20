@@ -2,9 +2,9 @@
     "cache_key": "cache_bf0485f087120264df9f35c33170f487",
     "cache_target_age": "2025-04-19T15:08:34.498483Z",
     "calculation_trigger": null,
-    "error": "",
+    "error": null,
     "hasMore": false,
-    "hogql": "... [omitted for brevity] ...",
+    "hogql": null,
     "is_cached": false,
     "last_refresh": "2025-04-18T15:08:34.498483Z",
     "modifiers": {

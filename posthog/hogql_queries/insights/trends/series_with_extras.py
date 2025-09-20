@@ -1,5 +1,6 @@
 from typing import Optional, Union
-from posthog.schema import TrendsQuery, ActionsNode, EventsNode, DataWarehouseNode
+
+from posthog.schema import ActionsNode, DataWarehouseNode, EventsNode, TrendsQuery
 
 
 class SeriesWithExtras:

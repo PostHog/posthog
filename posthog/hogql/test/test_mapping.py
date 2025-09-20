@@ -1,22 +1,23 @@
-from posthog.hogql.ast import FloatType, IntegerType, DateType
+from datetime import UTC, date, datetime
+from typing import Optional
+
+from freezegun import freeze_time
+from posthog.test.base import BaseTest
+
+from posthog.hogql.ast import DateType, FloatType, IntegerType
 from posthog.hogql.base import UnknownType
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.functions.mapping import (
+    HOGQL_CLICKHOUSE_FUNCTIONS,
+    HogQLFunctionMeta,
+    compare_types,
+    find_hogql_aggregation,
+    find_hogql_function,
+    find_hogql_posthog_function,
+)
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import print_ast
-from posthog.test.base import BaseTest
-from typing import Optional
-from posthog.hogql.functions.mapping import (
-    compare_types,
-    find_hogql_function,
-    find_hogql_aggregation,
-    find_hogql_posthog_function,
-    HogQLFunctionMeta,
-    HOGQL_CLICKHOUSE_FUNCTIONS,
-)
-from datetime import datetime, UTC
-from freezegun import freeze_time
 from posthog.hogql.query import execute_hogql_query
-from datetime import date
 
 
 class TestMappings(BaseTest):
@@ -110,6 +111,9 @@ class TestMappings(BaseTest):
                     make_timestamp(2023, 1, 1, 12, 34, 56) as timestamp_result,
                     make_timestamptz(2023, 1, 1, 12, 34, 56, 'UTC') as timestamptz_result,
                     timezone('UTC', toDateTime('2023-01-01 13:45:32')) as timezone_result,
+                    toStartOfInterval(toDateTime('2023-01-01 13:45:32'), toIntervalHour(1)) as to_start_of_interval_result,
+                    toStartOfInterval(toDateTime('2023-01-01 13:45:32'), toIntervalHour(1), toDateTime('2023-01-01 13:15:00')) as to_start_of_interval_origin_result,
+                    date_bin(toIntervalHour(1), toDateTime('2023-01-01 13:45:32'), toDateTime('2023-01-01 13:15:00')) as date_bin_result,
                     toYear(toDateTime('2023-01-01 13:45:32')) as date_part_year,
                     toMonth(toDateTime('2023-01-01 13:45:32')) as date_part_month,
                     toDayOfMonth(toDateTime('2023-01-01 13:45:32')) as date_part_day,
@@ -199,6 +203,9 @@ class TestMappings(BaseTest):
         self.assertEqual(result_dict["timestamp_result"], datetime(2023, 1, 1, 12, 34, 56, tzinfo=UTC))
         self.assertEqual(result_dict["timestamptz_result"], datetime(2023, 1, 1, 12, 34, 56, tzinfo=UTC))
         self.assertEqual(result_dict["timezone_result"], datetime(2023, 1, 1, 13, 45, 32, tzinfo=UTC))
+        self.assertEqual(result_dict["to_start_of_interval_result"], datetime(2023, 1, 1, 13, 0, tzinfo=UTC))
+        self.assertEqual(result_dict["to_start_of_interval_origin_result"], datetime(2023, 1, 1, 13, 15, tzinfo=UTC))
+        self.assertEqual(result_dict["date_bin_result"], datetime(2023, 1, 1, 13, 15, tzinfo=UTC))
         self.assertEqual(result_dict["date_part_year"], 2023)
         self.assertEqual(result_dict["date_part_month"], 1)
         self.assertEqual(result_dict["date_part_day"], 1)
@@ -300,3 +307,25 @@ class TestMappings(BaseTest):
                 "d": "50",
             },
         )
+
+    def test_language_code_to_name_function(self):
+        """Test the languageCodeToName function that maps language codes to full language names."""
+        response = execute_hogql_query(
+            """
+            SELECT
+                languageCodeToName('en') as english_name,
+                languageCodeToName('es') as spanish_name,
+                languageCodeToName('invalid') as invalid_code,
+                languageCodeToName(NULL) as null_code
+            """,
+            self.team,
+        )
+
+        if response.columns is None:
+            raise ValueError("Query returned no columns")
+        result_dict = dict(zip(response.columns, response.results[0]))
+
+        self.assertEqual(result_dict["english_name"], "English")
+        self.assertEqual(result_dict["spanish_name"], "Spanish")
+        self.assertEqual(result_dict["invalid_code"], "Unknown")
+        self.assertEqual(result_dict["null_code"], "Unknown")

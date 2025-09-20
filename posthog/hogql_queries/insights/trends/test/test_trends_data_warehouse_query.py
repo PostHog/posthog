@@ -1,36 +1,35 @@
 from datetime import datetime
-from freezegun import freeze_time
 from pathlib import Path
+
+from freezegun import freeze_time
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
+
 from django.test import override_settings
 
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.timings import HogQLTimings
-from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.schema import (
     BreakdownFilter,
     BreakdownType,
     ChartDisplayType,
-    DateRange,
-    DataWarehouseNode,
     DataWarehouseEventsModifier,
-    TrendsQuery,
-    TrendsFilter,
+    DataWarehouseNode,
+    DataWarehousePersonPropertyFilter,
+    DateRange,
     EventsNode,
+    PropertyOperator,
+    TrendsFilter,
+    TrendsQuery,
 )
+
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.test.base import BaseTest, _create_event
+from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.timings import HogQLTimings
+
+from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import clean_entity_properties
+from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.warehouse.models import DataWarehouseJoin
 from posthog.warehouse.test.utils import create_data_warehouse_table_from_csv
-
-from posthog.test.base import (
-    ClickhouseTestMixin,
-    snapshot_clickhouse_queries,
-)
-from posthog.hogql_queries.legacy_compatibility.filter_to_query import (
-    clean_entity_properties,
-)
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.trendquery"
 
@@ -87,10 +86,10 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
             csv_path=Path(__file__).parent / "data" / "trends_data.csv",
             table_name="test_table_1",
             table_columns={
-                "id": "String",
-                "created": "DateTime64(3, 'UTC')",
-                "prop_1": "String",
-                "prop_2": "String",
+                "id": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "created": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField"},
+                "prop_1": {"clickhouse": "String", "hogql": "StringDatabaseField"},
+                "prop_2": {"clickhouse": "String", "hogql": "StringDatabaseField"},
             },
             test_bucket=TEST_BUCKET,
             team=self.team,
@@ -599,3 +598,42 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual("2022-12-01", response.results[0]["days"][0])
         self.assertEqual("2022-12-01", response.results[1]["days"][0])
+
+    @override_settings(IN_UNIT_TESTING=True)
+    @snapshot_clickhouse_queries
+    def test_trends_events_filtering_on_warehouse_person_property(self):
+        table_name = self.setup_data_warehouse()
+
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="properties.email",
+            joining_table_name=table_name,
+            joining_table_key="prop_1",
+            field_name=table_name,
+        )
+
+        _create_event(
+            distinct_id="1",
+            event="$pageview",
+            timestamp="2022-12-01 00:00:00",
+            team=self.team,
+        )
+
+        trends_query = TrendsQuery(
+            kind="TrendsQuery",
+            dateRange=DateRange(date_from="all"),
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    properties=[
+                        DataWarehousePersonPropertyFilter(
+                            key=f"{table_name}.id", operator=PropertyOperator.EXACT, value=["false"]
+                        )
+                    ],
+                ),
+            ],
+        )
+
+        with freeze_time("2023-01-07"):
+            TrendsQueryRunner(team=self.team, query=trends_query).calculate()

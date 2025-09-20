@@ -1,14 +1,17 @@
-import { actions, BuiltLogic, connect, kea, listeners, path, reducers } from 'kea'
+import { BuiltLogic, actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
-import api from 'lib/api'
-import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import posthog from 'posthog-js'
+
+import api from 'lib/api'
+import { EditorFocusPosition, JSONContent } from 'lib/components/RichContentEditor/types'
+import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import type { notebookLogicType } from 'scenes/notebooks/Notebook/notebookLogicType'
-import { defaultNotebookContent } from 'scenes/notebooks/utils'
 import { notebookPanelLogic } from 'scenes/notebooks/NotebookPanel/notebookPanelLogic'
 import { LOCAL_NOTEBOOK_TEMPLATES } from 'scenes/notebooks/NotebookTemplates/notebookTemplates'
+import { NotebookListItemType, NotebookNodeType, NotebookTarget } from 'scenes/notebooks/types'
+import { defaultNotebookContent } from 'scenes/notebooks/utils'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
@@ -17,8 +20,6 @@ import { InsightVizNode, Node } from '~/queries/schema/schema-general'
 import { DashboardType, QueryBasedInsightModel } from '~/types'
 
 import type { notebooksModelType } from './notebooksModelType'
-import { EditorFocusPosition, JSONContent } from 'lib/components/RichContentEditor/types'
-import { NotebookListItemType, NotebookNodeType, NotebookTarget } from 'scenes/notebooks/types'
 
 export const SCRATCHPAD_NOTEBOOK: NotebookListItemType = {
     id: 'scratchpad',

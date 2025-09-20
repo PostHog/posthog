@@ -1,17 +1,19 @@
-import { LemonButton, LemonTable, LemonTableColumns, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonTable, LemonTableColumns, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+
 import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { defaultQuery } from 'scenes/data-warehouse/utils'
 import { urls } from 'scenes/urls'
 
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ExternalDataSourceSchema } from '~/types'
 
 export const SyncProgressStep = (): JSX.Element => {
     const { sourceId, isWrapped } = useValues(sourceWizardLogic)
     const { cancelWizard } = useActions(sourceWizardLogic)
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(dataWarehouseSettingsLogic)
-
     const source = dataWarehouseSources?.results.find((n) => n.id === sourceId)
     const schemas = source?.schemas ?? []
 
@@ -87,7 +89,7 @@ export const SyncProgressStep = (): JSX.Element => {
     }
 
     return (
-        <div className="flex flex-col gap-2">
+        <SceneSection title="Sit tight as we import your data! After it's done, you will be able to query it in PostHog.">
             <div>
                 <LemonTable
                     emptyState="No schemas selected"
@@ -97,6 +99,6 @@ export const SyncProgressStep = (): JSX.Element => {
                     columns={columns}
                 />
             </div>
-        </div>
+        </SceneSection>
     )
 }

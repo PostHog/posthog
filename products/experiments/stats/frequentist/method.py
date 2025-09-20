@@ -1,13 +1,10 @@
 from dataclasses import dataclass
-from typing import Any, Optional
 from enum import Enum
+from typing import Any, Optional
 
-from ..shared.statistics import AnyStatistic, StatisticError
 from ..shared.enums import DifferenceType
-from .tests import (
-    TestResult,
-    TwoSidedTTest,
-)
+from ..shared.statistics import AnyStatistic, StatisticError
+from .tests import TestResult, TwoSidedTTest
 
 
 class TestType(Enum):

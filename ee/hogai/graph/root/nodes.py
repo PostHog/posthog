@@ -1,9 +1,12 @@
-import math
 import re
+import json
+import math
 from typing import Literal, Optional, TypeVar, cast
 from uuid import uuid4
 
 from django.conf import settings
+
+import posthoganalytics
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     BaseMessage,
@@ -14,21 +17,9 @@ from langchain_core.messages import (
 from langchain_core.prompts import ChatPromptTemplate, PromptTemplate
 from langchain_core.runnables import RunnableConfig
 from langgraph.errors import NodeInterrupt
-import posthoganalytics
 from posthoganalytics import capture_exception
 from pydantic import BaseModel
 
-from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
-from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
-from ee.hogai.llm import MaxChatOpenAI
-
-# Import moved inside functions to avoid circular imports
-from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from posthog.hogql_queries.apply_dashboard_filters import (
-    apply_dashboard_filters_to_dict,
-    apply_dashboard_variables_to_dict,
-)
-from posthog.models.organization import OrganizationMembership
 from posthog.schema import (
     AssistantContextualTool,
     AssistantMessage,
@@ -40,11 +31,27 @@ from posthog.schema import (
     HumanMessage,
     MaxInsightContext,
     MaxUIContext,
+    ReasoningMessage,
     RetentionQuery,
     TrendsQuery,
 )
 
-from ..base import AssistantNode
+from posthog.hogql_queries.apply_dashboard_filters import (
+    apply_dashboard_filters_to_dict,
+    apply_dashboard_variables_to_dict,
+)
+from posthog.models.organization import OrganizationMembership
+
+from ee.hogai.graph.base import AssistantNode
+from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor, SupportedQueryTypes
+from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
+from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
+from ee.hogai.utils.helpers import find_last_ui_context
+from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import AssistantNodeName, BaseState, BaseStateWithMessages, InsightQuery
+from ee.hogai.utils.types.composed import MaxNodeName
+
 from .prompts import (
     ROOT_BILLING_CONTEXT_ERROR_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
@@ -56,6 +63,9 @@ from .prompts import (
     ROOT_INSIGHTS_CONTEXT_PROMPT,
     ROOT_SYSTEM_PROMPT,
     ROOT_UI_CONTEXT_PROMPT,
+    SESSION_SUMMARIZATION_PROMPT_BASE,
+    SESSION_SUMMARIZATION_PROMPT_NO_REPLAY_CONTEXT,
+    SESSION_SUMMARIZATION_PROMPT_WITH_REPLAY_CONTEXT,
 )
 
 # Map query kinds to their respective full UI query classes
@@ -79,6 +89,7 @@ RouteName = Literal[
     "insights_search",
     "billing",
     "session_summarization",
+    "create_dashboard",
 ]
 
 
@@ -104,10 +115,6 @@ class RootNodeUIContextMixin(AssistantNode):
 
         query_runner = AssistantQueryExecutor(self._team, self._utc_now_datetime)
 
-        # Extract global filters and variables override from UI context
-        filters_override = ui_context.filters_override.model_dump() if ui_context.filters_override else None
-        variables_override = ui_context.variables_override if ui_context.variables_override else None
-
         # Format dashboard context with insights
         dashboard_context = ""
         if ui_context.dashboards:
@@ -129,8 +136,6 @@ class RootNodeUIContextMixin(AssistantNode):
                             insight,
                             query_runner,
                             dashboard_filters,
-                            filters_override,
-                            variables_override,
                             heading="####",
                         )
                         if formatted_insight:
@@ -164,9 +169,7 @@ class RootNodeUIContextMixin(AssistantNode):
         if ui_context.insights:
             insights_results = []
             for insight in ui_context.insights:
-                result = self._run_and_format_insight(
-                    config, insight, query_runner, None, filters_override, variables_override, heading="##"
-                )
+                result = self._run_and_format_insight(config, insight, query_runner, None, heading="##")
                 if result:
                     insights_results.append(result)
 
@@ -195,8 +198,6 @@ class RootNodeUIContextMixin(AssistantNode):
         insight: MaxInsightContext,
         query_runner: AssistantQueryExecutor,
         dashboard_filters: Optional[dict] = None,
-        filters_override: Optional[dict] = None,
-        variables_override: Optional[dict] = None,
         heading: Optional[str] = None,
     ) -> str | None:
         """
@@ -219,14 +220,17 @@ class RootNodeUIContextMixin(AssistantNode):
 
             query_obj = cast(SupportedQueryTypes, insight.query)
 
-            if dashboard_filters or filters_override or variables_override:
+            if dashboard_filters or insight.filtersOverride or insight.variablesOverride:
                 query_dict = insight.query.model_dump(mode="json")
                 if dashboard_filters:
                     query_dict = apply_dashboard_filters_to_dict(query_dict, dashboard_filters, self._team)
-                if filters_override:
-                    query_dict = apply_dashboard_filters_to_dict(query_dict, filters_override, self._team)
-                if variables_override:
-                    query_dict = apply_dashboard_variables_to_dict(query_dict, variables_override, self._team)
+                if insight.filtersOverride:
+                    query_dict = apply_dashboard_filters_to_dict(
+                        query_dict, insight.filtersOverride.model_dump(mode="json"), self._team
+                    )
+                if insight.variablesOverride:
+                    variables_overrides = {k: v.model_dump(mode="json") for k, v in insight.variablesOverride.items()}
+                    query_dict = apply_dashboard_variables_to_dict(query_dict, variables_overrides, self._team)
 
                 QueryModel = MAX_SUPPORTED_QUERY_KIND_TO_MODEL[query_kind]
                 query_obj = QueryModel.model_validate(query_dict)
@@ -301,12 +305,38 @@ class RootNode(RootNodeUIContextMixin):
     """
     CONVERSATION_WINDOW_SIZE = 64000
 
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.ROOT
+
+    async def get_reasoning_message(
+        self, input: BaseState, default_message: Optional[str] = None
+    ) -> ReasoningMessage | None:
+        if not isinstance(input, BaseStateWithMessages):
+            return None
+        ui_context = find_last_ui_context(input.messages)
+        if ui_context and (ui_context.dashboards or ui_context.insights):
+            return ReasoningMessage(content="Calculating context")
+        return None
+
     def _has_session_summarization_feature_flag(self) -> bool:
         """
         Check if the user has the session summarization feature flag enabled.
         """
         return posthoganalytics.feature_enabled(
             "max-session-summarization",
+            str(self._user.distinct_id),
+            groups={"organization": str(self._team.organization_id)},
+            group_properties={"organization": {"id": str(self._team.organization_id)}},
+            send_feature_flag_events=False,
+        )
+
+    def _has_insight_search_feature_flag(self) -> bool:
+        """
+        Check if the user has the insight search feature flag enabled.
+        """
+        return posthoganalytics.feature_enabled(
+            "max-ai-insight-search",
             str(self._user.distinct_id),
             groups={"organization": str(self._team.organization_id)},
             group_properties={"organization": {"id": str(self._team.organization_id)}},
@@ -321,16 +351,30 @@ class RootNode(RootNodeUIContextMixin):
         from ee.hogai.tool import get_contextual_tool_class
 
         history, new_window_id = self._construct_and_update_messages_window(state, config)
-        # Build system prompt with conditional session summarization section
+        # Build system prompt with conditional session summarization and insight search sections
         system_prompt_template = ROOT_SYSTEM_PROMPT
         # Check if session summarization is enabled for the user
-        if not self._has_session_summarization_feature_flag():
-            # Remove session summarization section from prompt using regex
+        if self._has_session_summarization_feature_flag():
+            context = self._render_session_summarization_context(config)
+            # Inject session summarization context
             system_prompt_template = re.sub(
-                r"\n?<session_summarization>.*?</session_summarization>", "", system_prompt_template, flags=re.DOTALL
+                r"\n?<session_summarization></session_summarization>", context, system_prompt_template, flags=re.DOTALL
             )
-            # Also remove the reference to session_summarization in basic_functionality
-            system_prompt_template = re.sub(r"\n?\d+\. `session_summarization`.*?[^\n]*", "", system_prompt_template)
+        # Check if insight search is enabled for the user
+        if not self._has_insight_search_feature_flag():
+            # Remove the reference to search_insights in basic_functionality
+            system_prompt_template = re.sub(r"\n?\d+\. `search_insights`.*?[^\n]*", "", system_prompt_template)
+            # Remove the insight_search section from prompt using regex
+            system_prompt_template = re.sub(
+                r"\n?<insight_search>.*?</insight_search>", "", system_prompt_template, flags=re.DOTALL
+            )
+            # Remove the CRITICAL ROUTING LOGIC section when insight search is disabled
+            system_prompt_template = re.sub(
+                r"\n?CRITICAL ROUTING LOGIC:.*?(?=Follow these guidelines when retrieving data:)",
+                "",
+                system_prompt_template,
+                flags=re.DOTALL,
+            )
 
         prompt = (
             ChatPromptTemplate.from_messages(
@@ -443,16 +487,22 @@ class RootNode(RootNodeUIContextMixin):
 
         from ee.hogai.tool import (
             create_and_query_insight,
+            create_dashboard,
             get_contextual_tool_class,
             search_documentation,
             search_insights,
             session_summarization,
         )
 
-        available_tools: list[type[BaseModel]] = [search_insights]
+        available_tools: list[type[BaseModel]] = []
+        # Check if insight search is enabled for the user
+        if self._has_insight_search_feature_flag():
+            available_tools.append(search_insights)
         # Check if session summarization is enabled for the user
         if self._has_session_summarization_feature_flag():
             available_tools.append(session_summarization)
+        # Add dashboard creation tool (always available)
+        available_tools.append(create_dashboard)
         if settings.INKEEP_API_KEY:
             available_tools.append(search_documentation)
         tool_names = self._get_contextual_tools(config).keys()
@@ -579,8 +629,65 @@ class RootNode(RootNodeUIContextMixin):
                 return messages[idx:]
         return messages
 
+    def _render_session_summarization_context(self, config: RunnableConfig) -> str:
+        """Render the user context template with the provided context strings."""
+        search_session_recordings_context = self._get_contextual_tools(config).get("search_session_recordings")
+        if (
+            not search_session_recordings_context
+            or not isinstance(search_session_recordings_context, dict)
+            or not search_session_recordings_context.get("current_filters")
+            or not isinstance(search_session_recordings_context["current_filters"], dict)
+        ):
+            conditional_context = SESSION_SUMMARIZATION_PROMPT_NO_REPLAY_CONTEXT
+        else:
+            current_filters = search_session_recordings_context["current_filters"]
+            conditional_template = PromptTemplate.from_template(
+                SESSION_SUMMARIZATION_PROMPT_WITH_REPLAY_CONTEXT, template_format="mustache"
+            )
+            conditional_context = conditional_template.format_prompt(
+                current_filters=json.dumps(current_filters)
+            ).to_string()
+        template = PromptTemplate.from_template(SESSION_SUMMARIZATION_PROMPT_BASE, template_format="mustache")
+        return template.format_prompt(conditional_context=conditional_context).to_string()
+
 
 class RootNodeTools(AssistantNode):
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.ROOT_TOOLS
+
+    async def get_reasoning_message(
+        self, input: BaseState, default_message: Optional[str] = None
+    ) -> ReasoningMessage | None:
+        if not isinstance(input, BaseStateWithMessages):
+            return None
+        if not input.messages:
+            return None
+        assert isinstance(input.messages[-1], AssistantMessage)
+        tool_calls = input.messages[-1].tool_calls or []
+        assert len(tool_calls) <= 1
+        if len(tool_calls) == 0:
+            return None
+        tool_call = tool_calls[0]
+        content = None
+        if tool_call.name == "create_and_query_insight":
+            content = "Coming up with an insight"
+        elif tool_call.name == "search_documentation":
+            content = "Checking PostHog docs"
+        elif tool_call.name == "retrieve_billing_information":
+            content = "Checking your billing data"
+        else:
+            # This tool should be in CONTEXTUAL_TOOL_NAME_TO_TOOL, but it might not be in the rare case
+            # when the tool has been removed from the backend since the user's frontend was loaded
+            ToolClass = CONTEXTUAL_TOOL_NAME_TO_TOOL.get(tool_call.name)  # type: ignore
+            content = (
+                ToolClass(team=self._team, user=self._user).thinking_message
+                if ToolClass
+                else f"Running tool {tool_call.name}"
+            )
+
+        return ReasoningMessage(content=content) if content else None
+
     async def arun(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_message = state.messages[-1]
         if not isinstance(last_message, AssistantMessage) or not last_message.tool_calls:
@@ -620,17 +727,41 @@ class RootNodeTools(AssistantNode):
             return PartialAssistantState(
                 root_tool_call_id=tool_call.id,
                 session_summarization_query=tool_call.args["session_summarization_query"],
+                # Safety net in case the argument is missing to avoid raising exceptions internally
+                should_use_current_filters=tool_call.args.get("should_use_current_filters", False),
+                summary_title=tool_call.args.get("summary_title"),
+                root_tool_calls_count=tool_call_count + 1,
+            )
+        elif tool_call.name == "create_dashboard":
+            raw_queries = tool_call.args["search_insights_queries"]
+            search_insights_queries = [InsightQuery.model_validate(query) for query in raw_queries]
+
+            return PartialAssistantState(
+                root_tool_call_id=tool_call.id,
+                dashboard_name=tool_call.args.get("dashboard_name"),
+                search_insights_queries=search_insights_queries,
                 root_tool_calls_count=tool_call_count + 1,
             )
         elif ToolClass := get_contextual_tool_class(tool_call.name):
             tool_class = ToolClass(team=self._team, user=self._user, state=state)
-            result = await tool_class.ainvoke(tool_call.model_dump(), config)
-            if not isinstance(result, LangchainToolMessage):
-                raise TypeError(f"Expected a {LangchainToolMessage}, got {type(result)}")
+            try:
+                result = await tool_class.ainvoke(tool_call.model_dump(), config)
+            except Exception as e:
+                capture_exception(
+                    e, distinct_id=self._get_user_distinct_id(config), properties=self._get_debug_props(config)
+                )
+                result = AssistantToolCallMessage(
+                    content="The tool raised an internal error. Do not immediately retry the tool call and explain to the user what happened. If the user asks you to retry, you are allowed to do that.",
+                    id=str(uuid4()),
+                    tool_call_id=tool_call.id,
+                    visible=False,
+                )
+            if not isinstance(result, LangchainToolMessage | AssistantToolCallMessage):
+                raise TypeError(f"Expected a {LangchainToolMessage} or {AssistantToolCallMessage}, got {type(result)}")
 
             # If this is a navigation tool call, pause the graph execution
             # so that the frontend can re-initialise Max with a new set of contextual tools.
-            if tool_call.name == "navigate":
+            if tool_call.name == "navigate" and not isinstance(result, AssistantToolCallMessage):
                 navigate_message = AssistantToolCallMessage(
                     content=str(result.content) if result.content else "",
                     ui_payload={tool_call.name: result.artifact},
@@ -660,8 +791,10 @@ class RootNodeTools(AssistantNode):
                         ui_payload={tool_call.name: result.artifact},
                         id=str(uuid4()),
                         tool_call_id=tool_call.id,
-                        visible=True,
+                        visible=tool_class.show_tool_call_message,
                     )
+                    if not isinstance(result, AssistantToolCallMessage)
+                    else result
                 ],
                 root_tool_calls_count=tool_call_count + 1,
             )
@@ -680,6 +813,8 @@ class RootNodeTools(AssistantNode):
                 tool_call_name = tool_call.name
                 if tool_call_name == "retrieve_billing_information":
                     return "billing"
+                if tool_call_name == "create_dashboard":
+                    return "create_dashboard"
             if state.root_tool_insight_plan:
                 return "insights"
             elif state.search_insights_query:

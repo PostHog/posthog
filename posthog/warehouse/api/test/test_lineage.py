@@ -1,7 +1,8 @@
 from posthog.test.base import APIBaseTest
+
+from posthog.test.db_context_capturing import capture_db_queries
 from posthog.warehouse.api.lineage import topological_sort
 from posthog.warehouse.models import DataWarehouseSavedQuery, DataWarehouseTable
-from posthog.test.db_context_capturing import capture_db_queries
 
 
 class TestLineage(APIBaseTest):

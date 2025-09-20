@@ -1,12 +1,15 @@
-import { IconGear } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+
+import { IconGear } from '@posthog/icons'
+import { LemonButton, Link } from '@posthog/lemon-ui'
+
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { urls } from 'scenes/urls'
 
-import { ExternalDataSource, PipelineNodeTab, PipelineStage } from '~/types'
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
+import { ExternalDataSource } from '~/types'
 
 import { useSortedPaginatedList } from '../../hooks/useSortedPaginatedList'
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
@@ -102,12 +105,10 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
     }
 
     return (
-        <div>
-            <h3 className="mb-2">Native data warehouse sources configuration</h3>
-            <p className="mb-4">
-                Configure data warehouse sources to display marketing analytics in PostHog. You'll need to sync the
-                required tables for each source to enable the functionality.
-            </p>
+        <SceneSection
+            title="Native data warehouse sources configuration"
+            description="Configure data warehouse sources to display marketing analytics in PostHog. You'll need to sync the required tables for each source to enable the functionality."
+        >
             <PaginationControls
                 hasMoreItems={hasMoreSources}
                 showAll={showAll}
@@ -119,7 +120,7 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
                     <AddSourceDropdown<ExternalDataSource['source_type']>
                         sources={VALID_NATIVE_MARKETING_SOURCES}
                         onSourceAdd={(source) => {
-                            router.actions.push(urls.pipelineNodeNew(PipelineStage.Source, { source }))
+                            router.actions.push(urls.dataWarehouseSource(`managed-${source}`))
                         }}
                     />
                 }
@@ -142,13 +143,7 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
                         title: 'Source',
                         render: (_, item: ExternalDataSource): JSX.Element => {
                             return (
-                                <Link
-                                    to={urls.pipelineNode(
-                                        PipelineStage.Source,
-                                        `managed-${item.id}`,
-                                        PipelineNodeTab.Schemas
-                                    )}
-                                >
+                                <Link to={urls.dataWarehouseSource(`managed-${item.id}`)}>
                                     {item.prefix || item.source_type}
                                 </Link>
                             )
@@ -195,15 +190,7 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
                                 <LemonButton
                                     icon={<IconGear />}
                                     size="small"
-                                    onClick={() => {
-                                        router.actions.push(
-                                            urls.pipelineNode(
-                                                PipelineStage.Source,
-                                                `managed-${item.id}`,
-                                                PipelineNodeTab.Schemas
-                                            )
-                                        )
-                                    }}
+                                    to={urls.dataWarehouseSource(`managed-${item.id}`)}
                                     tooltip="Configure source schemas"
                                 />
                             )
@@ -211,6 +198,6 @@ export function NativeExternalDataSourceConfiguration(): JSX.Element {
                     },
                 ]}
             />
-        </div>
+        </SceneSection>
     )
 }

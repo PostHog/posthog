@@ -1,13 +1,15 @@
-import { IconExternal, IconHome } from '@posthog/icons'
-import { LemonButton, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
+import { IconExternal, IconHome } from '@posthog/icons'
+import { LemonButton, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+
 import { themeLogic } from '../../themeLogic'
 import { SidePanelPaneHeader } from '../components/SidePanelPaneHeader'
 import { sidePanelDocsLogic } from './sidePanelDocsLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export function SidePanelDocsSkeleton(): JSX.Element {
     return (
@@ -77,7 +79,7 @@ export const SidePanelDocs = (): JSX.Element => {
                         size="small"
                         value={activeMenuName ?? ''}
                         options={menuOptions.map(({ name, url }) => ({ label: name, value: url }))}
-                        className="shrink whitespace-nowrap overflow-hidden"
+                        className="ml-1 shrink whitespace-nowrap overflow-hidden"
                     />
                 )}
 

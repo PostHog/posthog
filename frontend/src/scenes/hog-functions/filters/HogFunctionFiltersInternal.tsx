@@ -1,10 +1,11 @@
-import { LemonSelect } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import { useMemo } from 'react'
+
+import { LemonSelect } from '@posthog/lemon-ui'
+
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { useMemo } from 'react'
 
 import { AnyPropertyFilter, CyclotronJobFiltersType, HogFunctionConfigurationContextId } from '~/types'
 
@@ -75,7 +76,11 @@ export function HogFunctionFiltersInternal(): JSX.Element {
 
     const taxonomicGroupTypes = useMemo(() => {
         if (contextId === 'error-tracking') {
-            return [TaxonomicFilterGroupType.ErrorTrackingIssues]
+            return [
+                TaxonomicFilterGroupType.ErrorTrackingIssues,
+                TaxonomicFilterGroupType.ErrorTrackingProperties,
+                TaxonomicFilterGroupType.EventProperties,
+            ]
         } else if (contextId === 'insight-alerts') {
             return [TaxonomicFilterGroupType.Events]
         }

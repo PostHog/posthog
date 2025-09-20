@@ -1,20 +1,21 @@
 from parameterized import parameterized
+
 from posthog.hogql.database.models import Table
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
     ATTRIBUTION_FIELDS,
-    WebStatsDailyTable,
-    WebBouncesDailyTable,
-    WebStatsHourlyTable,
-    WebBouncesHourlyTable,
-    WebStatsCombinedTable,
-    WebBouncesCombinedTable,
-    SHARED_SCHEMA_FIELDS,
     DEVICE_BROWSER_FIELDS,
     GEOIP_FIELDS,
-    UTM_FIELDS,
     PATH_FIELDS,
-    WEB_STATS_SPECIFIC_FIELDS,
+    SHARED_SCHEMA_FIELDS,
+    UTM_FIELDS,
     WEB_BOUNCES_SPECIFIC_FIELDS,
+    WEB_STATS_SPECIFIC_FIELDS,
+    WebBouncesCombinedTable,
+    WebBouncesDailyTable,
+    WebBouncesHourlyTable,
+    WebStatsCombinedTable,
+    WebStatsDailyTable,
+    WebStatsHourlyTable,
 )
 
 
@@ -107,12 +108,17 @@ class TestWebAnalyticsPreAggregatedSchema:
                 len(UTM_FIELDS),
                 len(PATH_FIELDS),
                 len(ATTRIBUTION_FIELDS),
+                2,  # mat_metadata_loggedIn and mat_metadata_backend fields
             ]
         )
 
         assert (
             len(SHARED_SCHEMA_FIELDS) == expected_field_count
         ), f"SHARED_SCHEMA_FIELDS has {len(SHARED_SCHEMA_FIELDS)} fields, expected {expected_field_count}"
+
+        # Ensure custom metadata fields are present
+        assert "mat_metadata_loggedIn" in SHARED_SCHEMA_FIELDS
+        assert "mat_metadata_backend" in SHARED_SCHEMA_FIELDS
 
         field_groups = {
             "device_browser": list(DEVICE_BROWSER_FIELDS.keys()),

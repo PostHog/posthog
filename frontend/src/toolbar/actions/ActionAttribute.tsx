@@ -1,9 +1,11 @@
-import { LemonSwitch, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonSwitch, Link } from '@posthog/lemon-ui'
+
 import { IconBranch, IconClipboardEdit, IconLink, IconTextSize } from 'lib/lemon-ui/icons'
 
-import { actionsTabLogic } from './actionsTabLogic'
 import { ActionStepPropertyKey } from './ActionStep'
+import { actionsTabLogic } from './actionsTabLogic'
 
 function SelectorString({ value }: { value: string }): JSX.Element {
     const [last, ...rest] = value.split(' ').reverse()

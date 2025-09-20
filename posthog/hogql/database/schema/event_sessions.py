@@ -1,13 +1,14 @@
 from copy import deepcopy
 from typing import Optional
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
     FieldOrTable,
     IntegerDatabaseField,
+    LazyJoinToAdd,
     StringDatabaseField,
     VirtualTable,
-    LazyJoinToAdd,
 )
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import get_long_table_name, lookup_field_by_name

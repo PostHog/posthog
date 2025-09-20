@@ -19,15 +19,18 @@ describe('sessionRecordingFilePlaybackLogic', () => {
 
         it('should generate a new playerKey on load', () => {
             expectLogic(logic).toMatchValues({
-                playerKey: 'file-playback',
+                playerProps: {
+                    sessionRecordingId: '',
+                    playerKey: 'file-playback-empty',
+                },
             })
 
             logic.actions.loadFromFileSuccess({} as any)
-            const playerKey = logic.values.playerKey
-            expect(playerKey).toMatch(/^file-playback-.{36}$/)
+            const playerProps = logic.values.playerProps
+            expect(playerProps.playerKey).toMatch(/^file-playback-.{36}$/)
 
             logic.actions.loadFromFileSuccess({} as any)
-            expect(playerKey).not.toEqual(logic.values.playerKey)
+            expect(playerProps.playerKey).not.toEqual(logic.values.playerProps.playerKey)
         })
     })
 })

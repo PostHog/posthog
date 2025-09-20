@@ -1,4 +1,8 @@
+from posthog.test.base import APIBaseTest
+
 from flaky import flaky
+
+from posthog.schema import ExperimentSignificanceCode, ExperimentVariantTrendsBaseStats
 
 from posthog.hogql_queries.experiments import MIN_PROBABILITY_FOR_SIGNIFICANCE
 from posthog.hogql_queries.experiments.trends_statistics_v2_continuous import (
@@ -6,8 +10,6 @@ from posthog.hogql_queries.experiments.trends_statistics_v2_continuous import (
     calculate_credible_intervals_v2_continuous,
     calculate_probabilities_v2_continuous,
 )
-from posthog.schema import ExperimentSignificanceCode, ExperimentVariantTrendsBaseStats
-from posthog.test.base import APIBaseTest
 
 
 def create_variant(

@@ -1,9 +1,11 @@
 import './LemonButton.scss'
 
-import { IconChevronDown } from '@posthog/icons'
 import clsx from 'clsx'
-import { IconChevronRight } from 'lib/lemon-ui/icons'
 import React, { useContext } from 'react'
+
+import { IconChevronDown } from '@posthog/icons'
+
+import { IconChevronRight } from 'lib/lemon-ui/icons'
 
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
 import { Link } from '../Link'
@@ -71,12 +73,16 @@ export interface LemonButtonPropsBase
     'aria-label'?: string
     /** Whether to truncate the button's text if necessary */
     truncate?: boolean
+    /** Prevent dialog from closing when clicked */
+    preventClosing?: boolean
     /** Wrap the main button element with a container element */
     buttonWrapper?: (button: JSX.Element) => JSX.Element
     /** Static offset (px) to adjust tooltip arrow position. Should only be used with fixed tooltipPlacement */
     tooltipArrowOffset?: number
     /** Whether to force the tooltip to be visible. */
     tooltipForceMount?: boolean
+    /** Whether to stop event propagation on click */
+    stopPropagation?: boolean
 }
 
 export type SideAction = Pick<
@@ -149,6 +155,7 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 buttonWrapper,
                 tooltipDocLink,
                 tooltipForceMount,
+                stopPropagation,
                 ...buttonProps
             },
             ref
@@ -236,7 +243,16 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                         truncate && 'LemonButton--truncate',
                         className
                     )}
-                    onClick={!disabled ? onClick : undefined}
+                    onClick={
+                        !disabled
+                            ? (event) => {
+                                  if (stopPropagation) {
+                                      event.stopPropagation()
+                                  }
+                                  onClick?.(event)
+                              }
+                            : undefined
+                    }
                     // We are using the ARIA disabled instead of native HTML because of this:
                     // https://css-tricks.com/making-disabled-buttons-more-inclusive/
                     aria-disabled={disabled}

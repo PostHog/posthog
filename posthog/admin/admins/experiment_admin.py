@@ -1,18 +1,19 @@
 import copy
+
 from django.contrib import admin, messages
 from django.db import transaction
-from django.utils.html import format_html
-from django.urls import path, reverse
-from django.shortcuts import redirect
 from django.forms import ModelForm
+from django.shortcuts import redirect
+from django.urls import path, reverse
+from django.utils.html import format_html
 
 from posthog.models import (
-    Experiment,
     Cohort,
+    Experiment,
     ExperimentHoldout,
-    FeatureFlag,
     ExperimentSavedMetric,
     ExperimentToSavedMetric,
+    FeatureFlag,
 )
 from posthog.models.utils import convert_legacy_metrics
 

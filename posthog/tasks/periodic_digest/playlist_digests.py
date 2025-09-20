@@ -1,5 +1,5 @@
-import dataclasses
 import json
+import dataclasses
 from datetime import datetime, timedelta
 from typing import Literal
 
@@ -9,7 +9,6 @@ from django.db.models.functions import Now
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLIST_NAMES
 from posthog.redis import get_client
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
-
 
 # soon playlists will have a type, and we can explicitly count saved_filters and collections separately,
 # but for now saved_filters are playlists without pinned items - they are counted in redis

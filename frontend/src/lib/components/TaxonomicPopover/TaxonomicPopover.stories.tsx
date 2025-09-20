@@ -1,9 +1,10 @@
 import { Meta } from '@storybook/react'
 import { useMountedLogic } from 'kea'
+import { useState } from 'react'
+
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { useState } from 'react'
 
 import { cohortsModel } from '~/models/cohortsModel'
 

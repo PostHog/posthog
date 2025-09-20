@@ -1,6 +1,7 @@
+from posthog.test.base import BaseTest
+
 from posthog.hogql.errors import QueryError
 from posthog.hogql.query import execute_hogql_query
-from posthog.test.base import BaseTest
 
 
 class TestRecordingButton(BaseTest):

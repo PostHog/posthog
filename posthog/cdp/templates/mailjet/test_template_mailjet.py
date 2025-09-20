@@ -1,4 +1,5 @@
 from inline_snapshot import snapshot
+
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.mailjet.template_mailjet import template_create_contact, template_update_contact_list
 

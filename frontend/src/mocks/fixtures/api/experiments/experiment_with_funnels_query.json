@@ -116,7 +116,8 @@
                     "funnelWindowIntervalUnit": "day"
                 },
                 "filterTestAccounts": true
-            }
+            },
+            "uuid": "a2b2315e-f152-4e95-b5db-502d2f2198e6"
         }
     ],
     "metrics_secondary": [],

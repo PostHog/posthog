@@ -3,22 +3,33 @@ import './InsightCard.scss'
 import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
+import React, { useState } from 'react'
+import { Layout } from 'react-grid-layout'
+import { useInView } from 'react-intersection-observer'
+
+import { ApiError } from 'lib/api'
+import { accessLevelSatisfied, getAccessControlDisabledReason } from 'lib/components/AccessControlAction'
 import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import React, { useState } from 'react'
-import { Layout } from 'react-grid-layout'
-import { useInView } from 'react-intersection-observer'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
+import {
+    InsightErrorState,
+    InsightLoadingState,
+    InsightTimeoutState,
+    InsightValidationError,
+} from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { Query } from '~/queries/Query/Query'
-import { HogQLVariable } from '~/queries/schema/schema-general'
+import { extractValidationError } from '~/queries/nodes/InsightViz/utils'
+import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 import {
+    AccessControlResourceType,
     DashboardBasicType,
     DashboardPlacement,
     DashboardTile,
@@ -30,14 +41,6 @@ import {
 
 import { ResizeHandle1D, ResizeHandle2D } from '../handles'
 import { InsightMeta } from './InsightMeta'
-import {
-    InsightErrorState,
-    InsightLoadingState,
-    InsightTimeoutState,
-    InsightValidationError,
-} from 'scenes/insights/EmptyStates'
-import { extractValidationError } from '~/queries/nodes/InsightViz/utils'
-import { ApiError } from 'lib/api'
 
 export interface InsightCardProps extends Resizeable {
     /** Insight to display. */
@@ -70,6 +73,7 @@ export interface InsightCardProps extends Resizeable {
     refreshEnabled?: boolean
     rename?: () => void
     duplicate?: () => void
+    setOverride?: () => void
     moveToDashboard?: (dashboard: DashboardBasicType) => void
     /** buttons to add to the "more" menu on the card**/
     moreButtons?: JSX.Element | null
@@ -77,6 +81,8 @@ export interface InsightCardProps extends Resizeable {
     /** Priority for loading the insight, lower is earlier. */
     loadPriority?: number
     doNotLoad?: boolean
+    /** Dashboard filters to override the ones in the insight */
+    filtersOverride?: DashboardFilter
     /** Dashboard variables to override the ones in the insight */
     variablesOverride?: Record<string, HogQLVariable>
     /** Dashboard breakdown colors to override the ones in the insight */
@@ -86,7 +92,6 @@ export interface InsightCardProps extends Resizeable {
     className?: string
     style?: React.CSSProperties
     children?: React.ReactNode
-    noCache?: boolean
 }
 
 function InsightCardInternal(
@@ -111,15 +116,16 @@ function InsightCardInternal(
         refreshEnabled,
         rename,
         duplicate,
+        setOverride,
         moveToDashboard,
         className,
         moreButtons,
         placement,
         loadPriority,
         doNotLoad,
+        filtersOverride,
         variablesOverride,
         children,
-        noCache,
         breakdownColorOverride: _breakdownColorOverride,
         dataColorThemeId: _dataColorThemeId,
         ...divProps
@@ -155,11 +161,32 @@ function InsightCardInternal(
     }
 
     const [areDetailsShown, setAreDetailsShown] = useState(false)
-    const cachedResults = noCache ? undefined : insight
-    const hasResults = !!cachedResults?.result || !!(cachedResults as any)?.results
+    const hasResults = !!insight?.result || !!(insight as any)?.results
 
     // Empty states that completely replace the Query component.
     const BlockingEmptyState = (() => {
+        // Check for access denied - use the same logic as other components
+        const canViewInsight = insight?.user_access_level
+            ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, 'viewer')
+            : true
+
+        if (!canViewInsight) {
+            const errorMessage = getAccessControlDisabledReason(
+                AccessControlResourceType.Insight,
+                insight.user_access_level,
+                'viewer',
+                false
+            )
+
+            return (
+                <InsightErrorState
+                    data-attr="insight-access-denied-state"
+                    title={errorMessage || "You don't have permission to view this insight."}
+                    excludeDetail
+                />
+            )
+        }
+
         if (!hasResults && loadingQueued) {
             return <InsightLoadingState insightProps={insightLogicProps} />
         }
@@ -206,13 +233,16 @@ function InsightCardInternal(
                             loading={loading}
                             rename={rename}
                             duplicate={duplicate}
+                            setOverride={setOverride}
                             moveToDashboard={moveToDashboard}
                             areDetailsShown={areDetailsShown}
                             setAreDetailsShown={setAreDetailsShown}
                             showEditingControls={showEditingControls}
                             showDetailsControls={showDetailsControls}
                             moreButtons={moreButtons}
+                            filtersOverride={filtersOverride}
                             variablesOverride={variablesOverride}
+                            placement={placement}
                         />
                         <div className="InsightCard__viz">
                             {BlockingEmptyState ? (
@@ -220,7 +250,7 @@ function InsightCardInternal(
                             ) : (
                                 <Query
                                     query={insight.query}
-                                    cachedResults={cachedResults}
+                                    cachedResults={insight}
                                     context={{
                                         insightProps: insightLogicProps,
                                     }}
@@ -228,6 +258,7 @@ function InsightCardInternal(
                                     embedded
                                     inSharedMode={placement === DashboardPlacement.Public}
                                     variablesOverride={variablesOverride}
+                                    editMode={false}
                                 />
                             )}
                         </div>
@@ -245,4 +276,5 @@ function InsightCardInternal(
         </div>
     )
 }
+
 export const InsightCard = React.forwardRef(InsightCardInternal) as typeof InsightCardInternal

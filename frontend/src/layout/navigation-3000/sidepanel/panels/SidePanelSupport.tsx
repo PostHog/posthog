@@ -1,15 +1,17 @@
+import { useActions, useValues } from 'kea'
+import React from 'react'
+
 import { IconFeatures, IconHelmet, IconMap } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import React from 'react'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -63,7 +65,7 @@ const SupportResponseTimesTable = ({
     const expiredTrialDate = hasExpiredTrial ? dayjs(billing?.trial?.expires_at) : null
     const getResponseTimeFeature = (planName: string): BillingFeatureType | undefined => {
         // Find the plan in supportPlans
-        const plan = supportPlans?.find((p) => p.name === planName)
+        const plan = supportPlans?.find((p) => p.name?.includes(planName))
 
         // Return the support_response_time feature if found
         return plan?.features?.find((f) => f.key === AvailableFeature.SUPPORT_RESPONSE_TIME)
@@ -116,7 +118,7 @@ const SupportResponseTimesTable = ({
                   {
                       name: 'Teams',
                       current_plan: currentPlan === 'teams',
-                      features: [{ note: '1 business day' }],
+                      features: [getResponseTimeFeature('Teams') || { note: '1 business day' }],
                       plan_key: BillingPlan.Teams,
                       legacy_product: true,
                   },

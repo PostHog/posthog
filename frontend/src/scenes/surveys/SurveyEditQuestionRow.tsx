@@ -2,10 +2,12 @@ import './EditSurvey.scss'
 
 import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { IconPlusSmall, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Group } from 'kea-forms'
+
+import { IconPlusSmall, IconTrash } from '@posthog/icons'
+import { LemonButton, LemonCheckbox, LemonDialog, LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { QuestionBranchingInput } from 'scenes/surveys/components/question-branching/QuestionBranchingInput'
 
@@ -18,15 +20,9 @@ import {
     SurveyType,
 } from '~/types'
 
-import {
-    defaultSurveyFieldValues,
-    NewSurvey,
-    SCALE_OPTIONS,
-    SURVEY_RATING_SCALE,
-    SurveyQuestionLabel,
-} from './constants'
 import { HTMLEditor } from './SurveyAppearanceUtils'
 import { SurveyDragHandle } from './SurveyDragHandle'
+import { NewSurvey, SCALE_OPTIONS, SURVEY_RATING_SCALE, SurveyQuestionLabel } from './constants'
 import { surveyLogic } from './surveyLogic'
 
 type SurveyQuestionHeaderProps = {
@@ -72,6 +68,7 @@ export function SurveyEditQuestionHeader({
             {survey.questions.length > 1 && (
                 <LemonButton
                     icon={<IconTrash />}
+                    size="xsmall"
                     data-attr={`delete-survey-question-${index}`}
                     onClick={(e) => {
                         const deleteQuestion = (): void => {
@@ -126,7 +123,8 @@ function canQuestionSkipSubmitButton(
 
 export function SurveyEditQuestionGroup({ index, question }: { index: number; question: SurveyQuestion }): JSX.Element {
     const { survey, descriptionContentType } = useValues(surveyLogic)
-    const { setDefaultForQuestionType, setSurveyValue, resetBranchingForQuestion } = useActions(surveyLogic)
+    const { setDefaultForQuestionType, setSurveyValue, resetBranchingForQuestion, setMultipleSurveyQuestion } =
+        useActions(surveyLogic)
 
     const initialDescriptionContentType = descriptionContentType(index) ?? 'text'
 
@@ -149,6 +147,33 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
 
     const canSkipSubmitButton = canQuestionSkipSubmitButton(question)
 
+    const confirmQuestionTypeChange = (
+        index: number,
+        question: MultipleSurveyQuestion,
+        newType: SurveyQuestionType
+    ): void => {
+        // Reset to current type first (because onSelect has already changed it)
+        setMultipleSurveyQuestion(index, question, question.type)
+
+        LemonDialog.open({
+            title: 'Changing question type',
+            description: (
+                <p className="py-2">The choices you have configured will be removed. Would you like to proceed?</p>
+            ),
+            primaryButton: {
+                children: 'Continue',
+                status: 'danger',
+                onClick: () => {
+                    setDefaultForQuestionType(index, question, newType)
+                    resetBranchingForQuestion(index)
+                },
+            },
+            secondaryButton: {
+                children: 'Cancel',
+            },
+        })
+    }
+
     return (
         <Group name={`questions.${index}`} key={index}>
             <div className="flex flex-col gap-2">
@@ -156,21 +181,24 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                     <LemonSelect
                         data-attr={`survey-question-type-${index}`}
                         onSelect={(newType) => {
-                            const editingQuestion =
-                                defaultSurveyFieldValues[question.type].questions[0].question !== question.question
-                            const editingDescription =
-                                defaultSurveyFieldValues[question.type].questions[0].description !==
-                                question.description
-                            const editingThankYouMessage =
-                                defaultSurveyFieldValues[question.type].appearance.thankYouMessageHeader !==
-                                survey.appearance?.thankYouMessageHeader
-                            setDefaultForQuestionType(
-                                index,
-                                newType,
-                                editingQuestion,
-                                editingDescription,
-                                editingThankYouMessage
-                            )
+                            const isCurrentMultipleChoice =
+                                question.type === SurveyQuestionType.MultipleChoice ||
+                                question.type === SurveyQuestionType.SingleChoice
+                            const isNewMultipleChoice =
+                                newType === SurveyQuestionType.MultipleChoice ||
+                                newType === SurveyQuestionType.SingleChoice
+
+                            // Same multiple choice type - just update type
+                            if (isCurrentMultipleChoice && isNewMultipleChoice) {
+                                setMultipleSurveyQuestion(index, question, newType)
+                                resetBranchingForQuestion(index)
+                                return
+                            }
+                            if (isCurrentMultipleChoice && !isNewMultipleChoice) {
+                                confirmQuestionTypeChange(index, question, newType)
+                                return
+                            }
+                            setDefaultForQuestionType(index, question, newType)
                             resetBranchingForQuestion(index)
                         }}
                         options={[
@@ -305,7 +333,7 @@ export function SurveyEditQuestionGroup({ index, question }: { index: number; qu
                                                         />
                                                         <LemonButton
                                                             icon={<IconTrash />}
-                                                            size="small"
+                                                            size="xsmall"
                                                             noPadding
                                                             onClick={() => {
                                                                 const newChoices = [...value]

@@ -1,11 +1,13 @@
-import datetime as dt
+# ruff: noqa: T201 allow print statements
+
 import json
+import datetime as dt
 from time import sleep
 from typing import Any, Literal, Optional, cast
 
 from django.conf import settings
 from django.core import exceptions
-from django.db import transaction, IntegrityError
+from django.db import IntegrityError, transaction
 
 from posthog.clickhouse.client import query_with_columns, sync_execute
 from posthog.demo.matrix.taxonomy_inference import infer_taxonomy_for_team
@@ -52,11 +54,25 @@ class MatrixManager:
         *,
         password: Optional[str] = None,
         is_staff: bool = False,
-        disallow_collision: bool = False,
+        email_collision_handling: Literal["log_in", "disambiguate"] = "log_in",
     ) -> tuple[Organization, Team, User]:
         """If there's an email collision in signup in the demo environment, we treat it as a login."""
         existing_user: Optional[User] = User.objects.filter(email=email).first()
-        if existing_user is None:
+        if existing_user is None or email_collision_handling == "disambiguate":
+            if existing_user is not None:
+                print(f"User {email} already exists, trying to find a unique email...")
+                original_user, domain = email.split("@")
+                for i in range(1, 1000):
+                    email = f"{original_user}+{i}@{domain}"
+                    if User.objects.filter(email=email).exists():
+                        continue
+                    break
+                else:
+                    raise exceptions.ValidationError(
+                        f"Cannot find a unique email for {original_user}@{domain} - unbelievable!"
+                    )
+                print(f"Collision resolved, using {email} for our demo user!")
+
             if self.print_steps:
                 print(f"Creating demo organization, project, and user...")
             organization_kwargs: dict[str, Any] = {"name": organization_name}
@@ -77,10 +93,6 @@ class MatrixManager:
             return (organization, team, new_user)
         elif existing_user.is_staff:
             raise exceptions.PermissionDenied("Cannot log in as staff user without password.")
-        elif disallow_collision:
-            raise exceptions.ValidationError(
-                f"Cannot save simulated data - email collision disallowed but there already is an account for {email}."
-            )
         else:
             assert existing_user.organization is not None
             assert existing_user.team is not None
@@ -209,10 +221,7 @@ class MatrixManager:
     def _copy_analytics_data_from_master_team(self, target_team: Team):
         from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS
         from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
-        from posthog.models.person.sql import (
-            COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS,
-            COPY_PERSONS_BETWEEN_TEAMS,
-        )
+        from posthog.models.person.sql import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
 
         if self.print_steps:
             print(f"Copying simulated data from master team...")
@@ -238,10 +247,7 @@ class MatrixManager:
     @classmethod
     def _sync_postgres_with_clickhouse_data(cls, source_team_id: int, target_team_id: int):
         from posthog.models.group.sql import SELECT_GROUPS_OF_TEAM
-        from posthog.models.person.sql import (
-            SELECT_PERSON_DISTINCT_ID2S_OF_TEAM,
-            SELECT_PERSONS_OF_TEAM,
-        )
+        from posthog.models.person.sql import SELECT_PERSON_DISTINCT_ID2S_OF_TEAM, SELECT_PERSONS_OF_TEAM
 
         list_params = {"source_team_id": source_team_id}
         # Persons
@@ -311,10 +317,7 @@ class MatrixManager:
     def _save_sim_person(self, team: Team, subject: SimPerson):
         # We only want to save directly if there are past events
         if subject.past_events:
-            from posthog.models.person.util import (
-                create_person,
-                create_person_distinct_id,
-            )
+            from posthog.models.person.util import create_person, create_person_distinct_id
 
             create_person(
                 uuid=str(subject.in_posthog_id),

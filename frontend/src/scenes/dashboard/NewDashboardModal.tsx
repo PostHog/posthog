@@ -1,5 +1,7 @@
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { useActions, useMountedLogic, useValues } from 'kea'
+
+import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { pluralize } from 'lib/utils'
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'

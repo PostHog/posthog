@@ -1,3 +1,8 @@
+import clsx from 'clsx'
+import { useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
+import { Fragment, useEffect } from 'react'
+
 import { IconWarning } from '@posthog/icons'
 import { IconEllipsis, IconInfo, IconPlus } from '@posthog/icons'
 import {
@@ -14,15 +19,12 @@ import {
     Link,
     Tooltip,
 } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
-import { Form } from 'kea-forms'
-import { IconErrorOutline } from 'lib/lemon-ui/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { API_KEY_SCOPE_PRESETS, API_SCOPES, MAX_API_KEYS_PER_USER } from 'lib/scopes'
 import { capitalizeFirstLetter, detailedTime, humanFriendlyDetailedTime } from 'lib/utils'
-import { Fragment, useEffect } from 'react'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { personalAPIKeysLogic } from './personalAPIKeysLogic'

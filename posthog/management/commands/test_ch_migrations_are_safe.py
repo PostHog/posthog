@@ -3,10 +3,9 @@ import re
 import sys
 import logging
 
-from git import Repo
-
 from django.core.management.base import BaseCommand, CommandError
 
+from git import Repo
 
 logger = logging.getLogger(__name__)
 repo_path = os.getcwd()

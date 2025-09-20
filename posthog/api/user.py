@@ -1,24 +1,25 @@
-import json
 import os
-import secrets
+import json
 import time
+import secrets
 import urllib.parse
 from base64 import b32encode
 from binascii import unhexlify
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
 
-import jwt
-import requests
-import structlog
 from django.conf import settings
-from django.contrib.auth import login, update_session_auth_hash
+from django.contrib.auth import update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
+
+import jwt
+import requests
+import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice, StaticToken
@@ -51,23 +52,20 @@ from posthog.auth import (
 )
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.email import is_email_available
-from posthog.event_usage import (
-    report_user_logged_in,
-    report_user_updated,
-    report_user_verified_email,
-)
+from posthog.event_usage import report_user_updated, report_user_verified_email
+from posthog.helpers.two_factor_session import set_two_factor_verified_in_session
 from posthog.middleware import get_impersonated_session_expires_at
 from posthog.models import Dashboard, Team, User, UserScenePersonalisation
 from posthog.models.organization import Organization
-from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications, ROLE_CHOICES
+from posthog.models.user import NOTIFICATION_DEFAULTS, ROLE_CHOICES, Notifications
 from posthog.permissions import APIScopePermission, UserNoOrgMembershipDeletePermission
 from posthog.rate_limit import UserAuthenticationThrottle, UserEmailVerificationThrottle
 from posthog.tasks import user_identify
 from posthog.tasks.email import (
     send_email_change_emails,
+    send_password_changed_email,
     send_two_factor_auth_disabled_email,
     send_two_factor_auth_enabled_email,
-    send_password_changed_email,
 )
 from posthog.user_permissions import UserPermissions
 
@@ -90,6 +88,7 @@ class UserSerializer(serializers.ModelSerializer):
     sensitive_session_expires_at = serializers.SerializerMethodField()
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
+    has_sso_enforcement = serializers.SerializerMethodField()
     team = TeamBasicSerializer(read_only=True)
     organization = OrganizationSerializer(read_only=True)
     organizations = OrganizationBasicSerializer(many=True, read_only=True)
@@ -116,6 +115,7 @@ class UserSerializer(serializers.ModelSerializer):
             "anonymize_data",
             "toolbar_mode",
             "has_password",
+            "id",
             "is_staff",
             "is_impersonated",
             "is_impersonated_until",
@@ -130,6 +130,7 @@ class UserSerializer(serializers.ModelSerializer):
             "events_column_config",
             "is_2fa_enabled",
             "has_social_auth",
+            "has_sso_enforcement",
             "has_seen_product_intro_for",
             "scene_personalisation",
             "theme_mode",
@@ -144,6 +145,7 @@ class UserSerializer(serializers.ModelSerializer):
             "pending_email",
             "is_email_verified",
             "has_password",
+            "id",
             "is_impersonated",
             "is_impersonated_until",
             "sensitive_session_expires_at",
@@ -151,6 +153,7 @@ class UserSerializer(serializers.ModelSerializer):
             "organization",
             "organizations",
             "has_social_auth",
+            "has_sso_enforcement",
         ]
 
         extra_kwargs = {
@@ -195,6 +198,17 @@ class UserSerializer(serializers.ModelSerializer):
 
     def get_is_2fa_enabled(self, instance: User) -> bool:
         return default_device(instance) is not None
+
+    def get_has_sso_enforcement(self, instance: User) -> bool:
+        from posthog.models.organization_domain import OrganizationDomain
+
+        organization = instance.current_organization
+        if not organization:
+            return False
+
+        return bool(
+            OrganizationDomain.objects.get_sso_enforcement_for_email_address(instance.email, organization=organization)
+        )
 
     def validate_set_current_organization(self, value: str) -> Organization:
         try:
@@ -394,7 +408,7 @@ class UserViewSet(
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, UserNoOrgMembershipDeletePermission]
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ["is_staff"]
+    filterset_fields = ["is_staff", "email"]
     queryset = User.objects.filter(is_active=True)
     lookup_field = "uuid"
 
@@ -464,8 +478,6 @@ class UserViewSet(
         user.save()
         report_user_verified_email(user)
 
-        login(self.request, user, backend="django.contrib.auth.backends.ModelBackend")
-        report_user_logged_in(user)
         return Response({"success": True, "token": token})
 
     @action(
@@ -570,6 +582,7 @@ class UserViewSet(
             raise serializers.ValidationError("Token is not valid", code="token_invalid")
         form.save()
         otp_login(request, default_device(request.user))
+        set_two_factor_verified_in_session(request)
 
         send_two_factor_auth_enabled_email.delay(request.user.id)
 

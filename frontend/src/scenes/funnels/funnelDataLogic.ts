@@ -1,4 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { BIN_COUNT_AUTO } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -10,8 +11,8 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { getFunnelDatasetKey, getFunnelResultCustomizationColorToken } from 'scenes/insights/utils'
 
-import { groupsModel, Noun } from '~/models/groupsModel'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { Noun, groupsModel } from '~/models/groupsModel'
+import { FunnelsFilter, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { isFunnelsQuery } from '~/queries/utils'
 import {
     FlattenedFunnelStepByBreakdown,
@@ -22,9 +23,9 @@ import {
     FunnelStepReference,
     FunnelStepWithConversionMetrics,
     FunnelStepWithNestedBreakdown,
-    FunnelsTimeConversionBins,
     FunnelTimeConversionMetrics,
     FunnelVizType,
+    FunnelsTimeConversionBins,
     HistogramGraphDatum,
     InsightLogicProps,
     InsightType,
@@ -44,6 +45,7 @@ import {
     isBreakdownFunnelResults,
     stepsWithConversionMetrics,
 } from './funnelUtils'
+
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
 
 export const funnelDataLogic = kea<funnelDataLogicType>([
@@ -59,11 +61,13 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 'insightFilter',
                 'funnelsFilter',
                 'breakdownFilter',
+                'goalLines',
                 'series',
                 'interval',
                 'insightData',
                 'insightDataError',
                 'getTheme',
+                'showValuesOnSeries',
             ],
             groupsModel,
             ['aggregationLabel'],
@@ -201,10 +205,21 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
             },
         ],
         stepsWithConversionMetrics: [
-            (s) => [s.steps, s.funnelsFilter],
-            (steps, funnelsFilter): FunnelStepWithConversionMetrics[] => {
+            (s) => [s.steps, s.funnelsFilter, s.querySource],
+            (
+                steps: FunnelStepWithNestedBreakdown[],
+                funnelsFilter: FunnelsFilter | null,
+                querySource: FunnelsQuery | null
+            ): FunnelStepWithConversionMetrics[] => {
                 const stepReference = funnelsFilter?.funnelStepReference || FunnelStepReference.total
-                return stepsWithConversionMetrics(steps, stepReference)
+                // Get optional steps from series (1-indexed)
+                const optionalSteps =
+                    querySource?.kind === NodeKind.FunnelsQuery
+                        ? querySource.series
+                              .map((_, i: number) => i + 1)
+                              .filter((_: number, i: number) => querySource.series[i]?.optionalInFunnel)
+                        : []
+                return stepsWithConversionMetrics(steps, stepReference, optionalSteps)
             },
         ],
 
@@ -491,6 +506,18 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 return (dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics) => {
                     const [colorTheme, colorToken] = getFunnelsColorToken(dataset)
                     return colorTheme && colorToken ? getColorFromToken(colorTheme, colorToken) : '#000000'
+                }
+            },
+        ],
+        isStepOptional: [
+            (s) => [s.querySource],
+            (querySource: FunnelsQuery | null) => {
+                return (step: number) => {
+                    if (querySource?.kind === NodeKind.FunnelsQuery) {
+                        // step is 1-indexed, series is 0-indexed
+                        return querySource.series[step - 1]?.optionalInFunnel === true
+                    }
+                    return false
                 }
             },
         ],

@@ -1,9 +1,11 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
-import { LemonTextArea, LemonTextAreaProps } from './LemonTextArea'
 import { IconTrash } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+
+import { LemonTextArea, LemonTextAreaProps } from './LemonTextArea'
 
 type Story = StoryObj<typeof LemonTextArea>
 const meta: Meta<typeof LemonTextArea> = {

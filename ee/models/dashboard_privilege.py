@@ -1,11 +1,11 @@
 from django.db import models
 
 from posthog.models.dashboard import Dashboard
-from posthog.models.utils import UUIDModel, sane_repr
+from posthog.models.utils import UUIDTModel, sane_repr
 
 
 # We call models that grant a user access to some resource (which isn't a grouping of users) a "privilege"
-class DashboardPrivilege(UUIDModel):
+class DashboardPrivilege(UUIDTModel):
     dashboard = models.ForeignKey(
         "posthog.Dashboard",
         on_delete=models.CASCADE,

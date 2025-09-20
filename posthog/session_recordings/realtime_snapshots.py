@@ -6,8 +6,8 @@ import structlog
 from prometheus_client import Counter, Histogram
 
 from posthog import settings
-from posthog.redis import get_client
 from posthog.exceptions_capture import capture_exception
+from posthog.redis import get_client
 
 logger = structlog.get_logger(__name__)
 

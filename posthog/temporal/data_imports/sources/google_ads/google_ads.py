@@ -1,9 +1,10 @@
-import collections.abc
+import typing
 import datetime as dt
 import operator
-import typing
+import collections.abc
 
 from django.conf import settings
+
 import pyarrow as pa
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from google.ads.googleads.client import GoogleAdsClient
@@ -14,13 +15,13 @@ from google.ads.googleads.v19.services import types as ga_services
 from google.oauth2 import service_account
 from google.protobuf.json_format import MessageToJson
 
-from posthog.models import Integration
-from posthog.temporal.data_imports.sources.google_ads.schemas import RESOURCE_SCHEMAS
+from posthog.models.integration import Integration
 from posthog.temporal.data_imports.pipelines.helpers import incremental_type_to_initial_value
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common import config
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from posthog.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
+from posthog.temporal.data_imports.sources.google_ads.schemas import RESOURCE_SCHEMAS
 from posthog.warehouse.types import IncrementalFieldType
 
 
@@ -66,6 +67,10 @@ def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> Googl
     if isinstance(config, GoogleAdsSourceConfig):
         integration = Integration.objects.get(id=config.google_ads_integration_id, team_id=team_id)
 
+        login_customer_id: str | None = None
+        if config.is_mcc_account and config.is_mcc_account.enabled:
+            login_customer_id = config.is_mcc_account.mcc_client_id
+
         client = GoogleAdsClient.load_from_dict(
             {
                 "developer_token": settings.GOOGLE_ADS_DEVELOPER_TOKEN,
@@ -73,6 +78,7 @@ def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> Googl
                 "client_id": settings.GOOGLE_ADS_APP_CLIENT_ID,
                 "client_secret": settings.GOOGLE_ADS_APP_CLIENT_SECRET,
                 "use_proto_plus": False,
+                "login_customer_id": login_customer_id,
             }
         )
     else:

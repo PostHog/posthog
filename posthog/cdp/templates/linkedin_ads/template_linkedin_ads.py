@@ -1,7 +1,7 @@
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC
 
 template: HogFunctionTemplateDC = HogFunctionTemplateDC(
-    status="hidden",
+    status="alpha",
     free=False,
     type="destination",
     id="template-linkedin-ads",
@@ -48,7 +48,7 @@ let res := fetch('https://api.linkedin.com/rest/conversionEvents', {
     'headers': {
         'Authorization': f'Bearer {inputs.oauth.access_token}',
         'Content-Type': 'application/json',
-        'LinkedIn-Version': '202409'
+        'LinkedIn-Version': '202508'
     },
     'body': body
 })

@@ -1,6 +1,5 @@
-from typing import Optional
 from collections.abc import Callable
-
+from typing import Optional
 
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.parser import parse_expr

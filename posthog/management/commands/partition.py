@@ -1,3 +1,5 @@
+# ruff: noqa: T201 allow print statements
+
 import os
 
 from django.core.management.base import BaseCommand

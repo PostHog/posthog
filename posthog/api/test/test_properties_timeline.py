@@ -1,15 +1,9 @@
 import json
-import random
 import uuid
+import random
 from typing import Optional
 
 from freezegun.api import freeze_time
-from rest_framework import status
-
-from posthog.models.filters.mixins.base import BreakdownType
-from posthog.queries.properties_timeline.properties_timeline import (
-    PropertiesTimelineResult,
-)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -19,6 +13,11 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+
+from rest_framework import status
+
+from posthog.models.filters.mixins.base import BreakdownType
+from posthog.queries.properties_timeline.properties_timeline import PropertiesTimelineResult
 
 MATERIALIZED_COLUMN_KWARGS = {"person_properties": ["foo", "bar"]}
 TEST_PERSON_ID = uuid.UUID("12345678-0000-0000-0000-000000000001")

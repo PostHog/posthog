@@ -1,12 +1,12 @@
 """Test utilities that deal with test event generation."""
 
+import json
+import uuid
+import random
+import typing
 import asyncio
 import datetime as dt
 import itertools
-import json
-import random
-import typing
-import uuid
 
 import aiohttp.client_exceptions
 
@@ -154,7 +154,7 @@ async def insert_event_values_in_clickhouse(
                 ],
             )
             break  # Success, exit the loop
-        except aiohttp.client_exceptions.ClientOSError:
+        except (aiohttp.client_exceptions.ClientOSError, aiohttp.client_exceptions.ServerDisconnectedError):
             if attempt >= max_attempts:
                 raise
 

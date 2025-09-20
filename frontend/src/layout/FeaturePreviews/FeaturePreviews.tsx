@@ -1,16 +1,18 @@
-import { IconBell, IconCheck } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { useActions, useAsyncActions, useValues } from 'kea'
-import { IconLink } from 'lib/lemon-ui/icons'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { useLayoutEffect, useState } from 'react'
 
-import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
+import { IconBell, IconCheck } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonSwitch, LemonTextArea, Link } from '@posthog/lemon-ui'
+
 import { BasicCard } from 'lib/components/Cards/BasicCard'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
+import { IconLink } from 'lib/lemon-ui/icons'
 import { Label } from 'lib/ui/Label/Label'
 
+import { EnrichedEarlyAccessFeature, featurePreviewsLogic } from './featurePreviewsLogic'
+
 // Feature previews can be linked to by using hash in the url
-// example external link: https://app.posthog.com/settings/user-feature-previews#llm-observability
+// example external link: https://app.posthog.com/settings/user-feature-previews#llm-analytics
 
 export function FeaturePreviews(): JSX.Element {
     const { earlyAccessFeatures, rawEarlyAccessFeaturesLoading } = useValues(featurePreviewsLogic)

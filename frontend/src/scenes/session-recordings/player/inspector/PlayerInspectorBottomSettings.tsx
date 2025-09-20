@@ -1,7 +1,9 @@
 import './PlayerInspectorList.scss'
 
-import { BaseIcon, IconCheck } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { BaseIcon, IconCheck } from '@posthog/icons'
+
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
 import { SettingsBar, SettingsMenu, SettingsToggle } from 'scenes/session-recordings/components/PanelSettings'
 import { miniFiltersLogic } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
@@ -89,7 +91,7 @@ function ShowOnlyMatching(): JSX.Element {
                     : 'Show only events that match the current filters'
             }
             label="Show only matching events"
-            active={hasEventsToDisplay && showOnlyMatching}
+            active={hasEventsToDisplay && showOnlyMatching && allowMatchingEventsFilter}
             onClick={() => {
                 setShowOnlyMatching(!showOnlyMatching)
             }}

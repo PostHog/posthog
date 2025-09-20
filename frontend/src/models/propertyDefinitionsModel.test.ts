@@ -1,4 +1,5 @@
 import { expectLogic, partial } from 'kea-test-utils'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -241,6 +242,7 @@ describe('the property definitions model', () => {
                             name: 'timestamp',
                         }),
                         'resource/assignee': partial({ name: 'assignee' }),
+                        'resource/first_seen': partial({ name: 'first_seen' }),
                     },
                 })
         })

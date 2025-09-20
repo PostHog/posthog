@@ -15,7 +15,7 @@ Because of the above, take the following advice into consideration when manipula
 - When adding / updating a sharded table
 - When adding / updating a distributed table used for the write path
 
-In the above cases, create a migration and call the `run_sql_with_exceptions` function with the `node_role` set to `NodeRole.DATA`.
+In the above cases, create a migration and call the `run_sql_with_exceptions` function with the `node_roles` set to `[NodeRole.DATA]`.
 
 <details>
 
@@ -26,7 +26,7 @@ Also, since to fill this table we need to consume events from Kafka, we need to 
 
 </details>
 
-### When to run a migration for all nodes
+### When to run a migration for DATA and COORDINATOR nodes
 
 - Basically when the migration does not include any of the above listed in the previous section.
 - When adding / updating a distributed table for reading
@@ -35,7 +35,7 @@ Also, since to fill this table we need to consume events from Kafka, we need to 
 - When adding / updating a dictionary
 - And so on
 
-In the above cases, create a migration and call the `run_sql_with_exceptions` function with the `node_role` set to `NodeRole.ALL`.
+In the above cases, create a migration and call the `run_sql_with_exceptions` function with the `node_roles` set to `[NodeRole.DATA, NodeRole.COORDINATOR]`.
 
 <details>
 
@@ -44,6 +44,14 @@ In the above cases, create a migration and call the `run_sql_with_exceptions` fu
 Following the previous section example, the sharded events table along with the Kafka tables, materialized views and writable distributed table would be added to the data nodes. However, the `distributed_events`, which is the table used for the read path, would be added to all nodes.
 
 </details>
+
+## When to use NodeRole.ALL
+
+We are introducing changes to our ClickHouse topology frequently, introducing new types of nodes.
+
+Rarely, you'll need to run a migration on all nodes. In that case, you can use the `NodeRole.ALL` role. You should only use it when you're sure that the change is safe to apply to all nodes.
+
+In the vast majority of cases, just follow the [previous](#when-to-run-a-migration-only-on-a-data-node) [sections](#when-to-run-a-migration-for-data-and-coordinator-nodes).
 
 ### The ON CLUSTER clause
 

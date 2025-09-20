@@ -1,15 +1,17 @@
 import asyncio
-import aiohttp
-from typing import Optional, Any
+from typing import Any, Optional
+
 from django.conf import settings
+
+import aiohttp
 
 from posthog.exceptions_capture import capture_exception
 
 from .constants import (
     HARMONIC_BASE_URL,
-    HARMONIC_REQUEST_TIMEOUT_SECONDS,
-    HARMONIC_DOMAIN_VARIATIONS,
     HARMONIC_COMPANY_ENRICHMENT_QUERY,
+    HARMONIC_DOMAIN_VARIATIONS,
+    HARMONIC_REQUEST_TIMEOUT_SECONDS,
 )
 
 

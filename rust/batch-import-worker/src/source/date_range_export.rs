@@ -424,17 +424,13 @@ impl DateRangeExportSource {
             .extract_compressed_to_seekable_file(key, &raw_file_path, temp_dir.as_path())
             .await
             .with_context(|| {
-                format!(
-                    "Failed to extract compressed to seekable file for key: {}",
-                    key
-                )
+                format!("Failed to extract compressed to seekable file for key: {key}")
             })?;
 
         if let Err(e) = tokio::fs::remove_file(&raw_file_path).await {
             warn!(
-                "Failed to remove raw file {}: {}",
-                raw_file_path.display(),
-                e
+                "Failed to remove raw file {0}: {e}",
+                raw_file_path.display()
             );
         }
 
@@ -456,7 +452,7 @@ impl DateRangeExportSource {
             let prepared_keys = self.prepared_keys.lock().await;
             prepared_keys
                 .get(key)
-                .ok_or_else(|| Error::msg(format!("Key not prepared: {}", key)))?
+                .ok_or_else(|| Error::msg(format!("Key not prepared: {key}")))?
                 .clone()
         };
 
@@ -474,26 +470,22 @@ impl DateRangeExportSource {
 
         let mut file = File::open(extracted_part.data_file_path)
             .await
-            .with_context(|| format!("Failed to open extracted data file for key: {}", key))?;
+            .with_context(|| format!("Failed to open extracted data file for key: {key}"))?;
         file.seek(std::io::SeekFrom::Start(offset))
             .await
             .with_context(|| {
-                format!(
-                    "Failed to seek to offset {} in extracted data file for key: {}",
-                    offset, key
-                )
+                format!("Failed to seek to offset {offset} in extracted data file for key: {key}")
             })?;
         let mut buffer = vec![0u8; read_size];
         file.read_exact(&mut buffer).await.with_context(|| {
             format!(
-                "Failed to read exact {} bytes from extracted data file for key: {}",
-                read_size, key
+                "Failed to read exact {read_size} bytes from extracted data file for key: {key}"
             )
         })?;
 
         if end_offset == total_size {
             if let Err(e) = self.cleanup_key(key).await {
-                warn!("Failed to cleanup key {}: {:?}", key, e);
+                warn!("Failed to cleanup key {key}: {e:?}");
             }
         }
 

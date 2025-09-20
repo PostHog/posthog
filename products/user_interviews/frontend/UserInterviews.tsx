@@ -1,15 +1,20 @@
+import { useActions, useValues } from 'kea'
+
 import { IconDownload } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumn } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { PhonePairHogs } from 'lib/components/hedgehogs'
+
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { PhonePairHogs } from 'lib/components/hedgehogs'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey, UserInterviewType } from '~/types'
 
 import { userInterviewsLogic } from './userInterviewsLogic'
@@ -24,7 +29,15 @@ export function UserInterviews(): JSX.Element {
 
     const { updateHasSeenProductIntroFor } = useActions(userLogic)
     return (
-        <>
+        <SceneContent>
+            <SceneTitleSection
+                name="User interviews"
+                description="Make full use of user interviews by recording them with PostHog."
+                resourceType={{
+                    type: 'user_interview',
+                }}
+            />
+            <SceneDivider />
             <ProductIntroduction
                 productName="User interviews"
                 productKey={ProductKey.USER_INTERVIEWS}
@@ -36,23 +49,16 @@ export function UserInterviews(): JSX.Element {
                     <LemonButton
                         type="primary"
                         icon={<IconDownload />}
-                        onClick={() => updateHasSeenProductIntroFor(ProductKey.USER_INTERVIEWS, true)}
+                        onClick={() => updateHasSeenProductIntroFor(ProductKey.USER_INTERVIEWS)}
                         to="https://posthog.com/recorder"
                         data-attr="install-recorder"
                     >
                         Install PostHog Recorder
                     </LemonButton>
                 }
+                className="my-0"
             />
-            <MaxTool
-                name="analyze_user_interviews"
-                displayName="Analyze user interviews"
-                description="Max can summarize user interviews and extract learnings"
-                context={{}}
-                callback={() => {
-                    // No need to handle structured output for this tool
-                }}
-            >
+            <MaxTool identifier="analyze_user_interviews" context={{}}>
                 <LemonTable
                     loading={userInterviewsLoading}
                     columns={[
@@ -73,6 +79,6 @@ export function UserInterviews(): JSX.Element {
                     loadingSkeletonRows={5}
                 />
             </MaxTool>
-        </>
+        </SceneContent>
     )
 }

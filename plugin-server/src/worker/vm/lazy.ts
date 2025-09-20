@@ -1,7 +1,8 @@
-import { RetryError } from '@posthog/plugin-scaffold'
 import equal from 'fast-deep-equal'
 import { Counter, Summary } from 'prom-client'
 import { VM } from 'vm2'
+
+import { RetryError } from '@posthog/plugin-scaffold'
 
 import {
     Hub,
@@ -14,7 +15,6 @@ import {
 import { processError } from '../../utils/db/error'
 import { getPlugin, setPluginCapabilities } from '../../utils/db/sql'
 import { logger } from '../../utils/logger'
-import { instrument } from '../../utils/metrics'
 import { getNextRetryMs } from '../../utils/retries'
 import { pluginDigest } from '../../utils/utils'
 import { getVMPluginCapabilities, shouldSetupPluginInServer } from '../vm/capabilities'
@@ -168,14 +168,7 @@ export class LazyPluginVM implements PluginInstance {
         if (!this.ready) {
             const vm = (await this.resolveInternalVm)?.vm
             try {
-                await instrument(
-                    {
-                        metricName: 'vm.setup',
-                        key: 'plugin',
-                        tag: this.pluginConfig.plugin?.name || '?',
-                    },
-                    () => this._setupPlugin(vm)
-                )
+                await this._setupPlugin(vm)
             } catch (error) {
                 logger.warn('⚠️', error.message)
                 return false
@@ -246,7 +239,19 @@ export class LazyPluginVM implements PluginInstance {
                     PluginLogEntryType.Error
                 )
                 this.initRetryTimeout = setTimeout(async () => {
-                    await this._setupPlugin(vm)
+                    try {
+                        await this._setupPlugin(vm)
+                    } catch (error) {
+                        // Handle the error to prevent unhandled promise rejection
+                        logger.error('🚨', `Plugin setup failed after retry timeout`, {
+                            error: error instanceof Error ? error.message : String(error),
+                            pluginId: this.pluginConfig.plugin?.id,
+                            pluginConfigId: this.pluginConfig.id,
+                            teamId: this.pluginConfig.team_id,
+                        })
+                        // The plugin is already marked as errored and disabled at this point
+                        // so we just need to prevent the process from crashing
+                    }
                 }, nextRetryMs)
             } else {
                 this.inErroredState = true

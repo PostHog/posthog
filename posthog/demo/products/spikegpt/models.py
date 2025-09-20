@@ -7,6 +7,7 @@ import pytz
 
 from posthog.demo.matrix.models import EVENT_PAGELEAVE, SimPerson, SimSessionIntent
 from posthog.demo.products.spikegpt.data import FAKE_CHATS
+
 from .taxonomy import URL_HOME
 
 if TYPE_CHECKING:

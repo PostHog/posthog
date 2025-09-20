@@ -1,6 +1,8 @@
-import { LemonCalendarSelect } from '@posthog/lemon-ui'
-import { dayjs } from 'lib/dayjs'
 import { useState } from 'react'
+
+import { LemonCalendarSelect } from '@posthog/lemon-ui'
+
+import { dayjs } from 'lib/dayjs'
 
 export const VariableCalendar = ({
     value,

@@ -1809,7 +1809,8 @@
             "trendsFilter": {
                 "display": "ActionsAreaGraph",
                 "resultCustomizationBy": "value"
-            }
+            },
+            "version": 2
         },
         "full": true
     }

@@ -20,6 +20,7 @@ test.describe('Survey Settings', () => {
         await expect(page).toHaveTitle('Surveys • PostHog')
         await page.getByRole('tab', { name: 'Settings' }).locator('div').click()
         await expect(page.getByTestId('opt-in-surveys-switch')).not.toBeDisabled()
+        await expect(page.getByText('Surveys opt in updated')).not.toBeVisible()
         await toggleSurveysSettingsAndWaitResponse(page)
         await toggleSurveysSettingsAndWaitResponse(page)
     })
@@ -31,7 +32,7 @@ test.describe('Survey Settings', () => {
         await page.goToMenuItem('settings')
         await page.locator('#main-content').getByRole('link', { name: 'Surveys', exact: true }).click()
         await expect(page.getByTestId('opt-in-surveys-switch')).not.toBeDisabled()
-
+        await expect(page.getByText('Surveys opt in updated')).not.toBeVisible()
         await toggleSurveysSettingsAndWaitResponse(page)
         await toggleSurveysSettingsAndWaitResponse(page)
     })

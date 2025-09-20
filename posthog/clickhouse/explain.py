@@ -1,9 +1,11 @@
 import json
 from dataclasses import dataclass
 
-from posthog.clickhouse.client import sync_execute
-from posthog.hogql.context import HogQLContext
 from posthog.schema import QueryIndexUsage
+
+from posthog.hogql.context import HogQLContext
+
+from posthog.clickhouse.client import sync_execute
 
 
 def find_all_reads(explain: dict) -> list[dict]:

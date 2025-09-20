@@ -1,13 +1,16 @@
 from datetime import timedelta
-
-from dateutil import parser
 from zoneinfo import ZoneInfo
 
+from posthog.test.base import APIBaseTest
+
+from dateutil import parser
+
+from posthog.schema import DateRange, IntervalType
+
 from posthog.hogql import ast
+
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange, QueryDateRangeWithIntervals
 from posthog.models.team import WeekStartDay
-from posthog.schema import DateRange, IntervalType
-from posthog.test.base import APIBaseTest
 
 
 class TestQueryDateRange(APIBaseTest):

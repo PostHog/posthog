@@ -1,14 +1,14 @@
 import datetime as dt
 from enum import auto
 from typing import Optional
-
 from zoneinfo import ZoneInfo
+
+from posthog.test.base import ClickhouseDestroyTablesMixin
 
 from posthog.clickhouse.client import sync_execute
 from posthog.demo.matrix.manager import MatrixManager
 from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.demo.matrix.models import SimPerson, SimSessionIntent
-from posthog.test.base import ClickhouseDestroyTablesMixin
 
 
 class DummySessionIntent(SimSessionIntent):

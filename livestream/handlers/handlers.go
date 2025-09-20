@@ -74,7 +74,7 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, filt
 		)
 
 		teamID, token, err = auth.GetAuthClaims(c.Request().Header)
-		if err != nil {
+		if err != nil || token == "" || teamID == 0 {
 			return echo.NewHTTPError(http.StatusUnauthorized, "wrong token")
 		}
 

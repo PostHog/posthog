@@ -1,7 +1,7 @@
 import { Mark, MarkViewProps, mergeAttributes } from '@tiptap/core'
+import { MarkViewContent, ReactMarkViewRenderer } from '@tiptap/react'
 import { useMountedLogic } from 'kea'
 
-import { MarkViewContent, ReactMarkViewRenderer } from '@tiptap/react'
 import { notebookLogic } from '../Notebook/notebookLogic'
 
 export const NotebookMarkComment = Mark.create({

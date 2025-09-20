@@ -1,10 +1,10 @@
 from datetime import datetime, timedelta
 from typing import Optional
 
+from django.conf import settings
+
 import requests
 import structlog
-
-from django.conf import settings
 
 logger = structlog.get_logger(__name__)
 

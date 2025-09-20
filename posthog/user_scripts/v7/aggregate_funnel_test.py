@@ -1,7 +1,6 @@
 #!/usr/bin/python3
-import json
-
 import sys
+import json
 import traceback
 
 if __name__ == "__main__":

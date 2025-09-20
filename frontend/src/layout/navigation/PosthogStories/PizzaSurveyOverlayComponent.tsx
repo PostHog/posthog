@@ -1,5 +1,7 @@
 import { useEffect } from 'react'
+
 import { LemonButton } from '@posthog/lemon-ui'
+
 import { CloseOverlayAction } from './storiesMap'
 
 interface PizzaSurveyOverlayComponentProps {

@@ -4,7 +4,8 @@ import { LemonTagType } from 'lib/lemon-ui/LemonTag'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
-import { SDKKey, OnboardingStepKey } from '~/types'
+
+import { OnboardingStepKey, SDKKey } from '~/types'
 
 const platformNames: Partial<Record<SDKKey, string>> = {
     [SDKKey.ANDROID]: 'Android',

@@ -1,5 +1,6 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+
+import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { processEvent } from './index'
 

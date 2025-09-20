@@ -9,6 +9,7 @@ use cymbal::{
     symbol_store::{
         caching::{Caching, SymbolSetCache},
         chunk_id::OrChunkId,
+        hermesmap::HermesMapProvider,
         sourcemap::{OwnedSourceMapCache, SourcemapProvider},
         Catalog, Fetcher, Parser,
     },
@@ -75,7 +76,7 @@ async fn end_to_end_resolver_test() {
 
     let map_mock = server.mock(|when, then| {
         // Our minified example source uses a relative URL, formatted like this
-        when.method("GET").path(format!("{}.map", CHUNK_PATH));
+        when.method("GET").path(format!("{CHUNK_PATH}.map"));
         then.status(200).body(MAP);
     });
 
@@ -116,8 +117,11 @@ async fn end_to_end_resolver_test() {
     )));
 
     let wrapped = NoOpChunkIdFetcher { inner: sourcemap };
+    let hmp = NoOpChunkIdFetcher {
+        inner: HermesMapProvider {},
+    };
 
-    let catalog = Catalog::new(Caching::new(wrapped, cache));
+    let catalog = Catalog::new(Caching::new(wrapped, cache), hmp);
 
     let mut resolved_frames = Vec::new();
     for frame in test_stack {

@@ -1,12 +1,14 @@
 import { useDraggable, useDroppable } from '@dnd-kit/core'
+import { CSSProperties, useRef } from 'react'
+
 import { IconChevronRight, IconCircleDashed, IconDocument, IconFolder, IconFolderOpenFilled } from '@posthog/icons'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { buttonPrimitiveVariants } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
-import { CSSProperties, useRef } from 'react'
 
 import { LemonCheckbox } from '../LemonCheckbox'
 import { TreeDataItem } from './LemonTree'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export const ICON_CLASSES = 'text-tertiary size-5 flex items-center justify-center relative'
 

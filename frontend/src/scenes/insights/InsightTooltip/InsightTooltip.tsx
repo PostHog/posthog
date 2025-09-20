@@ -2,11 +2,12 @@ import './InsightTooltip.scss'
 
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { InsightLabel } from 'lib/components/InsightLabel'
-import { IconHandClick } from 'lib/lemon-ui/icons'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { shortTimeZone } from 'lib/utils'
 import { ReactNode } from 'react'
+
+import { InsightLabel } from 'lib/components/InsightLabel'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { IconHandClick } from 'lib/lemon-ui/icons'
+import { shortTimeZone } from 'lib/utils'
 import { formatAggregationValue } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -14,13 +15,13 @@ import { FormatPropertyValueForDisplayFunction, propertyDefinitionsModel } from 
 
 import {
     COL_CUTOFF,
-    getFormattedDate,
-    getTooltipTitle,
     InsightTooltipProps,
-    invertDataSource,
     InvertedSeriesDatum,
     ROW_CUTOFF,
     SeriesDatum,
+    getFormattedDate,
+    getTooltipTitle,
+    invertDataSource,
 } from './insightTooltipUtils'
 
 export function ClickToInspectActors({

@@ -1,28 +1,29 @@
 """This module contains a temporary file to stage data in batch exports."""
 
 import abc
-import asyncio
-import collections.abc
-import contextlib
 import csv
-import datetime as dt
 import enum
 import gzip
 import json
-import tempfile
 import typing
+import asyncio
+import datetime as dt
+import tempfile
+import contextlib
+import collections.abc
 
 import brotli
 import orjson
 import psycopg
 import pyarrow as pa
 import pyarrow.parquet as pq
-import structlog
 from psycopg import sql
+
+from posthog.temporal.common.logger import get_write_only_logger
 
 from products.batch_exports.backend.temporal.heartbeat import DateRange
 
-logger = structlog.get_logger()
+logger = get_write_only_logger()
 
 
 def replace_broken_unicode(obj):

@@ -1,23 +1,8 @@
-import unittest
 from datetime import datetime, timedelta
 
 import pytest
+import unittest
 from freezegun import freeze_time
-from tenacity import retry, wait_exponential, stop_after_attempt
-
-
-from ee.clickhouse.queries.enterprise_cohort_query import check_negation_clause
-from posthog.clickhouse.client import sync_execute
-from posthog.constants import PropertyOperatorType
-from posthog.hogql_queries.hogql_cohort_query import TestWrapperCohortQuery as CohortQuery
-from posthog.models import Team
-from posthog.models.action import Action
-from posthog.models.cohort import Cohort
-from posthog.models.filters.filter import Filter
-from posthog.models.property import Property, PropertyGroup
-
-from posthog.models.property_definition import PropertyDefinition
-from posthog.schema import PersonsOnEventsMode
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
@@ -27,6 +12,22 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+
+from tenacity import retry, stop_after_attempt, wait_exponential
+
+from posthog.schema import PersonsOnEventsMode
+
+from posthog.clickhouse.client import sync_execute
+from posthog.constants import PropertyOperatorType
+from posthog.hogql_queries.hogql_cohort_query import TestWrapperCohortQuery as CohortQuery
+from posthog.models import Team
+from posthog.models.action import Action
+from posthog.models.cohort import Cohort
+from posthog.models.filters.filter import Filter
+from posthog.models.property import Property, PropertyGroup
+from posthog.models.property_definition import PropertyDefinition
+
+from ee.clickhouse.queries.enterprise_cohort_query import check_negation_clause
 
 
 def _make_event_sequence(

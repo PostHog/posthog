@@ -1,5 +1,6 @@
-from copy import deepcopy
 import dataclasses
+from copy import deepcopy
+
 from posthog.cdp.templates.hog_function_template import HogFunctionTemplateDC, HogFunctionTemplateMigrator
 
 # Based off of https://customer.io/docs/api/track/#operation/entity

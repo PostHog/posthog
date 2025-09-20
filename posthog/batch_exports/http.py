@@ -1,34 +1,35 @@
+import typing
+import builtins
 import datetime as dt
+import dataclasses
+import collections.abc
 from dataclasses import dataclass
 from typing import Any, TypedDict, cast
 
-import posthoganalytics
-import structlog
 from django.db import transaction
+from django.dispatch import receiver
 from django.utils.timezone import now
-from loginas.utils import is_impersonated_session
-from rest_framework import (
-    filters,
-    mixins,
-    request,
-    response,
-    serializers,
-    status,
-    viewsets,
-)
-from rest_framework.exceptions import (
-    NotAuthenticated,
-    NotFound,
-    PermissionDenied,
-    ValidationError,
-)
+
+import structlog
+import posthoganalytics
+from rest_framework import filters, mixins, request, response, serializers, status, viewsets
+from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
 from rest_framework.pagination import CursorPagination
+
+from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
+
+from posthog.hogql import ast, errors
+from posthog.hogql.hogql import HogQLContext
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS
 from posthog.batch_exports.service import (
+    DESTINATION_WORKFLOWS,
+    BaseBatchExportInputs,
     BatchExportIdError,
     BatchExportSchema,
     BatchExportServiceError,
@@ -43,26 +44,14 @@ from posthog.batch_exports.service import (
     sync_cancel_running_batch_export_backfill,
     unpause_batch_export,
 )
-from posthog.constants import AvailableFeature
-from posthog.hogql import ast, errors
-from posthog.hogql.hogql import HogQLContext
-from posthog.hogql.parser import parse_select
-from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
-from posthog.models import (
-    BatchExport,
-    BatchExportBackfill,
-    BatchExportDestination,
-    BatchExportRun,
-    Team,
-    User,
-)
-from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
+from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun, Team, User
+from posthog.models.activity_logging.activity_log import ActivityContextBase, Detail, changes_between, log_activity
+from posthog.models.signals import model_activity_signal
 from posthog.temporal.common.client import sync_connect
-from posthog.utils import relative_date_parse
+from posthog.utils import relative_date_parse, str_to_bool
+
 from products.batch_exports.backend.api.destination_tests import get_destination_test
-from products.batch_exports.backend.temporal.destinations.s3_batch_export import (
-    SUPPORTED_COMPRESSIONS,
-)
+from products.batch_exports.backend.temporal.destinations.s3_batch_export import SUPPORTED_COMPRESSIONS
 
 logger = structlog.get_logger(__name__)
 
@@ -197,10 +186,68 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         model = BatchExportDestination
         fields = ["type", "config"]
 
-    def create(self, validated_data: dict) -> BatchExportDestination:
+    def create(self, validated_data: collections.abc.Mapping[str, typing.Any]) -> BatchExportDestination:
         """Create a BatchExportDestination."""
         export_destination = BatchExportDestination.objects.create(**validated_data)
         return export_destination
+
+    def validate(self, data: collections.abc.Mapping[str, typing.Any]) -> collections.abc.Mapping[str, typing.Any]:
+        """Validate the destination configuration based on workflow inputs.
+
+        Ensure that the submitted destination configuration passes the following checks:
+        * Does NOT contain fields that do not exist in workflow inputs.
+        * Contains all required fields as defined by workflow inputs.
+        * Provided values match types required by workflow inputs.
+
+        Raises:
+            A `serializers.ValidationError` if any of these checks fail.
+        """
+        export_type, config = data["type"], data["config"]
+        _, workflow_inputs = DESTINATION_WORKFLOWS[export_type]
+        base_field_names = {field.name for field in dataclasses.fields(BaseBatchExportInputs)}
+        workflow_fields = dataclasses.fields(workflow_inputs)
+        destination_fields = {field for field in workflow_fields if field.name not in base_field_names}
+
+        extra_fields = config.keys() - {field.name for field in destination_fields} - base_field_names
+        if extra_fields:
+            str_fields = ", ".join(f"'{extra_field}'" for extra_field in sorted(extra_fields))
+            raise serializers.ValidationError(f"Configuration has unknown field/s: {str_fields}")
+
+        for destination_field in destination_fields:
+            is_required = (
+                destination_field.default == dataclasses.MISSING
+                and destination_field.default_factory == dataclasses.MISSING
+            )
+            if destination_field.name not in config:
+                is_patch = self.context["request"].method == "PATCH"
+                if is_required and not is_patch:
+                    # When patching we expect a partial configuration. So, we don't
+                    # error on missing required fields.
+                    raise serializers.ValidationError(
+                        f"Configuration missing required field: '{destination_field.name}'"
+                    )
+                else:
+                    continue
+
+            config_value = config[destination_field.name]
+            field_type = destination_field.type
+
+            if not isinstance(field_type, type):
+                # `dataclasses.Field.type` could be something we can't work with.
+                # TODO: Validate these ones too?
+                continue
+
+            if not isinstance(config_value, field_type):
+                config_value, success = try_convert_to_type(config_value, field_type)
+
+                if not success:
+                    raise serializers.ValidationError(
+                        f"Configuration has invalid type: got '{type(config_value).__name__}', expected '{field_type.__name__}'"
+                    )
+
+                config[destination_field.name] = config_value
+
+        return data
 
     def to_representation(self, instance: BatchExportDestination) -> dict:
         data = super().to_representation(instance)
@@ -208,6 +255,35 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
             k: v for k, v in data["config"].items() if k not in BatchExportDestination.secret_fields[instance.type]
         }
         return data
+
+
+Success = bool
+
+
+def try_convert_to_type(value: typing.Any, target_type: type) -> tuple[typing.Any, Success]:
+    """Attempt to convert value to target type based on well-known casting functions.
+
+    This doesn't raise any exceptions but rather returns a tuple with a bool indicating
+    if the value in the first position was successfully casted to `target_type` or not.
+    If casting fails, the value in the first position is returned unchanged, otherwise a
+    new value of type `target_type` is returned.
+    """
+    current_type = type(value)
+
+    match (current_type, target_type):
+        case (builtins.str, builtins.bool):
+            cast_func: typing.Callable[[typing.Any], typing.Any] = str_to_bool
+        case (builtins.str, builtins.int):
+            cast_func = int
+        case _:
+            return (value, False)
+
+    try:
+        new_value = cast_func(value)
+    except Exception:
+        return (value, False)
+
+    return (new_value, True)
 
 
 class HogQLSelectQueryField(serializers.Field):
@@ -279,20 +355,6 @@ class BatchExportSerializer(serializers.ModelSerializer):
             "filters",
         ]
         read_only_fields = ["id", "team_id", "created_at", "last_updated_at", "latest_runs", "schema"]
-
-    def validate(self, attrs: dict) -> dict:
-        team = self.context["get_team"]()
-        attrs["team"] = team
-
-        has_addon = team.organization.is_feature_available(AvailableFeature.DATA_PIPELINES)
-
-        if not has_addon:
-            # Check if the user is impersonated - if so we allow changes as it could be an admin user fixing things
-
-            if not is_impersonated_session(self.context["request"]):
-                raise serializers.ValidationError("The Data Pipelines addon is required for batch exports.")
-
-        return attrs
 
     def validate_destination(self, destination_attrs: dict):
         destination_type = destination_attrs["type"]
@@ -601,14 +663,25 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
     def run_test_step(self, request: request.Request, *args, **kwargs) -> response.Response:
         test_step = request.data.pop("step", 0)
 
-        serializer = self.get_serializer(data=request.data)
+        batch_export = self.get_object()
+
+        # Remove any additional fields from stored configuration
+        _, workflow_inputs = DESTINATION_WORKFLOWS[batch_export.destination.type]
+        workflow_fields = {field.name for field in dataclasses.fields(BaseBatchExportInputs)} | {
+            field.name for field in dataclasses.fields(workflow_inputs)
+        }
+        stored_config = {k: v for k, v in batch_export.destination.config.items() if k in workflow_fields}
+
+        data = request.data
+        data["destination"]["config"] = {**stored_config, **data["destination"]["config"]}
+
+        serializer = self.get_serializer(data=data)
         _ = serializer.is_valid(raise_exception=True)
 
         destination_test = get_destination_test(
             destination=serializer.validated_data["destination"]["type"],
         )
-        batch_export = self.get_object()
-        test_configuration = {**batch_export.destination.config, **serializer.validated_data["destination"]["config"]}
+        test_configuration = serializer.validated_data["destination"]["config"]
         destination_test.configure(**test_configuration)
 
         result = destination_test.run_step(test_step)
@@ -810,3 +883,58 @@ class BatchExportBackfillViewSet(
             raise ValidationError(f"Cannot cancel a backfill that is in '{batch_export_backfill.status}' status")
 
         return response.Response({"cancelled": True})
+
+
+@dataclasses.dataclass(frozen=True)
+class BatchExportContext(ActivityContextBase):
+    name: str
+    destination_type: str
+    interval: str
+    created_by_user_id: str | None
+    created_by_user_email: str | None
+    created_by_user_name: str | None
+
+
+@receiver(model_activity_signal, sender=BatchExport)
+def handle_batch_export_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
+    from posthog.models.activity_logging.batch_export_utils import (
+        get_batch_export_created_by_info,
+        get_batch_export_destination_type,
+        get_batch_export_detail_name,
+    )
+
+    # Use after_update for create/update, before_update for delete
+    batch_export = after_update or before_update
+
+    if not batch_export:
+        return
+
+    destination_type = get_batch_export_destination_type(batch_export)
+    created_by_user_id, created_by_user_email, created_by_user_name = get_batch_export_created_by_info(batch_export)
+    detail_name = get_batch_export_detail_name(batch_export, destination_type)
+
+    context = BatchExportContext(
+        name=batch_export.name or "Unnamed Export",
+        destination_type=destination_type,
+        interval=batch_export.interval or "",
+        created_by_user_id=created_by_user_id,
+        created_by_user_email=created_by_user_email,
+        created_by_user_name=created_by_user_name,
+    )
+
+    log_activity(
+        organization_id=batch_export.team.organization_id,
+        team_id=batch_export.team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=batch_export.id,
+        scope=scope,
+        activity=activity,
+        detail=Detail(
+            changes=changes_between(scope, previous=before_update, current=after_update),
+            name=detail_name,
+            context=context,
+        ),
+    )

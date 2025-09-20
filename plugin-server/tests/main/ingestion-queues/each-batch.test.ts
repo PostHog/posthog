@@ -1,5 +1,5 @@
-import { PostgresRouter } from '~/utils/db/postgres'
 import { TeamManager } from '~/utils/team-manager'
+import { GroupRepository } from '~/worker/ingestion/groups/repositories/group-repository.interface'
 
 import {
     eachBatchWebhooksHandlers,
@@ -133,6 +133,11 @@ describe('eachBatchX', () => {
             const matchSpy = jest.spyOn(actionMatcher, 'match')
             // mock hasWebhooks to return true
             actionMatcher.hasWebhooks = jest.fn(() => true)
+
+            const groupRepository: GroupRepository = {
+                fetchGroup: jest.fn(() => Promise.resolve(undefined)),
+            } as unknown as GroupRepository
+
             await eachBatchWebhooksHandlers(
                 createKafkaJSBatch(kafkaEvent),
                 actionMatcher,
@@ -140,9 +145,7 @@ describe('eachBatchX', () => {
                 10,
                 groupTypeManager,
                 teamManager,
-
-                // @ts-expect-error this is not being used in the function, so just passing null here
-                null as PostgresRouter
+                groupRepository
             )
 
             // NOTE: really it would be nice to verify that fire has been called

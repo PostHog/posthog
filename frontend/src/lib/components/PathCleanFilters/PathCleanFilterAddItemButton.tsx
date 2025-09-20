@@ -1,6 +1,8 @@
-import { IconPlus } from '@posthog/icons'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useState } from 'react'
+
+import { IconPlus } from '@posthog/icons'
+
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { PathCleaningFilter } from '~/types'
 

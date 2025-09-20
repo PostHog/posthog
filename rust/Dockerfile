@@ -1,5 +1,5 @@
 # Taken from: https://depot.dev/docs/container-builds/how-to-guides/optimal-dockerfiles/rust-dockerfile
-FROM rust:1.82 AS base
+FROM rust:1.88 AS base
 RUN cargo install --locked cargo-chef sccache
 ENV RUSTC_WRAPPER=sccache SCCACHE_DIR=/sccache
 
@@ -15,7 +15,8 @@ WORKDIR /app
 ARG BIN
 
 # Ensure working C compile setup (not installed by default in arm64 images)
-RUN apt-get update && apt-get install build-essential libssl-dev cmake -y
+# libclang-dev is required for bindgen (used by librocksdb-sys)
+RUN apt-get update && apt-get install build-essential libssl-dev cmake libclang-dev -y
 
 COPY --from=planner /app/recipe.json recipe.json
 RUN --mount=type=cache,target=/usr/local/cargo/registry \

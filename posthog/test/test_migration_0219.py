@@ -1,7 +1,7 @@
 import pytest
-from django.db.models import Q
-
 from posthog.test.base import TestMigrations
+
+from django.db.models import Q
 
 pytestmark = pytest.mark.skip("old migrations slow overall test run down")
 

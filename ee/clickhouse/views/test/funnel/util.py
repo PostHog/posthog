@@ -3,9 +3,10 @@ from typing import Any, Literal, Optional, TypedDict, Union
 
 from django.test.client import Client
 
-from ee.clickhouse.queries.funnels.funnel_correlation import EventOddsRatioSerialized
 from posthog.constants import FunnelCorrelationType
 from posthog.models.property import GroupTypeIndex
+
+from ee.clickhouse.queries.funnels.funnel_correlation import EventOddsRatioSerialized
 
 
 class EventPattern(TypedDict, total=False):

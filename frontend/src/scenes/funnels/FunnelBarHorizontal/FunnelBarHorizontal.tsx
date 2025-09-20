@@ -2,6 +2,7 @@ import './FunnelBarHorizontal.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { SeriesGlyph } from 'lib/components/SeriesGlyph'
 import { IconInfinity, IconTrendingFlat, IconTrendingFlatDown } from 'lib/lemon-ui/icons'
@@ -11,11 +12,11 @@ import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/fun
 
 import { ChartParams, FunnelStepReference, StepOrderValue } from '~/types'
 
+import { FunnelStepMore } from '../FunnelStepMore'
+import { ValueInspectorButton } from '../ValueInspectorButton'
 import { funnelDataLogic } from '../funnelDataLogic'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
-import { FunnelStepMore } from '../FunnelStepMore'
 import { getBreakdownMaxIndex, getReferenceStep } from '../funnelUtils'
-import { ValueInspectorButton } from '../ValueInspectorButton'
 import { Bar } from './Bar'
 import { DuplicateStepIndicator } from './DuplicateStepIndicator'
 
@@ -24,9 +25,13 @@ export function FunnelBarHorizontal({
     showPersonsModal: showPersonsModalProp = true,
 }: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { visibleStepsWithConversionMetrics, aggregationTargetLabel, funnelsFilter, breakdownFilter } = useValues(
-        funnelDataLogic(insightProps)
-    )
+    const {
+        visibleStepsWithConversionMetrics,
+        aggregationTargetLabel,
+        funnelsFilter,
+        breakdownFilter,
+        isStepOptional,
+    } = useValues(funnelDataLogic(insightProps))
 
     const { canOpenPersonModal } = useValues(funnelPersonsModalLogic(insightProps))
     const { openPersonsModalForStep, openPersonsModalForSeries } = useActions(funnelPersonsModalLogic(insightProps))
@@ -36,11 +41,18 @@ export function FunnelBarHorizontal({
 
     const showPersonsModal = canOpenPersonModal && showPersonsModalProp
 
+    // Check if any steps are optional
+    const hasOptionalSteps = steps.some((_, stepIndex) => isStepOptional(stepIndex + 1))
+
     // Everything rendered after is a funnel in top-to-bottom mode.
     return (
-        <div data-attr="funnel-bar-horizontal" className={clsx('FunnelBarHorizontal')}>
+        <div
+            data-attr="funnel-bar-horizontal"
+            className={clsx('FunnelBarHorizontal', { 'FunnelBarHorizontal--has-optional-steps': hasOptionalSteps })}
+        >
             {steps.map((step, stepIndex) => {
                 const basisStep = getReferenceStep(steps, stepReference, stepIndex)
+                const isOptional = isStepOptional(stepIndex + 1)
                 const showLineBefore = stepIndex > 0
                 const showLineAfter = stepIndex < steps.length - 1
                 const breakdownMaxIndex = getBreakdownMaxIndex(
@@ -56,12 +68,11 @@ export function FunnelBarHorizontal({
                     step.nested_breakdown?.length !== undefined &&
                     !(step.nested_breakdown.length === 1)
 
-                const dropOffCount = step.order > 0 ? steps[stepIndex - 1].count - step.count : 0
-
                 return (
-                    <section key={step.order} className="funnel-step">
-                        <div className="funnel-series-container">
+                    <section key={step.order} className={clsx('funnel-step', { 'funnel-step--optional': isOptional })}>
+                        <div className={clsx('funnel-series-container', { 'optional-step': isOptional })}>
                             <div className={`funnel-series-linebox ${showLineBefore ? 'before' : ''}`} />
+                            {isOptional && hasOptionalSteps && <div className="optional-connector" />}
                             {funnelsFilter?.funnelOrderType === StepOrderValue.UNORDERED ? (
                                 <SeriesGlyph variant="funnel-step-glyph">
                                     <IconInfinity style={{ fill: 'var(--primary_alt)', width: 14 }} />
@@ -73,13 +84,14 @@ export function FunnelBarHorizontal({
                         </div>
                         <header>
                             <div className="flex items-center max-w-full grow">
-                                <div className="funnel-step-title">
+                                <div className="funnel-step-title overflow-hidden break-words whitespace-normal">
                                     {funnelsFilter?.funnelOrderType === StepOrderValue.UNORDERED ? (
                                         <span>Completed {step.order + 1} steps</span>
                                     ) : (
-                                        <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} />
+                                        <EntityFilterInfo filter={getActionFilterFromFunnelStep(step)} allowWrap />
                                     )}
                                 </div>
+                                {isOptional ? <div className="ml-1 text-xs">(optional)</div> : null}
                                 {funnelsFilter?.funnelOrderType !== StepOrderValue.UNORDERED &&
                                     stepIndex > 0 &&
                                     step.action_id === steps[stepIndex - 1].action_id && <DuplicateStepIndicator />}
@@ -199,7 +211,7 @@ export function FunnelBarHorizontal({
                                         />
                                         <b>
                                             {pluralize(
-                                                dropOffCount,
+                                                step.droppedOffFromPrevious,
                                                 aggregationTargetLabel.singular,
                                                 aggregationTargetLabel.plural
                                             )}

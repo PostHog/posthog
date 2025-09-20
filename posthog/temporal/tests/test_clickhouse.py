@@ -1,10 +1,10 @@
-import datetime as dt
 import uuid
+import datetime as dt
 
 import pytest
 
 from posthog.clickhouse.query_tagging import QueryTags
-from posthog.temporal.common.clickhouse import encode_clickhouse_data, add_log_comment_param
+from posthog.temporal.common.clickhouse import add_log_comment_param, encode_clickhouse_data
 
 
 @pytest.mark.parametrize(

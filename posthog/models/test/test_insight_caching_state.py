@@ -1,16 +1,11 @@
 from typing import Optional, cast
 
+from posthog.test.base import BaseTest
+
 from django.utils.timezone import now
 
-from posthog.models import (
-    Dashboard,
-    DashboardTile,
-    Insight,
-    InsightCachingState,
-    SharingConfiguration,
-)
+from posthog.models import Dashboard, DashboardTile, Insight, InsightCachingState, SharingConfiguration
 from posthog.models.signals import mute_selected_signals
-from posthog.test.base import BaseTest
 
 filters = {
     "events": [{"id": "$pageview"}],

@@ -1,16 +1,16 @@
 from typing import Any
 
+from django.db.models import QuerySet
+
+import structlog
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
-from django.db.models import QuerySet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.link import Link
-import structlog
-
 from posthog.models.team.team import Team
 
 logger = structlog.get_logger(__name__)

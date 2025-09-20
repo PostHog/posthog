@@ -1,15 +1,17 @@
 import { combineUrl, router } from 'kea-router'
+
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { Property } from 'lib/components/Property'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { autoCaptureEventToDescription } from 'lib/utils'
+import { COUNTRY_CODE_TO_LONG_NAME, countryCodeToFlag } from 'lib/utils/geography/country'
 import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
 import { PersonDisplay, PersonDisplayProps } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
@@ -35,6 +37,7 @@ import {
     trimQuotes,
 } from '~/queries/utils'
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
+
 import { extractExpressionComment, removeExpressionComment } from './utils'
 
 export function getContextColumn(
@@ -146,7 +149,13 @@ export function renderColumn(
         const eventRecord = query.source.select.includes('*') ? resultRow[query.source.select.indexOf('*')] : null
 
         if (value === '$autocapture' && eventRecord) {
-            return autoCaptureEventToDescription(eventRecord)
+            return (
+                <PropertyKeyInfo
+                    value={value}
+                    displayText={autoCaptureEventToDescription(eventRecord)}
+                    type={TaxonomicFilterGroupType.Events}
+                />
+            )
         }
         const content = <PropertyKeyInfo value={value} type={TaxonomicFilterGroupType.Events} />
         const $sentry_url = eventRecord?.properties?.$sentry_url
@@ -299,6 +308,12 @@ export function renderColumn(
         }
         const personRecord = record[0] as PersonType
         return <DeletePersonButton person={personRecord} />
+    } else if (key === 'properties.$geoip_country_code') {
+        if (typeof value === 'string') {
+            return `${countryCodeToFlag(value)} ${COUNTRY_CODE_TO_LONG_NAME[value] || value}`
+        }
+
+        return String(value)
     } else if (key.startsWith('context.columns.')) {
         const columnName = trimQuotes(key.substring(16)) // 16 = "context.columns.".length
         const Component = context?.columns?.[columnName]?.render
@@ -357,6 +372,7 @@ export function renderColumn(
         const key = (record as any[])[1] // 'key' is the second column in the groups query
         return <Link to={urls.group(query.source.group_type_index, key, true)}>{value}</Link>
     }
+
     if (typeof value === 'object') {
         return <JSONViewer src={value} name={null} collapsed={Object.keys(value).length > 10 ? 0 : 1} />
     } else if (

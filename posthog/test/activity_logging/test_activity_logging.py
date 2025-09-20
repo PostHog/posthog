@@ -1,15 +1,11 @@
 import pytest
+from posthog.test.base import BaseTest
+
 from django.db.utils import IntegrityError
 
 from posthog.models import User
-from posthog.models.activity_logging.activity_log import (
-    ActivityLog,
-    Change,
-    Detail,
-    log_activity,
-)
+from posthog.models.activity_logging.activity_log import ActivityLog, Change, Detail, log_activity
 from posthog.models.utils import UUIDT
-from posthog.test.base import BaseTest
 
 
 class TestActivityLogModel(BaseTest):
@@ -67,7 +63,7 @@ class TestActivityLogModel(BaseTest):
             detail=Detail(),
         )
         with pytest.raises(ActivityLog.DoesNotExist):
-            ActivityLog.objects.latest("id")
+            ActivityLog.objects.filter(scope="dinglehopper").latest("id")
 
     def test_does_not_save_if_there_is_neither_a_team_id_nor_an_organisation_id(self) -> None:
         # even when there are logs with team id or org id saved

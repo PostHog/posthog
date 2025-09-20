@@ -1,5 +1,8 @@
+import '~/tests/helpers/mocks/date.mock'
+
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { HogFlow } from '~/schema/hogflow'
+import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
@@ -70,49 +73,17 @@ describe('HogFlowManager', () => {
 
     it('returns the hog flow', async () => {
         let items = await manager.getHogFlowsForTeam(teamId1)
+        expect(items.map((item) => item.team_id)).toEqual([teamId1, teamId1])
 
-        expect(items).toEqual([
-            {
-                abort_action: null,
-                actions: {},
-                conversion: null,
-                created_at: expect.any(String),
-                description: '',
-                edges: {},
-                exit_condition: 'exit_on_conversion',
-                id: hogFlows[0].id,
-                name: 'Test Hog Flow team 1',
-                status: 'active',
-                team_id: teamId1,
-                trigger: {
-                    filters: {},
-                    type: 'event',
+        expect(
+            forSnapshot(items, {
+                overrides: {
+                    team_id: 'TEAM_ID',
+                    created_at: 'CREATED_AT',
+                    updated_at: 'UPDATED_AT',
                 },
-                trigger_masking: null,
-                updated_at: expect.any(String),
-                version: 1,
-            },
-            {
-                abort_action: null,
-                actions: {},
-                conversion: null,
-                created_at: expect.any(String),
-                description: '',
-                edges: {},
-                exit_condition: 'exit_on_conversion',
-                id: hogFlows[1].id,
-                name: 'Test Hog Flow team 1 - other',
-                status: 'active',
-                team_id: teamId1,
-                trigger: {
-                    filters: {},
-                    type: 'event',
-                },
-                trigger_masking: null,
-                updated_at: expect.any(String),
-                version: 1,
-            },
-        ])
+            })
+        ).toMatchSnapshot()
 
         await hub.db.postgres.query(
             PostgresUse.COMMON_WRITE,
@@ -154,7 +125,6 @@ describe('HogFlowManager', () => {
             const originalResult = await manager.getHogFlowIdsForTeams([teamId1, teamId2])
             expect(originalResult[teamId1]).toHaveLength(2)
 
-            // Archive a hog flow
             await hub.db.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `UPDATE posthog_hogflow SET status='archived', updated_at = NOW() WHERE id = $1`,
@@ -162,7 +132,6 @@ describe('HogFlowManager', () => {
                 'testKey'
             )
 
-            // This is normally dispatched by django
             manager['onHogFlowsReloaded'](teamId1, [hogFlows[0].id])
 
             const result = await manager.getHogFlowIdsForTeams([teamId1])

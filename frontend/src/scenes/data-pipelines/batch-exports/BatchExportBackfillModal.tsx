@@ -1,7 +1,9 @@
-import { IconInfo } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { IconInfo } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
+
 import { NotFound } from 'lib/components/NotFound'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
@@ -11,7 +13,7 @@ import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { batchExportBackfillModalLogic, BatchExportBackfillModalLogicProps } from './batchExportBackfillModalLogic'
+import { BatchExportBackfillModalLogicProps, batchExportBackfillModalLogic } from './batchExportBackfillModalLogic'
 
 export function BatchExportBackfillModal({ id }: BatchExportBackfillModalLogicProps): JSX.Element {
     const { timezone } = useValues(teamLogic)

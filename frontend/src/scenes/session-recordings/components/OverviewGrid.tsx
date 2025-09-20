@@ -1,6 +1,7 @@
-import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { ReactNode } from 'react'
+
+import { Tooltip } from '@posthog/lemon-ui'
 
 interface OverviewItemBase {
     icon?: ReactNode

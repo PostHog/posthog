@@ -1,3 +1,7 @@
+import { useActions, useValues } from 'kea'
+import { capitalizeFirstLetter } from 'kea-forms'
+import { useEffect, useMemo, useState } from 'react'
+
 import {
     LemonButton,
     LemonInputSelect,
@@ -8,21 +12,27 @@ import {
     ProfileBubbles,
     ProfilePicture,
 } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { capitalizeFirstLetter } from 'kea-forms'
+
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { UserSelectItem } from 'lib/components/UserSelectItem'
-import { useEffect, useMemo, useState } from 'react'
 import { fullName } from 'lib/utils'
 
-import { AccessControlLevel, APIScopeObject, AvailableFeature, OrganizationMemberType, RoleType } from '~/types'
+import { APIScopeObject, AccessControlLevel, AvailableFeature, OrganizationMemberType, RoleType } from '~/types'
 
 import {
     DefaultResourceAccessControls,
     MemberResourceAccessControls,
-    resourcesAccessControlLogic,
     RoleResourceAccessControls,
+    resourcesAccessControlLogic,
 } from './resourcesAccessControlLogic'
+
+const pluralizeResource = (resource: APIScopeObject): string => {
+    if (resource === 'revenue_analytics') {
+        return 'revenue analytics'
+    }
+
+    return resource.replace(/_/g, ' ') + 's'
+}
 
 export function ResourcesAccessControls(): JSX.Element {
     const {
@@ -183,7 +193,7 @@ export function ResourcesAccessControls(): JSX.Element {
         getMember: (item: T) => OrganizationMemberType | undefined
     ): LemonTableColumns<T> {
         return resources.map((resource: APIScopeObject) => ({
-            title: resource.replace(/_/g, ' ') + 's',
+            title: pluralizeResource(resource),
             key: resource,
             width: 0,
             render: (_: any, item: T) => {
@@ -509,9 +519,7 @@ function AddResourceAccessControlModal(props: {
                     <h5 className="mb-2">Resource access levels</h5>
                     {resources.map((resource) => (
                         <div key={resource} className="flex gap-2 items-center justify-between">
-                            <div className="font-medium">
-                                {capitalizeFirstLetter(resource?.replace(/_/g, ' ') ?? '') + 's'}
-                            </div>
+                            <div className="font-medium">{capitalizeFirstLetter(pluralizeResource(resource))}</div>
                             <div className="min-w-[8rem]">
                                 <LemonSelect
                                     placeholder="No override"

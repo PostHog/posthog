@@ -1,6 +1,7 @@
+import { mockFetch } from '~/tests/helpers/mocks/request.mock'
+
 import { DateTime } from 'luxon'
 
-import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { UUIDT } from '~/utils/utils'
 

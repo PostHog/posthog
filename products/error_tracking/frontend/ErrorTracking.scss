@@ -1,9 +1,0 @@
-.ErrorTrackingIssue {
-    & .SessionRecordingPlayer {
-        min-height: 24rem;
-    }
-
-    & .LemonCollapsePanel > .LemonButton:hover:has(.LemonSegmentedButton:hover) {
-        background-color: inherit;
-    }
-}

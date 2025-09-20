@@ -1,13 +1,15 @@
 from freezegun import freeze_time
+from posthog.test.base import _create_event, _create_person, flush_persons_and_events
+
+from posthog.schema import DateRange, HogQLQueryModifiers, SessionPropertyFilter, WebStatsBreakdown, WebStatsTableQuery
+
+from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
 
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
+from posthog.hogql_queries.web_analytics.test.web_preaggregated_test_base import WebAnalyticsPreAggregatedTestBase
 from posthog.models.utils import uuid7
 from posthog.models.web_preaggregated.sql import WEB_STATS_INSERT_SQL
-from posthog.hogql_queries.web_analytics.test.web_preaggregated_test_base import WebAnalyticsPreAggregatedTestBase
-from posthog.test.base import _create_event, _create_person, flush_persons_and_events
-from posthog.hogql_queries.web_analytics.stats_table import WebStatsTableQueryRunner
-from posthog.schema import WebStatsTableQuery, DateRange, HogQLQueryModifiers, WebStatsBreakdown, SessionPropertyFilter
-from posthog.hogql.database.schema.channel_type import DEFAULT_CHANNEL_TYPES
 
 
 class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
@@ -325,10 +327,11 @@ class TestWebStatsPreAggregatedChannelTypes(WebAnalyticsPreAggregatedTestBase):
             date_start="2024-01-01",
             date_end="2024-01-02",
             team_ids=[self.team.pk],
-            table_name="web_stats_daily",
+            table_name="web_pre_aggregated_stats",
+            granularity="hourly",
             select_only=True,
         )
-        insert_sql = f"INSERT INTO web_stats_daily\n{select_sql}"
+        insert_sql = f"INSERT INTO web_pre_aggregated_stats\n{select_sql}"
         sync_execute(insert_sql)
 
     def _calculate_channel_type_query(

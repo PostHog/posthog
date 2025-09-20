@@ -1,23 +1,26 @@
-import asyncio
-import dataclasses
-import datetime as dt
 import json
 import math
 import time
 import typing
+import asyncio
+import datetime as dt
+import dataclasses
 
 from django.db import close_old_connections
+
+from structlog import get_logger
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_internal_logger
 
-from ee.billing.salesforce_enrichment.enrichment import enrich_accounts_chunked_async
-from ee.billing.salesforce_enrichment.salesforce_client import get_salesforce_client
-from ee.billing.salesforce_enrichment.redis_cache import store_accounts_in_redis, get_cached_accounts_count
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE, SALESFORCE_ACCOUNTS_QUERY
+from ee.billing.salesforce_enrichment.enrichment import enrich_accounts_chunked_async
+from ee.billing.salesforce_enrichment.redis_cache import get_cached_accounts_count, store_accounts_in_redis
+from ee.billing.salesforce_enrichment.salesforce_client import get_salesforce_client
+
+LOGGER = get_logger(__name__)
 
 
 @dataclasses.dataclass
@@ -42,7 +45,7 @@ async def enrich_chunk_activity(inputs: EnrichChunkInputs) -> dict[str, typing.A
     """Activity to enrich a single chunk of Salesforce accounts with concurrent API calls."""
 
     async with Heartbeater():
-        logger = get_internal_logger()
+        logger = LOGGER.bind()
         close_old_connections()
 
         logger.info(
@@ -75,7 +78,7 @@ async def cache_all_accounts_activity() -> dict[str, typing.Any]:
     """Cache all Salesforce accounts in Redis for fast chunk retrieval.
 
     Returns dict with total_accounts count. Reuses existing cache if available."""
-    logger = get_internal_logger()
+    logger = LOGGER.bind()
     workflow_id = activity.info().workflow_id
 
     try:

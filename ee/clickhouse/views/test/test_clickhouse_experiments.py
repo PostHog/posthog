@@ -1,27 +1,25 @@
 from datetime import UTC, datetime, timedelta
 
-from dateutil import parser
-from django.core.cache import cache
 from freezegun import freeze_time
+from posthog.test.base import ClickhouseTestMixin, FuzzyInt, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
+
+from django.core.cache import cache
+
+from dateutil import parser
 from rest_framework import status
 
-from ee.api.test.base import APILicensedTest
-from ee.clickhouse.views.experiment_saved_metrics import (
-    ExperimentToSavedMetricSerializer,
-)
 from posthog.models import WebExperiment
 from posthog.models.action.action import Action
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.experiment import Experiment, ExperimentSavedMetric
 from posthog.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
-from posthog.test.base import (
-    ClickhouseTestMixin,
-    FuzzyInt,
-    _create_event,
-    _create_person,
-    flush_persons_and_events,
-)
+from posthog.models.user import User
 from posthog.test.test_journeys import journeys_for
+
+from ee.api.test.base import APILicensedTest
+from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
 
 class TestExperimentCRUD(APILicensedTest):
@@ -57,7 +55,7 @@ class TestExperimentCRUD(APILicensedTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(15, 16)):
+        with self.assertNumQueries(FuzzyInt(16, 17)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -74,7 +72,7 @@ class TestExperimentCRUD(APILicensedTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(15, 16)):
+        with self.assertNumQueries(FuzzyInt(16, 17)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1715,7 +1713,8 @@ class TestExperimentCRUD(APILicensedTest):
                 [("flag_0", []), (ff_key, [created_experiment])],
             )
 
-    def test_create_experiment_updates_feature_flag_cache(self):
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_create_experiment_updates_feature_flag_cache(self, mock_on_commit):
         cache.clear()
 
         initial_cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
@@ -3151,3 +3150,112 @@ class TestExperimentAuxiliaryEndpoints(ClickhouseTestMixin, APILicensedTest):
         # Verify stats_config is preserved with custom fields
         stats_config = response.json()["stats_config"]
         self.assertEqual(stats_config["method"], "bayesian")
+
+    def test_experiment_activity_logging_shows_correct_user_for_updates(self):
+        """Test that experiment activity logs show the correct user for both creation and updates."""
+
+        # Create a second user to test with
+        second_user = User.objects.create_user(
+            email="second@posthog.com", password="testpass123", first_name="Second", last_name="User"
+        )
+        self.organization.members.add(second_user)
+
+        # Create experiment with first user (self.user)
+        ff_key = "activity-logging-test"
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Activity Logging Test Experiment",
+                "description": "Testing activity logging fix",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": None,
+                "filters": {},
+            },
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        experiment_id = create_response.json()["id"]
+
+        # Check creation activity log shows first user
+        creation_logs = ActivityLog.objects.filter(
+            scope="Experiment", item_id=str(experiment_id), activity="created"
+        ).order_by("-created_at")
+        self.assertEqual(len(creation_logs), 1)
+        self.assertEqual(creation_logs[0].user, self.user)
+
+        # Switch to second user and update the experiment
+        self.client.force_login(second_user)
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/",
+            {
+                "description": "Updated description by second user",
+            },
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        # Check update activity log shows second user (not the creator)
+        update_logs = ActivityLog.objects.filter(
+            scope="Experiment", item_id=str(experiment_id), activity="updated"
+        ).order_by("-created_at")
+        self.assertEqual(len(update_logs), 1)
+        self.assertEqual(update_logs[0].user, second_user)
+
+        # Verify the fix: the update activity log should NOT show the first user
+        self.assertNotEqual(update_logs[0].user, self.user)
+
+    def test_experiment_saved_metric_activity_logging_shows_correct_user_for_updates(self):
+        """Test that experiment saved metric activity logs show the correct user for both creation and updates."""
+
+        # Create a second user to test with
+        second_user = User.objects.create_user(
+            email="second@posthog.com", password="testpass123", first_name="Second", last_name="User"
+        )
+        self.organization.members.add(second_user)
+
+        # Create experiment saved metric with first user (self.user)
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            {
+                "name": "Activity Logging Test Metric",
+                "description": "Testing saved metric activity logging fix",
+                "query": {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        metric_id = create_response.json()["id"]
+
+        # Check creation activity log shows first user
+        creation_logs = ActivityLog.objects.filter(
+            scope="Experiment",  # Note: ExperimentSavedMetric logs under "Experiment" scope
+            item_id=str(metric_id),
+            activity="created",
+        ).order_by("-created_at")
+        self.assertEqual(len(creation_logs), 1)
+        self.assertEqual(creation_logs[0].user, self.user)
+
+        # Switch to second user and update the metric
+        self.client.force_login(second_user)
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/{metric_id}/",
+            {
+                "description": "Updated description by second user",
+            },
+        )
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+
+        # Check update activity log shows second user (not the creator)
+        update_logs = ActivityLog.objects.filter(
+            scope="Experiment",  # Note: ExperimentSavedMetric logs under "Experiment" scope
+            item_id=str(metric_id),
+            activity="updated",
+        ).order_by("-created_at")
+        self.assertEqual(len(update_logs), 1)
+        self.assertEqual(update_logs[0].user, second_user)
+
+        # Verify the fix: the update activity log should NOT show the first user
+        self.assertNotEqual(update_logs[0].user, self.user)

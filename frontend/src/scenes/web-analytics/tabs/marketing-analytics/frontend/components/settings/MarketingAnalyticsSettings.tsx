@@ -1,18 +1,36 @@
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+
 import { ConversionGoalsConfiguration } from './ConversionGoalsConfiguration'
 import { NativeExternalDataSourceConfiguration } from './NativeExternalDataSourceConfiguration'
 import { NonNativeExternalDataSourceConfiguration } from './NonNativeExternalDataSourceConfiguration'
 import { SelfManagedExternalDataSourceConfiguration } from './SelfManagedExternalDataSourceConfiguration'
 
-export function MarketingAnalyticsSettings(): JSX.Element {
+export function MarketingAnalyticsSettings({ hideTitle = false }: { hideTitle?: boolean }): JSX.Element {
     return (
-        <div className="flex flex-col gap-8 mb-10">
+        <SceneContent>
+            {!hideTitle && (
+                <SceneTitleSection
+                    name="Marketing settings"
+                    description={null}
+                    resourceType={{
+                        type: 'marketing_settings',
+                    }}
+                />
+            )}
+            <SceneDivider />
             <BaseCurrency />
+            <SceneDivider />
             <ConversionGoalsConfiguration />
+            <SceneDivider />
             <NativeExternalDataSourceConfiguration />
+            <SceneDivider />
             <NonNativeExternalDataSourceConfiguration />
+            <SceneDivider />
             <SelfManagedExternalDataSourceConfiguration />
-        </div>
+        </SceneContent>
     )
 }

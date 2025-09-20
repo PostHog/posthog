@@ -1,9 +1,10 @@
 import datetime as dt
-import itertools
 import operator
+import itertools
+
+import pytest
 
 import pyarrow as pa
-import pytest
 
 from posthog.batch_exports.debug.debugger import BatchExportsDebugger, ColumnDebugStatistics
 from posthog.batch_exports.models import BatchExport, BatchExportDestination, BatchExportRun

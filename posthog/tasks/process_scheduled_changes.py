@@ -1,13 +1,15 @@
-import json
 import os
+import json
 import socket
-from posthog.models import ScheduledChange
+
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
+from django.db import IntegrityError, OperationalError, transaction
 from django.utils import timezone
-from posthog.exceptions_capture import capture_exception
-from posthog.models import FeatureFlag
-from django.db import transaction, OperationalError, IntegrityError
-from django.core.exceptions import ValidationError, ObjectDoesNotExist
+
 from celery import current_task
+
+from posthog.exceptions_capture import capture_exception
+from posthog.models import FeatureFlag, ScheduledChange
 
 models = {"FeatureFlag": FeatureFlag}
 

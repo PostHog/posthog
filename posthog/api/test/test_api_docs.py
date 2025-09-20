@@ -1,5 +1,4 @@
 import pytest
-
 from posthog.test.base import APIBaseTest
 
 

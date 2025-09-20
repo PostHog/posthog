@@ -1,8 +1,7 @@
 from inline_snapshot import snapshot
+
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-from posthog.cdp.templates.knock.template_knock import (
-    template as template_knock,
-)
+from posthog.cdp.templates.knock.template_knock import template as template_knock
 
 
 def create_inputs(**kwargs):

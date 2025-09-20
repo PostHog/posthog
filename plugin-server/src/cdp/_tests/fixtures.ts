@@ -8,6 +8,7 @@ import { ClickHousePerson, ClickHouseTimestamp, ProjectId, RawClickHouseEvent, T
 import { PostgresRouter } from '../../utils/db/postgres'
 import { UUIDT } from '../../utils/utils'
 import { CdpInternalEvent } from '../schema'
+import { compileHog } from '../templates/compiler'
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobQueueKind,
@@ -175,6 +176,9 @@ export const insertHogFunctionTemplate = async (
     const template = createHogFunctionTemplate({
         ...hogFunctionTemplate,
     })
+    if (template.code_language === 'hog') {
+        template.bytecode = await compileHog(template.code)
+    }
 
     const res = await insertRow(postgres, 'posthog_hogfunctiontemplate', {
         id: randomUUID(),
@@ -256,7 +260,7 @@ export const createHogExecutionGlobals = (
 
 export const createExampleInvocation = (
     _hogFunction: Partial<HogFunctionType> = {},
-    _globals: Partial<HogFunctionInvocationGlobals> = {},
+    _globals: Partial<HogFunctionInvocationGlobalsWithInputs> = {},
     queue: CyclotronJobQueueKind = 'hog'
 ): CyclotronJobInvocationHogFunction => {
     const hogFunction = createHogFunction(_hogFunction)

@@ -1,11 +1,8 @@
 import dagster
 
+from dags import symbol_set_cleanup
+
 from . import resources
-
-from dags import (
-    symbol_set_cleanup,
-)
-
 
 defs = dagster.Definitions(
     assets=[

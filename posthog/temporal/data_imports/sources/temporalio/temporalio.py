@@ -1,17 +1,18 @@
 import asyncio
 import datetime
-from enum import StrEnum
-from queue import Queue
 import threading
 import dataclasses
+from enum import StrEnum
+from queue import Queue
 from typing import Any, Optional
+
+from temporalio.client import Client
+from temporalio.service import RPCError
 
 from posthog.temporal.common.client import connect
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import TemporalIOSourceConfig
 from posthog.warehouse.types import IncrementalField, IncrementalFieldType
-from temporalio.client import Client
-from temporalio.service import RPCError
 
 
 class TemporalIOResource(StrEnum):

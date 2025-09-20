@@ -1,10 +1,11 @@
 import { useActions, useValues } from 'kea'
+import { useRef } from 'react'
+
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { IconUploadFile } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { useRef } from 'react'
+import { IconUploadFile } from 'lib/lemon-ui/icons'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
@@ -21,7 +22,7 @@ export const scene: SceneExport = {
 
 export function SessionRecordingFilePlaybackScene(): JSX.Element {
     const { loadFromFile, resetSessionRecording } = useActions(sessionRecordingFilePlaybackSceneLogic)
-    const { sessionRecording, sessionRecordingLoading, playerKey } = useValues(sessionRecordingFilePlaybackSceneLogic)
+    const { sessionRecording, sessionRecordingLoading, playerProps } = useValues(sessionRecordingFilePlaybackSceneLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const filePlaybackEnabled = hasAvailableFeature(AvailableFeature.RECORDINGS_FILE_EXPORT)
 
@@ -52,7 +53,7 @@ export function SessionRecordingFilePlaybackScene(): JSX.Element {
                     >
                         You are viewing a recording loaded from a file.
                     </LemonBanner>
-                    <SessionRecordingPlayer sessionRecordingId="" playerKey={playerKey} />
+                    <SessionRecordingPlayer {...playerProps} />
                 </div>
             ) : (
                 <div

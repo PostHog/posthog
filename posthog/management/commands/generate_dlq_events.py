@@ -1,10 +1,11 @@
 import json
-import random
 import uuid
+import random
 from datetime import datetime, timedelta
 from typing import Any
 
 from django.core.management.base import BaseCommand
+
 from posthog.clickhouse.client import sync_execute
 from posthog.models.team.team import Team
 

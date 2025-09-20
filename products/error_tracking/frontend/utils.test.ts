@@ -1,7 +1,8 @@
+import { Dayjs, dayjs } from 'lib/dayjs'
+
 import { ErrorTrackingIssue, ErrorTrackingIssueAggregations } from '~/queries/schema/schema-general'
 
 import { generateDateRangeLabel, mergeIssues } from './utils'
-import { dayjs, Dayjs } from 'lib/dayjs'
 
 function wrapVolumeBuckets(
     initialDate: Dayjs,

@@ -1,9 +1,10 @@
+import { useActions, useValues } from 'kea'
+
 import { LemonModal } from '@posthog/lemon-ui'
-import { BindLogic, useActions, useValues } from 'kea'
+
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 
-import { PlayerMeta } from '../player-meta/PlayerMeta'
-import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
+import { SessionRecordingPlayerLogicProps, sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { sessionPlayerModalLogic } from './sessionPlayerModalLogic'
 
 /**
@@ -51,15 +52,8 @@ export function SessionPlayerModal(): JSX.Element | null {
             zIndex="1161"
             hideCloseButton={true}
         >
-            <header>
-                {activeSessionRecording ? (
-                    <BindLogic logic={sessionRecordingPlayerLogic} props={logicProps}>
-                        <PlayerMeta />
-                    </BindLogic>
-                ) : null}
-            </header>
             <LemonModal.Content embedded>
-                {activeSessionRecording?.id && <SessionRecordingPlayer {...logicProps} noMeta noBorder />}
+                {activeSessionRecording?.id && <SessionRecordingPlayer {...logicProps} noBorder />}
             </LemonModal.Content>
         </LemonModal>
     )

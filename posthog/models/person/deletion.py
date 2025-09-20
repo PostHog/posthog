@@ -1,12 +1,13 @@
 from typing import Optional
 
-import structlog
 from django.db import transaction
+
+import structlog
+from rest_framework.exceptions import NotFound
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.person import PersonDistinctId
 from posthog.models.person.util import create_person_distinct_id
-from rest_framework.exceptions import NotFound
 
 logger = structlog.get_logger(__name__)
 

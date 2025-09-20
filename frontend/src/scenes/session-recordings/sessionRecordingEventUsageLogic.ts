@@ -1,7 +1,8 @@
 import { actions, connect, kea, listeners, path } from 'kea'
+import posthog from 'posthog-js'
+
 import { isLogEntryPropertyFilter, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
-import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { MiniFilterKey } from 'scenes/session-recordings/player/inspector/miniFiltersLogic'
 import { InspectorListItemType } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
@@ -14,7 +15,6 @@ import {
     RecordingUniversalFilters,
     SessionPlayerData,
     SessionRecordingType,
-    SessionRecordingUsageType,
 } from '~/types'
 
 import type { sessionRecordingEventUsageLogicType } from './sessionRecordingEventUsageLogicType'
@@ -42,12 +42,10 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         values: [preflightLogic, ['realm'], userLogic, ['user']],
     })),
     actions({
-        reportRecording: (
-            playerData: SessionPlayerData,
-            type: SessionRecordingUsageType,
-            metadata: SessionRecordingType | null,
-            delay?: number
-        ) => ({ playerData, type, delay, metadata }),
+        reportRecordingLoaded: (playerData: SessionPlayerData, metadata: SessionRecordingType | null) => ({
+            playerData,
+            metadata,
+        }),
         reportRecordingsListFetched: (
             loadTime: number,
             filters: RecordingUniversalFilters,
@@ -76,7 +74,7 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
         reportRecordingOpenedFromRecentRecordingList: true,
     }),
     listeners(() => ({
-        reportRecording: ({ playerData, type, metadata }) => {
+        reportRecordingLoaded: ({ playerData, metadata }) => {
             const payload: Partial<RecordingViewedProps> = {
                 duration: playerData.durationMs,
                 recording_id: playerData.sessionRecordingId,
@@ -86,7 +84,7 @@ export const sessionRecordingEventUsageLogic = kea<sessionRecordingEventUsageLog
                 // but for reporting we want to distinguish between not loaded and no value to load
                 snapshot_source: metadata?.snapshot_source || 'unknown',
             }
-            posthog.capture(`recording ${type}`, payload)
+            posthog.capture(`recording loaded`, payload)
         },
         reportRecordingsListFilterAdded: ({ filterType }) => {
             posthog.capture('recording list filter added', { filter_type: filterType })

@@ -1,25 +1,21 @@
-from typing import Optional, cast
+from typing import NotRequired, Optional, TypedDict, cast
 
-from posthog.api.services.query import ExecutionMode
-from posthog.caching.calculate_results import calculate_for_query_based_insight
-
-from posthog.models import AlertConfiguration, Insight
 from posthog.schema import (
-    TrendsQuery,
-    IntervalType,
-    TrendsAlertConfig,
-    InsightThreshold,
     AlertCondition,
     AlertConditionType,
     InsightsThresholdBounds,
+    InsightThreshold,
     InsightThresholdType,
+    IntervalType,
+    TrendsAlertConfig,
+    TrendsQuery,
 )
+
+from posthog.api.services.query import ExecutionMode
+from posthog.caching.calculate_results import calculate_for_query_based_insight
 from posthog.caching.fetch_from_cache import InsightResult
-from typing import TypedDict, NotRequired
-from posthog.tasks.alerts.utils import (
-    AlertEvaluationResult,
-    NON_TIME_SERIES_DISPLAY_TYPES,
-)
+from posthog.models import AlertConfiguration, Insight
+from posthog.tasks.alerts.utils import NON_TIME_SERIES_DISPLAY_TYPES, AlertEvaluationResult
 
 
 # TODO: move the TrendResult UI type to schema.ts and use that instead

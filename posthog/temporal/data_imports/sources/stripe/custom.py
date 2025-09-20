@@ -1,6 +1,6 @@
 # custom functions for stripe sources
 from stripe import InvoiceService, StripeClient
-from posthog.temporal.common.logger import FilteringBoundLogger
+from structlog.types import FilteringBoundLogger
 
 
 class InvoiceListWithAllLines:

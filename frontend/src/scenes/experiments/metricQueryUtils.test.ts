@@ -17,7 +17,14 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { getFilter, getMathProperties, getQuery } from './metricQueryUtils'
+import {
+    createFilterForSource,
+    filterToMetricConfig,
+    filterToMetricSource,
+    getFilter,
+    getMathProperties,
+    getQuery,
+} from './metricQueryUtils'
 
 describe('getFilter', () => {
     it('returns the correct filter for an event', () => {
@@ -28,7 +35,7 @@ describe('getFilter', () => {
                 kind: NodeKind.EventsNode,
                 event: '$pageview',
                 name: '$pageview',
-                math: 'total',
+                math: ExperimentMetricMathType.TotalCount,
                 math_property: undefined,
                 math_hogql: undefined,
                 properties: [{ key: '$browser', value: ['Chrome'], operator: 'exact', type: 'event' }],
@@ -42,7 +49,7 @@ describe('getFilter', () => {
                     name: '$pageview',
                     event: '$pageview',
                     type: 'events',
-                    math: 'total',
+                    math: ExperimentMetricMathType.TotalCount,
                     math_property: undefined,
                     math_hogql: undefined,
                     properties: [{ key: '$browser', value: ['Chrome'], operator: 'exact', type: 'event' }],
@@ -61,7 +68,7 @@ describe('getFilter', () => {
                 kind: NodeKind.ActionsNode,
                 id: 8,
                 name: 'jan-16-running payment action',
-                math: 'total',
+                math: ExperimentMetricMathType.TotalCount,
                 math_property: undefined,
                 math_hogql: undefined,
                 properties: [{ key: '$lib', type: 'event', value: ['python'], operator: 'exact' }],
@@ -75,7 +82,7 @@ describe('getFilter', () => {
                     id: 8,
                     name: 'jan-16-running payment action',
                     type: 'actions',
-                    math: 'total',
+                    math: ExperimentMetricMathType.TotalCount,
                     math_property: undefined,
                     math_hogql: undefined,
                     properties: [{ key: '$lib', type: 'event', value: ['python'], operator: 'exact' }],
@@ -84,6 +91,221 @@ describe('getFilter', () => {
             ],
             data_warehouse: [],
         })
+    })
+})
+
+describe('filterToMetricSource', () => {
+    it('returns EventsNode when events are provided', () => {
+        const events = [
+            {
+                id: '$pageview',
+                name: '$pageview',
+                math: ExperimentMetricMathType.TotalCount,
+                math_property: 'revenue',
+                math_hogql: 'sum(revenue)',
+                properties: [],
+            },
+        ]
+
+        const result = filterToMetricSource(undefined, events, undefined)
+
+        expect(result).toEqual({
+            kind: NodeKind.EventsNode,
+            event: '$pageview',
+            name: '$pageview',
+            math: ExperimentMetricMathType.TotalCount,
+            math_property: 'revenue',
+            math_hogql: 'sum(revenue)',
+            properties: [],
+        })
+    })
+
+    it('returns ActionsNode when actions are provided', () => {
+        const actions = [
+            {
+                id: 123,
+                name: 'signup_action',
+                math: ExperimentMetricMathType.Sum,
+                math_property: 'value',
+                properties: [],
+            },
+        ]
+
+        const result = filterToMetricSource(actions, undefined, undefined)
+
+        expect(result).toEqual({
+            kind: NodeKind.ActionsNode,
+            id: 123,
+            name: 'signup_action',
+            math: ExperimentMetricMathType.Sum,
+            math_property: 'value',
+            math_hogql: undefined,
+            properties: [],
+        })
+    })
+
+    it('returns ExperimentDataWarehouseNode when data_warehouse is provided', () => {
+        const dataWarehouse = [
+            {
+                id: 'user_events',
+                name: 'User Events',
+                timestamp_field: 'created_at',
+                events_join_key: 'user_id',
+                data_warehouse_join_key: 'customer_id',
+                math: ExperimentMetricMathType.Avg,
+                math_property: 'session_duration',
+                properties: [],
+            },
+        ]
+
+        const result = filterToMetricSource(undefined, undefined, dataWarehouse)
+
+        expect(result).toEqual({
+            kind: NodeKind.ExperimentDataWarehouseNode,
+            name: 'User Events',
+            table_name: 'user_events',
+            timestamp_field: 'created_at',
+            events_join_key: 'user_id',
+            data_warehouse_join_key: 'customer_id',
+            math: ExperimentMetricMathType.Avg,
+            math_property: 'session_duration',
+            math_hogql: undefined,
+            properties: [],
+        })
+    })
+
+    it('returns null when no sources are provided', () => {
+        const result = filterToMetricSource(undefined, undefined, undefined)
+        expect(result).toBeNull()
+    })
+
+    it('prioritizes events over actions and data_warehouse', () => {
+        const events = [{ id: 'event1', name: 'Event 1' }]
+        const actions = [{ id: 1, name: 'Action 1' }]
+        const dataWarehouse = [{ id: 'table1', name: 'Table 1' }]
+
+        const result = filterToMetricSource(actions, events, dataWarehouse)
+
+        expect(result?.kind).toBe(NodeKind.EventsNode)
+        expect(result?.name).toBe('Event 1')
+    })
+
+    it('uses default math when not provided', () => {
+        const events = [{ id: '$pageview', name: '$pageview' }]
+
+        const result = filterToMetricSource(undefined, events, undefined)
+
+        expect(result?.math).toBe(ExperimentMetricMathType.TotalCount)
+    })
+})
+
+describe('filterToMetricConfig', () => {
+    it('returns FUNNEL metric config when funnel type is provided', () => {
+        const events = [
+            { id: 'step1', properties: [], order: 0 },
+            { id: 'step2', properties: [], order: 1 },
+        ]
+        const actions = [{ id: 123, name: 'action1', properties: [], order: 2 }]
+
+        const result = filterToMetricConfig(ExperimentMetricType.FUNNEL, actions, events, undefined)
+
+        expect(result).toEqual({
+            metric_type: ExperimentMetricType.FUNNEL,
+            series: [
+                { kind: NodeKind.EventsNode, event: 'step1', properties: [] },
+                { kind: NodeKind.EventsNode, event: 'step2', properties: [] },
+                { kind: NodeKind.ActionsNode, id: 123, name: 'action1', properties: [] },
+            ],
+        })
+    })
+
+    it('returns MEAN metric config when mean type is provided with events', () => {
+        const events = [
+            { id: 'purchase', name: 'Purchase Event', math: ExperimentMetricMathType.Sum, math_property: 'revenue' },
+        ]
+
+        const result = filterToMetricConfig(ExperimentMetricType.MEAN, undefined, events, undefined)
+
+        expect(result).toEqual({
+            metric_type: ExperimentMetricType.MEAN,
+            source: {
+                kind: NodeKind.EventsNode,
+                event: 'purchase',
+                name: 'Purchase Event',
+                math: ExperimentMetricMathType.Sum,
+                math_property: 'revenue',
+                math_hogql: undefined,
+                properties: undefined,
+            },
+        })
+    })
+
+    it('returns undefined when no valid sources are provided', () => {
+        const result = filterToMetricConfig(ExperimentMetricType.MEAN, undefined, undefined, undefined)
+        expect(result).toBeUndefined()
+    })
+
+    it('returns undefined for unsupported metric types', () => {
+        const events = [{ id: 'event1', name: 'Event 1' }]
+        const result = filterToMetricConfig('UNSUPPORTED' as ExperimentMetricType, undefined, events, undefined)
+        expect(result).toBeUndefined()
+    })
+})
+
+describe('createFilterForSource', () => {
+    it('creates filter for EventsNode source', () => {
+        const source: EventsNode = {
+            kind: NodeKind.EventsNode,
+            event: '$pageview',
+            name: '$pageview',
+            math: ExperimentMetricMathType.TotalCount,
+            properties: [],
+        }
+
+        const result = createFilterForSource(source)
+
+        expect(result.events).toHaveLength(1)
+        expect(result.actions).toHaveLength(0)
+        expect(result.data_warehouse).toHaveLength(0)
+        expect(result.events?.[0]?.id).toBe('$pageview')
+        expect(result.events?.[0]?.type).toBe('events')
+    })
+
+    it('creates filter for ActionsNode source', () => {
+        const source: ActionsNode = {
+            kind: NodeKind.ActionsNode,
+            id: 123,
+            name: 'signup_action',
+            math: ExperimentMetricMathType.TotalCount,
+        }
+
+        const result = createFilterForSource(source)
+
+        expect(result.events).toHaveLength(0)
+        expect(result.actions).toHaveLength(1)
+        expect(result.data_warehouse).toHaveLength(0)
+        expect(result.actions?.[0]?.id).toBe(123)
+        expect(result.actions?.[0]?.type).toBe('actions')
+    })
+
+    it('creates filter for ExperimentDataWarehouseNode source', () => {
+        const source: ExperimentDataWarehouseNode = {
+            kind: NodeKind.ExperimentDataWarehouseNode,
+            name: 'revenue_table',
+            table_name: 'revenue_table',
+            timestamp_field: 'created_at',
+            events_join_key: 'user_id',
+            data_warehouse_join_key: 'customer_id',
+            math: ExperimentMetricMathType.Sum,
+        }
+
+        const result = createFilterForSource(source)
+
+        expect(result.events).toHaveLength(0)
+        expect(result.actions).toHaveLength(0)
+        expect(result.data_warehouse).toHaveLength(1)
+        expect(result.data_warehouse?.[0]?.id).toBe('revenue_table')
+        expect(result.data_warehouse?.[0]?.type).toBe('data_warehouse')
     })
 })
 
@@ -381,7 +603,7 @@ describe('Data Warehouse Support', () => {
                     events_join_key: 'user_id',
                     data_warehouse_join_key: 'user_id',
                     name: 'user_events',
-                    math: 'total',
+                    math: ExperimentMetricMathType.TotalCount,
                     properties: [
                         {
                             key: 'event_type',
@@ -405,7 +627,7 @@ describe('Data Warehouse Support', () => {
                         timestamp_field: 'created_at',
                         events_join_key: 'user_id',
                         data_warehouse_join_key: 'user_id',
-                        math: 'total',
+                        math: ExperimentMetricMathType.TotalCount,
                         properties: [
                             {
                                 key: 'event_type',
@@ -586,7 +808,7 @@ describe('Data Warehouse Support', () => {
                     events_join_key: '',
                     data_warehouse_join_key: '',
                     name: '',
-                    math: 'total',
+                    math: ExperimentMetricMathType.TotalCount,
                 } as ExperimentDataWarehouseNode,
             }
             const filter = getFilter(metric)
@@ -620,7 +842,7 @@ describe('Data Warehouse Support', () => {
                             type: PropertyFilterType.Event,
                         },
                     ],
-                    math: 'total',
+                    math: ExperimentMetricMathType.TotalCount,
                     math_property: 'conversion_value',
                     math_hogql: 'sum(conversion_value)',
                 } as ExperimentDataWarehouseNode,
@@ -649,7 +871,7 @@ describe('Data Warehouse Support', () => {
                         type: PropertyFilterType.Event,
                     },
                 ],
-                math: 'total',
+                math: ExperimentMetricMathType.TotalCount,
                 math_property: 'conversion_value',
                 math_hogql: 'sum(conversion_value)',
                 kind: NodeKind.ExperimentDataWarehouseNode,

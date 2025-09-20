@@ -1,6 +1,4 @@
-from posthog.api.test.test_organization import (
-    create_organization as create_organization_base,
-)
+from posthog.api.test.test_organization import create_organization as create_organization_base
 from posthog.constants import AvailableFeature
 from posthog.models import (
     BatchExport,
@@ -8,6 +6,8 @@ from posthog.models import (
     BatchExportDestination,
     BatchExportRun,
     Organization,
+    Team,
+    User,
 )
 
 
@@ -19,6 +19,32 @@ def create_organization(name: str, has_data_pipelines_feature: bool = True) -> O
         ]
         organization.save()
     return organization
+
+
+def create_team(organization: Organization, name: str = "Test team", timezone: str = "UTC") -> Team:
+    """
+    This is a helper that just creates a team. It currently uses the orm, but we
+    could use either the api, or django admin to create, to get better parity
+    with real world scenarios.
+    """
+    return Team.objects.create(
+        organization=organization,
+        name=name,
+        ingested_event=True,
+        completed_snippet_onboarding=True,
+        is_demo=True,
+        timezone=timezone,
+        base_currency="USD",
+    )
+
+
+def create_user(email: str, password: str, organization: Organization):
+    """
+    Helper that just creates a user. It currently uses the orm, but we
+    could use either the api, or django admin to create, to get better parity
+    with real world scenarios.
+    """
+    return User.objects.create_and_join(organization, email, password)
 
 
 def create_destination() -> BatchExportDestination:

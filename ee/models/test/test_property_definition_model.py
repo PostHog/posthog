@@ -1,7 +1,7 @@
 import pytest
+from posthog.test.base import BaseTest
 
 from ee.models.property_definition import EnterprisePropertyDefinition
-from posthog.test.base import BaseTest
 
 
 class TestPropertyDefinition(BaseTest):

@@ -1,10 +1,12 @@
-import { kea, path, actions, connect } from 'kea'
+import { actions, connect, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
+import { userLogic } from 'scenes/userLogic'
 
 import type { optOutSceneLogicType } from './optOutSceneLogicType'
-import { userLogic } from 'scenes/userLogic'
-import { lemonToast } from '@posthog/lemon-ui'
 
 export const optOutSceneLogic = kea<optOutSceneLogicType>([
     path(['products', 'messaging', 'frontend', 'OptOuts', 'optOutSceneLogic']),

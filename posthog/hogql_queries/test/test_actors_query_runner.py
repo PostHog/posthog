@@ -1,47 +1,47 @@
+from datetime import UTC, datetime
 from typing import cast
 
 import pytest
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
-from posthog.hogql import ast
-from posthog.hogql.test.utils import pretty_print_in_tests
-from posthog.hogql.visitor import clear_locations
-from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.group.util import create_group
-from posthog.models.utils import UUIDT
+from django.test import override_settings
+
 from posthog.schema import (
     ActorsQuery,
     BaseMathType,
     BreakdownFilter,
     BreakdownType,
-    EventPropertyFilter,
-    PersonPropertyFilter,
-    HogQLPropertyFilter,
-    PropertyOperator,
-    HogQLQuery,
-    LifecycleQuery,
     DateRange,
+    EventPropertyFilter,
     EventsNode,
-    IntervalType,
-    InsightActorsQuery,
-    TrendsQuery,
-    FunnelsQuery,
-    HogQLQueryModifiers,
     FunnelsActorsQuery,
+    FunnelsQuery,
+    HogQLPropertyFilter,
+    HogQLQuery,
+    HogQLQueryModifiers,
+    InsightActorsQuery,
+    IntervalType,
+    LifecycleQuery,
+    PersonPropertyFilter,
+    PersonsArgMaxVersion,
     PersonsOnEventsMode,
+    PropertyOperator,
+    TrendsQuery,
 )
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_person,
-    flush_persons_and_events,
-    _create_event,
-)
-from freezegun import freeze_time
-from django.test import override_settings
-from unittest.mock import patch
+
+from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.test.utils import pretty_print_in_tests
+from posthog.hogql.visitor import clear_locations
+
+from posthog.clickhouse.client import sync_execute
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.models.group.util import create_group
 from posthog.models.property_definition import PropertyDefinition, PropertyType
+from posthog.models.utils import UUIDT
+from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
 class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -511,7 +511,7 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert len(response.results) == 3
 
     def test_default_group_actors_query(self):
-        GroupTypeMapping.objects.create(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
 
@@ -693,3 +693,58 @@ class TestActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         response = runner.calculate()
 
         self.assertEqual(response.results[0][0], "Test User With Spaces")
+
+    def test_direct_actors_query_uses_latest_person_data_after_property_deletion(self):
+        """Test that direct ActorsQuery uses latest person data and doesn't show deleted properties."""
+        # Create a person with email property first
+        person = _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["user_with_email"],
+            properties={"email": "test@example.com", "name": "Test User"},
+        )
+        flush_persons_and_events()
+
+        # Simulate property deletion by directly inserting a newer version in ClickHouse
+        # This mimics what happens when a person property is deleted via the API
+
+        # Insert a newer version without the email property (simulating deletion)
+        sync_execute(
+            """
+            INSERT INTO person (
+                id, team_id, properties, is_identified, is_deleted, version, created_at
+            ) VALUES (
+                %(person_id)s, %(team_id)s, %(properties)s, 1, 0, %(version)s, %(created_at)s
+            )
+            """,
+            {
+                "person_id": str(person.uuid),
+                "team_id": self.team.pk,
+                "properties": '{"name": "Test User"}',  # email property removed
+                "version": 1,  # Newer version
+                "created_at": datetime.now(UTC),
+            },
+        )
+
+        # Test: Query for persons with email containing '@' should return NO results
+        # because the latest version doesn't have an email property
+        query = ActorsQuery(
+            select=["person_display_name -- Person ", "id", "created_at"],
+            search="@",  # This searches email property among others
+        )
+        runner = self._create_runner(query)
+        response = runner.calculate()
+
+        # Should return no results because latest version doesn't have email with @
+        person_ids_in_results = [row[1] for row in response.results]
+        self.assertNotIn(
+            str(person.uuid),
+            person_ids_in_results,
+            "Person with deleted email property should not appear in search results for '@'",
+        )
+
+        # Verify that direct ActorsQuery is using PersonsArgMaxVersion.V2
+        self.assertEqual(
+            runner.modifiers.personsArgMaxVersion,
+            PersonsArgMaxVersion.V2,
+            "Direct ActorsQuery should use PersonsArgMaxVersion.V2 for latest person data",
+        )
