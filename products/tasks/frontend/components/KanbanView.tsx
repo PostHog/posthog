@@ -24,8 +24,8 @@ import { CSS } from '@dnd-kit/utilities'
 import { useActions, useValues } from 'kea'
 import React, { PropsWithChildren, useEffect, useRef, useState } from 'react'
 
+import { IconGear, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonCard } from '@posthog/lemon-ui'
-import { IconPlus, IconGear } from '@posthog/icons'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -78,10 +78,8 @@ export function KanbanView(): JSX.Element {
     const [editingWorkflow, setEditingWorkflow] = useState<TaskWorkflow | null>(null)
     const recentlyMovedToNewContainer = useRef(false)
 
-    // Create a flattened items structure for DnD
     const [items, setItems] = useState<Items>({})
 
-    // Update items when workflowKanbanData changes
     useEffect(() => {
         const newItems: Items = {}
         workflowKanbanData.forEach(({ workflow, stages }) => {
@@ -92,7 +90,7 @@ export function KanbanView(): JSX.Element {
         setItems(newItems)
     }, [workflowKanbanData])
 
-    const toggleWorkflow = (workflowId: string) => {
+    const toggleWorkflow = (workflowId: string): void => {
         const newCollapsed = new Set(collapsedWorkflows)
         if (newCollapsed.has(workflowId)) {
             newCollapsed.delete(workflowId)
@@ -105,7 +103,7 @@ export function KanbanView(): JSX.Element {
     const handleTaskClick = (taskId: Task['id']): void => {
         openTaskDetail(taskId)
     }
-    
+
     const sensors = useSensors(
         useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
         useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 5 } }),
@@ -115,11 +113,11 @@ export function KanbanView(): JSX.Element {
         if (isContainer(item)) {
             return item.id
         }
-        // Find which container the task belongs to
         const task = tasks.find((t: Task) => t.id === item.id)
-        if (!task) return ''
-        
-        // Find the workflow and stage for this task
+        if (!task) {
+            return ''
+        }
+
         for (const { workflow, stages } of workflowKanbanData) {
             for (const { stage } of stages) {
                 if (task.workflow === workflow.id && task.current_stage === stage.id) {
@@ -130,9 +128,9 @@ export function KanbanView(): JSX.Element {
         return ''
     }
 
-    const findStageByContainerId = (targetContainerId: string): { workflow: TaskWorkflow; stage: WorkflowStage } | null => {
-        // Parse target container ID which has format: "workflowId-stageKey"
-        // Need to be careful because workflow IDs are UUIDs that contain hyphens
+    const findStageByContainerId = (
+        targetContainerId: string
+    ): { workflow: TaskWorkflow; stage: WorkflowStage } | null => {
         for (const workflowData of workflowKanbanData) {
             for (const stageData of workflowData.stages) {
                 const expectedContainerId = `${workflowData.workflow.id}-${stageData.stage.key}`
@@ -149,22 +147,16 @@ export function KanbanView(): JSX.Element {
         if (!target) {
             return false
         }
-        
-        // Rule 1: Can only move within same workflow
+
         if (activeTask.workflow !== target.workflow.id) {
             return false
         }
-        
-        // Rule 2: Can drop on agent-only stages - agents will process automatically
-        // This allows users to move tasks to agent stages to trigger automation
-        
+
         return true
     }
 
     const onDragCancel = (): void => {
         if (clonedItems) {
-            // Reset items to their original state in case items have been
-            // Dragged across containers
             setItems(clonedItems)
         }
 
@@ -178,9 +170,6 @@ export function KanbanView(): JSX.Element {
         })
     }, [items])
 
-    // Items are updated by workflowKanbanData useEffect above
-
-    // Show workflow builder when creating or editing
     if (showCreateWorkflow || editingWorkflow) {
         return (
             <WorkflowBuilder
@@ -208,11 +197,7 @@ export function KanbanView(): JSX.Element {
                         Manage task workflows and track progress across different stages
                     </p>
                 </div>
-                <LemonButton
-                    type="primary"
-                    icon={<IconPlus />}
-                    onClick={() => setShowCreateWorkflow(true)}
-                >
+                <LemonButton type="primary" icon={<IconPlus />} onClick={() => setShowCreateWorkflow(true)}>
                     New Workflow
                 </LemonButton>
             </div>
@@ -316,7 +301,6 @@ export function KanbanView(): JSX.Element {
                                       ? dropIndicator.index
                                       : targetItems.length
 
-                            
                             setItems((current) => ({
                                 ...current,
                                 [activeContainer]: current[activeContainer].filter((t) => t.id !== active.id),
@@ -349,24 +333,22 @@ export function KanbanView(): JSX.Element {
                     {workflowKanbanData.map(({ workflow, stages }) => {
                         const isCollapsed = collapsedWorkflows.has(workflow.id)
                         const totalTasks = stages.reduce((sum, { tasks }) => sum + tasks.length, 0)
-                        
+
                         return (
                             <div key={workflow.id} className="bg-bg-light rounded-lg border border-border">
                                 {/* Workflow Header */}
                                 <div className="flex items-center justify-between p-4">
-                                    <div 
+                                    <div
                                         className="flex items-center gap-3 cursor-pointer hover:bg-bg-3000 rounded px-2 py-1 -mx-2 -my-1 flex-1"
                                         onClick={() => toggleWorkflow(workflow.id)}
                                     >
-                                        <div 
-                                            className="w-4 h-4 rounded-full" 
+                                        <div
+                                            className="w-4 h-4 rounded-full"
                                             style={{ backgroundColor: workflow.color }}
                                         />
                                         <h2 className="text-lg font-semibold">{workflow.name}</h2>
                                         <span className="text-sm text-muted">({totalTasks} tasks)</span>
-                                        <div className="text-muted ml-auto">
-                                            {isCollapsed ? '▶' : '▼'}
-                                        </div>
+                                        <div className="text-muted ml-auto">{isCollapsed ? '▶' : '▼'}</div>
                                     </div>
                                     <LemonButton
                                         size="small"
@@ -383,18 +365,22 @@ export function KanbanView(): JSX.Element {
                                 {/* Workflow Stages */}
                                 {!isCollapsed && (
                                     <div className="px-4 pb-4">
-                                        <div 
-                                            className="grid gap-4" 
-                                            style={{ gridTemplateColumns: `repeat(${stages.length}, minmax(250px, 1fr))` }}
+                                        <div
+                                            className="grid gap-4"
+                                            style={{
+                                                gridTemplateColumns: `repeat(${stages.length}, minmax(250px, 1fr))`,
+                                            }}
                                         >
                                             {stages.map(({ stage, tasks: stageTasks }) => {
                                                 const containerId = `${workflow.id}-${stage.key}`
                                                 const isAgentOnly = !stage.is_manual_only
-                                                
+
                                                 return (
                                                     <div
                                                         key={containerId}
-                                                        className={cn('bg-white rounded-lg p-3 relative border border-border')}
+                                                        className={cn(
+                                                            'bg-white rounded-lg p-3 relative border border-border'
+                                                        )}
                                                     >
                                                         {isAgentOnly && (
                                                             <div className="absolute top-2 right-2 z-10 pointer-events-none">
@@ -408,8 +394,8 @@ export function KanbanView(): JSX.Element {
                                                         )}
                                                         <div className="flex justify-between items-center mb-3">
                                                             <div className="flex items-center gap-2">
-                                                                <div 
-                                                                    className="w-3 h-3 rounded-full" 
+                                                                <div
+                                                                    className="w-3 h-3 rounded-full"
                                                                     style={{ backgroundColor: stage.color }}
                                                                 />
                                                                 <h3 className="font-medium text-sm">{stage.name}</h3>
@@ -418,9 +404,13 @@ export function KanbanView(): JSX.Element {
                                                                 {stageTasks.length}
                                                             </span>
                                                         </div>
-                                                        <DroppableContainer 
+                                                        <DroppableContainer
                                                             id={containerId}
-                                                            disabled={activeTask ? !canDropTask(activeTask, containerId) : false}
+                                                            disabled={
+                                                                activeTask
+                                                                    ? !canDropTask(activeTask, containerId)
+                                                                    : false
+                                                            }
                                                         >
                                                             <SortableContext
                                                                 items={stageTasks.map((t) => t.id)}
@@ -429,12 +419,20 @@ export function KanbanView(): JSX.Element {
                                                                 {stageTasks.map((task, idx) => (
                                                                     <React.Fragment key={`row-${task.id}`}>
                                                                         {dropIndicator.container === containerId &&
-                                                                            dropIndicator.index === idx && <DropIndicator />}
-                                                                        <SortableItem key={task.id} task={task} onClick={handleTaskClick} />
+                                                                            dropIndicator.index === idx && (
+                                                                                <DropIndicator />
+                                                                            )}
+                                                                        <SortableItem
+                                                                            key={task.id}
+                                                                            task={task}
+                                                                            onClick={handleTaskClick}
+                                                                        />
                                                                     </React.Fragment>
                                                                 ))}
                                                                 {dropIndicator.container === containerId &&
-                                                                    dropIndicator.index === stageTasks.length && <DropIndicator />}
+                                                                    dropIndicator.index === stageTasks.length && (
+                                                                        <DropIndicator />
+                                                                    )}
                                                             </SortableContext>
                                                         </DroppableContainer>
                                                     </div>
@@ -446,7 +444,7 @@ export function KanbanView(): JSX.Element {
                             </div>
                         )
                     })}
-                    
+
                     {workflowKanbanData.length === 0 && (
                         <div className="text-center py-12 text-muted">
                             <p className="mb-2">No workflows configured</p>

@@ -52,11 +52,7 @@ async def get_workflow_configuration_activity(params: dict[str, Any]) -> dict[st
                         return {
                             "has_workflow": False,
                             "current_stage_key": task.current_stage.key if task.current_stage else "backlog",
-                            "transitions": [],
                         }
-
-                # For now, simplified transitions (no transitions model yet)
-                transitions = []
 
                 return {
                     "has_workflow": True,
@@ -65,7 +61,6 @@ async def get_workflow_configuration_activity(params: dict[str, Any]) -> dict[st
                     "current_stage_key": current_stage.key,
                     "current_stage_name": current_stage.name,
                     "current_stage_is_manual_only": current_stage.is_manual_only,
-                    "transitions": transitions,
                 }
 
         return await get_workflow_config()
@@ -101,7 +96,6 @@ async def get_agent_triggered_transition_activity(params: dict[str, Any]) -> Opt
                 if not current_stage:
                     return None
 
-                # Return agent info if current stage has an agent
                 if not current_stage.agent:
                     return None
 
@@ -124,7 +118,6 @@ async def move_task_to_stage_activity(params: dict[str, Any]) -> dict[str, Any]:
     try:
         task_id = params["task_id"]
         team_id = params["team_id"]
-        # key-based moves removed; always advance linearly
 
         from django.db import transaction
 
@@ -147,10 +140,9 @@ async def move_task_to_stage_activity(params: dict[str, Any]) -> dict[str, Any]:
                         "new_stage": None,
                     }
 
-                # Determine next stage linearly
+                # Determine next stage in the workflow
                 current_stage = task.current_stage
                 if not current_stage:
-                    # If no current stage, pick the first non-archived by position
                     target_stage = workflow.stages.filter(is_archived=False).order_by("position").first()
                     if not target_stage:
                         logger.error(f"Could not find any non-archived stage for workflow {workflow.id}")
@@ -169,12 +161,8 @@ async def move_task_to_stage_activity(params: dict[str, Any]) -> dict[str, Any]:
                             "new_stage": current_stage.key,
                         }
 
-                # Simplified validation: can move to any stage in the same workflow
-                # (transition_id parameter is ignored since there are no transition models)
-
                 previous_stage_key = task.current_stage.key if task.current_stage else "backlog"
 
-                # Update task
                 task.current_stage = target_stage
                 task.save(update_fields=["current_stage"])
 
@@ -200,7 +188,6 @@ async def should_trigger_agent_workflow_activity(params: dict[str, Any]) -> dict
     try:
         task_id = params["task_id"]
         team_id = params["team_id"]
-        # Stage will be inferred from the task in DB
 
         from django.db import transaction
 
@@ -214,21 +201,11 @@ async def should_trigger_agent_workflow_activity(params: dict[str, Any]) -> dict
                 task = Task.objects.select_related("workflow", "current_stage").get(id=task_id, team_id=team_id)
 
                 workflow = task.effective_workflow
-                if not workflow:
-                    # Legacy behavior: trigger only when entering first actionable stage is not supported without config
-                    should_trigger = False
-                    return {
-                        "should_trigger": should_trigger,
-                        "trigger_reason": "No workflow configured",
-                        "workflow_name": "Legacy Workflow",
-                    }
 
-                # Use the task's current stage only
                 current_stage = task.current_stage
                 if not current_stage:
                     return {"should_trigger": False, "trigger_reason": "Task has no current stage"}
 
-                # Simplified agent check: stages with agents attached can trigger workflows
                 agent_transitions = current_stage.agent is not None
 
                 if agent_transitions:
@@ -271,6 +248,7 @@ async def trigger_task_processing_activity(params: dict[str, Any]) -> dict[str, 
     except Exception as e:
         logger.exception(f"Failed to trigger task processing workflow: {e}")
         return {"success": False, "error": str(e)}
+
 
 @temporalio.activity.defn(name="execute_agent_for_transition")
 async def execute_agent_for_transition_activity(params: dict[str, Any]) -> dict[str, Any]:

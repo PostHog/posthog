@@ -1,12 +1,12 @@
-import { LemonButton, LemonCard, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconPlus, IconInfo, IconX } from '@posthog/icons'
+import { IconInfo, IconPlus, IconX } from '@posthog/icons'
+import { LemonButton, LemonCard, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { TaskWorkflow } from '../types'
-import { workflowSettingsLogic } from './workflowSettingsLogic'
 import { WorkflowBuilder } from './WorkflowBuilder'
+import { workflowSettingsLogic } from './workflowSettingsLogic'
 
 export function WorkflowSettings(): JSX.Element {
     const { workflows, loading, selectedWorkflow } = useValues(workflowSettingsLogic)
@@ -52,11 +52,7 @@ export function WorkflowSettings(): JSX.Element {
                         Configure custom workflows to define how tasks move through different stages
                     </p>
                 </div>
-                <LemonButton
-                    type="secondary"
-                    icon={<IconPlus />}
-                    onClick={() => setShowCreateForm(true)}
-                >
+                <LemonButton type="secondary" icon={<IconPlus />} onClick={() => setShowCreateForm(true)}>
                     New Workflow
                 </LemonButton>
             </div>
@@ -65,9 +61,7 @@ export function WorkflowSettings(): JSX.Element {
                 <LemonCard className="p-8 text-center">
                     <IconInfo className="w-12 h-12 text-muted mx-auto mb-4" />
                     <h3 className="text-lg font-medium mb-2">No Workflows Configured</h3>
-                    <p className="text-muted mb-4">
-                        Creating default workflow...
-                    </p>
+                    <p className="text-muted mb-4">Creating default workflow...</p>
                 </LemonCard>
             ) : (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -110,7 +104,9 @@ function WorkflowCard({ workflow, onSelect, onDelete, isSelected }: WorkflowCard
                 <div className="flex items-center gap-2">
                     <h3 className="font-medium">{workflow.name}</h3>
                     {workflow.is_default && (
-                        <LemonTag type="primary" size="small">Default</LemonTag>
+                        <LemonTag type="primary" size="small">
+                            Default
+                        </LemonTag>
                     )}
                 </div>
                 <div className="flex items-center gap-1">
@@ -128,14 +124,14 @@ function WorkflowCard({ workflow, onSelect, onDelete, isSelected }: WorkflowCard
                     )}
                 </div>
             </div>
-            
+
             <p className="text-sm text-muted mb-3">{workflow.description}</p>
-            
+
             <div className="flex justify-between items-center text-xs text-muted">
                 <span>{workflow.stages.length} stages</span>
                 <span>{workflow.task_count} tasks</span>
             </div>
-            
+
             <div className="flex gap-1 mt-2">
                 {workflow.stages.slice(0, 5).map((stage) => (
                     <div
@@ -145,9 +141,7 @@ function WorkflowCard({ workflow, onSelect, onDelete, isSelected }: WorkflowCard
                         title={stage.name}
                     />
                 ))}
-                {workflow.stages.length > 5 && (
-                    <div className="text-xs text-muted">+{workflow.stages.length - 5}</div>
-                )}
+                {workflow.stages.length > 5 && <div className="text-xs text-muted">+{workflow.stages.length - 5}</div>}
             </div>
         </LemonCard>
     )
@@ -156,9 +150,11 @@ function WorkflowCard({ workflow, onSelect, onDelete, isSelected }: WorkflowCard
 function WorkflowDetailView(): JSX.Element {
     const { selectedWorkflow } = useValues(workflowSettingsLogic)
     const [editingWorkflow, setEditingWorkflow] = useState<TaskWorkflow | null>(null)
-    
-    if (!selectedWorkflow) return <div></div>
-    
+
+    if (!selectedWorkflow) {
+        return <div />
+    }
+
     // Show workflow builder when editing
     if (editingWorkflow) {
         return (
@@ -180,11 +176,7 @@ function WorkflowDetailView(): JSX.Element {
                     <h3 className="text-lg font-semibold">{selectedWorkflow.name}</h3>
                     <p className="text-muted">{selectedWorkflow.description}</p>
                 </div>
-                <LemonButton 
-                    type="primary" 
-                    size="small"
-                    onClick={() => setEditingWorkflow(selectedWorkflow)}
-                >
+                <LemonButton type="primary" size="small" onClick={() => setEditingWorkflow(selectedWorkflow)}>
                     Edit Workflow
                 </LemonButton>
             </div>
@@ -195,15 +187,10 @@ function WorkflowDetailView(): JSX.Element {
                     <div className="space-y-2">
                         {selectedWorkflow.stages.map((stage) => (
                             <div key={stage.id} className="flex items-center gap-3 p-2 bg-bg-light rounded">
-                                <div
-                                    className="w-3 h-3 rounded-full"
-                                    style={{ backgroundColor: stage.color }}
-                                />
+                                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: stage.color }} />
                                 <span className="flex-1">{stage.name}</span>
                                 <span className="text-xs text-muted">{stage.task_count} tasks</span>
-                                {stage.is_manual_only && (
-                                    <LemonTag size="small">Manual</LemonTag>
-                                )}
+                                {stage.is_manual_only && <LemonTag size="small">Manual</LemonTag>}
                             </div>
                         ))}
                     </div>

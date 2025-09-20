@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { IconPlus } from '@posthog/icons'
-import { LemonDialog, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonTextArea } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { ErrorEventType, ErrorTrackingException } from 'lib/components/Errors/types'

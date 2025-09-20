@@ -50,7 +50,9 @@ export const workflowSettingsLogic = kea<workflowSettingsLogicType>([
         selectedWorkflow: [
             (s) => [s.workflows, s.selectedWorkflowId],
             (workflows, selectedWorkflowId): TaskWorkflow | null => {
-                if (!selectedWorkflowId) return null
+                if (!selectedWorkflowId) {
+                    return null
+                }
                 return workflows.find((w) => w.id === selectedWorkflowId) || null
             },
         ],
@@ -69,9 +71,7 @@ export const workflowSettingsLogic = kea<workflowSettingsLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        loadWorkflowsSuccess: () => {
-            // No automatic workflow creation - users create their own
-        },
+        loadWorkflowsSuccess: () => {},
 
         deleteWorkflow: async ({ workflowId }) => {
             try {
@@ -111,10 +111,4 @@ export const workflowSettingsLogic = kea<workflowSettingsLogicType>([
         actions.loadWorkflows()
         actions.loadAgents()
     }),
-    
-    listeners(({ actions, values }) => ({
-        loadWorkflowsSuccess: () => {
-            // No automatic workflow creation - users create their own
-        },
-    })),
 ])

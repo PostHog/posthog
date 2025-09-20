@@ -1,13 +1,15 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
-import { Link } from 'lib/lemon-ui/Link'
-import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
+
 import { IconArrowLeft } from '@posthog/icons'
+import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
+
+import { Link } from 'lib/lemon-ui/Link'
 
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { ORIGIN_PRODUCT_COLORS, ORIGIN_PRODUCT_LABELS, STAGE_COLORS, STAGE_LABELS } from '../constants'
+import { ORIGIN_PRODUCT_COLORS, ORIGIN_PRODUCT_LABELS } from '../constants'
 import { taskDetailLogic } from '../taskDetailLogic'
 import { tasksLogic } from '../tasksLogic'
 import { Task } from '../types'
@@ -22,7 +24,7 @@ export function TaskDetailPage({ task }: TaskDetailPageProps): JSX.Element {
     const { updateTask } = useActions(taskDetailLogic)
     const { assignTaskToWorkflow } = useActions(tasksLogic)
     const { allWorkflows } = useValues(tasksLogic)
-    
+
     const [isEditingRepository, setIsEditingRepository] = useState(false)
     const [repositoryConfig, setRepositoryConfig] = useState<RepositoryConfig>({
         integrationId: task?.github_integration || undefined,
@@ -34,16 +36,14 @@ export function TaskDetailPage({ task }: TaskDetailPageProps): JSX.Element {
 
     const isInBacklog = !task.workflow || !task.current_stage
 
-    const getCurrentStage = () => {
+    const getCurrentStage = (): any => {
         if (task.workflow && task.current_stage) {
-            const stage = allWorkflows
-                .flatMap(w => w.stages || [])
-                .find(s => s.id === task.current_stage)
+            const stage = allWorkflows.flatMap((w) => w.stages || []).find((s) => s.id === task.current_stage)
             return stage
         }
         return null
     }
-    
+
     const currentStage = getCurrentStage()
     const stageKey = currentStage?.key || 'backlog'
 
@@ -111,13 +111,7 @@ export function TaskDetailPage({ task }: TaskDetailPageProps): JSX.Element {
                     <IconArrowLeft /> Back to Tasks
                 </Link>
                 <span className="mx-2">·</span>
-                <span
-                    className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                        STAGE_COLORS[stageKey]
-                    }`}
-                >
-                    {STAGE_LABELS[stageKey] || stageKey}
-                </span>
+                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium">{stageKey}</span>
                 <span
                     className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
                         ORIGIN_PRODUCT_COLORS[task.origin_product]
@@ -214,10 +208,10 @@ export function TaskDetailPage({ task }: TaskDetailPageProps): JSX.Element {
                                     onChange={(value) => setSelectedWorkflowId(value)}
                                     options={[
                                         { value: '', label: 'Select workflow...' },
-                                        ...allWorkflows.map(workflow => ({
+                                        ...allWorkflows.map((workflow) => ({
                                             value: workflow.id,
                                             label: workflow.name,
-                                        }))
+                                        })),
                                     ]}
                                     placeholder="Select workflow"
                                     size="small"

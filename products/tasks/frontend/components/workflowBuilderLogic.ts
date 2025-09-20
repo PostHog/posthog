@@ -1,18 +1,16 @@
 import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 
+import { tasksLogic } from '../tasksLogic'
 import { AgentDefinition, TaskWorkflow, WorkflowStage } from '../types'
 import type { workflowBuilderLogicType } from './workflowBuilderLogicType'
 
 export interface WorkflowBuilderLogicProps {
     workflow?: TaskWorkflow
-}
-
-// Extended WorkflowStage to include agent assignment
-export interface ExtendedWorkflowStage extends WorkflowStage {
-    agent_id?: string
 }
 
 const DEFAULT_WORKFLOW_COLORS = [
@@ -36,7 +34,7 @@ export const workflowBuilderLogic = kea<workflowBuilderLogicType>([
         setWorkflowColor: (color: string) => ({ color }),
         addStage: true,
         removeStage: (stageId: string) => ({ stageId }),
-        updateStage: (stageId: string, updates: Partial<ExtendedWorkflowStage>) => ({ stageId, updates }),
+        updateStage: (stageId: string, updates: Partial<WorkflowStage>) => ({ stageId, updates }),
         saveWorkflow: true,
         setSavedWorkflow: (workflow: TaskWorkflow) => ({ workflow }),
         resetBuilder: true,
@@ -77,47 +75,45 @@ export const workflowBuilderLogic = kea<workflowBuilderLogicType>([
             },
         ],
         stages: [
-            (props.workflow?.stages && props.workflow.stages.length > 0) 
-                ? props.workflow.stages.map(stage => ({
-                    ...stage,
-                    agent_id: stage.agent || ''
-                  } as ExtendedWorkflowStage))
+            props.workflow?.stages && props.workflow.stages.length > 0
+                ? props.workflow.stages
                 : [
-                    // Default stages for new workflows
-                    {
-                        id: 'temp-input',
-                        name: 'Input',
-                        key: 'input',
-                        position: 0,
-                        color: '#6b7280',
-                        is_manual_only: true,
-                        is_archived: false,
-                        task_count: 0,
-                        agent_id: '',
-                    },
-                    {
-                        id: 'temp-complete',
-                        name: 'Complete',
-                        key: 'complete',
-                        position: 1,
-                        color: '#10b981',
-                        is_manual_only: true,
-                        is_archived: false,
-                        task_count: 0,
-                        agent_id: '',
-                    }
-                ],
+                      // Default stages for new workflows
+                      {
+                          id: 'temp-input',
+                          name: 'Input',
+                          key: 'input',
+                          position: 0,
+                          color: '#6b7280',
+                          is_manual_only: true,
+                          is_archived: false,
+                          task_count: 0,
+                      },
+                      {
+                          id: 'temp-complete',
+                          name: 'Complete',
+                          key: 'complete',
+                          position: 1,
+                          color: '#10b981',
+                          is_manual_only: true,
+                          is_archived: false,
+                          task_count: 0,
+                      },
+                  ],
             {
                 addStage: (state) => {
                     // Insert new stage before the Complete stage (at position length - 1)
-                    if (!state || state.length === 0) return state
+                    if (!state || state.length === 0) {
+                        return state
+                    }
                     const newPosition = state.length - 1
                     const suggestedNames = ['Planning', 'Development', 'Review', 'Testing', 'Deployment']
-                    const stageName = newPosition <= suggestedNames.length 
-                        ? suggestedNames[newPosition - 1] || `Stage ${newPosition}`
-                        : `Stage ${newPosition}`
-                    
-                    const newStage: ExtendedWorkflowStage = {
+                    const stageName =
+                        newPosition <= suggestedNames.length
+                            ? suggestedNames[newPosition - 1] || `Stage ${newPosition}`
+                            : `Stage ${newPosition}`
+
+                    const newStage: WorkflowStage = {
                         id: `temp-${Date.now()}`,
                         name: stageName,
                         key: stageName.toLowerCase().replace(/\s+/g, '_'),
@@ -126,9 +122,9 @@ export const workflowBuilderLogic = kea<workflowBuilderLogicType>([
                         is_manual_only: false,
                         is_archived: false,
                         task_count: 0,
-                        agent_id: ''
+                        agent: '',
                     }
-                    
+
                     // Insert before Complete and update positions
                     const newState = [...state]
                     newState.splice(newPosition, 0, newStage)
@@ -168,9 +164,12 @@ export const workflowBuilderLogic = kea<workflowBuilderLogicType>([
         isValid: [
             (s) => [s.workflowName, s.stages],
             (workflowName, stages): boolean => {
-                return workflowName.trim().length > 0 && 
-                       stages && stages.length >= 2 && 
-                       stages[stages.length - 1]?.name.toLowerCase() === 'complete'
+                return (
+                    workflowName.trim().length > 0 &&
+                    stages &&
+                    stages.length >= 2 &&
+                    stages[stages.length - 1]?.name.toLowerCase() === 'complete'
+                )
             },
         ],
 
@@ -203,19 +202,16 @@ export const workflowBuilderLogic = kea<workflowBuilderLogicType>([
                 let workflow: TaskWorkflow
 
                 if (props.workflow) {
-                    // Update existing workflow
                     const response = await api.update(
                         `api/projects/@current/workflows/${props.workflow.id}/`,
                         workflowData
                     )
                     workflow = response
                 } else {
-                    // Create new workflow
                     const response = await api.create('api/projects/@current/workflows/', workflowData)
                     workflow = response
                 }
 
-                // Save stages with their agent configurations
                 const savedStages: WorkflowStage[] = []
                 if (!values.stages || values.stages.length === 0) {
                     throw new Error('No stages to save')
@@ -227,32 +223,38 @@ export const workflowBuilderLogic = kea<workflowBuilderLogicType>([
                         key: stage.key,
                         position: stage.position,
                         color: stage.color,
-                        is_manual_only: stage.name.toLowerCase() === 'complete' ? true : !stage.agent_id, // Complete stage is always manual
-                        agent: stage.name.toLowerCase() === 'complete' ? null : (stage.agent_id || null)
+                        is_manual_only: stage.name.toLowerCase() === 'complete' ? true : !stage.agent, // Complete stage is always manual
+                        agent: stage.name.toLowerCase() === 'complete' ? null : stage.agent || null,
                     }
 
                     let savedStage: WorkflowStage
                     if (stage.id.startsWith('temp-')) {
                         // Create new stage
-                        savedStage = await api.create(
-                            'api/projects/@current/workflow-stages/',
-                            stageData
-                        )
+                        savedStage = await api.create('api/projects/@current/workflow-stages/', stageData)
                     } else {
                         // Update existing stage
-                        savedStage = await api.update(
-                            `api/projects/@current/workflow-stages/${stage.id}/`,
-                            stageData
-                        )
+                        savedStage = await api.update(`api/projects/@current/workflow-stages/${stage.id}/`, stageData)
                     }
                     savedStages.push(savedStage)
                 }
 
-                // No transitions needed - stages flow linearly based on position
-
                 actions.setSavedWorkflow({ ...workflow, stages: savedStages })
-            } catch (error) {
+
+                lemonToast.success(props.workflow ? 'Workflow updated successfully' : 'Workflow created successfully')
+                tasksLogic.actions.setActiveTab('kanban')
+            } catch (error: any) {
                 console.error('Failed to save workflow:', error)
+                if (error?.response?.status === 400 && error?.response?.data) {
+                    const errorData = error.response.data
+                    if (errorData.name) {
+                        lemonToast.error(errorData.name)
+                    } else {
+                        lemonToast.error('Failed to save workflow. Please check your input.')
+                    }
+                } else {
+                    lemonToast.error('Failed to save workflow. Please try again.')
+                }
+
                 throw error
             }
         },
