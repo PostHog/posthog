@@ -17,7 +17,6 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
-from posthog.hogql.parser import parse_select
 
 from posthog.api.error_tracking import ErrorTrackingIssueSerializer
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
@@ -87,109 +86,196 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         return relative_date_parse(date, ZoneInfo("UTC"), increase=True)
 
     def to_query(self) -> ast.SelectQuery:
-        return ast.SelectQuery(
-            select=self.select(),
-            select_from=self.from_expr(),
-            where=self.where(),
-            order_by=self.order_by,
-            group_by=[ast.Field(chain=["issue_id"])],
+        inner_select, outer_select = map(list, zip(*self.select_pairs()))
+
+        select_from = ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e")
+
+        per_issue_per_revenue_entity_select = ast.SelectQuery(
+            select=inner_select,
+            select_from=select_from,
+            where=self.where,
+            group_by=[
+                ast.Field(chain=["issue_id"]),
+                ast.Field(chain=["e", self.revenue_entity, self.revenue_entity_key]),
+            ],
         )
 
-    def from_expr(self):
-        # for the second iteration of this query, we just need to select from the events table
-        return parse_select("SELECT 1 FROM events").select_from  # type: ignore
+        per_issue_select = ast.SelectQuery(
+            select=outer_select,
+            select_from=ast.JoinExpr(table=per_issue_per_revenue_entity_select, alias="per_issue_per_revenue_entity"),
+            group_by=[ast.Field(chain=["issue_id"])],
+            order_by=self.order_by,
+        )
 
-    def select(self):
-        # First, the easy groups - distinct uuid as occurrances, etc
-        exprs: list[ast.Expr] = [
-            ast.Alias(alias="id", expr=ast.Field(chain=["issue_id"])),
-            ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
-            ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
+        return per_issue_select
+
+    def select_pairs(self):
+        expr_pairs = [
+            [ast.Field(chain=["issue_id"]), ast.Alias(alias="id", expr=ast.Field(chain=["issue_id"]))],
+            [
+                ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["timestamp"])])),
+                ast.Alias(alias="last_seen", expr=ast.Call(name="max", args=[ast.Field(chain=["last_seen"])])),
+            ],
+            [
+                ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["timestamp"])])),
+                ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["first_seen"])])),
+            ],
         ]
 
         if self.query.withAggregations:
-            exprs.extend(
+            expr_pairs.extend(
                 [
-                    ast.Alias(
-                        alias="occurrences",
-                        expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["uuid"])]),
-                    ),
-                    ast.Alias(
-                        alias="sessions",
-                        expr=ast.Call(
-                            name="count",
-                            distinct=True,
-                            # the $session_id property can be blank if not set
-                            # we do not want that case counted so cast it to `null` which is excluded by default
-                            args=[
-                                ast.Call(
-                                    name="nullIf",
-                                    args=[ast.Field(chain=["$session_id"]), ast.Constant(value="")],
-                                )
-                            ],
+                    [
+                        ast.Alias(
+                            alias="occurrences",
+                            expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["uuid"])]),
                         ),
-                    ),
-                    ast.Alias(
-                        alias="users",
-                        expr=ast.Call(name="count", distinct=True, args=[ast.Field(chain=["distinct_id"])]),
-                    ),
-                    ast.Alias(
-                        alias="volumeRange",
-                        expr=self.select_sparkline_array(self.date_from, self.date_to, self.query.volumeResolution),
-                    ),
+                        ast.Alias(
+                            alias="occurrences", expr=ast.Call(name="sum", args=[ast.Field(chain=["occurrences"])])
+                        ),
+                    ],
+                    [
+                        ast.Alias(
+                            alias="sessions",
+                            expr=ast.Call(
+                                name="count",
+                                distinct=True,
+                                # the $session_id property can be blank if not set
+                                # we do not want that case counted so cast it to `null` which is excluded by default
+                                args=[
+                                    ast.Call(
+                                        name="nullIf", args=[ast.Field(chain=["$session_id"]), ast.Constant(value="")]
+                                    )
+                                ],
+                            ),
+                        ),
+                        ast.Alias(alias="sessions", expr=ast.Call(name="sum", args=[ast.Field(chain=["sessions"])])),
+                    ],
+                    [
+                        ast.Alias(alias="users", expr=ast.Constant(value=1)),
+                        ast.Alias(alias="users", expr=ast.Call(name="sum", args=[ast.Field(chain=["users"])])),
+                    ],
+                    [
+                        ast.Alias(
+                            alias="volumeRange",
+                            expr=self.select_sparkline_array(self.date_from, self.date_to, self.query.volumeResolution),
+                        ),
+                        ast.Alias(
+                            alias="volumeRange",
+                            expr=ast.Call(name="sumForEach", args=[ast.Field(chain=["volumeRange"])]),
+                        ),
+                    ],
                 ]
             )
 
         if self.query.withFirstEvent:
-            exprs.append(
-                ast.Alias(
-                    alias="first_event",
-                    expr=ast.Call(
-                        name="argMin",
-                        args=[
-                            ast.Tuple(
-                                exprs=[
-                                    ast.Field(chain=["uuid"]),
-                                    ast.Field(chain=["timestamp"]),
-                                    ast.Field(chain=["properties"]),
-                                ]
-                            ),
-                            ast.Field(chain=["timestamp"]),
-                        ],
+            expr_pairs.append(
+                [
+                    ast.Alias(
+                        alias="first_event",
+                        expr=ast.Call(
+                            name="argMin",
+                            args=[
+                                ast.Tuple(
+                                    exprs=[
+                                        ast.Field(chain=["uuid"]),
+                                        ast.Field(chain=["timestamp"]),
+                                        ast.Field(chain=["properties"]),
+                                    ]
+                                ),
+                                ast.Field(chain=["timestamp"]),
+                            ],
+                        ),
                     ),
-                )
+                    ast.Alias(
+                        alias="first_event",
+                        expr=ast.Call(
+                            name="argMin",
+                            args=[
+                                ast.Field(chain=["first_event"]),
+                                ast.Field(chain=["per_issue_per_revenue_entity", "first_seen"]),
+                            ],
+                        ),
+                    ),
+                ]
             )
 
         if self.query.withLastEvent:
-            exprs.append(
+            expr_pairs.append(
+                [
+                    ast.Alias(
+                        alias="last_event",
+                        expr=ast.Call(
+                            name="argMax",
+                            args=[
+                                ast.Tuple(
+                                    exprs=[
+                                        ast.Field(chain=["uuid"]),
+                                        ast.Field(chain=["timestamp"]),
+                                        ast.Field(chain=["properties"]),
+                                    ]
+                                ),
+                                ast.Field(chain=["timestamp"]),
+                            ],
+                        ),
+                    ),
+                    ast.Alias(
+                        alias="last_event",
+                        expr=ast.Call(
+                            name="argMax",
+                            args=[
+                                ast.Field(chain=["last_event"]),
+                                ast.Field(chain=["per_issue_per_revenue_entity", "last_seen"]),
+                            ],
+                        ),
+                    ),
+                ]
+            )
+
+        if self.query.orderBy == "revenue":
+            expr_pairs.append(
+                [
+                    ast.Alias(
+                        alias="latest_revenue",
+                        expr=ast.Call(
+                            name="argMax",
+                            args=[
+                                ast.Field(chain=[self.revenue_entity, "revenue_analytics", "revenue"]),
+                                ast.Field(chain=["timestamp"]),
+                            ],
+                        ),
+                    ),
+                    ast.Alias(
+                        alias="revenue",
+                        expr=ast.Call(
+                            name="sum", args=[ast.Field(chain=["per_issue_per_revenue_entity", "latest_revenue"])]
+                        ),
+                    ),
+                ]
+            )
+
+        expr_pairs.append(
+            [
                 ast.Alias(
-                    alias="last_event",
+                    alias="library",
+                    expr=ast.Call(
+                        name="argMax", args=[ast.Field(chain=["properties", "$lib"]), ast.Field(chain=["timestamp"])]
+                    ),
+                ),
+                ast.Alias(
+                    alias="library",
                     expr=ast.Call(
                         name="argMax",
                         args=[
-                            ast.Tuple(
-                                exprs=[
-                                    ast.Field(chain=["uuid"]),
-                                    ast.Field(chain=["timestamp"]),
-                                    ast.Field(chain=["properties"]),
-                                ]
-                            ),
-                            ast.Field(chain=["timestamp"]),
+                            ast.Field(chain=["library"]),
+                            ast.Field(chain=["per_issue_per_revenue_entity", "last_seen"]),
                         ],
                     ),
-                )
-            )
-
-        exprs.append(
-            ast.Alias(
-                alias="library",
-                expr=ast.Call(
-                    name="argMax", args=[ast.Field(chain=["properties", "$lib"]), ast.Field(chain=["timestamp"])]
                 ),
-            )
+            ]
         )
 
-        return exprs
+        return expr_pairs
 
     def select_sparkline_array(self, date_from: datetime.datetime, date_to: datetime.datetime, resolution: int):
         """
@@ -318,6 +404,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
         )
         return summed
 
+    @property
     def where(self):
         exprs: list[ast.Expr] = [
             ast.CompareOperation(
@@ -487,6 +574,7 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
                             "aggregations": (
                                 self.extract_aggregations(result_dict) if self.query.withAggregations else None
                             ),
+                            "revenue": (result_dict.get("revenue") if self.query.orderBy == "revenue" else None),
                         }
                     )
 
@@ -523,22 +611,20 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
 
     @property
     def order_by(self):
-        return (
-            [
-                ast.OrderExpr(
-                    expr=ast.Field(chain=[self.query.orderBy]),
-                    order=(
-                        self.query.orderDirection.value
-                        if self.query.orderDirection
-                        else "ASC"
-                        if self.query.orderBy == "first_seen"
-                        else "DESC"
-                    ),
-                )
-            ]
-            if self.query.orderBy
-            else None
-        )
+        return [
+            ast.OrderExpr(
+                expr=ast.Field(chain=[self.query.orderBy]),
+                order=(
+                    "DESC"
+                    if self.query.orderBy == "revenue"
+                    else self.query.orderDirection.value
+                    if self.query.orderDirection
+                    else "ASC"
+                    if self.query.orderBy == "first_seen"
+                    else "DESC"
+                ),
+            )
+        ]
 
     def error_tracking_issues(self, ids):
         status = self.query.status
@@ -611,6 +697,14 @@ class ErrorTrackingQueryRunner(AnalyticsQueryRunner[ErrorTrackingQueryResponse])
     @cached_property
     def properties(self):
         return self.query.filterGroup.values[0].values if self.query.filterGroup else []
+
+    @property
+    def revenue_entity(self):
+        return "person" if self.query.revenueEntity is None else self.query.revenueEntity
+
+    @property
+    def revenue_entity_key(self):
+        return "id" if (self.query.revenueEntity == "person" or self.query.revenueEntity is None) else "key"
 
 
 def search_tokenizer(query: str) -> list[str]:
