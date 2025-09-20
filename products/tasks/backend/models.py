@@ -6,7 +6,7 @@ from django.utils import timezone
 
 class TaskWorkflow(models.Model):
     """Defines a configurable workflow with stages and transition rules."""
-    
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     name = models.CharField(max_length=255, help_text="Human-readable name for this workflow")
@@ -15,68 +15,63 @@ class TaskWorkflow(models.Model):
     is_default = models.BooleanField(default=False, help_text="Whether this is the default workflow for new tasks")
     is_active = models.BooleanField(default=True, help_text="Whether this workflow is currently active")
     version = models.IntegerField(default=1, help_text="Version number for tracking workflow changes")
-    
+
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
-    
+
     class Meta:
         db_table = "posthog_task_workflow"
         unique_together = [("team", "name")]
         ordering = ["name"]
-    
+
     def __str__(self):
         return f"{self.name} ({self.team.name})"
-    
+
     def get_active_stages(self):
         """Get all non-archived stages."""
         return self.stages.filter(is_archived=False)
-    
+
     def get_tasks_in_workflow(self):
         """Get all tasks currently using this workflow."""
         return Task.objects.filter(workflow=self)
-    
+
     def can_delete(self) -> tuple[bool, str]:
         """Check if workflow can be safely deleted."""
         task_count = self.get_tasks_in_workflow().count()
         if task_count > 0:
             return False, f"Cannot delete workflow with {task_count} active tasks"
         return True, ""
-    
-    def migrate_tasks_to_workflow(self, target_workflow: 'TaskWorkflow'):
+
+    def migrate_tasks_to_workflow(self, target_workflow: "TaskWorkflow"):
         """Migrate all tasks from this workflow to another workflow."""
         from django.db import transaction
-        
+
         with transaction.atomic():
             tasks = self.get_tasks_in_workflow()
             fallback_stage = target_workflow.get_active_stages().first()
-            
+
             for task in tasks:
                 # Try to find a matching stage by key
                 try:
-                    matching_stage = target_workflow.stages.get(
-                        key=task.current_stage.key,
-                        is_archived=False
-                    )
+                    matching_stage = target_workflow.stages.get(key=task.current_stage.key, is_archived=False)
                     task.current_stage = matching_stage
                 except (WorkflowStage.DoesNotExist, AttributeError):
                     # No matching stage, use fallback
                     task.current_stage = fallback_stage
-                
+
                 task.workflow = target_workflow
-                task.save(update_fields=['workflow', 'current_stage'])
-    
+                task.save(update_fields=["workflow", "current_stage"])
+
     def deactivate_safely(self):
         """Deactivate workflow and move tasks to team default."""
         if self.is_default:
             raise ValueError("Cannot deactivate the default workflow")
-        
+
         # Find team's default workflow
-        default_workflow = TaskWorkflow.objects.filter(
-            team=self.team, 
-            is_default=True, 
-            is_active=True
-        ).exclude(id=self.id).first()
-        
+        default_workflow = (
+            TaskWorkflow.objects.filter(team=self.team, is_default=True, is_active=True).exclude(id=self.id).first()
+        )
+
         if default_workflow:
             self.migrate_tasks_to_workflow(default_workflow)
         else:
@@ -85,16 +80,16 @@ class TaskWorkflow(models.Model):
             for task in tasks:
                 task.workflow = None
                 task.current_stage = None
-                task.save(update_fields=['workflow', 'current_stage'])
-        
+                task.save(update_fields=["workflow", "current_stage"])
+
         self.is_active = False
-        self.save(update_fields=['is_active'])
-    
+        self.save(update_fields=["is_active"])
+
     @classmethod
     def create_default_workflow(cls, team):
         """Create a default workflow that matches the current hardcoded behavior."""
         from django.db import transaction
-        
+
         with transaction.atomic():
             # Create the workflow
             workflow = cls.objects.create(
@@ -102,105 +97,120 @@ class TaskWorkflow(models.Model):
                 name="Default Code Generation Workflow",
                 description="Default workflow for code generation tasks",
                 is_default=True,
-                is_active=True
+                is_active=True,
             )
-            
+
             stages_data = [
                 {"key": "backlog", "name": "Backlog", "position": 0, "color": "#6b7280", "is_manual_only": True},
                 {"key": "todo", "name": "To Do", "position": 1, "color": "#3b82f6", "is_manual_only": True},
-                {"key": "in_progress", "name": "In Progress", "position": 2, "color": "#f59e0b", "is_manual_only": False},
+                {
+                    "key": "in_progress",
+                    "name": "In Progress",
+                    "position": 2,
+                    "color": "#f59e0b",
+                    "is_manual_only": False,
+                },
                 {"key": "testing", "name": "Testing", "position": 3, "color": "#8b5cf6", "is_manual_only": False},
                 {"key": "done", "name": "Done", "position": 4, "color": "#10b981", "is_manual_only": True},
             ]
-            
+
             stages = {}
             for stage_data in stages_data:
                 stage = WorkflowStage.objects.create(workflow=workflow, **stage_data)
                 stages[stage.key] = stage
-            
+
             # Create default agent (representing current code generation system)
             agent = AgentDefinition.objects.create(
                 team=team,
                 name="Code Generation Agent",
                 agent_type=AgentDefinition.AgentType.CODE_GENERATION,
                 description="Automated code generation and GitHub integration",
-                is_active=True
+                is_active=True,
             )
-            
+
             # Assign agents to appropriate stages (linear workflow)
             stages["todo"].agent = None  # Manual stage
             stages["in_progress"].agent = agent  # Agent processes this stage
             stages["testing"].agent = agent  # Agent processes this stage
             stages["done"].agent = None  # Final stage, no agent needed
-            
+
             # Update stages with agent assignments
             for stage in stages.values():
                 stage.save()
-            
+
             return workflow
 
 
 class WorkflowStage(models.Model):
     """Individual stages within a workflow."""
-    
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     workflow = models.ForeignKey(TaskWorkflow, on_delete=models.CASCADE, related_name="stages")
     name = models.CharField(max_length=100, help_text="Stage name (e.g., 'Backlog', 'In Progress')")
     key = models.CharField(max_length=50, help_text="Unique key for this stage within the workflow")
     position = models.IntegerField(help_text="Order of this stage in the workflow")
     color = models.CharField(max_length=7, default="#6b7280", help_text="Hex color for UI display")
-    agent = models.ForeignKey("AgentDefinition", on_delete=models.SET_NULL, null=True, blank=True,
-                             help_text="Agent responsible for processing tasks in this stage")
-    is_manual_only = models.BooleanField(default=True, help_text="Whether only manual transitions are allowed from this stage")
-    is_archived = models.BooleanField(default=False, help_text="Whether this stage is archived (hidden from UI but keeps tasks)")
-    fallback_stage = models.ForeignKey("self", on_delete=models.SET_NULL, null=True, blank=True,
-                                      help_text="Stage to move tasks to if this stage is deleted")
-    
+    agent = models.ForeignKey(
+        "AgentDefinition",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="Agent responsible for processing tasks in this stage",
+    )
+    is_manual_only = models.BooleanField(
+        default=True, help_text="Whether only manual transitions are allowed from this stage"
+    )
+    is_archived = models.BooleanField(
+        default=False, help_text="Whether this stage is archived (hidden from UI but keeps tasks)"
+    )
+    fallback_stage = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="Stage to move tasks to if this stage is deleted",
+    )
+
     class Meta:
         db_table = "posthog_workflow_stage"
         unique_together = [("workflow", "key"), ("workflow", "position")]
         ordering = ["position"]
-    
+
     def __str__(self):
         return f"{self.workflow.name}: {self.name}"
-    
+
     def delete(self, *args, **kwargs):
         """Override delete to handle tasks in this stage."""
         from django.db import transaction
-        
+
         with transaction.atomic():
             # Move tasks to fallback stage or first available stage
             target_stage = self.fallback_stage or self.workflow.stages.exclude(id=self.id).first()
-            
+
             if target_stage:
                 # Move all tasks to the target stage
-                Task.objects.filter(current_stage=self).update(
-                    current_stage=target_stage
-                )
+                Task.objects.filter(current_stage=self).update(current_stage=target_stage)
             else:
                 # No other stages available, remove workflow association
-                Task.objects.filter(current_stage=self).update(
-                    current_stage=None,
-                    workflow=None
-                )
-            
+                Task.objects.filter(current_stage=self).update(current_stage=None, workflow=None)
+
             super().delete(*args, **kwargs)
-    
+
     def archive(self):
         """Archive this stage instead of deleting it."""
         self.is_archived = True
-        self.save(update_fields=['is_archived'])
+        self.save(update_fields=["is_archived"])
 
 
 class AgentDefinition(models.Model):
     """Defines available agents that can be used in workflow transitions."""
-    
+
     class AgentType(models.TextChoices):
         CODE_GENERATION = "code_generation", "Code Generation Agent"
         TRIAGE = "triage", "Triage Agent"
         REVIEW = "review", "Review Agent"
         TESTING = "testing", "Testing Agent"
-    
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     name = models.CharField(max_length=255, help_text="Human-readable name for this agent")
@@ -208,19 +218,17 @@ class AgentDefinition(models.Model):
     description = models.TextField(blank=True, help_text="Description of what this agent does")
     config = models.JSONField(default=dict, help_text="Agent-specific configuration")
     is_active = models.BooleanField(default=True, help_text="Whether this agent is available for use")
-    
+
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
-    
+
     class Meta:
         db_table = "posthog_agent_definition"
         unique_together = [("team", "name")]
         ordering = ["name"]
-    
+
     def __str__(self):
         return f"{self.name} ({self.get_agent_type_display()})"
-
-
 
 
 class Task(models.Model):
@@ -229,6 +237,7 @@ class Task(models.Model):
         EVAL_CLUSTERS = "eval_clusters", "Eval Clusters"
         USER_CREATED = "user_created", "User Created"
         SUPPORT_QUEUE = "support_queue", "Support Queue"
+        SESSION_SUMMARIES = "session_summaries", "Session Summaries"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -236,12 +245,22 @@ class Task(models.Model):
     description = models.TextField()
     origin_product = models.CharField(max_length=20, choices=OriginProduct.choices)
     position = models.IntegerField(default=0)
-    
+
     # Workflow configuration
-    workflow = models.ForeignKey(TaskWorkflow, on_delete=models.SET_NULL, null=True, blank=True,
-                                help_text="Custom workflow for this task (if not using default)")
-    current_stage = models.ForeignKey(WorkflowStage, on_delete=models.SET_NULL, null=True, blank=True,
-                                     help_text="Current stage in the workflow (overrides status field when workflow is set)")
+    workflow = models.ForeignKey(
+        TaskWorkflow,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="Custom workflow for this task (if not using default)",
+    )
+    current_stage = models.ForeignKey(
+        WorkflowStage,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        help_text="Current stage in the workflow (overrides status field when workflow is set)",
+    )
 
     # Repository configuration
     github_integration = models.ForeignKey(
@@ -257,7 +276,6 @@ class Task(models.Model):
         default=dict, help_text="Repository configuration with organization and repository fields"
     )
 
-    # GitHub integration fields (issue-specific) - kept for backward compatibility
     github_branch = models.CharField(max_length=255, blank=True, null=True, help_text="Branch created for this task")
     github_pr_url = models.URLField(blank=True, null=True, help_text="Pull request URL when created")
 
@@ -273,6 +291,18 @@ class Task(models.Model):
         if self.current_stage:
             return f"{self.title} ({self.current_stage.key})"
         return f"{self.title} (no workflow)"
+
+    def save(self, *args, **kwargs):
+        """Override save to handle workflow consistency."""
+        if self.workflow and not self.current_stage:
+            first_stage = self.workflow.get_active_stages().first()
+            if first_stage:
+                self.current_stage = first_stage
+
+        if self.current_stage and self.workflow and self.current_stage.workflow != self.workflow:
+            self.current_stage = None
+
+        super().save(*args, **kwargs)
 
     @property
     def repository_list(self) -> list[dict]:
@@ -320,50 +350,33 @@ class Task(models.Model):
             return Integration.objects.filter(team_id=self.team_id, kind="github").first()
         except Exception:
             return None
-    
+
     @property
-    def effective_workflow(self) -> 'TaskWorkflow':
+    def effective_workflow(self) -> "TaskWorkflow":
         """Get the workflow this task should use (custom or team default)"""
         if self.workflow:
             return self.workflow
-        
+
         # Fall back to team's default workflow
         try:
             return TaskWorkflow.objects.filter(team=self.team, is_default=True, is_active=True).first()
         except TaskWorkflow.DoesNotExist:
             return None
-    
-    
-    def can_transition_to(self, target_stage_key: str) -> bool:
-        """Check if this task can transition to the target stage (simplified for linear workflow)"""
-        workflow = self.effective_workflow
-        if not workflow:
-            return True  # No workflow constraints, allow legacy behavior
-        
-        # In linear workflow, can move to any stage (simplified)
-        try:
-            workflow.stages.get(key=target_stage_key, is_archived=False)
-            return True
-        except WorkflowStage.DoesNotExist:
-            return False
-    
+
     def get_next_stage(self):
         """Get the next stage in the linear workflow"""
         workflow = self.effective_workflow
         if not workflow:
             return None
-        
+
         current_stage = self.current_stage
         if not current_stage:
-            # Without status field, can't map to a stage - return first stage
-            return workflow.stages.filter(is_archived=False).order_by('position').first()
-        
-        # Find next stage by position
-        return workflow.stages.filter(
-            position__gt=current_stage.position,
-            is_archived=False
-        ).order_by('position').first()
-    
+            return workflow.stages.filter(is_archived=False).order_by("position").first()
+
+        return (
+            workflow.stages.filter(position__gt=current_stage.position, is_archived=False).order_by("position").first()
+        )
+
     def resolve_orphaned_stage(self):
         """Fix this task if its current stage is archived or invalid."""
         if not self.current_stage or self.current_stage.is_archived:
@@ -371,35 +384,19 @@ class Task(models.Model):
             if workflow:
                 # Find a suitable stage to move to
                 fallback_stage = None
-                
+
                 if self.current_stage and self.current_stage.fallback_stage:
                     fallback_stage = self.current_stage.fallback_stage
                 else:
-                    # Use first available stage
                     fallback_stage = workflow.get_active_stages().first()
-                
+
                 if fallback_stage:
                     self.current_stage = fallback_stage
-                    self.save(update_fields=['current_stage'])
+                    self.save(update_fields=["current_stage"])
                 else:
-                    # No stages available, revert to legacy
                     self.workflow = None
                     self.current_stage = None
-                    self.save(update_fields=['workflow', 'current_stage'])
-    
-    def save(self, *args, **kwargs):
-        """Override save to handle workflow consistency."""
-        # If we have a workflow but no current stage, set to first available stage
-        if self.workflow and not self.current_stage:
-            first_stage = self.workflow.get_active_stages().first()
-            if first_stage:
-                self.current_stage = first_stage
-        
-        # If current stage doesn't match workflow, resolve it
-        if self.current_stage and self.workflow and self.current_stage.workflow != self.workflow:
-            self.current_stage = None
-        
-        super().save(*args, **kwargs)
+                    self.save(update_fields=["workflow", "current_stage"])
 
 
 class TaskProgress(models.Model):
