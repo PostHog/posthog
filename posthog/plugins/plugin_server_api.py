@@ -101,5 +101,9 @@ def get_hog_function_templates() -> requests.Response:
     return requests.get(CDP_API_URL + f"/api/hog_function_templates")
 
 
+def upload_messaging_attachment(team_id: int, files) -> requests.Response:
+    return requests.post(CDP_API_URL + "/api/messaging/attachments", json={"team_id": team_id, "files": files})
+
+
 def get_plugin_server_status() -> requests.Response:
     return requests.get(CDP_API_URL + f"/_health")

@@ -1456,6 +1456,10 @@ export class ApiRequest {
         return this.messagingTemplates().addPathComponent(templateId)
     }
 
+    public messagingAttachments(): ApiRequest {
+        return this.environments().current().addPathComponent('messaging_attachments')
+    }
+
     public messagingCategories(): ApiRequest {
         return this.environments().current().addPathComponent('messaging_categories')
     }
