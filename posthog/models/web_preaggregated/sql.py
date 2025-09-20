@@ -244,7 +244,7 @@ def REPLACE_WEB_STATS_V2_STAGING_SQL():
         "web_pre_aggregated_stats_staging",
         WEB_STATS_V2_PRODUCTION_COLUMNS,
         WEB_STATS_V2_PRODUCTION_ORDER_BY,
-        force_unique_zk_path=True,
+        force_unique_zk_path=False,
         replace=True,
         on_cluster=False,
     )
@@ -255,7 +255,7 @@ def REPLACE_WEB_BOUNCES_V2_STAGING_SQL():
         "web_pre_aggregated_bounces_staging",
         WEB_BOUNCES_V2_PRODUCTION_COLUMNS,
         WEB_BOUNCES_V2_PRODUCTION_ORDER_BY,
-        force_unique_zk_path=True,
+        force_unique_zk_path=False,
         replace=True,
         on_cluster=False,
     )
