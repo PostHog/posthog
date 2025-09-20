@@ -149,7 +149,9 @@ class Command(BaseCommand):
 
         # Find organizations with roles that have feature flag access
         orgs_with_feature_flag_roles = (
-            Role.objects.filter(feature_flag_access__isnull=False).values_list("organization_id", flat=True).distinct()
+            Role.objects.filter(feature_flags_access_level__isnull=False)
+            .values_list("organization_id", flat=True)
+            .distinct()
         )
         logger.info(f"Found {len(orgs_with_feature_flag_roles)} organizations with feature flag roles")
 

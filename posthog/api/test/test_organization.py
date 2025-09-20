@@ -15,7 +15,6 @@ from posthog.user_permissions import UserPermissions
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
 from ee.models.rbac.access_control import AccessControl
-from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 from ee.models.rbac.role import Role, RoleMembership
 
 
@@ -356,58 +355,6 @@ class TestOrganizationRbacMigrations(APIBaseTest):
         self.assertEqual(access_control.resource_id, str(feature_flag.id))
 
         # Verify reporting calls
-        mock_report_action.assert_any_call(
-            self.organization, "rbac_team_migration_started", {"user": self.admin_user.distinct_id}
-        )
-        mock_report_action.assert_any_call(
-            self.organization, "rbac_team_migration_completed", {"user": self.admin_user.distinct_id}
-        )
-
-    @patch("posthog.api.organization.report_organization_action")
-    def test_migrate_feature_flags_rbac_with_org_view_only(self, mock_report_action):
-        self.client.force_login(self.admin_user)
-
-        # Create organization-wide view-only access
-        OrganizationResourceAccess.objects.create(
-            organization=self.organization,
-            resource="feature flags",
-            access_level=21,  # view only
-        )
-
-        # Create multiple teams
-        teams = []
-        for i in range(3):
-            team = Team.objects.create(
-                organization=self.organization,
-                name=f"Test Team {i}",
-            )
-            teams.append(team)
-
-        response = self.client.post(f"/api/organizations/{self.organization.id}/migrate_access_control/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["status"], True)
-
-        # Should create viewer access for all flags
-        viewer_access = AccessControl.objects.filter(
-            resource="feature_flag",
-            access_level="viewer",
-            role__isnull=True,
-            organization_member__isnull=True,
-            resource_id__isnull=True,
-        )
-        self.assertEqual(viewer_access.count(), 4)  # 3 teams + 1 existing team from setup
-
-        # Should create editor access for admin role (feature_flags_access_level=37)
-        editor_access = AccessControl.objects.filter(
-            resource="feature_flag",
-            access_level="editor",
-            role=self.admin_role,
-            organization_member__isnull=True,
-            resource_id__isnull=True,
-        )
-        self.assertEqual(editor_access.count(), 4)  # 3 teams + 1 existing team from setup
-
-        # Add verification of reporting calls at the end
         mock_report_action.assert_any_call(
             self.organization, "rbac_team_migration_started", {"user": self.admin_user.distinct_id}
         )

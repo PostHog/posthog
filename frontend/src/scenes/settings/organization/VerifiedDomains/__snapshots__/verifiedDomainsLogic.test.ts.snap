@@ -40,7 +40,6 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
     "slug": "mockhog-fstn",
     "teams": [
       {
-        "access_control": true,
         "anonymize_ips": false,
         "api_token": "default-team-api-token",
         "app_urls": [

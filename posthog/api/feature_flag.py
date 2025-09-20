@@ -15,8 +15,6 @@ from django.dispatch import receiver
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from rest_framework import exceptions, request, serializers, status, viewsets
-from rest_framework.permissions import SAFE_METHODS, BasePermission
-from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.schema import PropertyOperator
@@ -48,12 +46,7 @@ from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import get_dependent_cohorts
 from posthog.models.experiment import Experiment
-from posthog.models.feature_flag import (
-    FeatureFlagDashboards,
-    can_user_edit_feature_flag,
-    get_all_feature_flags,
-    get_user_blast_radius,
-)
+from posthog.models.feature_flag import FeatureFlagDashboards, get_all_feature_flags, get_user_blast_radius
 from posthog.models.feature_flag.flag_analytics import increment_request_count
 from posthog.models.feature_flag.flag_matching import check_flag_evaluation_query_is_ok
 from posthog.models.feature_flag.flag_status import FeatureFlagStatus, FeatureFlagStatusChecker
@@ -72,8 +65,6 @@ from posthog.rate_limit import BurstRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.settings.feature_flags import LOCAL_EVAL_RATE_LIMITS, REMOTE_CONFIG_RATE_LIMITS
-
-from ee.models.rbac.organization_resource_access import OrganizationResourceAccess
 
 BEHAVIOURAL_COHORT_FOUND_ERROR_CODE = "behavioral_cohort_found"
 
@@ -120,17 +111,6 @@ class RemoteConfigThrottle(BurstRateThrottle):
                 logger.exception(f"Error getting team-specific rate limit for team {team_id}")
 
         return super().allow_request(request, view)
-
-
-class CanEditFeatureFlag(BasePermission):
-    message = "You don't have edit permissions for this feature flag."
-
-    def has_object_permission(self, request: Request, view, feature_flag) -> bool:
-        if request.method in SAFE_METHODS:
-            return True
-        else:
-            # TODO(@zach): Add new access control support
-            return can_user_edit_feature_flag(request, feature_flag)
 
 
 class FeatureFlagSerializer(
@@ -213,24 +193,15 @@ class FeatureFlagSerializer(
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
-        # TODO: make sure this isn't n+1
-        return (
-            # Old access control
-            can_user_edit_feature_flag(self.context["request"], feature_flag)
-            or
-            # New access control
-            (
-                self.get_user_access_level(feature_flag) == "editor"
-                and
-                # This is an added check for mid-migration to the new access control. We want to check
-                # if the user has permissions from either system but in the case they are still using
-                # the old system, since the new system defaults to editor we need to check what that
-                # organization is defaulting to for access (view or edit)
-                not OrganizationResourceAccess.objects.filter(
-                    organization=self.context["request"].user.organization,
-                    resource="feature flags",
-                    access_level=OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW,
-                ).exists()
+        from typing import cast
+
+        from posthog.rbac.user_access_control import AccessControlLevel, access_level_satisfied_for_resource
+
+        user_access_level = self.get_user_access_level(feature_flag)
+        return bool(
+            user_access_level
+            and access_level_satisfied_for_resource(
+                "feature_flag", cast(AccessControlLevel, user_access_level), "editor"
             )
         )
 
@@ -874,7 +845,6 @@ class FeatureFlagViewSet(
     scope_object = "feature_flag"
     queryset = FeatureFlag.objects.all()
     serializer_class = FeatureFlagSerializer
-    permission_classes = [CanEditFeatureFlag]
     authentication_classes = [
         TemporaryTokenAuthentication,  # Allows endpoint to be called from the Toolbar
     ]
