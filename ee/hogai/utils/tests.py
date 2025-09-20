@@ -1,22 +1,24 @@
 from collections.abc import Sequence
 
 from langchain_core.language_models import FakeMessagesListChatModel
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import BaseMessage, convert_to_messages, convert_to_openai_messages
 from langchain_core.runnables import RunnableLambda
 from langchain_openai import ChatOpenAI
 from pydantic import Field
 
 
 class TokenCounterMixin:
-    openai_model: str
+    model: str
 
-    def get_num_tokens_from_messages(self, messages: list[BaseMessage], tools: Sequence | None = None) -> int:
-        chat = ChatOpenAI(model=self.openai_model, api_key="no-key")
+    def get_num_tokens_from_messages(
+        self, messages: list[BaseMessage], *args, tools: Sequence | None = None, **kwargs
+    ) -> int:
+        chat = ChatOpenAI(model=self.model, api_key="no-key")
         return chat.get_num_tokens_from_messages(messages, tools)
 
 
 class FakeChatOpenAI(TokenCounterMixin, FakeMessagesListChatModel):
-    openai_model: str = Field(default="gpt-4o")
+    model: str = Field(default="gpt-4o")
 
     def invoke(self, input, config=None, **kwargs):
         result = super().invoke(input, config, **kwargs)
@@ -28,7 +30,18 @@ class FakeChatOpenAI(TokenCounterMixin, FakeMessagesListChatModel):
         return result
 
 
+class FakeChatAnthropic(TokenCounterMixin, FakeMessagesListChatModel):
+    # Emulate the token counter since the actual token counter is a HTTP request.
+    model: str = "gpt-4o"
+
+    def get_num_tokens_from_messages(
+        self, messages: list[BaseMessage], *args, tools: Sequence | None = None, **kwargs
+    ) -> int:
+        content = convert_to_messages(convert_to_openai_messages(messages))
+        return super().get_num_tokens_from_messages(content, tools)
+
+
 class FakeRunnableLambdaWithTokenCounter(TokenCounterMixin, RunnableLambda):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.openai_model = kwargs.get("openai_model", "gpt-4o")
+        self.model = kwargs.get("model", "gpt-4o")

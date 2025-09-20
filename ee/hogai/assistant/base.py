@@ -1,4 +1,3 @@
-import time
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
@@ -203,7 +202,6 @@ class BaseAssistant(ABC):
     ) -> AsyncGenerator[AssistantOutput, None]:
         state = await self._init_or_update_state()
         config = self._get_config()
-        self.stream_start = time.time()
 
         stream_mode: list[StreamMode] = ["values", "updates", "debug", "custom"]
         if stream_message_chunks:
