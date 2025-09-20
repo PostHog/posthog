@@ -407,9 +407,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         processedSnapshotData: [
             (s) => [s.start, s.sessionPlayerData, s.windowNumberForID],
             (
-                start: Dayjs | null,
-                sessionPlayerData: any,
-                windowNumberForID: (windowId: string | undefined) => number | '?' | undefined
+                start,
+                sessionPlayerData,
+                windowNumberForID
             ): {
                 offlineStatusChanges: InspectorListOfflineStatusChange[]
                 browserVisibilityChanges: InspectorListBrowserVisibility[]
@@ -475,7 +475,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                             // App state items
                             if (tag === 'app-state') {
-                                const payload = customEvent.data.payload as any
+                                const payload = customEvent.data.payload as {
+                                    title: string
+                                    stateEvent: Record<string, any>
+                                }
                                 const actionTitle = payload?.title as string
                                 const stateEvent = payload?.stateEvent as Record<string, any>
                                 if (actionTitle && stateEvent) {
@@ -681,27 +684,13 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
         allContextItems: [
             (s) => [s.start, s.processedSnapshotData, s.windowNumberForID, s.sessionPlayerMetaData, s.segments],
-            (
-                start: Dayjs | null,
-                processedSnapshotData: {
-                    offlineStatusChanges: InspectorListOfflineStatusChange[]
-                    browserVisibilityChanges: InspectorListBrowserVisibility[]
-                    doctorEvents: InspectorListItemDoctor[]
-                    consoleItems: InspectorListItemConsole[]
-                    appStateItems: InspectorListItemAppState[]
-                    contextItems: InspectorListItem[]
-                    rawConsoleLogs: RecordingConsoleLogV2[]
-                } | null,
-                windowNumberForID: (windowId: string | undefined) => number | '?' | undefined,
-                sessionPlayerMetaData: any,
-                segments: any[]
-            ) => {
+            (start, processedSnapshotData, windowNumberForID, sessionPlayerMetaData, segments) => {
                 const items: InspectorListItem[] = []
 
                 segments
-                    .filter((segment: any) => segment.kind === 'gap')
-                    .filter((segment: any) => segment.durationMs > 15000)
-                    .map((segment: any) => {
+                    .filter((segment) => segment.kind === 'gap')
+                    .filter((segment) => segment.durationMs > 15000)
+                    .map((segment) => {
                         const { timestamp, timeInRecording } = timeRelativeToStart(
                             { timestamp: segment.startTimestamp },
                             start
@@ -757,24 +746,17 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.miniFiltersByKey,
             ],
             (
-                start: Dayjs | null,
-                performanceEvents: PerformanceEvent[] | null,
-                processedSnapshotData: {
-                    offlineStatusChanges: InspectorListOfflineStatusChange[]
-                    browserVisibilityChanges: InspectorListBrowserVisibility[]
-                    doctorEvents: InspectorListItemDoctor[]
-                    consoleItems: InspectorListItemConsole[]
-                    appStateItems: InspectorListItemAppState[]
-                    rawConsoleLogs: RecordingConsoleLogV2[]
-                } | null,
-                eventsData: RecordingEventType[] | null,
-                matchingEventUUIDs: MatchedRecordingEvent[] | null,
-                windowNumberForID: (windowId: string | undefined) => number | '?' | undefined,
-                allContextItems: InspectorListItem[],
-                commentItems: InspectorListItemComment[],
-                notebookCommentItems: InspectorListItemNotebookComment[],
-                sessionPlayerData: any,
-                miniFiltersByKey: Record<string, any>
+                start,
+                performanceEvents,
+                processedSnapshotData,
+                eventsData,
+                matchingEventUUIDs,
+                windowNumberForID,
+                allContextItems,
+                commentItems,
+                notebookCommentItems,
+                sessionPlayerData,
+                miniFiltersByKey
             ): {
                 items: InspectorListItem[]
                 itemsByMiniFilterKey: Record<MiniFilterKey, InspectorListItem[]>
@@ -1170,7 +1152,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 if (searchQuery === '') {
                     return filteredItems
                 }
-                return fuse.search(searchQuery).map((x: any) => x.item)
+                return fuse.search(searchQuery).map((x) => x.item)
             },
         ],
 
