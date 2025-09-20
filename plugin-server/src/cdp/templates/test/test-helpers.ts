@@ -2,6 +2,7 @@ import Chance from 'chance'
 import merge from 'deepmerge'
 import { Settings } from 'luxon'
 
+import { getTransformationFunctions } from '~/cdp/hog-transformations/transformation-functions'
 import { formatLiquidInput } from '~/cdp/services/hog-inputs.service'
 import { NativeDestinationExecutorService } from '~/cdp/services/native-destination-executor.service'
 import { isNativeHogFunction } from '~/cdp/utils'
@@ -10,7 +11,6 @@ import { CyclotronInputType } from '~/schema/cyclotron'
 import { GeoIPService, GeoIp } from '~/utils/geoip'
 
 import { Hub } from '../../../types'
-import { cleanNullValues } from '../../hog-transformations/transformation-functions'
 import { HogExecutorService } from '../../services/hog-executor.service'
 import {
     CyclotronJobInvocationHogFunction,
@@ -246,16 +246,8 @@ export class TemplateTester {
         }
 
         const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
-
         const invocation = createInvocation(globalsWithInputs, hogFunction)
-
-        const transformationFunctions = {
-            geoipLookup: (val: unknown): any => {
-                return typeof val === 'string' ? this.geoIp?.city(val) : null
-            },
-            cleanNullValues,
-        }
-
+        const transformationFunctions = getTransformationFunctions(this.geoIp!)
         const extraFunctions = invocation.hogFunction.type === 'transformation' ? transformationFunctions : {}
 
         return this.getExecutor().execute(invocation, { functions: extraFunctions })
