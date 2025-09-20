@@ -13,6 +13,7 @@ from posthog.schema import (
     CompareFilter,
     DataWarehouseNode,
     EventsNode,
+    FormulaItem,
     HogQLQueryModifiers,
     TrendsFilter,
     TrendsQuery,
@@ -48,6 +49,7 @@ class TrendsActorsQueryBuilder:
     time_frame: Optional[datetime]
     breakdown_value: Optional[str | int | list[str]] = None
     compare_value: Optional[Compare] = None
+    formula_value: Optional[FormulaItem] = None
     include_recordings: Optional[bool] = None
 
     def __init__(
@@ -60,6 +62,7 @@ class TrendsActorsQueryBuilder:
         time_frame: Optional[str | datetime],
         breakdown_value: Optional[str | int | list[str]] = None,
         compare_value: Optional[Compare] = None,
+        formula_value: Optional[FormulaItem] = None,
         include_recordings: Optional[bool] = None,
         limit_context: LimitContext = LimitContext.QUERY,
     ):
@@ -89,6 +92,7 @@ class TrendsActorsQueryBuilder:
 
         self.breakdown_value = breakdown_value
         self.compare_value = compare_value
+        self.formula_value = formula_value
         self.include_recordings = include_recordings
 
     @cached_property
