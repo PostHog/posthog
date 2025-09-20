@@ -133,7 +133,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                             ast.CompareOperation(
                                 op=ast.CompareOperationOp.In,
                                 left=ast.Field(chain=["events", "event"]),
-                                right=ast.Constant(value=list(events_seen_with_this_property)),
+                                # sort them only so the snapshot tests don't flap
+                                right=ast.Constant(value=sorted(events_seen_with_this_property)),
                             ),
                             property_expr,
                         ]
@@ -367,7 +368,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
     @staticmethod
     @tracer.start_as_current_span("ReplayFiltersEventsSubQuery.with_team_events_added")
-    def with_team_events_added(p: AnyPropertyFilter, team: Team) -> (list[str], ast.Expr):
+    def with_team_events_added(p: AnyPropertyFilter, team: Team) -> tuple[list[str], ast.Expr]:
         """
         We support property only filters because users expect it, but unlike insights
         we don't have event series to help us hit the good-spot of an events table query
@@ -386,7 +387,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 EventProperty.objects.filter(team_id=team.id, property=p.key).values_list("event", flat=True)
             )
 
-            return events_that_have_the_property, property_to_expr(p, team=team, scope="replay")
+            return events_that_have_the_property or [], property_to_expr(p, team=team, scope="replay")
         except Exception as e:
             posthoganalytics.capture_exception(e, properties={"replay_feature": "with_team_events_added"})
             # we can return this transformation here because this is what was always run in the past
