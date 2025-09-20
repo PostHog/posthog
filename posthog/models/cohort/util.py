@@ -71,13 +71,55 @@ def format_person_query(cohort: Cohort, index: int, hogql_context: HogQLContext)
 
 def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, team: Team) -> str:
     from posthog.hogql_queries.query_runner import get_query_runner
+    from posthog.hogql.variables import replace_variables
+    from posthog.models.insight_variable import InsightVariable
+    from posthog.schema import HogQLVariable
 
     if not cohort.query:
         raise ValueError("Cohort has no query")
 
-    query = get_query_runner(
-        cast(dict, cohort.query), team=team, limit_context=LimitContext.COHORT_CALCULATION
-    ).to_query()
+    cohort_query = cast(dict, cohort.query)
+    
+    # Handle variable resolution for cohort queries
+    query_runner = get_query_runner(
+        cohort_query, team=team, limit_context=LimitContext.COHORT_CALCULATION
+    )
+    
+    # Get variables from the query if they exist
+    query_variables = cohort_query.get("variables", {})
+    if query_variables:
+        # Convert the variables dict to HogQLVariable instances with default values
+        hogql_variables = []
+        variable_ids = [var.get("variableId") for var in query_variables.values() if var.get("variableId")]
+        
+        if variable_ids:
+            insight_vars = InsightVariable.objects.filter(team_id=team.pk, id__in=variable_ids).all()
+            
+            for var_data in query_variables.values():
+                variable_id = var_data.get("variableId")
+                code_name = var_data.get("code_name")
+                
+                if variable_id and code_name:
+                    # Find the corresponding InsightVariable to get default value
+                    insight_var = next((v for v in insight_vars if str(v.id) == variable_id), None)
+                    default_value = insight_var.default_value if insight_var else None
+                    
+                    # Use the provided value or fall back to default
+                    value = var_data.get("value", default_value)
+                    
+                    hogql_variables.append(HogQLVariable(
+                        variableId=variable_id,
+                        code_name=code_name,
+                        value=value,
+                        isNull=var_data.get("isNull", False)
+                    ))
+        
+        # Apply variable replacement to the parsed query
+        query = query_runner.to_query()
+        if hogql_variables:
+            query = replace_variables(query, hogql_variables, team)
+    else:
+        query = query_runner.to_query()
 
     for select_query in extract_select_queries(query):
         columns: dict[str, ast.Expr] = {}
