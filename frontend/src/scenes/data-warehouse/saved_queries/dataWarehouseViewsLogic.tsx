@@ -62,6 +62,8 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         loadOlderDataModelingJobs: () => {},
         resetDataModelingJobs: () => {},
         setStartingMaterialization: (starting: boolean) => ({ starting }),
+        runDataWarehouseSavedQuerySnapshot: (viewId: string) => ({ viewId }),
+        updateDataWarehouseSavedQuerySnapshot: (viewId: string, data: Record<string, any>) => ({ viewId, data }),
     }),
     loaders(({ values }) => ({
         dataWarehouseSavedQueries: [
@@ -92,6 +94,8 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                         lifecycle?: string
                         shouldRematerialize?: boolean
                         edited_history_id?: string
+                        snapshot_enabled?: boolean
+                        snapshot_config?: Record<string, any>
                     }
                 ) => {
                     const newView = await api.dataWarehouseSavedQueries.update(view.id, view)
@@ -163,6 +167,15 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
         updateDataWarehouseSavedQueryError: () => {
             lemonToast.error('Failed to update view')
         },
+        updateDataWarehouseSavedQuerySnapshot: async ({ viewId, data }) => {
+            try {
+                await api.dataWarehouseSavedQueries.updateSnapshot(viewId, data)
+                lemonToast.success('Snapshot updated')
+                actions.loadDataWarehouseSavedQueries()
+            } catch {
+                lemonToast.error(`Failed to update snapshot`)
+            }
+        },
         runDataWarehouseSavedQuery: async ({ viewId }) => {
             try {
                 await api.dataWarehouseSavedQueries.run(viewId)
@@ -170,6 +183,15 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 actions.loadDataWarehouseSavedQueries()
             } catch {
                 lemonToast.error(`Failed to run materialization`)
+            }
+        },
+        runDataWarehouseSavedQuerySnapshot: async ({ viewId }) => {
+            try {
+                await api.dataWarehouseSavedQueries.snapshot(viewId)
+                lemonToast.success('Snapshot started')
+                actions.loadDataWarehouseSavedQueries()
+            } catch {
+                lemonToast.error(`Failed to run snapshot`)
             }
         },
         cancelDataWarehouseSavedQuery: async ({ viewId }) => {
