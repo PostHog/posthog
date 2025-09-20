@@ -6,6 +6,7 @@ import { UUIDT } from '../../../utils/utils'
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationResult,
+    HogFunctionCapturedEvent,
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,
     LogEntry,
@@ -123,6 +124,7 @@ export class HogFlowExecutorService {
         let result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null = null
         const metrics: MinimalAppMetric[] = []
         const logs: MinimalLogEntry[] = []
+        const capturedPostHogEvents: HogFunctionCapturedEvent[] = []
 
         const earlyExitResult = await this.shouldExitEarly(invocation)
         if (earlyExitResult) {
@@ -151,6 +153,7 @@ export class HogFlowExecutorService {
                 }
             }
 
+            capturedPostHogEvents.push(...result.capturedPostHogEvents)
             logs.push(...result.logs)
             metrics.push(...result.metrics)
 
@@ -159,6 +162,7 @@ export class HogFlowExecutorService {
             }
         }
 
+        result.capturedPostHogEvents = capturedPostHogEvents
         result.logs = logs
         result.metrics = metrics
 
