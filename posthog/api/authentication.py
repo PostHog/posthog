@@ -1,6 +1,6 @@
 import time
 import datetime
-from typing import Any, Optional, cast
+from typing import Any, cast
 from uuid import uuid4
 
 from django.conf import settings
@@ -21,6 +21,8 @@ from django.shortcuts import redirect
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_protect
 
+from axes.exceptions import AxesBackendPermissionDenied
+from axes.handlers.proxy import AxesProxyHandler
 from django_otp import login as otp_login
 from django_otp.plugins.otp_static.models import StaticDevice
 from loginas.utils import is_impersonated_session, restore_original_login
@@ -167,9 +169,19 @@ class LoginSerializer(serializers.Serializer):
             )
 
         request = self.context["request"]
+        axes_request = getattr(request, "_request", request)
         was_authenticated_before_login_attempt = bool(getattr(request, "user", None) and request.user.is_authenticated)
+
+        # Initialize axes handler via proxy so request metadata is populated consistently
+        handler = AxesProxyHandler
+        axes_credentials = {"username": validated_data["email"]}
+
+        # Check if axes has locked out this IP/user before attempting authentication
+        if handler.is_locked(axes_request, credentials=axes_credentials):
+            raise AxesBackendPermissionDenied("Account locked: too many login attempts.")
+
         user = cast(
-            Optional[User],
+            User | None,
             authenticate(
                 request,
                 email=validated_data["email"],
@@ -178,6 +190,11 @@ class LoginSerializer(serializers.Serializer):
         )
 
         if not user:
+            # Axes tracks failed attempts via authentication signals. If this failure triggered a
+            # lockout, surface the lockout response instead of the generic credential error.
+            if handler.is_locked(axes_request, credentials=axes_credentials):
+                raise AxesBackendPermissionDenied("Account locked: too many login attempts.")
+
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
         # We still let them log in if is_email_verified is null so existing users don't get locked out
@@ -199,6 +216,9 @@ class LoginSerializer(serializers.Serializer):
             raise TwoFactorRequired()
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+
+        # Log successful authentication with axes
+        handler.user_logged_in(None, user=user, request=axes_request)
 
         if not self._check_if_2fa_required(user):
             set_two_factor_verified_in_session(request)
@@ -250,6 +270,16 @@ class LoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     serializer_class = LoginSerializer
     permission_classes = (permissions.AllowAny,)
     # NOTE: Throttling is handled by the `axes` package
+
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Override to handle axes lockout exceptions."""
+        try:
+            return super().create(request, *args, **kwargs)
+        except Exception as e:
+            # Check if this is an axes lockout exception
+            if e.__class__.__name__ == "AxesBackendPermissionDenied":
+                return axes_locked_out(request)
+            raise
 
 
 class TwoFactorSerializer(serializers.Serializer):
@@ -472,7 +502,7 @@ password_reset_token_generator = PasswordResetTokenGenerator()
 
 
 def social_login_notification(
-    strategy: DjangoStrategy, backend, user: Optional[User] = None, is_new: bool = False, **kwargs
+    strategy: DjangoStrategy, backend, user: User | None = None, is_new: bool = False, **kwargs
 ):
     """Final pipeline step to notify on OAuth/SAML login"""
     if not user:

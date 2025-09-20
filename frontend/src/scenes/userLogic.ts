@@ -139,9 +139,10 @@ export const userLogic = kea<userLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
-        logout: () => {
+        logout: async () => {
             posthog.reset()
-            window.location.href = '/logout'
+            const response = await api.createResponse('logout', {})
+            window.location.href = response.url
         },
         loadUserSuccess: ({ user }) => {
             if (user && user.uuid) {

@@ -43,6 +43,9 @@ from posthog.utils_cors import cors_response
 logger = structlog.get_logger(__name__)
 
 
+DECIDE_REQUEST_DATA_CACHE_KEY = "_cached_decide_request_data"
+
+
 class PaginationMode(Enum):
     next = auto()
     previous = auto()
@@ -168,6 +171,16 @@ def get_token(data, request) -> Optional[str]:
             token = request.GET.get("api_key")  # api_key passed as query param
 
     if not token:
+        if data is None and hasattr(request, DECIDE_REQUEST_DATA_CACHE_KEY):
+            data = getattr(request, DECIDE_REQUEST_DATA_CACHE_KEY)
+
+        if data is None and request.method == "POST":
+            try:
+                data = load_data_from_request(request)
+                setattr(request, DECIDE_REQUEST_DATA_CACHE_KEY, data)
+            except Exception:
+                data = None
+
         if request.POST.get("api_key"):
             token = request.POST["api_key"]
         elif request.POST.get("token"):
@@ -452,7 +465,7 @@ def on_permitted_recording_domain(permitted_domains: list[str], request: HttpReq
     origin = parse_domain(request.headers.get("Origin"))
     referer = parse_domain(request.headers.get("Referer"))
 
-    user_agent = request.META.get("HTTP_USER_AGENT")
+    user_agent = request.headers.get("user-agent")
 
     is_authorized_web_client: bool = hostname_in_allowed_url_list(
         permitted_domains, origin

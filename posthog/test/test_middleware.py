@@ -70,9 +70,7 @@ class TestAccessMiddleware(APIBaseTest):
         ):
             with self.settings(TRUSTED_PROXIES="10.0.0.1"):
                 response = self.client.get(
-                    "/",
-                    REMOTE_ADDR="10.0.0.1",
-                    HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.1",
+                    "/", REMOTE_ADDR="10.0.0.1", headers={"x-forwarded-for": "192.168.0.1,10.0.0.1"}
                 )
                 self.assertNotIn(b"PostHog is not available", response.content)
 
@@ -83,9 +81,7 @@ class TestAccessMiddleware(APIBaseTest):
         ):
             with self.settings(TRUSTED_PROXIES="10.0.0.1"):
                 response = self.client.get(
-                    "/",
-                    REMOTE_ADDR="10.0.0.1",
-                    HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.2",
+                    "/", REMOTE_ADDR="10.0.0.1", headers={"x-forwarded-for": "192.168.0.1,10.0.0.2"}
                 )
                 self.assertEqual(response.status_code, 403)
                 self.assertIn(b"PostHog is not available", response.content)
@@ -97,9 +93,7 @@ class TestAccessMiddleware(APIBaseTest):
         ):
             with self.settings(TRUST_ALL_PROXIES=True):
                 response = self.client.get(
-                    "/",
-                    REMOTE_ADDR="10.0.0.1",
-                    HTTP_X_FORWARDED_FOR="192.168.0.1,10.0.0.1",
+                    "/", REMOTE_ADDR="10.0.0.1", headers={"x-forwarded-for": "192.168.0.1,10.0.0.1"}
                 )
                 self.assertNotIn(b"PostHog is not available", response.content)
 
@@ -125,11 +119,7 @@ class TestAccessMiddleware(APIBaseTest):
             USE_X_FORWARDED_HOST=True,
         ):
             with self.settings(TRUST_ALL_PROXIES=True):
-                response = self.client.get(
-                    "/",
-                    REMOTE_ADDR="28.160.62.192",
-                    HTTP_X_FORWARDED_FOR="",
-                )
+                response = self.client.get("/", REMOTE_ADDR="28.160.62.192", headers={"x-forwarded-for": ""})
                 self.assertNotIn(b"PostHog is not available", response.content)
 
 
@@ -166,7 +156,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     def test_project_switched_when_accessing_dashboard_of_another_accessible_team(self):
         dashboard = Dashboard.objects.create(team=self.second_team)
 
-        with self.assertNumQueries(self.base_app_num_queries + 6):  # AutoProjectMiddleware adds 4 queries
+        with self.assertNumQueries(self.base_app_num_queries + 5):  # AutoProjectMiddleware adds 4 queries
             response_app = self.client.get(f"/dashboard/{dashboard.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -214,7 +204,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_unchanged_when_accessing_dashboards_list(self):
-        with self.assertNumQueries(self.base_app_num_queries + 2):  # No AutoProjectMiddleware queries
+        with self.assertNumQueries(self.base_app_num_queries + 1):  # No AutoProjectMiddleware queries
             response_app = self.client.get(f"/dashboard")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -284,7 +274,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     def test_project_switched_when_accessing_feature_flag_of_another_accessible_team(self):
         feature_flag = FeatureFlag.objects.create(team=self.second_team, created_by=self.user)
 
-        with self.assertNumQueries(self.base_app_num_queries + 6):
+        with self.assertNumQueries(self.base_app_num_queries + 5):
             response_app = self.client.get(f"/feature_flags/{feature_flag.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -298,7 +288,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_unchanged_when_creating_feature_flag(self):
-        with self.assertNumQueries(self.base_app_num_queries + 2):
+        with self.assertNumQueries(self.base_app_num_queries + 1):
             response_app = self.client.get(f"/feature_flags/new")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -440,7 +430,8 @@ class TestPostHogTokenCookieMiddleware(APIBaseTest):
         self.assertEqual(response.cookies["ph_current_instance"].value, SITE_URL)
         self.assertEqual(response.cookies["ph_current_instance"]["max-age"], 31536000)
 
-        response = self.client.get("/logout")
+        response = self.client.post("/logout")
+        self.client.logout()
 
         # Check that the local cookies will be removed by having 'expires' in the past
         self.assertTrue(response.cookies["ph_current_project_token"]["expires"] == "Thu, 01 Jan 1970 00:00:00 GMT")
@@ -566,7 +557,7 @@ class TestAutoLogoutImpersonateMiddleware(APIBaseTest):
             assert res.status_code == 302
             assert res.headers["Location"] == "/logout/"
 
-            res = self.client.get("/logout/")
+            res = self.client.post("/logout/")
             assert res.status_code == 302
             assert res.headers["Location"] == "/admin/"
 
