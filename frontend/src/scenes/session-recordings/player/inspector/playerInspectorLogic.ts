@@ -731,7 +731,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
 
-        stateLogItems: [
+        appStateItems: [
             (s) => [s.start, s.sessionPlayerData, s.windowNumberForID],
             (start, sessionPlayerData, windowNumberForID): InspectorListItemAppState[] => {
                 if (!start) {
@@ -789,7 +789,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.commentItems,
                 s.notebookCommentItems,
                 s.sessionPlayerData,
-                s.stateLogItems,
+                s.appStateItems,
             ],
             (
                 start,
@@ -802,7 +802,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 commentItems,
                 notebookCommentItems,
                 sessionPlayerData,
-                stateLogItems
+                appStateItems
             ): InspectorListItem[] => {
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
                 // and then do the filtering of what items are shown, elsewhere
@@ -901,7 +901,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     items.push(notebookComment)
                 }
 
-                for (const stateLogItem of stateLogItems || []) {
+                for (const stateLogItem of appStateItems || []) {
                     items.push(stateLogItem)
                 }
 
