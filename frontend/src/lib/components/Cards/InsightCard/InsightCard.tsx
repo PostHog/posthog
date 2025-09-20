@@ -177,6 +177,7 @@ function InsightCardInternal(
                 'viewer',
                 false
             )
+
             return (
                 <InsightErrorState
                     data-attr="insight-access-denied-state"
@@ -241,6 +242,7 @@ function InsightCardInternal(
                             moreButtons={moreButtons}
                             filtersOverride={filtersOverride}
                             variablesOverride={variablesOverride}
+                            placement={placement}
                         />
                         <div className="InsightCard__viz">
                             {BlockingEmptyState ? (

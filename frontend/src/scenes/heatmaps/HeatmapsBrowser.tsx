@@ -9,11 +9,9 @@ import { AuthorizedUrlListType, appEditorUrl } from 'lib/components/AuthorizedUr
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { DetectiveHog, FilmCameraHog } from 'lib/components/hedgehogs'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FixedReplayHeatmapBrowser } from 'scenes/heatmaps/FixedReplayHeatmapBrowser'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -86,8 +84,6 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
 
     const placeholderUrl = browserUrlSearchOptions?.[0] ?? 'https://your-website.com/pricing'
 
-    const { featureFlags } = useValues(featureFlagLogic)
-
     return (
         <div className="flex-none md:flex justify-between items-center gap-2 w-full">
             <div className="flex-1 min-w-0">
@@ -154,7 +150,7 @@ function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTM
             >
                 Open in toolbar
             </LemonButton>
-            {featureFlags[FEATURE_FLAGS.SCREENSHOT_EDITOR] && <ExportButton iframeRef={iframeRef} />}
+            <ExportButton iframeRef={iframeRef} />
         </div>
     )
 }

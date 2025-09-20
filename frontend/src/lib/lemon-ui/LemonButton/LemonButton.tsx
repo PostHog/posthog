@@ -5,10 +5,7 @@ import React, { useContext } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 
-import { getAccessControlDisabledReason } from 'lib/components/AccessControlAction'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
-
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
 import { Link } from '../Link'
@@ -86,12 +83,6 @@ export interface LemonButtonPropsBase
     tooltipForceMount?: boolean
     /** Whether to stop event propagation on click */
     stopPropagation?: boolean
-    /** Access control props for automatic permission checking */
-    accessControl?: {
-        resourceType: AccessControlResourceType
-        minAccessLevel: AccessControlLevel
-        userAccessLevel?: AccessControlLevel
-    }
 }
 
 export type SideAction = Pick<
@@ -165,7 +156,6 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
                 tooltipDocLink,
                 tooltipForceMount,
                 stopPropagation,
-                accessControl,
                 ...buttonProps
             },
             ref
@@ -204,22 +194,6 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
             }
             if (within3000PageHeader && parentPopoverLevel === -1) {
                 size = 'small' // Ensure that buttons in the page header are small (but NOT inside dropdowns!)
-            }
-
-            // Handle access control
-            if (accessControl) {
-                const { userAccessLevel, minAccessLevel, resourceType } = accessControl
-                const accessControlDisabledReason = getAccessControlDisabledReason(
-                    resourceType,
-                    userAccessLevel,
-                    minAccessLevel
-                )
-                if (accessControlDisabledReason) {
-                    disabled = true
-                    if (!disabledReason) {
-                        disabledReason = accessControlDisabledReason
-                    }
-                }
             }
 
             let tooltipContent: TooltipProps['title']

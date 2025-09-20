@@ -6,6 +6,7 @@ from typing import Optional
 import dagster
 from dagster import Array, Backoff, DagsterRunStatus, Field, Jitter, RetryPolicy, RunsFilter, SkipReason
 
+from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.settings.base_variables import DEBUG
 
@@ -98,6 +99,16 @@ def drop_partitions_for_date_range(
         current_date += timedelta(days=1)
 
 
+def sync_partitions_on_replicas(
+    context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, target_table: str
+) -> None:
+    context.log.info(f"Syncing replicas for {target_table} on all hosts")
+    cluster.map_hosts_by_roles(
+        lambda client: client.execute(f"SYSTEM SYNC REPLICA {target_table} LIGHTWEIGHT"),
+        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+    ).result()
+
+
 def swap_partitions_from_staging(
     context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, target_table: str, staging_table: str
 ) -> None:
@@ -131,6 +142,16 @@ def clear_all_staging_partitions(
             context.log.info(f"Dropped partition {partition_id} from {staging_table}")
         except Exception as e:
             context.log.warning(f"Failed to drop partition {partition_id} from {staging_table}: {e}")
+
+
+def recreate_staging_table(
+    context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, staging_table: str, replace_sql_func
+) -> None:
+    """Recreate staging table on all hosts using REPLACE TABLE."""
+    context.log.info(f"Recreating staging table {staging_table}")
+    cluster.map_hosts_by_roles(
+        lambda client: client.execute(replace_sql_func()), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
+    ).result()
 
 
 # Shared config schema for daily processing
