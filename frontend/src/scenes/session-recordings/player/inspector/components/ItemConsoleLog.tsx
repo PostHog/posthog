@@ -6,14 +6,14 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 
-import { InspectorListItemConsole, InspectorListItemStateLog } from '../playerInspectorLogic'
+import { InspectorListItemAppState, InspectorListItemConsole } from '../playerInspectorLogic'
 
 export interface ItemConsoleLogProps {
     item: InspectorListItemConsole
 }
 
 export interface ItemAppStateProps {
-    item: InspectorListItemStateLog
+    item: InspectorListItemAppState
 }
 
 export function ItemConsoleLog({ item }: ItemConsoleLogProps): JSX.Element {

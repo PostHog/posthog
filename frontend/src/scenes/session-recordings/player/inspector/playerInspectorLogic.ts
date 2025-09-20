@@ -148,7 +148,7 @@ export type InspectorListItemDoctor = InspectorListItemBase & {
     window_id?: string
 }
 
-export type InspectorListItemStateLog = InspectorListItemBase & {
+export type InspectorListItemAppState = InspectorListItemBase & {
     type: 'app-state'
     action: string
     stateEvent?: Record<string, any>
@@ -173,7 +173,7 @@ export type InspectorListItem =
     | InspectorListItemNotebookComment
     | InspectorListItemSummary
     | InspectorListItemInactivity
-    | InspectorListItemStateLog
+    | InspectorListItemAppState
 
 export interface PlayerInspectorLogicProps extends SessionRecordingPlayerLogicProps {
     matchingEventsMatchType?: MatchingEventsMatchType
@@ -733,12 +733,12 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
         stateLogItems: [
             (s) => [s.start, s.sessionPlayerData, s.windowNumberForID],
-            (start, sessionPlayerData, windowNumberForID): InspectorListItemStateLog[] => {
+            (start, sessionPlayerData, windowNumberForID): InspectorListItemAppState[] => {
                 if (!start) {
                     return []
                 }
 
-                const items: InspectorListItemStateLog[] = []
+                const items: InspectorListItemAppState[] = []
 
                 Object.entries(sessionPlayerData.snapshotsByWindowId).forEach(([windowId, snapshots]) => {
                     snapshots.forEach((snapshot: eventWithTime) => {
@@ -756,7 +756,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             const actionTitle = payload?.title as string
                             const stateEvent = payload?.stateEvent as Record<string, any>
                             if (actionTitle && stateEvent) {
-                                const stateLogItem: InspectorListItemStateLog = {
+                                const stateLogItem: InspectorListItemAppState = {
                                     type: 'app-state',
                                     timestamp,
                                     timeInRecording,
