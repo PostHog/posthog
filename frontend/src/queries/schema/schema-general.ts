@@ -1127,6 +1127,8 @@ export type TrendsFilter = {
     showTrendLines?: boolean
     showMovingAverage?: boolean
     movingAverageIntervals?: number
+    /** detailed results table */
+    detailedResultsAggregationType?: 'total' | 'average' | 'median'
 }
 
 export type CalendarHeatmapFilter = {
