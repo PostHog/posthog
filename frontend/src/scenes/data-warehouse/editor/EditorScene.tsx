@@ -123,7 +123,7 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
                     <BindLogic logic={displayLogic} props={{ key: dataVisualizationLogicProps.key }}>
                         <BindLogic logic={variablesLogic} props={variablesLogicProps}>
                             <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
-                                <BindLogic logic={outputPaneLogic} props={{}}>
+                                <BindLogic logic={outputPaneLogic} props={{ tabId }}>
                                     <BindLogic logic={multitabEditorLogic} props={{ tabId, monaco, editor }}>
                                         <div
                                             data-attr="editor-scene"

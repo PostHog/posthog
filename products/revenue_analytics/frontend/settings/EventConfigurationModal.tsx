@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { IconInfo } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonInput, LemonModal, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
 
+import { userHasAccess } from 'lib/components/AccessControlAction'
 import { CurrencyDropdown } from 'lib/components/BaseCurrency/CurrencyDropdown'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
@@ -12,6 +13,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { RevenueAnalyticsEventItem, SubscriptionDropoffMode } from '~/queries/schema/schema-general'
+import { AccessControlResourceType } from '~/types'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
@@ -20,7 +22,7 @@ interface EventConfigurationModalProps {
     onClose: () => void
 }
 
-export function EventConfigurationModal({ event, onClose }: EventConfigurationModalProps): JSX.Element {
+export function EventConfigurationModal({ event, onClose }: EventConfigurationModalProps): JSX.Element | null {
     const { baseCurrency } = useValues(teamLogic)
     const { events, saveEventsDisabledReason } = useValues(revenueAnalyticsSettingsLogic)
     const {
@@ -40,6 +42,12 @@ export function EventConfigurationModal({ event, onClose }: EventConfigurationMo
     // Track the name of the event we care about
     const [eventName, setEventName] = useState<string | null>(() => event?.eventName ?? null)
     const [originalEvent] = useState<RevenueAnalyticsEventItem | null>(() => (event ? { ...event } : null))
+
+    // Don't show the modal if the user doesn't have access to the revenue analytics resource
+    if (!userHasAccess(AccessControlResourceType.RevenueAnalytics, 'editor')) {
+        onClose()
+        return null
+    }
 
     // Get current event data from store
     const currentEvent = eventName ? events.find((e) => e.eventName === eventName) : null

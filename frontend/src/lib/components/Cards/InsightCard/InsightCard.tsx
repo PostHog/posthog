@@ -242,6 +242,7 @@ function InsightCardInternal(
                             moreButtons={moreButtons}
                             filtersOverride={filtersOverride}
                             variablesOverride={variablesOverride}
+                            placement={placement}
                         />
                         <div className="InsightCard__viz">
                             {BlockingEmptyState ? (
