@@ -12,7 +12,7 @@ export interface ItemConsoleLogProps {
     item: InspectorListItemConsole
 }
 
-export interface ItemStateLogProps {
+export interface ItemAppStateProps {
     item: InspectorListItemStateLog
 }
 
@@ -68,17 +68,17 @@ export function ItemConsoleLogDetail({ item }: ItemConsoleLogProps): JSX.Element
     )
 }
 
-export function ItemStateLog({ item }: ItemStateLogProps): JSX.Element {
+export function ItemAppState({ item }: ItemAppStateProps): JSX.Element {
     return (
-        <div className="w-full font-light" data-attr="item-state-log">
+        <div className="w-full font-light" data-attr="item-app-state">
             <div className="px-2 py-1 text-xs cursor-pointer truncate font-mono flex-1">{item.action}</div>
         </div>
     )
 }
 
-export function ItemStateLogDetail({ item }: ItemStateLogProps): JSX.Element {
+export function ItemAppStateDetail({ item }: ItemAppStateProps): JSX.Element {
     return (
-        <div className="w-full font-light" data-attr="item-state-log">
+        <div className="w-full font-light" data-attr="item-app-state">
             <div className="px-2 py-1 text-xs border-t flex flex-col gap-2">
                 <SimpleKeyValueList
                     item={{

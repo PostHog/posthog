@@ -88,7 +88,7 @@ const _itemTypes = [
     'browser-visibility',
     'inactivity',
     'inspector-summary',
-    'state-log',
+    'app-state',
 ] as const
 
 export type InspectorListItemType = (typeof _itemTypes)[number]
@@ -149,7 +149,7 @@ export type InspectorListItemDoctor = InspectorListItemBase & {
 }
 
 export type InspectorListItemStateLog = InspectorListItemBase & {
-    type: 'state-log'
+    type: 'app-state'
     action: string
     stateEvent?: Record<string, any>
     window_id?: string
@@ -746,7 +746,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             const customEvent = snapshot as customEvent
                             const tag = customEvent.data.tag
 
-                            if (tag !== 'state-log') {
+                            if (tag !== 'app-state') {
                                 return
                             }
 
@@ -757,7 +757,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             const stateEvent = payload?.stateEvent as Record<string, any>
                             if (actionTitle && stateEvent) {
                                 const stateLogItem: InspectorListItemStateLog = {
-                                    type: 'state-log',
+                                    type: 'app-state',
                                     timestamp,
                                     timeInRecording,
                                     action: actionTitle,
@@ -1149,7 +1149,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     'console-info': [],
                     'console-warn': [],
                     'console-error': [],
-                    'console-state-log': [],
+                    'console-app-state': [],
                     'performance-fetch': [],
                     'performance-document': [],
                     'performance-assets-js': [],

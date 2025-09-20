@@ -62,8 +62,8 @@ export const MiniFilters: SharedListMiniFilter[] = [
     },
     {
         type: 'console',
-        key: 'console-state-log',
-        name: 'State log',
+        key: 'console-app-state',
+        name: 'App state',
     },
     {
         type: 'network',

@@ -132,7 +132,7 @@ export function initKea({
             posthogKeaLogger({
                 logger: (title, stateEvent) => {
                     const ph: PostHog | undefined = window.posthog
-                    ph?.sessionRecording?.tryAddCustomEvent('state-log', { title, stateEvent })
+                    ph?.sessionRecording?.tryAddCustomEvent('app-state', { title, stateEvent })
                 },
             })
         )
