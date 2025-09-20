@@ -15,7 +15,9 @@ async def _execute_task_processing_workflow(task_id: str, team_id: int, user_id:
     inputs = TaskProcessingInputs(task_id=task_id, team_id=team_id, user_id=user_id)
 
     # Create unique workflow ID based on task and timestamp
-    import time, uuid, logging
+    import time
+    import uuid
+    import logging
 
     # Use high-resolution timestamp + random suffix to avoid collisions when re-triggering within the same second
     workflow_id = f"task-processing-{task_id}-{int(time.time()*1000)}-{uuid.uuid4().hex[:8]}"

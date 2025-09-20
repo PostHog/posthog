@@ -5,11 +5,13 @@ import temporalio
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
-from .github_activities import get_github_integration_token
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.logger import get_logger
 
+from .github_activities import get_github_integration_token
+
 logger = get_logger(__name__)
+
 
 @activity.defn
 async def ai_agent_work_activity(args: dict) -> dict[str, typing.Any]:

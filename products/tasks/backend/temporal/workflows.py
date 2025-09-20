@@ -8,18 +8,15 @@ from temporalio.common import RetryPolicy
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
 
-from .github_activities import (
-    cleanup_repo_activity,
-    clone_repo_and_create_branch_activity,
-)
+from .github_activities import cleanup_repo_activity, clone_repo_and_create_branch_activity
 from .inputs import TaskProcessingInputs
 from .workflow_activities import (
     execute_agent_for_transition_activity,
     get_agent_triggered_transition_activity,
     get_workflow_configuration_activity,
     move_task_to_stage_activity,
-    trigger_task_processing_activity,
     should_trigger_agent_workflow_activity,
+    trigger_task_processing_activity,
 )
 
 logger = get_logger(__name__)

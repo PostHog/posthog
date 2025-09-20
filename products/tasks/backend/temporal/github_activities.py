@@ -15,7 +15,7 @@ from temporalio import activity
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.logger import get_logger
 
-from .inputs import CommitChangesInputs, CreatePRInputs, TaskProcessingInputs
+from .inputs import CreatePRInputs, TaskProcessingInputs
 
 logger = get_logger(__name__)
 
