@@ -55,6 +55,7 @@ pub fn upload(host: Option<String>, args: UploadArgs) -> Result<()> {
         delete_after,
         skip_ssl_verification,
         batch_size,
+        stable_ids: _,
     } = args;
 
     let token = load_token().context("While starting upload command")?;

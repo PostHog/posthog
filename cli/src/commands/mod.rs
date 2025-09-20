@@ -47,6 +47,10 @@ pub struct InjectArgs {
     /// One or more directory glob patterns to ignore
     #[arg(short, long)]
     ignore: Vec<String>,
+
+    /// Whether to use stable IDs by hashing file contents instead of generating UUIDs
+    #[arg(long, default_value = "false")]
+    stable_ids: bool,
 }
 
 #[derive(clap::Args, Clone)]
@@ -79,6 +83,10 @@ pub struct UploadArgs {
     #[arg(long, default_value = "false")]
     skip_ssl_verification: bool,
 
+    /// Whether to use stable IDs by hashing file contents instead of generating UUIDs
+    #[arg(long, default_value = "false")]
+    stable_ids: bool,
+
     /// The maximum number of chunks to upload in a single batch
     #[arg(long, default_value = "50")]
     batch_size: usize,
@@ -104,13 +112,17 @@ impl Cli {
             }
             Commands::Sourcemap { cmd } => match cmd {
                 SourcemapCommand::Inject(input_args) => {
-                    sourcemap::inject::inject(&input_args.directory, &input_args.ignore)?;
+                    sourcemap::inject::inject(
+                        &input_args.directory,
+                        &input_args.ignore,
+                        input_args.stable_ids,
+                    )?;
                 }
                 SourcemapCommand::Upload(upload_args) => {
                     sourcemap::upload::upload(command.host, upload_args.clone())?;
                 }
                 SourcemapCommand::Process(args) => {
-                    sourcemap::inject::inject(&args.directory, &args.ignore)?;
+                    sourcemap::inject::inject(&args.directory, &args.ignore, args.stable_ids)?;
                     sourcemap::upload::upload(command.host, args.clone())?;
                 }
             },

@@ -1,11 +1,12 @@
 use anyhow::{anyhow, bail, Ok, Result};
+use sha2::{Digest, Sha256};
 use std::path::Path;
 use tracing::info;
 use uuid;
 
 use crate::utils::{posthog::capture_command_invoked, sourcemaps::read_pairs};
 
-pub fn inject(directory: &Path, ignore_globs: &[String]) -> Result<()> {
+pub fn inject(directory: &Path, ignore_globs: &[String], stable_ids: bool) -> Result<()> {
     let capture_handle = capture_command_invoked("sourcemap_inject", None::<&str>);
     let directory = directory.canonicalize().map_err(|e| {
         anyhow!(
@@ -26,8 +27,14 @@ pub fn inject(directory: &Path, ignore_globs: &[String]) -> Result<()> {
             skipped_pairs += 1;
             continue;
         }
-        let chunk_id = uuid::Uuid::now_v7().to_string();
-        pair.set_chunk_id(chunk_id)?;
+        if stable_ids {
+            let digest = Sha256::digest(pair.source.content.as_bytes());
+            let hex_string = format!("{:x}", digest);
+            pair.set_chunk_id(hex_string)?;
+        } else {
+            let chunk_id = uuid::Uuid::now_v7().to_string();
+            pair.set_chunk_id(chunk_id)?;
+        }
     }
     if skipped_pairs > 0 {
         info!(
