@@ -378,13 +378,16 @@ impl CheckpointManager {
             .collect();
 
         for (partition, store) in snapshot {
-            debug!(
-                "Flushing store {}:{}",
-                partition.topic(),
-                partition.partition_number()
+            let worker = CheckpointWorker::new(
+                partition.partition_number() as u32,
+                CheckpointTarget::new(partition, Path::new(&self.config.local_checkpoint_dir))
+                    .unwrap(),
+                None,
             );
-            store.flush()?;
-            store.update_metrics()?;
+
+            worker
+                .checkpoint_partition(CheckpointMode::Full, &store)
+                .await?;
         }
 
         Ok(())
