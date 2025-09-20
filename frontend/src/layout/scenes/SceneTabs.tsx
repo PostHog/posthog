@@ -76,8 +76,10 @@ export function SceneTabs({ className }: SceneTabsProps): JSX.Element {
                                 onClick={toggleSearchBar}
                                 data-attr="tree-navbar-search-button"
                                 size="sm"
+                                aria-label="Search (Command + K) or Commands (Command + Shift + K)"
+                                aria-describedby="search-tooltip"
                                 tooltip={
-                                    <div className="flex flex-col gap-0.5">
+                                    <div className="flex flex-col gap-0.5" id="search-tooltip">
                                         <span>
                                             For search, press <KeyboardShortcut command k />
                                         </span>
