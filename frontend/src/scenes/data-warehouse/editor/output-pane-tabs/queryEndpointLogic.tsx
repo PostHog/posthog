@@ -3,13 +3,13 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { EmbeddedTab } from 'scenes/embedded-analytics/common'
 import { urls } from 'scenes/urls'
 
 import { NamedQueryRequest, NodeKind } from '~/queries/schema/schema-general'
 
 import type { queryEndpointLogicType } from './queryEndpointLogicType'
-import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 export type CodeExampleTab = 'terminal' | 'python' | 'nodejs'
 

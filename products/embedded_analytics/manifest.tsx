@@ -1,7 +1,8 @@
+import { combineUrl } from 'kea-router'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { EmbeddedTab } from 'scenes/embedded-analytics/common'
 import { urls } from 'scenes/urls'
-import { combineUrl } from 'kea-router'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 

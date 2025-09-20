@@ -86,6 +86,63 @@ export const createLast20QueriesColumns = (requestNameBreakdownEnabled: boolean)
         : baseColumns
 }
 
+export const createFailedQueriesColumns = (): ChartAxis[] => {
+    return [
+        {
+            column: 'finished_at',
+            settings: { formatting: { prefix: '', suffix: '' } },
+        },
+        {
+            column: 'query_id',
+            settings: { formatting: { prefix: '', suffix: '' } },
+        },
+        {
+            column: 'query',
+            settings: { formatting: { prefix: '', suffix: '' } },
+        },
+        {
+            column: 'endpoint',
+            settings: { formatting: { prefix: '', suffix: '' } },
+        },
+        {
+            column: 'query_duration_ms',
+            settings: { formatting: { prefix: '', suffix: '' } },
+        },
+        {
+            column: 'name',
+            settings: { formatting: { prefix: '', suffix: '' } },
+        },
+        {
+            column: 'read_tb',
+            settings: { formatting: { prefix: '', suffix: '' } },
+        },
+        {
+            column: 'human_readable_read_size',
+            settings: { formatting: { prefix: '', suffix: '' } },
+        },
+        {
+            column: 'cpu_sec',
+            settings: { formatting: { prefix: '', suffix: '' } },
+        },
+        {
+            column: 'memory_usage',
+            settings: { formatting: { prefix: '', suffix: '' } },
+        },
+        {
+            column: 'status',
+            settings: { formatting: { prefix: '', suffix: '' } },
+        },
+        {
+            column: 'exception_code',
+            settings: { formatting: { prefix: '', suffix: '' } },
+        },
+        {
+            column: 'exception_name',
+            settings: { formatting: { prefix: '', suffix: '' } },
+        },
+    ]
+}
+
 export const createApiQueriesCountQuery = ({
     dateFrom,
     dateTo,
@@ -202,64 +259,6 @@ export const createExpensiveQueriesQuery = ({
         ${createRequestNameFilterClause(requestNameFilter)}
     order by read_tb desc, event_time desc
     limit 25`
-
-
-export const createFailedQueriesColumns = (): ChartAxis[] => {
-    return [
-        {
-            column: 'finished_at',
-            settings: { formatting: { prefix: '', suffix: '' } },
-        },
-        {
-            column: 'query_id',
-            settings: { formatting: { prefix: '', suffix: '' } },
-        },
-        {
-            column: 'query',
-            settings: { formatting: { prefix: '', suffix: '' } },
-        },
-        {
-            column: 'endpoint',
-            settings: { formatting: { prefix: '', suffix: '' } },
-        },
-        {
-            column: 'query_duration_ms',
-            settings: { formatting: { prefix: '', suffix: '' } },
-        },
-        {
-            column: 'name',
-            settings: { formatting: { prefix: '', suffix: '' } },
-        },
-        {
-            column: 'read_tb',
-            settings: { formatting: { prefix: '', suffix: '' } },
-        },
-        {
-            column: 'human_readable_read_size',
-            settings: { formatting: { prefix: '', suffix: '' } },
-        },
-        {
-            column: 'cpu_sec',
-            settings: { formatting: { prefix: '', suffix: '' } },
-        },
-        {
-            column: 'memory_usage',
-            settings: { formatting: { prefix: '', suffix: '' } },
-        },
-        {
-            column: 'status',
-            settings: { formatting: { prefix: '', suffix: '' } },
-        },
-        {
-            column: 'exception_code',
-            settings: { formatting: { prefix: '', suffix: '' } },
-        },
-        {
-            column: 'exception_name',
-            settings: { formatting: { prefix: '', suffix: '' } },
-        },
-    ]
-}
 
 export const createFailedQueriesQuery = ({ dateFrom, dateTo }: QueryConfig): string => `
     select 

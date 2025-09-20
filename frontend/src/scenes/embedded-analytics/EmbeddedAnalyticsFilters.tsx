@@ -107,7 +107,8 @@ const RequestNameFilter = ({ value, onChange }: RequestNameSelectProps): JSX.Ele
             mode="multiple"
             options={options}
             data-attr="request-names"
-            bulkActions="clear-all"
+            bulkActions="select-and-clear-all"
+            displayMode="count"
         />
     )
 }

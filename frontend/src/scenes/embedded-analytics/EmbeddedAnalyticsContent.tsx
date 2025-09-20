@@ -30,45 +30,51 @@ export function EmbeddedAnalyticsContent({ tabId }: { tabId: string }): JSX.Elem
     return (
         <BindLogic logic={embeddedAnalyticsLogic} props={{ tabId: tabId }}>
             <BindLogic logic={queryEndpointsLogic} props={{ tabId: tabId }}>
-            <SceneContent className="EmbeddedAnalyticsContent w-full flex flex-col">
-                <EmbeddedAnalyticsTabs />
-                <ProductIntroduction
-                    productName="embedded analytics"
-                    productKey={ProductKey.EMBEDDED_ANALYTICS}
-                    thingName="query endpoint"
-                    description={
-                        activeTab === EmbeddedTab.QUERY_ENDPOINTS
-                            ? EMBEDDED_ANALYTICS_QUERY_ENDPOINTS_PRODUCT_DESCRIPTION
-                            : EMBEDDED_ANALYTICS_API_USAGE_PRODUCT_DESCRIPTION
-                    }
-                    docsURL="https://posthog.com/docs/embedded-analytics"
-                    customHog={BigLeaguesHog}
-                    isEmpty={isEmpty}
-                    action={() =>
-                        router.actions.push(
-                            urls.sqlEditor(undefined, undefined, undefined, undefined, OutputTab.QueryEndpoint)
-                        )
-                    }
-                />
+                <SceneContent className="EmbeddedAnalyticsContent w-full flex flex-col">
+                    <EmbeddedAnalyticsTabs />
+                    <ProductIntroduction
+                        productName="embedded analytics"
+                        productKey={ProductKey.EMBEDDED_ANALYTICS}
+                        thingName="query endpoint"
+                        description={
+                            activeTab === EmbeddedTab.QUERY_ENDPOINTS
+                                ? EMBEDDED_ANALYTICS_QUERY_ENDPOINTS_PRODUCT_DESCRIPTION
+                                : EMBEDDED_ANALYTICS_API_USAGE_PRODUCT_DESCRIPTION
+                        }
+                        docsURL="https://posthog.com/docs/embedded-analytics"
+                        customHog={BigLeaguesHog}
+                        isEmpty={isEmpty}
+                        action={() =>
+                            router.actions.push(
+                                urls.sqlEditor(undefined, undefined, undefined, undefined, OutputTab.QueryEndpoint)
+                            )
+                        }
+                    />
 
-                <PageHeader
-                    buttons={
-                        <LemonButton
-                            data-attr="new-query-endpoint"
-                            onClick={() => {
-                                router.actions.push(
-                                    urls.sqlEditor(undefined, undefined, undefined, undefined, OutputTab.QueryEndpoint)
-                                )
-                            }}
-                            type="primary"
-                            tooltip="Redirects you to the SQL Editor."
-                        >
-                            New query endpoint
-                        </LemonButton>
-                    }
-                />
-                <MainContent tabId={tabId} />
-            </SceneContent>
+                    <PageHeader
+                        buttons={
+                            <LemonButton
+                                data-attr="new-query-endpoint"
+                                onClick={() => {
+                                    router.actions.push(
+                                        urls.sqlEditor(
+                                            undefined,
+                                            undefined,
+                                            undefined,
+                                            undefined,
+                                            OutputTab.QueryEndpoint
+                                        )
+                                    )
+                                }}
+                                type="primary"
+                                tooltip="Redirects you to the SQL Editor."
+                            >
+                                New query endpoint
+                            </LemonButton>
+                        }
+                    />
+                    <MainContent tabId={tabId} />
+                </SceneContent>
             </BindLogic>
         </BindLogic>
     )

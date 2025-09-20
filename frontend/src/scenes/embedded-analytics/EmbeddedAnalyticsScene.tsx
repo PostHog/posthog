@@ -36,12 +36,12 @@ export function EmbeddedAnalyticsScene({ tabId }: { tabId?: string }): JSX.Eleme
                 >
                     <p>
                         Embedded analytics is in alpha and it may not be fully reliable. We are actively working on it
-                        and it may change while we work with you on what works best. 
-                        Please let us know what you'd like to see here and/or report any issues directly to us!
+                        and it may change while we work with you on what works best. Please let us know what you'd like
+                        to see here and/or report any issues directly to us!
                     </p>
                 </LemonBanner>
                 <SceneDivider />
-                <EmbeddedAnalyticsContent tabId={tabId} />
+                <EmbeddedAnalyticsContent tabId={tabId || ''} />
             </SceneContent>
         </>
     )

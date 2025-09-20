@@ -13,6 +13,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { LemonField } from 'lib/lemon-ui/LemonField'
 import { projectLogic } from 'scenes/projectLogic'
 
 import { variablesLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variablesLogic'
@@ -21,7 +22,6 @@ import { NodeKind } from '~/queries/schema/schema-general'
 
 import { multitabEditorLogic } from '../multitabEditorLogic'
 import { CodeExampleTab, queryEndpointLogic } from './queryEndpointLogic'
-import { LemonField } from 'lib/lemon-ui/LemonField'
 
 const variablesColumns: LemonTableColumns<Variable> = [
     {
@@ -239,9 +239,11 @@ function CodeExamples({ queryEndpointName, variables, projectId, tabId }: CodeEx
 }
 
 export function QueryEndpoint({ tabId }: QueryEndpointProps): JSX.Element {
-    const { setQueryEndpointName, setQueryEndpointDescription, createQueryEndpoint } = useActions(queryEndpointLogic({ tabId }))
+    const { setQueryEndpointName, setQueryEndpointDescription, createQueryEndpoint } = useActions(
+        queryEndpointLogic({ tabId })
+    )
     const { queryEndpointName, queryEndpointDescription } = useValues(queryEndpointLogic({ tabId }))
-    
+
     const { currentProject } = useValues(projectLogic)
     const { variablesForInsight } = useValues(variablesLogic)
     const { queryInput } = useValues(multitabEditorLogic)
@@ -261,16 +263,16 @@ export function QueryEndpoint({ tabId }: QueryEndpointProps): JSX.Element {
         const transformedVariables =
             variablesForInsight.length > 0
                 ? variablesForInsight.reduce(
-                          (acc, variable, index) => {
-                              acc[`var_${index}`] = {
-                                  variableId: variable.id,
-                                  code_name: variable.code_name,
-                                  value: variable.value || variable.default_value,
-                              }
-                              return acc
-                          },
-                          {} as Record<string, { variableId: string; code_name: string; value: any }>
-                      )
+                      (acc, variable, index) => {
+                          acc[`var_${index}`] = {
+                              variableId: variable.id,
+                              code_name: variable.code_name,
+                              value: variable.value || variable.default_value,
+                          }
+                          return acc
+                      },
+                      {} as Record<string, { variableId: string; code_name: string; value: any }>
+                  )
                 : {}
 
         createQueryEndpoint({
@@ -306,7 +308,7 @@ export function QueryEndpoint({ tabId }: QueryEndpointProps): JSX.Element {
                         className="w-1/3"
                     />
                 </LemonField.Pure>
- 
+
                 <LemonField.Pure label="Query description">
                     <LemonTextArea
                         minRows={1}
@@ -317,7 +319,7 @@ export function QueryEndpoint({ tabId }: QueryEndpointProps): JSX.Element {
                     />
                 </LemonField.Pure>
 
-                <LemonButton type="primary" onClick={handleCreateQueryEndpoint} icon={<IconCode2 />} size='medium'>
+                <LemonButton type="primary" onClick={handleCreateQueryEndpoint} icon={<IconCode2 />} size="medium">
                     Create query endpoint
                 </LemonButton>
             </div>

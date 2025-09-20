@@ -37,10 +37,10 @@ import {
     createApiReadTbQuery,
     createExpensiveQueriesColumns,
     createExpensiveQueriesQuery,
-    createLast20QueriesColumns,
-    createLast20QueriesQuery,
     createFailedQueriesColumns,
     createFailedQueriesQuery,
+    createLast20QueriesColumns,
+    createLast20QueriesQuery,
 } from './queries'
 
 export interface EmbeddedAnalyticsLogicProps {
@@ -186,7 +186,7 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
 
                 const expensiveQueriesColumns = createExpensiveQueriesColumns(requestNameBreakdownEnabled)
                 const last20QueriesColumns = createLast20QueriesColumns(requestNameBreakdownEnabled)
-                const failedQueriesColumns = createFailedQueriesColumns(requestNameBreakdownEnabled)
+                const failedQueriesColumns = createFailedQueriesColumns()
 
                 const apiQueriesCountQuery = createApiQueriesCountQuery(queryConfig)
                 const apiReadTbQuery = createApiReadTbQuery(queryConfig)
@@ -484,9 +484,7 @@ export const embeddedAnalyticsLogic = kea<embeddedAnalyticsLogicType>([
                 actions.setRequestNameBreakdownEnabled(
                     requestNameBreakdownEnabled ?? INITIAL_REQUEST_NAME_BREAKDOWN_ENABLED
                 )
-                actions.setRequestNameFilter(
-                    requestNameFilter ? requestNameFilter.split(',') : []
-                )
+                actions.setRequestNameFilter(requestNameFilter ? requestNameFilter.split(',') : [])
             }
         },
     })),

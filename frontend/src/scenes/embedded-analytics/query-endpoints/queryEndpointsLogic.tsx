@@ -29,11 +29,7 @@ export const queryEndpointsLogic = kea<queryEndpointsLogicType>([
     props({} as QueryEndpointsLogicProps),
     key((props) => props.tabId),
     actions({
-        setFilters: (filters: Partial<QueryEndpointsFilters>) => {
-            {
-                filters
-            }
-        },
+        setFilters: (filters: Partial<QueryEndpointsFilters>) => ({ filters }),
     }),
     loaders(({ values }) => ({
         queryEndpoints: [

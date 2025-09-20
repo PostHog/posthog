@@ -456,6 +456,9 @@ importers:
       '@posthog/products-early-access-features':
         specifier: workspace:*
         version: link:../products/early_access_features
+      '@posthog/products-embedded-analytics':
+        specifier: workspace:*
+        version: link:../products/embedded_analytics
       '@posthog/products-error-tracking':
         specifier: workspace:*
         version: link:../products/error_tracking
