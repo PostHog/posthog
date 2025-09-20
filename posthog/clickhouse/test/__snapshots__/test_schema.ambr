@@ -489,35 +489,6 @@
   
   '''
 # ---
-# name: test_create_kafka_table_with_different_kafka_host[kafka_session_replay_events_v2_test]
-  '''
-  
-      CREATE TABLE IF NOT EXISTS kafka_session_replay_events_v2_test ON CLUSTER 'posthog'
-      (
-          session_id VARCHAR,
-          team_id Int64,
-          distinct_id VARCHAR,
-          first_timestamp DateTime64(6, 'UTC'),
-          last_timestamp DateTime64(6, 'UTC'),
-          block_url String,
-          first_url Nullable(VARCHAR),
-          urls Array(String),
-          click_count Int64,
-          keypress_count Int64,
-          mouse_activity_count Int64,
-          active_milliseconds Int64,
-          console_log_count Int64,
-          console_warn_count Int64,
-          console_error_count Int64,
-          size Int64,
-          event_count Int64,
-          message_count Int64,
-          snapshot_source LowCardinality(Nullable(String)),
-          snapshot_library Nullable(String),
-      ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_replay_events_v2_test_test', 'group1', 'JSONEachRow')
-  
-  '''
-# ---
 # name: test_create_table_query[app_metrics2]
   '''
   
@@ -1566,35 +1537,6 @@
   
   '''
 # ---
-# name: test_create_table_query[kafka_session_replay_events_v2_test]
-  '''
-  
-      CREATE TABLE IF NOT EXISTS kafka_session_replay_events_v2_test ON CLUSTER 'posthog'
-      (
-          session_id VARCHAR,
-          team_id Int64,
-          distinct_id VARCHAR,
-          first_timestamp DateTime64(6, 'UTC'),
-          last_timestamp DateTime64(6, 'UTC'),
-          block_url String,
-          first_url Nullable(VARCHAR),
-          urls Array(String),
-          click_count Int64,
-          keypress_count Int64,
-          mouse_activity_count Int64,
-          active_milliseconds Int64,
-          console_log_count Int64,
-          console_warn_count Int64,
-          console_error_count Int64,
-          size Int64,
-          event_count Int64,
-          message_count Int64,
-          snapshot_source LowCardinality(Nullable(String)),
-          snapshot_library Nullable(String),
-      ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_replay_events_v2_test_test', 'group1', 'JSONEachRow')
-  
-  '''
-# ---
 # name: test_create_table_query[log_entries]
   '''
   
@@ -2531,7 +2473,7 @@
       entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
   
       -- channel type properties tuple - to reduce redundant reading of the timestamp when loading all of these columns
-      -- utm_source, utm_campaign, utm_medium, referring domain, has_gclid, has_fbclid, gad_source
+      -- utm_source, utm_medium, utm_campaign, referring domain, has_gclid, has_fbclid, gad_source
       entry_channel_type_properties AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Boolean, Boolean, Nullable(String)), DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
@@ -2590,22 +2532,8 @@
   `utm_content` Nullable(String),
   `gclid` Nullable(String),
   `gad_source` Nullable(String),
-  `gclsrc` Nullable(String),
-  `dclid` Nullable(String),
-  `gbraid` Nullable(String),
-  `wbraid` Nullable(String),
   `fbclid` Nullable(String),
-  `msclkid` Nullable(String),
-  `twclid` Nullable(String),
-  `li_fat_id` Nullable(String),
-  `mc_cid` Nullable(String),
-  `igshid` Nullable(String),
-  `ttclid` Nullable(String),
-  `epik` Nullable(String),
-  `qclid` Nullable(String),
-  `sccid` Nullable(String),
-  `_kx` Nullable(String),
-  `irclid` Nullable(String)
+  `gclsrc` Nullable(String),`dclid` Nullable(String),`gbraid` Nullable(String),`wbraid` Nullable(String),`msclkid` Nullable(String),`twclid` Nullable(String),`li_fat_id` Nullable(String),`mc_cid` Nullable(String),`igshid` Nullable(String),`ttclid` Nullable(String),`epik` Nullable(String),`qclid` Nullable(String),`sccid` Nullable(String),`_kx` Nullable(String),`irclid` Nullable(String)
   )') as p,
   tupleElement(p, '$current_url') as current_url,
   tupleElement(p, '$external_click_url') as external_click_url,
@@ -2629,11 +2557,11 @@
   tupleElement(p, 'utm_content') as utm_content,
   tupleElement(p, 'gclid') as gclid,
   tupleElement(p, 'gad_source') as gad_source,
+  tupleElement(p, 'fbclid') as fbclid,
   tupleElement(p, 'gclsrc') as gclsrc,
   tupleElement(p, 'dclid') as dclid,
   tupleElement(p, 'gbraid') as gbraid,
   tupleElement(p, 'wbraid') as wbraid,
-  tupleElement(p, 'fbclid') as fbclid,
   tupleElement(p, 'msclkid') as msclkid,
   tupleElement(p, 'twclid') as twclid,
   tupleElement(p, 'li_fat_id') as li_fat_id,
@@ -2644,8 +2572,45 @@
   tupleElement(p, 'qclid') as qclid,
   tupleElement(p, 'sccid') as sccid,
   tupleElement(p, '_kx') as _kx,
-  tupleElement(p, 'irclid') as irclid
-  
+  tupleElement(p, 'irclid') as irclid,
+  CAST(mapFilter((k, v) -> v IS NOT NULL, map(
+  'gclsrc', gclsrc,
+  'dclid', dclid,
+  'gbraid', gbraid,
+  'wbraid', wbraid,
+  'msclkid', msclkid,
+  'twclid', twclid,
+  'li_fat_id', li_fat_id,
+  'mc_cid', mc_cid,
+  'igshid', igshid,
+  'ttclid', ttclid,
+  'epik', epik,
+  'qclid', qclid,
+  'sccid', sccid,
+  '_kx', _kx,
+  'irclid', irclid
+  )) AS Map(String, String)) as ad_ids_map,
+  CAST(arrayFilter(x -> x IS NOT NULL, [
+  if(gclsrc IS NOT NULL, 'gclsrc', NULL),
+  if(dclid IS NOT NULL, 'dclid', NULL),
+  if(gbraid IS NOT NULL, 'gbraid', NULL),
+  if(wbraid IS NOT NULL, 'wbraid', NULL),
+  if(msclkid IS NOT NULL, 'msclkid', NULL),
+  if(twclid IS NOT NULL, 'twclid', NULL),
+  if(li_fat_id IS NOT NULL, 'li_fat_id', NULL),
+  if(mc_cid IS NOT NULL, 'mc_cid', NULL),
+  if(igshid IS NOT NULL, 'igshid', NULL),
+  if(ttclid IS NOT NULL, 'ttclid', NULL),
+  if(epik IS NOT NULL, 'epik', NULL),
+  if(qclid IS NOT NULL, 'qclid', NULL),
+  if(sccid IS NOT NULL, 'sccid', NULL),
+  if(_kx IS NOT NULL, '_kx', NULL),
+  if(irclid IS NOT NULL, 'irclid', NULL)
+  ]) AS Array(String)) as ad_ids_set
+  ,
+          -- attribution properties from non-pageview/screen events should be deprioritized, so make the timestamp +/- 1 year so they sort last
+          if (event = '$pageview' OR event = '$screen', timestamp, timestamp + toIntervalYear(1)) as pageview_prio_timestamp_min,
+          if (event = '$pageview' OR event = '$screen', timestamp, timestamp - toIntervalYear(1)) as pageview_prio_timestamp_max
       FROM posthog_test.sharded_events
       WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
       AND TRUE
@@ -2662,10 +2627,10 @@
       timestamp AS max_timestamp,
       inserted_at AS max_inserted_at,
   
-      -- urls
-      if(current_url IS NOT NULL, [current_url], []) AS urls,
-      initializeAggregation('argMinState', current_url, timestamp) as entry_url,
-      initializeAggregation('argMaxState', current_url, timestamp) as end_url,
+      -- urls - only update if the event is a pageview or screen
+      if(current_url IS NOT NULL AND (event = '$pageview' OR event = '$screen'), [current_url], []) AS urls,
+      initializeAggregation('argMinState', current_url, pageview_prio_timestamp_min) as entry_url,
+      initializeAggregation('argMaxState', current_url, pageview_prio_timestamp_max) as end_url,
       initializeAggregation('argMaxState', external_click_url, timestamp) as last_external_click_url,
   
       -- device
@@ -2685,68 +2650,32 @@
       initializeAggregation('argMinState', geoip_time_zone, timestamp) as geoip_time_zone,
   
       -- attribution
-      initializeAggregation('argMinState', referring_domain, timestamp) as entry_referring_domain,
-      initializeAggregation('argMinState', utm_source, timestamp) as entry_utm_source,
-      initializeAggregation('argMinState', utm_campaign, timestamp) as entry_utm_campaign,
-      initializeAggregation('argMinState', utm_medium, timestamp) as entry_utm_medium,
-      initializeAggregation('argMinState', utm_term, timestamp) as entry_utm_term,
-      initializeAggregation('argMinState', utm_content, timestamp) as entry_utm_content,
-      initializeAggregation('argMinState', gclid, timestamp) as entry_gclid,
-      initializeAggregation('argMinState', gad_source, timestamp) as entry_gad_source,
-      initializeAggregation('argMinState', fbclid, timestamp) as entry_fbclid,
+      initializeAggregation('argMinState', referring_domain, pageview_prio_timestamp_min) as entry_referring_domain,
+      initializeAggregation('argMinState', utm_source, pageview_prio_timestamp_min) as entry_utm_source,
+      initializeAggregation('argMinState', utm_campaign, pageview_prio_timestamp_min) as entry_utm_campaign,
+      initializeAggregation('argMinState', utm_medium, pageview_prio_timestamp_min) as entry_utm_medium,
+      initializeAggregation('argMinState', utm_term, pageview_prio_timestamp_min) as entry_utm_term,
+      initializeAggregation('argMinState', utm_content, pageview_prio_timestamp_min) as entry_utm_content,
+      initializeAggregation('argMinState', gclid, pageview_prio_timestamp_min) as entry_gclid,
+      initializeAggregation('argMinState', gad_source, pageview_prio_timestamp_min) as entry_gad_source,
+      initializeAggregation('argMinState', fbclid, pageview_prio_timestamp_min) as entry_fbclid,
   
       -- has gclid/fbclid for reading fewer bytes when calculating channel type
-      initializeAggregation('argMinState', gclid IS NOT NULL, timestamp) as entry_has_gclid,
-      initializeAggregation('argMinState', fbclid IS NOT NULL, timestamp) as entry_has_fbclid,
+      initializeAggregation('argMinState', gclid IS NOT NULL, pageview_prio_timestamp_min) as entry_has_gclid,
+      initializeAggregation('argMinState', fbclid IS NOT NULL, pageview_prio_timestamp_min) as entry_has_fbclid,
   
       -- other ad ids
-      initializeAggregation('argMinState', (
-  CAST(mapFilter((k, v) -> v IS NOT NULL, map(
-      'gclsrc', gclsrc,
-      'dclid', dclid,
-      'gbraid', gbraid,
-      'wbraid', wbraid,
-      'msclkid', msclkid,
-      'twclid', twclid,
-      'li_fat_id', li_fat_id,
-      'mc_cid', mc_cid,
-      'igshid', igshid,
-      'ttclid', ttclid,
-      'epik', epik,
-      'qclid', qclid,
-      'sccid', sccid,
-      '_kx', _kx,
-      'irclid', irclid
-  )) AS Map(String, String))
-  ), timestamp) as entry_ad_ids_map,
-      initializeAggregation('argMinState', (
-  CAST(arrayFilter(x -> x IS NOT NULL, [
-      if(gclsrc IS NOT NULL, 'gclsrc', NULL),
-      if(dclid IS NOT NULL, 'dclid', NULL),
-      if(gbraid IS NOT NULL, 'gbraid', NULL),
-      if(wbraid IS NOT NULL, 'wbraid', NULL),
-      if(msclkid IS NOT NULL, 'msclkid', NULL),
-      if(twclid IS NOT NULL, 'twclid', NULL),
-      if(li_fat_id IS NOT NULL, 'li_fat_id', NULL),
-      if(mc_cid IS NOT NULL, 'mc_cid', NULL),
-      if(igshid IS NOT NULL, 'igshid', NULL),
-      if(ttclid IS NOT NULL, 'ttclid', NULL),
-      if(epik IS NOT NULL, 'epik', NULL),
-      if(qclid IS NOT NULL, 'qclid', NULL),
-      if(sccid IS NOT NULL, 'sccid', NULL),
-      if(_kx IS NOT NULL, '_kx', NULL),
-      if(irclid IS NOT NULL, 'irclid', NULL)
-  ]) AS Array(String))
-  ), timestamp) as entry_ad_ids_set,
+      initializeAggregation('argMinState', ad_ids_map, pageview_prio_timestamp_min) as entry_ad_ids_map,
+      initializeAggregation('argMinState', ad_ids_set, pageview_prio_timestamp_min) as entry_ad_ids_set,
   
       -- channel type
-      initializeAggregation('argMinState', tuple(utm_source, utm_medium, utm_campaign, referring_domain, gclid IS NOT NULL, fbclid IS NOT NULL, gad_source), timestamp) as entry_channel_type_properties,
+      initializeAggregation('argMinState', tuple(utm_source, utm_medium, utm_campaign, referring_domain, gclid IS NOT NULL, fbclid IS NOT NULL, gad_source), pageview_prio_timestamp_min) as entry_channel_type_properties,
   
   
       -- counts
       initializeAggregation('uniqState', if(event='$pageview', uuid, NULL)) as pageview_uniq,
       initializeAggregation('uniqState', if(event='$autocapture', uuid, NULL)) as autocapture_uniq,
-      initializeAggregation('uniqState', if(event='screen', uuid, NULL)) as screen_uniq,
+      initializeAggregation('uniqState', if(event='$screen', uuid, NULL)) as screen_uniq,
   
       -- perf
       initializeAggregation('uniqUpToState(1)', if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to
@@ -2908,96 +2837,6 @@
   max(retention_period_days) as retention_period_days
   FROM posthog_test.kafka_session_replay_events
   group by session_id, team_id
-  
-  '''
-# ---
-# name: test_create_table_query[session_replay_events_v2_test]
-  '''
-  
-      CREATE TABLE IF NOT EXISTS session_replay_events_v2_test 
-      (
-          session_id VARCHAR,
-          team_id Int64,
-          distinct_id VARCHAR,
-          min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
-          max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
-          block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-          block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-          block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
-          first_url AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
-          all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
-          click_count SimpleAggregateFunction(sum, Int64),
-          keypress_count SimpleAggregateFunction(sum, Int64),
-          mouse_activity_count SimpleAggregateFunction(sum, Int64),
-          active_milliseconds SimpleAggregateFunction(sum, Int64),
-          console_log_count SimpleAggregateFunction(sum, Int64),
-          console_warn_count SimpleAggregateFunction(sum, Int64),
-          console_error_count SimpleAggregateFunction(sum, Int64),
-          size SimpleAggregateFunction(sum, Int64),
-          message_count SimpleAggregateFunction(sum, Int64),
-          event_count SimpleAggregateFunction(sum, Int64),
-          snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
-          snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-          _timestamp SimpleAggregateFunction(max, DateTime)
-      ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events_v2_test', sipHash64(distinct_id))
-  
-  '''
-# ---
-# name: test_create_table_query[session_replay_events_v2_test_mv]
-  '''
-  
-      CREATE MATERIALIZED VIEW IF NOT EXISTS session_replay_events_v2_test_mv ON CLUSTER 'posthog'
-      TO posthog_test.writable_session_replay_events_v2_test (
-          `session_id` String,
-          `team_id` Int64,
-          `distinct_id` String,
-          `min_first_timestamp` DateTime64(6, 'UTC'),
-          `max_last_timestamp` DateTime64(6, 'UTC'),
-          `block_first_timestamps` SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-          `block_last_timestamps` SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-          `block_urls` SimpleAggregateFunction(groupArrayArray, Array(String)),
-          `first_url` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-          `all_urls` SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
-          `click_count` SimpleAggregateFunction(sum, Int64),
-          `keypress_count` SimpleAggregateFunction(sum, Int64),
-          `mouse_activity_count` SimpleAggregateFunction(sum, Int64),
-          `active_milliseconds` SimpleAggregateFunction(sum, Int64),
-          `console_log_count` SimpleAggregateFunction(sum, Int64),
-          `console_warn_count` SimpleAggregateFunction(sum, Int64),
-          `console_error_count` SimpleAggregateFunction(sum, Int64),
-          `size` SimpleAggregateFunction(sum, Int64),
-          `message_count` SimpleAggregateFunction(sum, Int64),
-          `event_count` SimpleAggregateFunction(sum, Int64),
-          `snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
-          `snapshot_library` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-          `_timestamp` SimpleAggregateFunction(max, DateTime)
-      )
-      AS SELECT
-          session_id,
-          team_id,
-          distinct_id,
-          min(first_timestamp) AS min_first_timestamp,
-          max(last_timestamp) AS max_last_timestamp,
-          groupArray(first_timestamp) AS block_first_timestamps,
-          groupArray(last_timestamp) AS block_last_timestamps,
-          groupArray(block_url) AS block_urls,
-          argMinState(first_url, first_timestamp) as first_url,
-          groupUniqArrayArray(urls) AS all_urls,
-          sum(click_count) AS click_count,
-          sum(keypress_count) AS keypress_count,
-          sum(mouse_activity_count) AS mouse_activity_count,
-          sum(active_milliseconds) AS active_milliseconds,
-          sum(console_log_count) AS console_log_count,
-          sum(console_warn_count) AS console_warn_count,
-          sum(console_error_count) AS console_error_count,
-          sum(size) AS size,
-          sum(message_count) AS message_count,
-          sum(event_count) AS event_count,
-          argMinState(snapshot_source, first_timestamp) as snapshot_source,
-          argMinState(snapshot_library, first_timestamp) as snapshot_library,
-          max(_timestamp) as _timestamp
-      FROM posthog_test.kafka_session_replay_events_v2_test
-      GROUP BY session_id, team_id, distinct_id
   
   '''
 # ---
@@ -3552,7 +3391,7 @@
       entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
   
       -- channel type properties tuple - to reduce redundant reading of the timestamp when loading all of these columns
-      -- utm_source, utm_campaign, utm_medium, referring domain, has_gclid, has_fbclid, gad_source
+      -- utm_source, utm_medium, utm_campaign, referring domain, has_gclid, has_fbclid, gad_source
       entry_channel_type_properties AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Boolean, Boolean, Nullable(String)), DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
@@ -3674,42 +3513,6 @@
       ORDER BY (toDate(min_first_timestamp), team_id, session_id)
   SETTINGS index_granularity=512
   
-  '''
-# ---
-# name: test_create_table_query[sharded_session_replay_events_v2_test]
-  '''
-  
-      CREATE TABLE IF NOT EXISTS sharded_session_replay_events_v2_test ON CLUSTER 'posthog'
-      (
-          session_id VARCHAR,
-          team_id Int64,
-          distinct_id VARCHAR,
-          min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
-          max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
-          block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-          block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-          block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
-          first_url AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
-          all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
-          click_count SimpleAggregateFunction(sum, Int64),
-          keypress_count SimpleAggregateFunction(sum, Int64),
-          mouse_activity_count SimpleAggregateFunction(sum, Int64),
-          active_milliseconds SimpleAggregateFunction(sum, Int64),
-          console_log_count SimpleAggregateFunction(sum, Int64),
-          console_warn_count SimpleAggregateFunction(sum, Int64),
-          console_error_count SimpleAggregateFunction(sum, Int64),
-          size SimpleAggregateFunction(sum, Int64),
-          message_count SimpleAggregateFunction(sum, Int64),
-          event_count SimpleAggregateFunction(sum, Int64),
-          snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
-          snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-          _timestamp SimpleAggregateFunction(max, DateTime)
-      ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events_v2_test', '{replica}')
-  
-              PARTITION BY toYYYYMM(min_first_timestamp)
-              ORDER BY (toDate(min_first_timestamp), team_id, session_id)
-              SETTINGS index_granularity=512
-          
   '''
 # ---
 # name: test_create_table_query[sharded_sessions]
@@ -4416,7 +4219,7 @@
       entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
   
       -- channel type properties tuple - to reduce redundant reading of the timestamp when loading all of these columns
-      -- utm_source, utm_campaign, utm_medium, referring domain, has_gclid, has_fbclid, gad_source
+      -- utm_source, utm_medium, utm_campaign, referring domain, has_gclid, has_fbclid, gad_source
       entry_channel_type_properties AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Boolean, Boolean, Nullable(String)), DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
@@ -4504,38 +4307,6 @@
       -- retention period for this session, in days. Useful to show TTL for the recording
       retention_period_days SimpleAggregateFunction(max, Nullable(Int64)),
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events', sipHash64(distinct_id))
-  
-  '''
-# ---
-# name: test_create_table_query[writable_session_replay_events_v2_test]
-  '''
-  
-      CREATE TABLE IF NOT EXISTS writable_session_replay_events_v2_test 
-      (
-          session_id VARCHAR,
-          team_id Int64,
-          distinct_id VARCHAR,
-          min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
-          max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
-          block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-          block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-          block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
-          first_url AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
-          all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
-          click_count SimpleAggregateFunction(sum, Int64),
-          keypress_count SimpleAggregateFunction(sum, Int64),
-          mouse_activity_count SimpleAggregateFunction(sum, Int64),
-          active_milliseconds SimpleAggregateFunction(sum, Int64),
-          console_log_count SimpleAggregateFunction(sum, Int64),
-          console_warn_count SimpleAggregateFunction(sum, Int64),
-          console_error_count SimpleAggregateFunction(sum, Int64),
-          size SimpleAggregateFunction(sum, Int64),
-          message_count SimpleAggregateFunction(sum, Int64),
-          event_count SimpleAggregateFunction(sum, Int64),
-          snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
-          snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-          _timestamp SimpleAggregateFunction(max, DateTime)
-      ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_replay_events_v2_test', sipHash64(distinct_id))
   
   '''
 # ---
@@ -5630,7 +5401,7 @@
       entry_ad_ids_set AggregateFunction(argMin, Array(String), DateTime64(6, 'UTC')),
   
       -- channel type properties tuple - to reduce redundant reading of the timestamp when loading all of these columns
-      -- utm_source, utm_campaign, utm_medium, referring domain, has_gclid, has_fbclid, gad_source
+      -- utm_source, utm_medium, utm_campaign, referring domain, has_gclid, has_fbclid, gad_source
       entry_channel_type_properties AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Boolean, Boolean, Nullable(String)), DateTime64(6, 'UTC')),
   
       -- Count pageview, autocapture, and screen events for providing totals.
@@ -5752,42 +5523,6 @@
       ORDER BY (toDate(min_first_timestamp), team_id, session_id)
   SETTINGS index_granularity=512
   
-  '''
-# ---
-# name: test_create_table_query_replicated_and_storage[sharded_session_replay_events_v2_test]
-  '''
-  
-      CREATE TABLE IF NOT EXISTS sharded_session_replay_events_v2_test ON CLUSTER 'posthog'
-      (
-          session_id VARCHAR,
-          team_id Int64,
-          distinct_id VARCHAR,
-          min_first_timestamp SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
-          max_last_timestamp SimpleAggregateFunction(max, DateTime64(6, 'UTC')),
-          block_first_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-          block_last_timestamps SimpleAggregateFunction(groupArrayArray, Array(DateTime64(6, 'UTC'))),
-          block_urls SimpleAggregateFunction(groupArrayArray, Array(String)),
-          first_url AggregateFunction(argMin, Nullable(VARCHAR), DateTime64(6, 'UTC')),
-          all_urls SimpleAggregateFunction(groupUniqArrayArray, Array(String)),
-          click_count SimpleAggregateFunction(sum, Int64),
-          keypress_count SimpleAggregateFunction(sum, Int64),
-          mouse_activity_count SimpleAggregateFunction(sum, Int64),
-          active_milliseconds SimpleAggregateFunction(sum, Int64),
-          console_log_count SimpleAggregateFunction(sum, Int64),
-          console_warn_count SimpleAggregateFunction(sum, Int64),
-          console_error_count SimpleAggregateFunction(sum, Int64),
-          size SimpleAggregateFunction(sum, Int64),
-          message_count SimpleAggregateFunction(sum, Int64),
-          event_count SimpleAggregateFunction(sum, Int64),
-          snapshot_source AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
-          snapshot_library AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-          _timestamp SimpleAggregateFunction(max, DateTime)
-      ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_replay_events_v2_test', '{replica}')
-  
-              PARTITION BY toYYYYMM(min_first_timestamp)
-              ORDER BY (toDate(min_first_timestamp), team_id, session_id)
-              SETTINGS index_granularity=512
-          
   '''
 # ---
 # name: test_create_table_query_replicated_and_storage[sharded_sessions]
