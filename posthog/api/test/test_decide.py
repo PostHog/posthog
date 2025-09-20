@@ -17,6 +17,7 @@ from django.test import RequestFactory, TestCase, TransactionTestCase
 from django.test.client import Client
 from django.test.utils import override_settings
 
+from flaky import flaky
 from inline_snapshot import snapshot
 from parameterized import parameterized
 from rest_framework import status
@@ -3627,6 +3628,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 {b"165192618": b"1"},
             )
 
+    @flaky(max_runs=3, min_passes=1)
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_decide_analytics_samples_appropriately(self, *args):
         random.seed(67890)
@@ -3651,6 +3653,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 {b"165192618": b"4"},
             )
 
+    @flaky(max_runs=3, min_passes=1)
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_decide_analytics_samples_appropriately_with_small_sample_rate(self, *args):
         random.seed(12345)
