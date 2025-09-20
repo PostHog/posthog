@@ -127,8 +127,8 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 events_seen_with_this_property, property_expr = self.with_team_events_added(p, self._team)
                 gathered_exprs.append(
                     ast.And(
-                        # we don't particularly care which property was seen with which event
-                        # just that the property was seen with at least one of the list of events
+                        # we can include with the property the events it was seen with
+                        # this should recruit the table's order by and speeed things up
                         exprs=[
                             ast.CompareOperation(
                                 op=ast.CompareOperationOp.In,
