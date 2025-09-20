@@ -1,14 +1,16 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonInputSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { dayjs } from 'lib/dayjs'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { formatDateRange } from 'lib/utils'
 
 import { DateMappingOption } from '~/types'
 
+import { EmbeddedTab } from './common'
 import { embeddedAnalyticsLogic } from './embeddedAnalyticsLogic'
 
 const embeddedAnalyticsDateMapping: DateMappingOption[] = [
@@ -71,11 +73,51 @@ const RequestNameBreakdownToggle = (): JSX.Element => {
     )
 }
 
-export const EmbeddedAnalyticsFilters = ({ tabs }: { tabs?: JSX.Element }): JSX.Element => {
-    const { dateFilter } = useValues(embeddedAnalyticsLogic)
-    const { setDates } = useActions(embeddedAnalyticsLogic)
+type RequestNameSelectProps = {
+    value: string[]
+    onChange: (values: string[]) => void
+}
+
+const RequestNameFilter = ({ value, onChange }: RequestNameSelectProps): JSX.Element => {
+    const { requestNames, requestNamesLoading } = useValues(embeddedAnalyticsLogic)
+
+    const { loadRequestNames } = useActions(embeddedAnalyticsLogic)
+    useOnMountEffect(loadRequestNames)
+
+    const options = requestNames.map((requestName: string) => ({
+        key: requestName,
+        label: requestName,
+        value: requestName,
+    }))
 
     return (
+        <LemonInputSelect
+            placeholder="Search request names to filter by…"
+            autoWidth={false}
+            popoverClassName="max-h-60 max-w-s overflow-y-auto"
+            className="max-h-30 max-w-s overflow-y-auto"
+            value={value.map((v) => v.toString())}
+            loading={requestNamesLoading}
+            onChange={(newValues: string[]) => {
+                const selectedRequestNames = requestNames.filter((requestName: string) =>
+                    newValues.includes(requestName)
+                )
+                onChange(selectedRequestNames)
+            }}
+            mode="multiple"
+            options={options}
+            data-attr="request-names"
+            bulkActions="select-and-clear-all"
+            displayMode="count"
+        />
+    )
+}
+
+export const EmbeddedAnalyticsFilters = ({ tabs }: { tabs?: JSX.Element }): JSX.Element => {
+    const { dateFilter, activeTab, requestNameFilter } = useValues(embeddedAnalyticsLogic)
+    const { setDates, setRequestNameFilter } = useActions(embeddedAnalyticsLogic)
+
+    return activeTab === EmbeddedTab.USAGE ? (
         <FilterBar
             top={tabs}
             left={
@@ -88,8 +130,11 @@ export const EmbeddedAnalyticsFilters = ({ tabs }: { tabs?: JSX.Element }): JSX.
                         dateOptions={embeddedAnalyticsDateMapping}
                     />
                     <RequestNameBreakdownToggle />
+                    <RequestNameFilter value={requestNameFilter} onChange={setRequestNameFilter} />
                 </>
             }
         />
+    ) : (
+        <></>
     )
 }
