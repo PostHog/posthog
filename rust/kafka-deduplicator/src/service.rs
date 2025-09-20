@@ -84,6 +84,8 @@ impl KafkaDeduplicatorService {
             max_local_checkpoints: config.max_local_checkpoints,
             max_checkpoint_retention_hours: config.max_checkpoint_retention_hours,
             max_concurrent_checkpoints: config.max_concurrent_checkpoints,
+            checkpoint_gate_interval: config.checkpoint_gate_interval(),
+            checkpoint_worker_shutdown_timeout: config.checkpoint_worker_shutdown_timeout(),
             s3_timeout: config.s3_timeout(),
         };
 
