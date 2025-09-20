@@ -97,10 +97,11 @@ const renderVariableSpecificFields = (
                 <LemonField.Pure label="Default value" className="gap-1">
                     <LemonSelect
                         className="w-full"
-                        placeholder="Select default value"
-                        value={variable.default_value}
+                        placeholder="Select default values"
+                        mode="multiple"
+                        value={Array.isArray(variable.default_value) ? variable.default_value : variable.default_value ? [String(variable.default_value)] : []}
                         options={variable.values.map((n) => ({ label: n, value: n }))}
-                        onChange={(value) => updateVariable({ ...variable, default_value: value ?? '' })}
+                        onChange={(value) => updateVariable({ ...variable, default_value: value || [] })}
                         allowClear
                         dropdownMaxContentWidth
                     />
