@@ -4077,6 +4077,17 @@ class TestDecide(BaseTest, QueryMatchingTest):
 class TestDecideRemoteConfig(TestDecide):
     use_remote_config = True
 
+    def setUp(self, *args):
+        # Mock hypercache S3 writes to prevent time skew errors in CI
+        # This only affects caching, not the core functionality being tested
+        self.hypercache_patcher = patch("posthog.storage.hypercache.HyperCache.update_cache")
+        self.mock_hypercache = self.hypercache_patcher.start()
+        super().setUp(*args)
+
+    def tearDown(self):
+        self.hypercache_patcher.stop()
+        super().tearDown()
+
     def test_definitely_loads_via_remote_config(self, *args):
         # NOTE: This is a sanity check test that we aren't just using the old decide logic
 
