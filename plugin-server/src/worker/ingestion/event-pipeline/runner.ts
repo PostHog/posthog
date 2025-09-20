@@ -1,6 +1,12 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { HogTransformerService } from '../../../cdp/hog-transformations/hog-transformer.service'
+import {
+    isDlqResult,
+    isDropResult,
+    isRedirectResult,
+    isSuccessResult,
+} from '../../../ingestion/pipelines/pipeline-types'
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { EventHeaders, Hub, PipelineEvent, Team } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
@@ -29,7 +35,6 @@ import {
     pipelineStepThrowCounter,
 } from './metrics'
 import { normalizeEventStep } from './normalizeEventStep'
-import { isDlqResult, isDropResult, isRedirectResult, isSuccessResult } from './pipeline-step-result'
 import { prepareEventStep } from './prepareEventStep'
 import { processPersonsStep } from './processPersonsStep'
 import { transformEventStep } from './transformEventStep'

@@ -1,8 +1,7 @@
 import { ingestionOverflowingMessagesTotal } from '../../main/ingestion-queues/batch-processing/metrics'
 import { EventHeaders } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
-import { redirect, success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
-import { SyncProcessingStep } from '../pipeline-types'
+import { SyncProcessingStep, redirect, success } from '../pipelines/pipeline-types'
 
 export type ForceOverflowDecision = {
     shouldRedirect: boolean

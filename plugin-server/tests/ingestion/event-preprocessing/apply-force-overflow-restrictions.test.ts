@@ -2,9 +2,9 @@ import {
     OverflowConfig,
     createApplyForceOverflowRestrictionsStep,
 } from '../../../src/ingestion/event-preprocessing/apply-force-overflow-restrictions'
+import { redirect, success } from '../../../src/ingestion/pipelines/pipeline-types'
 import { EventHeaders } from '../../../src/types'
 import { EventIngestionRestrictionManager } from '../../../src/utils/event-ingestion-restriction-manager'
-import { redirect, success } from '../../../src/worker/ingestion/event-pipeline/pipeline-step-result'
 
 describe('createApplyForceOverflowRestrictionsStep', () => {
     let eventIngestionRestrictionManager: EventIngestionRestrictionManager

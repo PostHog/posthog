@@ -4,12 +4,12 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { Person, Team } from '~/types'
 
+import { PipelineStepResult, isSuccessResult, success } from '../../../ingestion/pipelines/pipeline-types'
 import { PersonContext } from '../persons/person-context'
 import { PersonEventProcessor } from '../persons/person-event-processor'
 import { PersonMergeService } from '../persons/person-merge-service'
 import { PersonPropertyService } from '../persons/person-property-service'
 import { PersonsStoreForBatch } from '../persons/persons-store-for-batch'
-import { PipelineStepResult, isSuccessResult, success } from './pipeline-step-result'
 import { EventPipelineRunner } from './runner'
 
 export async function processPersonsStep(

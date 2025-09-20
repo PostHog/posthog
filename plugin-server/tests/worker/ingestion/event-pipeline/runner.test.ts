@@ -3,8 +3,8 @@ import { v4 } from 'uuid'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
+import { dlq, redirect, success } from '~/ingestion/pipelines/pipeline-types'
 import { forSnapshot } from '~/tests/helpers/snapshots'
-import { dlq, redirect, success } from '~/worker/ingestion/event-pipeline/pipeline-step-result'
 import { BatchWritingGroupStoreForBatch } from '~/worker/ingestion/groups/batch-writing-group-store'
 import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 

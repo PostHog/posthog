@@ -1,8 +1,7 @@
 import { Message } from 'node-rdkafka'
 
-import { dlq, drop, success } from '../worker/ingestion/event-pipeline/pipeline-step-result'
 import { SequentialBatchProcessingPipeline } from './batch-processing-pipeline'
-import { createBatch, createNewBatchPipeline } from './pipeline-types'
+import { createBatch, createNewBatchPipeline, dlq, drop, success } from './pipeline-types'
 
 describe('SequentialBatchProcessingPipeline', () => {
     describe('basic functionality', () => {

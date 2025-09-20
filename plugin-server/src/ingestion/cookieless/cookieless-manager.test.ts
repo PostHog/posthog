@@ -13,7 +13,7 @@ import { closeHub, createHub } from '../../utils/db/hub'
 import { PostgresUse } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
 import { UUID7 } from '../../utils/utils'
-import { isSuccessResult } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
+import { isSuccessResult } from '../pipelines/pipeline-types'
 import {
     COOKIELESS_MODE_FLAG_PROPERTY,
     COOKIELESS_SENTINEL_VALUE,

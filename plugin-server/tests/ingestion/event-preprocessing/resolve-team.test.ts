@@ -4,8 +4,8 @@ import { DB } from '~/utils/db/db'
 import { TeamManager } from '~/utils/team-manager'
 
 import { createResolveTeamStep } from '../../../src/ingestion/event-preprocessing/resolve-team'
+import { drop, success } from '../../../src/ingestion/pipelines/pipeline-types'
 import { EventHeaders, Hub, IncomingEvent, Team } from '../../../src/types'
-import { drop, success } from '../../../src/worker/ingestion/event-pipeline/pipeline-step-result'
 import { getMetricValues, resetMetrics } from '../../helpers/metrics'
 
 const pipelineEvent = {

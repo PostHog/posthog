@@ -1,12 +1,13 @@
-import { instrumentFn } from '../common/tracing/tracing-utils'
-import { isSuccessResult, success } from '../ingestion/pipelines/pipeline-types'
+import { instrumentFn } from '../../common/tracing/tracing-utils'
 import {
     AsyncProcessingStep,
     ProcessingResult,
     Processor,
     ResultWithContext,
     SyncProcessingStep,
-} from './pipelines/pipeline-types'
+    isSuccessResult,
+    success,
+} from './pipeline-types'
 
 export class NoopProcessingPipeline<T> implements Processor<T, T> {
     async process(input: ResultWithContext<T>): Promise<ResultWithContext<T>> {

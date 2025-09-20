@@ -1,9 +1,9 @@
 import { Message } from 'node-rdkafka'
 
 import { createParseHeadersStep } from '../../../src/ingestion/event-preprocessing/parse-headers'
+import { success } from '../../../src/ingestion/pipelines/pipeline-types'
 import { parseEventHeaders } from '../../../src/kafka/consumer'
 import { EventHeaders } from '../../../src/types'
-import { success } from '../../../src/worker/ingestion/event-pipeline/pipeline-step-result'
 
 // Mock dependencies
 jest.mock('../../../src/kafka/consumer', () => ({

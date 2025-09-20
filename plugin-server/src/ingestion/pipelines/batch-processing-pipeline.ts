@@ -1,10 +1,12 @@
-import { instrumentFn } from '../common/tracing/tracing-utils'
+import { instrumentFn } from '../../common/tracing/tracing-utils'
 import {
+    BatchProcessingPipeline,
+    BatchProcessingResult,
     PipelineStepResult,
     PipelineStepResultOk,
+    ResultWithContext,
     isSuccessResult,
-} from '../worker/ingestion/event-pipeline/pipeline-step-result'
-import { BatchProcessingPipeline, BatchProcessingResult, ResultWithContext } from './pipeline-types'
+} from './pipeline-types'
 
 /**
  * Type guard for ResultWithContext that asserts the result is successful

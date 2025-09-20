@@ -1,7 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { drop, success } from '../worker/ingestion/event-pipeline/pipeline-step-result'
-import { createNewPipeline } from './pipeline-types'
+import { createNewPipeline, drop, success } from './pipeline-types'
 import { ProcessingPipeline } from './processing-pipeline'
 
 describe('ProcessingPipeline', () => {

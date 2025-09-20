@@ -2,7 +2,7 @@ import { DateTime } from 'luxon'
 
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { PipelineStepResultType, isSuccessResult } from '~/worker/ingestion/event-pipeline/pipeline-step-result'
+import { PipelineStepResultType, isSuccessResult } from '~/ingestion/pipelines/pipeline-types'
 import { BatchWritingPersonsStoreForBatch } from '~/worker/ingestion/persons/batch-writing-person-store'
 
 import { Hub, Team } from '../../../../src/types'

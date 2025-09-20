@@ -1,6 +1,5 @@
-import { isSuccessResult, success } from '../worker/ingestion/event-pipeline/pipeline-step-result'
 import { BatchProcessingStep, SequentialBatchProcessingPipeline } from './batch-processing-pipeline'
-import { BatchProcessingPipeline, BatchProcessingResult } from './pipeline-types'
+import { BatchProcessingPipeline, BatchProcessingResult, isSuccessResult, success } from './pipeline-types'
 
 export class GatherBatchProcessingPipeline<TInput, TOutput> implements BatchProcessingPipeline<TInput, TOutput> {
     constructor(private subPipeline: BatchProcessingPipeline<TInput, TOutput>) {}

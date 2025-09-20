@@ -1,7 +1,7 @@
 import { createApplyDropRestrictionsStep } from '../../../src/ingestion/event-preprocessing/apply-drop-events-restrictions'
+import { drop, success } from '../../../src/ingestion/pipelines/pipeline-types'
 import { EventHeaders } from '../../../src/types'
 import { EventIngestionRestrictionManager } from '../../../src/utils/event-ingestion-restriction-manager'
-import { drop, success } from '../../../src/worker/ingestion/event-pipeline/pipeline-step-result'
 
 describe('createApplyDropRestrictionsStep', () => {
     let eventIngestionRestrictionManager: EventIngestionRestrictionManager

@@ -1,7 +1,12 @@
-import { instrumentFn } from '../common/tracing/tracing-utils'
-import { isSuccessResult } from '../worker/ingestion/event-pipeline/pipeline-step-result'
+import { instrumentFn } from '../../common/tracing/tracing-utils'
 import { GatherBatchProcessingPipeline } from './gather-batch-processing-pipeline'
-import { BatchProcessingPipeline, BatchProcessingResult, Processor, ResultWithContext } from './pipeline-types'
+import {
+    BatchProcessingPipeline,
+    BatchProcessingResult,
+    Processor,
+    ResultWithContext,
+    isSuccessResult,
+} from './pipeline-types'
 
 export class ConcurrentBatchProcessingPipeline<TInput, TIntermediate, TOutput>
     implements BatchProcessingPipeline<TInput, TOutput>

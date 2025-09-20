@@ -1,7 +1,7 @@
 import { createApplyPersonProcessingRestrictionsStep } from '../../../src/ingestion/event-preprocessing/apply-person-processing-restrictions'
+import { success } from '../../../src/ingestion/pipelines/pipeline-types'
 import { IncomingEventWithTeam } from '../../../src/types'
 import { EventIngestionRestrictionManager } from '../../../src/utils/event-ingestion-restriction-manager'
-import { success } from '../../../src/worker/ingestion/event-pipeline/pipeline-step-result'
 
 describe('createApplyPersonProcessingRestrictionsStep', () => {
     let eventIngestionRestrictionManager: EventIngestionRestrictionManager

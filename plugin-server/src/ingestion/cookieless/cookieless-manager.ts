@@ -26,9 +26,9 @@ import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/db/error'
 import { TeamManager } from '../../utils/team-manager'
 import { UUID7, bufferToUint32ArrayLE, uint32ArrayLEToBuffer } from '../../utils/utils'
-import { PipelineStepResult, drop, success } from '../../worker/ingestion/event-pipeline/pipeline-step-result'
 import { compareTimestamps } from '../../worker/ingestion/timestamp-comparison'
 import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../../worker/ingestion/timestamps'
+import { PipelineStepResult, drop, success } from '../pipelines/pipeline-types'
 import { RedisHelpers } from './redis-helpers'
 
 /* ---------------------------------------------------------------------

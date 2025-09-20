@@ -1,10 +1,6 @@
 import { createValidateEventUuidStep } from '../../../src/ingestion/event-preprocessing/validate-event-uuid'
+import { PipelineStepResultType, drop, success } from '../../../src/ingestion/pipelines/pipeline-types'
 import { Hub, IncomingEventWithTeam } from '../../../src/types'
-import {
-    PipelineStepResultType,
-    drop,
-    success,
-} from '../../../src/worker/ingestion/event-pipeline/pipeline-step-result'
 import { captureIngestionWarning } from '../../../src/worker/ingestion/utils'
 import { getMetricValues, resetMetrics } from '../../helpers/metrics'
 

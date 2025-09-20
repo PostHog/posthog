@@ -5,13 +5,13 @@ import { DateTime } from 'luxon'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 
 import { KAFKA_INGESTION_WARNINGS, KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '~/config/kafka-topics'
-import { Clickhouse } from '~/tests/helpers/clickhouse'
 import {
     PipelineStepResultType,
     isDlqResult,
     isRedirectResult,
     isSuccessResult,
-} from '~/worker/ingestion/event-pipeline/pipeline-step-result'
+} from '~/ingestion/pipelines/pipeline-types'
+import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { fromInternalPerson } from '~/worker/ingestion/persons/person-update-batch'
 
 import { TopicMessage } from '../../../src/kafka/producer'
