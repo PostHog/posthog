@@ -1,13 +1,16 @@
 import datetime
 from typing import Optional, Union
-from unittest import mock
 
 from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, QueryMatchingTest
+from unittest import mock
+
+from django.test import override_settings
+
 from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.models import User
-from posthog.test.base import APIBaseTest, QueryMatchingTest
 
 
 class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
@@ -72,6 +75,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             "layouts": {},
             "order": 0,
             "color": color,
+            "filters_overrides": {},
             "text": self._expected_text(
                 body,
                 created_by=created_by,
@@ -104,6 +108,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         }
 
     @freeze_time("2022-04-01 12:45")
+    @override_settings(IN_UNIT_TESTING=True)
     def test_can_create_a_single_text_tile(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
 
@@ -114,6 +119,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             body="hello world",
         )
 
+    @override_settings(IN_UNIT_TESTING=True)
     def test_can_update_a_single_text_tile(self) -> None:
         with freeze_time("2022-04-01 12:45") as frozen_time:
             dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})

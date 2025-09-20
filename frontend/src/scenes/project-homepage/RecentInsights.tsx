@@ -1,8 +1,10 @@
 import './ProjectHomepage.scss'
 
 import { useActions, useValues } from 'kea'
+
 import { CompactList } from 'lib/components/CompactList/CompactList'
 import { dayjs } from 'lib/dayjs'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { InsightIcon } from 'scenes/saved-insights/SavedInsights'
 import { urls } from 'scenes/urls'
@@ -11,7 +13,6 @@ import { QueryBasedInsightModel } from '~/types'
 
 import { ProjectHomePageCompactListItem } from './ProjectHomePageCompactListItem'
 import { projectHomepageLogic } from './projectHomepageLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 interface InsightRowProps {
     insight: QueryBasedInsightModel

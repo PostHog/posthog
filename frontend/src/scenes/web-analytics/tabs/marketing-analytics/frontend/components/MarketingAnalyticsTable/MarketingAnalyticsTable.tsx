@@ -1,25 +1,38 @@
-import { useActions } from 'kea'
+import './MarketingAnalyticsTableStyleOverride.scss'
+
+import { BuiltLogic, LogicWrapper, useActions } from 'kea'
+
+import { IconGear } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { Query } from '~/queries/Query/Query'
+import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
+import {
+    DataTableNode,
+    MarketingAnalyticsColumnsSchemaNames,
+    MarketingAnalyticsTableQuery,
+} from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn } from '~/queries/types'
 import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/WebAnalyticsTile'
-import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
-import { DraftConversionGoalControls } from './DraftConversionGoalControls'
-import { marketingAnalyticsTableLogic } from '../../logic/marketingAnalyticsTableLogic'
-import { DataTableNode, MarketingAnalyticsTableQuery } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
-import { MarketingAnalyticsColumnConfigModal } from './MarketingAnalyticsColumnConfigModal'
+
 import { marketingAnalyticsLogic } from '../../logic/marketingAnalyticsLogic'
-import { LemonButton } from '@posthog/lemon-ui'
-import { IconGear } from '@posthog/icons'
-import './MarketingAnalyticsTableStyleOverride.scss'
+import { marketingAnalyticsTableLogic } from '../../logic/marketingAnalyticsTableLogic'
 import { MarketingAnalyticsCell } from '../../shared'
+import { DraftConversionGoalControls } from './DraftConversionGoalControls'
+import { MarketingAnalyticsColumnConfigModal } from './MarketingAnalyticsColumnConfigModal'
 
 export type MarketingAnalyticsTableProps = {
     query: DataTableNode
     insightProps: InsightLogicProps
+    attachTo?: LogicWrapper | BuiltLogic
 }
 
-export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyticsTableProps): JSX.Element => {
+export const MarketingAnalyticsTable = ({
+    query,
+    insightProps,
+    attachTo,
+}: MarketingAnalyticsTableProps): JSX.Element => {
     const { setQuery } = useActions(marketingAnalyticsTableLogic)
     const { showColumnConfigModal } = useActions(marketingAnalyticsLogic)
 
@@ -32,7 +45,18 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
             (acc, column) => {
                 acc[column] = {
                     title: column,
-                    render: MarketingAnalyticsCell,
+                    render: (props) => (
+                        <MarketingAnalyticsCell
+                            {...props}
+                            style={{
+                                maxWidth:
+                                    column.toLocaleLowerCase() ===
+                                    MarketingAnalyticsColumnsSchemaNames.Campaign.toLocaleLowerCase()
+                                        ? '200px'
+                                        : undefined,
+                            }}
+                        />
+                    ),
                 }
                 return acc
             },
@@ -55,7 +79,13 @@ export const MarketingAnalyticsTable = ({ query, insightProps }: MarketingAnalyt
                 </div>
             </div>
             <div className="relative marketing-analytics-table-container">
-                <Query query={query} readOnly={false} context={marketingAnalyticsContext} setQuery={setQuery} />
+                <Query
+                    attachTo={attachTo}
+                    query={query}
+                    readOnly={false}
+                    context={marketingAnalyticsContext}
+                    setQuery={setQuery}
+                />
             </div>
             <MarketingAnalyticsColumnConfigModal query={query} />
         </div>

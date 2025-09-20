@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 
 import { useMocks } from '~/mocks/jest'

@@ -1,9 +1,9 @@
-from celery import shared_task
 import structlog
+from celery import shared_task
 
 from posthog.models.remote_config import RemoteConfig
-from posthog.tasks.utils import CeleryQueue
 from posthog.models.team import Team
+from posthog.tasks.utils import CeleryQueue
 
 logger = structlog.get_logger(__name__)
 

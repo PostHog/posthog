@@ -1,6 +1,7 @@
 use std::io::prelude::*;
 
 use bytes::{Buf, Bytes};
+use chrono::{DateTime, Utc};
 use common_types::{CapturedEvent, RawEngageEvent, RawEvent};
 use flate2::read::GzDecoder;
 use serde::{Deserialize, Deserializer};
@@ -193,8 +194,7 @@ impl RawRequest {
                     );
                     report_dropped_events("event_too_big", 1);
                     return Err(CaptureError::EventTooBig(format!(
-                        "Event or batch exceeded {} during unzipping",
-                        limit
+                        "Event or batch exceeded {limit} during unzipping",
                     )));
                 }
             }
@@ -260,8 +260,7 @@ impl RawRequest {
                                         "from_bytes: request size limit exceeded after post-decode base64 unwrap");
                                     report_dropped_events("event_too_big", 1);
                                     return Err(CaptureError::EventTooBig(format!(
-                                        "from_bytes: payload size limit {} exceeded after post-decode base64 unwrap: {}",
-                                        limit, unwrapped_size,
+                                        "from_bytes: payload size limit {limit} exceeded after post-decode base64 unwrap: {unwrapped_size}",
                                     )));
                                 }
                                 unwrapped_payload
@@ -380,7 +379,7 @@ pub struct ProcessingContext {
     pub user_agent: Option<String>,
     pub sent_at: Option<OffsetDateTime>,
     pub token: String,
-    pub now: String,
+    pub now: DateTime<Utc>,
     pub client_ip: String,
     pub request_id: String,
     pub path: String,
@@ -420,6 +419,7 @@ pub struct ProcessedEvent {
 pub struct ProcessedEventMetadata {
     pub data_type: DataType,
     pub session_id: Option<String>,
+    pub computed_timestamp: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 #[cfg(test)]

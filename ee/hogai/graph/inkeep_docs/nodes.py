@@ -2,6 +2,7 @@ from typing import Literal
 from uuid import uuid4
 
 from django.conf import settings
+
 from langchain_core.messages import (
     AIMessage as LangchainAIMessage,
     BaseMessage,
@@ -11,10 +12,13 @@ from langchain_core.messages import (
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
 
+from posthog.schema import AssistantMessage, AssistantToolCallMessage
+
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.state import PartialAssistantState
 from ee.hogai.utils.types import AssistantState
-from posthog.schema import AssistantMessage, AssistantToolCallMessage
+from ee.hogai.utils.types.base import AssistantNodeName
+from ee.hogai.utils.types.composed import MaxNodeName
 
 from ..root.nodes import RootNode
 from .prompts import INKEEP_DATA_CONTINUATION_PHRASE, INKEEP_DOCS_SYSTEM_PROMPT
@@ -22,6 +26,10 @@ from .prompts import INKEEP_DATA_CONTINUATION_PHRASE, INKEEP_DOCS_SYSTEM_PROMPT
 
 class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same message construction
     """Node for searching PostHog documentation using Inkeep."""
+
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.INKEEP_DOCS
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         """Process the state and return documentation search results."""

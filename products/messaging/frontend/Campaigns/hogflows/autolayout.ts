@@ -1,7 +1,8 @@
 import { Edge, Position } from '@xyflow/react'
 import ELK, { ElkExtendedEdge, ElkNode } from 'elkjs/lib/elk.bundled.js'
 
-import { NODE_GAP, NODE_LAYER_GAP, NODE_HEIGHT, NODE_WIDTH, NODE_EDGE_GAP } from './constants'
+import { TRIGGER_NODE_ID } from '../campaignLogic'
+import { NODE_EDGE_GAP, NODE_GAP, NODE_HEIGHT, NODE_LAYER_GAP, NODE_WIDTH } from './constants'
 import type { HogFlowActionNode } from './types'
 
 /**
@@ -45,12 +46,14 @@ export const getFormattedNodes = async (nodes: HogFlowActionNode[], edges: Edge[
         layoutOptions: elkOptions,
         children: nodes.map((node) => {
             const handles =
-                node.handles?.map((h) => ({
-                    id: h.id || `${node.id}_${h.type}`,
-                    properties: {
-                        side: getElkPortSide(h.position),
-                    },
-                })) || []
+                node.handles
+                    ?.sort((a, b) => (a.id || '').localeCompare(b.id || ''))
+                    .map((h) => ({
+                        id: h.id || `${node.id}_${h.type}`,
+                        properties: {
+                            side: getElkPortSide(h.position),
+                        },
+                    })) || []
 
             return {
                 ...node,
@@ -82,7 +85,7 @@ export const getFormattedNodes = async (nodes: HogFlowActionNode[], edges: Edge[
      */
 
     // Find the trigger node and use its position as the offset
-    const triggerNode = layoutedGraph.children?.find((node) => node.id === 'trigger_node')
+    const triggerNode = layoutedGraph.children?.find((node) => node.id === TRIGGER_NODE_ID)
     const offsetX = triggerNode?.x || 0
     const offsetY = triggerNode?.y || 0
 

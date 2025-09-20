@@ -1,4 +1,5 @@
 import { AccessControlLevel, UserBasicType } from '~/types'
+
 import { NotebookType } from '../types'
 
 const TEMPLATE_USERS: Record<string, UserBasicType> = {

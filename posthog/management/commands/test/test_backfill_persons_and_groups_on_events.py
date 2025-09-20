@@ -2,15 +2,14 @@ from time import sleep
 from uuid import UUID, uuid4
 
 import pytest
+from posthog.test.base import BaseTest, ClickhouseTestMixin
+
 from django.conf import settings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.conftest import create_clickhouse_tables
-from posthog.management.commands.backfill_persons_and_groups_on_events import (
-    run_backfill,
-)
+from posthog.management.commands.backfill_persons_and_groups_on_events import run_backfill
 from posthog.models.event.sql import EVENTS_DATA_TABLE
-from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 
 def create_test_events(properties=""):

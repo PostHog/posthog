@@ -1,5 +1,6 @@
-import { cn } from 'lib/utils/css-classes'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
+
+import { cn } from 'lib/utils/css-classes'
 
 type ResizableElementProps = {
     defaultWidth: number

@@ -55,8 +55,7 @@ impl Program {
             }
             _ => {
                 return Err(VmError::InvalidBytecode(format!(
-                    "Invalid bytecode marker: {:?}",
-                    bytecode_marker
+                    "Invalid bytecode marker: {bytecode_marker:?}"
                 )))
             }
         };

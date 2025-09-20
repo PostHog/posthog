@@ -77,6 +77,7 @@ export class SessionBatchManager {
         this.metadataStore = config.metadataStore
         this.consoleLogStore = config.consoleLogStore
         this.metadataSwitchoverDate = config.metadataSwitchoverDate
+
         this.currentBatch = new SessionBatchRecorder(
             this.offsetManager,
             this.fileStorage,

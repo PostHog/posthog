@@ -1,5 +1,5 @@
-import { IconQueryEditor } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonWithoutSideActionProps } from 'lib/lemon-ui/LemonButton'
+import { IconQueryEditor } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 export interface EditHogQLButtonProps extends LemonButtonWithoutSideActionProps {

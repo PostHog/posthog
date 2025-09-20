@@ -1,6 +1,7 @@
 from collections.abc import Mapping
 from concurrent.futures import Future
 from dataclasses import dataclass
+
 from posthog import settings
 from posthog.clickhouse.cluster import ClickhouseCluster, Query
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
@@ -23,6 +24,14 @@ def CUSTOM_METRICS_VIEW(include_counters: bool = False) -> str:
     if include_counters:
         statement += "UNION ALL SELECT * FROM custom_metrics_counters"
     return statement
+
+
+def CUSTOM_METRICS_INGESTION_LAYER_VIEW():
+    return """
+    CREATE OR REPLACE VIEW custom_metrics
+    AS SELECT * REPLACE (toFloat64(value) as value)
+    FROM custom_metrics_test
+    """
 
 
 def CUSTOM_METRICS_REPLICATION_QUEUE_VIEW():

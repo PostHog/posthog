@@ -1,21 +1,21 @@
+from datetime import datetime
 from typing import Any
+
 import pytest
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
 from posthog.hogql.test.utils import pretty_print_in_tests
-from posthog.hogql.context import HogQLContext
-from posthog.clickhouse.client.execute import sync_execute
-
 from posthog.hogql.transforms.state_aggregations import (
+    combine_queries_with_state_and_merge,
     transform_query_to_state_aggregations,
     wrap_state_query_in_merge_query,
-    combine_queries_with_state_and_merge,
 )
 
-from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
-from datetime import datetime
+from posthog.clickhouse.client.execute import sync_execute
 
 
 class TestStateTransforms(BaseTest):

@@ -1,8 +1,10 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { useState } from 'react'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'

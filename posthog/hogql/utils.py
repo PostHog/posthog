@@ -1,7 +1,7 @@
 from dataclasses import fields
 from typing import Any, Union, get_args, get_origin
 
-from posthog.hogql.ast import AST_CLASSES, AST, Expr, Constant, HogQLXTag, HogQLXAttribute
+from posthog.hogql.ast import AST, AST_CLASSES, Constant, Expr, HogQLXAttribute, HogQLXTag
 
 
 def unwrap_optional(t):

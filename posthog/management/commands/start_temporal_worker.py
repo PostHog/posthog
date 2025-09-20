@@ -1,8 +1,8 @@
+import signal
 import asyncio
 import datetime as dt
-import faulthandler
 import functools
-import signal
+import faulthandler
 
 import structlog
 from temporalio import workflow
@@ -15,28 +15,52 @@ with workflow.unsafe.imports_passed_through():
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import (
     BATCH_EXPORTS_TASK_QUEUE,
+    BILLING_TASK_QUEUE,
     DATA_MODELING_TASK_QUEUE,
     DATA_WAREHOUSE_COMPACTION_TASK_QUEUE,
     DATA_WAREHOUSE_TASK_QUEUE,
     GENERAL_PURPOSE_TASK_QUEUE,
     MAX_AI_TASK_QUEUE,
+    MESSAGING_TASK_QUEUE,
     SYNC_BATCH_EXPORTS_TASK_QUEUE,
+    TASKS_TASK_QUEUE,
     TEST_TASK_QUEUE,
+    VIDEO_EXPORT_TASK_QUEUE,
 )
-from posthog.temporal.ai import ACTIVITIES as AI_ACTIVITIES, WORKFLOWS as AI_WORKFLOWS
-from posthog.temporal.common.logger import configure_logger_async, get_logger
+from posthog.temporal.ai import (
+    ACTIVITIES as AI_ACTIVITIES,
+    WORKFLOWS as AI_WORKFLOWS,
+)
+from posthog.temporal.common.logger import configure_logger, get_logger
 from posthog.temporal.common.worker import create_worker
-from posthog.temporal.data_imports.settings import ACTIVITIES as DATA_SYNC_ACTIVITIES, WORKFLOWS as DATA_SYNC_WORKFLOWS
-from posthog.temporal.data_modeling import ACTIVITIES as DATA_MODELING_ACTIVITIES, WORKFLOWS as DATA_MODELING_WORKFLOWS
+from posthog.temporal.data_imports.settings import (
+    ACTIVITIES as DATA_SYNC_ACTIVITIES,
+    WORKFLOWS as DATA_SYNC_WORKFLOWS,
+)
+from posthog.temporal.data_modeling import (
+    ACTIVITIES as DATA_MODELING_ACTIVITIES,
+    WORKFLOWS as DATA_MODELING_WORKFLOWS,
+)
 from posthog.temporal.delete_persons import (
     ACTIVITIES as DELETE_PERSONS_ACTIVITIES,
     WORKFLOWS as DELETE_PERSONS_WORKFLOWS,
+)
+from posthog.temporal.exports_video import (
+    ACTIVITIES as VIDEO_EXPORT_ACTIVITIES,
+    WORKFLOWS as VIDEO_EXPORT_WORKFLOWS,
+)
+from posthog.temporal.messaging import (
+    ACTIVITIES as MESSAGING_ACTIVITIES,
+    WORKFLOWS as MESSAGING_WORKFLOWS,
 )
 from posthog.temporal.product_analytics import (
     ACTIVITIES as PRODUCT_ANALYTICS_ACTIVITIES,
     WORKFLOWS as PRODUCT_ANALYTICS_WORKFLOWS,
 )
-from posthog.temporal.proxy_service import ACTIVITIES as PROXY_SERVICE_ACTIVITIES, WORKFLOWS as PROXY_SERVICE_WORKFLOWS
+from posthog.temporal.proxy_service import (
+    ACTIVITIES as PROXY_SERVICE_ACTIVITIES,
+    WORKFLOWS as PROXY_SERVICE_WORKFLOWS,
+)
 from posthog.temporal.quota_limiting import (
     ACTIVITIES as QUOTA_LIMITING_ACTIVITIES,
     WORKFLOWS as QUOTA_LIMITING_WORKFLOWS,
@@ -45,16 +69,26 @@ from posthog.temporal.salesforce_enrichment import (
     ACTIVITIES as SALESFORCE_ENRICHMENT_ACTIVITIES,
     WORKFLOWS as SALESFORCE_ENRICHMENT_WORKFLOWS,
 )
-from posthog.temporal.session_recordings import (
-    ACTIVITIES as SESSION_RECORDINGS_ACTIVITIES,
-    WORKFLOWS as SESSION_RECORDINGS_WORKFLOWS,
+from posthog.temporal.subscriptions import (
+    ACTIVITIES as SUBSCRIPTION_ACTIVITIES,
+    WORKFLOWS as SUBSCRIPTION_WORKFLOWS,
 )
-from posthog.temporal.subscriptions import ACTIVITIES as SUBSCRIPTION_ACTIVITIES, WORKFLOWS as SUBSCRIPTION_WORKFLOWS
-from posthog.temporal.tests.utils.workflow import ACTIVITIES as TEST_ACTIVITIES, WORKFLOWS as TEST_WORKFLOWS
-from posthog.temporal.usage_reports import ACTIVITIES as USAGE_REPORTS_ACTIVITIES, WORKFLOWS as USAGE_REPORTS_WORKFLOWS
+from posthog.temporal.tests.utils.workflow import (
+    ACTIVITIES as TEST_ACTIVITIES,
+    WORKFLOWS as TEST_WORKFLOWS,
+)
+from posthog.temporal.usage_reports import (
+    ACTIVITIES as USAGE_REPORTS_ACTIVITIES,
+    WORKFLOWS as USAGE_REPORTS_WORKFLOWS,
+)
+
 from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
+)
+from products.tasks.backend.temporal import (
+    ACTIVITIES as TASKS_ACTIVITIES,
+    WORKFLOWS as TASKS_WORKFLOWS,
 )
 
 # Workflow and activity index
@@ -67,13 +101,16 @@ WORKFLOWS_DICT = {
     GENERAL_PURPOSE_TASK_QUEUE: PROXY_SERVICE_WORKFLOWS
     + DELETE_PERSONS_WORKFLOWS
     + USAGE_REPORTS_WORKFLOWS
-    + SESSION_RECORDINGS_WORKFLOWS
     + QUOTA_LIMITING_WORKFLOWS
     + SALESFORCE_ENRICHMENT_WORKFLOWS
     + PRODUCT_ANALYTICS_WORKFLOWS
     + SUBSCRIPTION_WORKFLOWS,
+    TASKS_TASK_QUEUE: TASKS_WORKFLOWS,
     MAX_AI_TASK_QUEUE: AI_WORKFLOWS,
     TEST_TASK_QUEUE: TEST_WORKFLOWS,
+    BILLING_TASK_QUEUE: QUOTA_LIMITING_WORKFLOWS,
+    VIDEO_EXPORT_TASK_QUEUE: VIDEO_EXPORT_WORKFLOWS,
+    MESSAGING_TASK_QUEUE: MESSAGING_WORKFLOWS,
 }
 ACTIVITIES_DICT = {
     SYNC_BATCH_EXPORTS_TASK_QUEUE: BATCH_EXPORTS_ACTIVITIES,
@@ -84,13 +121,16 @@ ACTIVITIES_DICT = {
     GENERAL_PURPOSE_TASK_QUEUE: PROXY_SERVICE_ACTIVITIES
     + DELETE_PERSONS_ACTIVITIES
     + USAGE_REPORTS_ACTIVITIES
-    + SESSION_RECORDINGS_ACTIVITIES
     + QUOTA_LIMITING_ACTIVITIES
     + SALESFORCE_ENRICHMENT_ACTIVITIES
     + PRODUCT_ANALYTICS_ACTIVITIES
     + SUBSCRIPTION_ACTIVITIES,
+    TASKS_TASK_QUEUE: TASKS_ACTIVITIES,
     MAX_AI_TASK_QUEUE: AI_ACTIVITIES,
     TEST_TASK_QUEUE: TEST_ACTIVITIES,
+    BILLING_TASK_QUEUE: QUOTA_LIMITING_ACTIVITIES,
+    VIDEO_EXPORT_TASK_QUEUE: VIDEO_EXPORT_ACTIVITIES,
+    MESSAGING_TASK_QUEUE: MESSAGING_ACTIVITIES,
 }
 
 TASK_QUEUE_METRIC_PREFIXES = {
@@ -206,9 +246,9 @@ class Command(BaseCommand):
             shutdown_task = loop.create_task(worker.shutdown())
 
         with asyncio.Runner() as runner:
-            if settings.TEMPORAL_USE_EXTERNAL_LOGGER is True:
-                configure_logger_async(loop=runner.get_loop())
+            loop = runner.get_loop()
 
+            configure_logger(loop=loop)
             logger = LOGGER.bind(
                 host=temporal_host,
                 port=temporal_port,
@@ -218,7 +258,6 @@ class Command(BaseCommand):
                 max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
                 max_concurrent_activities=max_concurrent_activities,
             )
-
             logger.info("Starting Temporal Worker")
 
             worker = runner.run(
@@ -233,16 +272,17 @@ class Command(BaseCommand):
                     client_key=client_key,
                     workflows=workflows,  # type: ignore
                     activities=activities,
-                    graceful_shutdown_timeout=dt.timedelta(seconds=graceful_shutdown_timeout_seconds)
-                    if graceful_shutdown_timeout_seconds is not None
-                    else None,
+                    graceful_shutdown_timeout=(
+                        dt.timedelta(seconds=graceful_shutdown_timeout_seconds)
+                        if graceful_shutdown_timeout_seconds is not None
+                        else None
+                    ),
                     max_concurrent_workflow_tasks=max_concurrent_workflow_tasks,
                     max_concurrent_activities=max_concurrent_activities,
                     metric_prefix=TASK_QUEUE_METRIC_PREFIXES.get(task_queue, None),
                 )
             )
 
-            loop = runner.get_loop()
             for sig in (signal.SIGTERM, signal.SIGINT):
                 loop.add_signal_handler(
                     sig,

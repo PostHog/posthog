@@ -1,7 +1,8 @@
 import logging
 
-import structlog
 from django.core.management.base import BaseCommand
+
+import structlog
 
 from posthog.kafka_client.client import KafkaProducer
 from posthog.models.person.deletion import reset_all_deleted_person_distinct_ids, reset_deleted_person_distinct_ids

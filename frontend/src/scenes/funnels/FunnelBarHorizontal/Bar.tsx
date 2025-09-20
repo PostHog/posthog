@@ -1,5 +1,7 @@
-import { LemonDropdown } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { LemonDropdown } from '@posthog/lemon-ui'
+
 import { capitalizeFirstLetter, percentage } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -7,8 +9,8 @@ import { Noun } from '~/models/groupsModel'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 import { FunnelStepWithConversionMetrics } from '~/types'
 
-import { funnelDataLogic } from '../funnelDataLogic'
 import { FunnelTooltip } from '../FunnelTooltip'
+import { funnelDataLogic } from '../funnelDataLogic'
 import { getSeriesPositionName } from '../funnelUtils'
 
 interface BarProps {

@@ -1,11 +1,15 @@
-from freezegun import freeze_time
-from posthog.models import Survey, Organization, Team, User, FeatureFlag
-from django.test import TestCase
+from datetime import datetime, timedelta
 from typing import Optional
-from dateutil.relativedelta import relativedelta
-from datetime import timedelta, datetime
+
+from freezegun import freeze_time
+from posthog.test.base import ClickhouseTestMixin, _create_event, flush_persons_and_events, snapshot_clickhouse_queries
+
+from django.test import TestCase
 from django.utils.timezone import now
-from posthog.test.base import _create_event, flush_persons_and_events, ClickhouseTestMixin, snapshot_clickhouse_queries
+
+from dateutil.relativedelta import relativedelta
+
+from posthog.models import FeatureFlag, Organization, Survey, Team, User
 from posthog.tasks.stop_surveys_reached_target import stop_surveys_reached_target
 
 

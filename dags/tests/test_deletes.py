@@ -3,19 +3,20 @@ from functools import partial
 from uuid import UUID
 
 import pytest
-from clickhouse_driver import Client
 
-from dags.deletes import (
-    AdhocEventDeletesDictionary,
-    AdhocEventDeletesTable,
-    deletes_job,
-    PendingDeletesTable,
-    PendingDeletesDictionary,
-)
+from clickhouse_driver import Client
 
 from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
+
+from dags.deletes import (
+    AdhocEventDeletesDictionary,
+    AdhocEventDeletesTable,
+    PendingDeletesDictionary,
+    PendingDeletesTable,
+    deletes_job,
+)
 
 
 @pytest.mark.django_db

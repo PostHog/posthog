@@ -1,9 +1,10 @@
-from unittest.mock import patch, MagicMock
+from posthog.test.base import BaseTest
+from unittest.mock import MagicMock, patch
+
 from django.core.management.base import CommandError
 
 from posthog.management.commands.background_delete_model import Command
 from posthog.models.person.person import Person
-from posthog.test.base import BaseTest
 
 
 class TestBackgroundDeleteModel(BaseTest):

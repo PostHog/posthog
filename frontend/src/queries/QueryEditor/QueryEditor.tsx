@@ -1,10 +1,11 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
-import { useState } from 'react'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { urls } from 'scenes/urls'
 
 import { queryEditorLogic } from '~/queries/QueryEditor/queryEditorLogic'
@@ -39,7 +40,7 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
             <div
                 data-attr="query-editor"
                 className={clsx(
-                    'flex flex-col p-2 bg-primary deprecated-space-y-2 resize-y overflow-auto h-80 rounded',
+                    'flex flex-col p-2 bg-primary deprecated-space-y-2 resize-y overflow-auto min-h-80 rounded',
                     props.className
                 )}
             >

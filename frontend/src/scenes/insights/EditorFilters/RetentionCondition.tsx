@@ -1,8 +1,10 @@
+import { useActions, useValues } from 'kea'
+import { toast } from 'react-toastify'
+
 import { IconInfo } from '@posthog/icons'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { toast } from 'react-toastify'
 import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {

@@ -1,25 +1,32 @@
-from datetime import timedelta
 import json
 import uuid
-from oauth2_provider.views import TokenView, RevokeTokenView, IntrospectTokenView
-from posthog.models import OAuthApplication, OAuthAccessToken, User, Team
-from oauth2_provider.settings import oauth2_settings
-from oauth2_provider.http import OAuth2ResponseRedirect
-from oauth2_provider.exceptions import OAuthToolkitError
-from django.utils import timezone
-
-from rest_framework import serializers, status
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from oauth2_provider.views.mixins import OAuthLibMixin
-from oauth2_provider.views import ConnectDiscoveryInfoView, JwksInfoView, UserInfoView
-from oauth2_provider.oauth2_validators import OAuth2Validator
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.authentication import SessionAuthentication
-import structlog
-from django.utils.decorators import method_decorator
+from datetime import timedelta
 from typing import TypedDict, cast
 
+from django.utils import timezone
+from django.utils.decorators import method_decorator
+
+import structlog
+from oauth2_provider.exceptions import OAuthToolkitError
+from oauth2_provider.http import OAuth2ResponseRedirect
+from oauth2_provider.oauth2_validators import OAuth2Validator
+from oauth2_provider.settings import oauth2_settings
+from oauth2_provider.views import (
+    ConnectDiscoveryInfoView,
+    IntrospectTokenView,
+    JwksInfoView,
+    RevokeTokenView,
+    TokenView,
+    UserInfoView,
+)
+from oauth2_provider.views.mixins import OAuthLibMixin
+from rest_framework import serializers, status
+from rest_framework.authentication import SessionAuthentication
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from posthog.models import OAuthAccessToken, OAuthApplication, Team, User
 from posthog.models.oauth import OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template

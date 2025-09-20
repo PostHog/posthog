@@ -1,6 +1,7 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import pLimit from 'p-limit'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import { NoRowsUpdatedError } from '~/utils/utils'
 
@@ -32,7 +33,7 @@ import {
     personWriteMethodAttemptCounter,
     totalPersonUpdateLatencyPerBatchHistogram,
 } from './metrics'
-import { fromInternalPerson, PersonUpdate, toInternalPerson } from './person-update-batch'
+import { PersonUpdate, fromInternalPerson, toInternalPerson } from './person-update-batch'
 import { PersonsStore } from './persons-store'
 import { FlushResult, PersonsStoreForBatch } from './persons-store-for-batch'
 import { PersonsStoreTransaction } from './persons-store-transaction'
@@ -51,6 +52,7 @@ type MethodName =
     | 'deletePerson'
     | 'addDistinctId'
     | 'moveDistinctIds'
+    | 'fetchPersonDistinctIds'
     | 'updateCohortsAndFeatureFlagsForMerge'
     | 'addPersonlessDistinctId'
     | 'addPersonlessDistinctIdForMerge'
@@ -496,12 +498,13 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
         source: InternalPerson,
         target: InternalPerson,
         distinctId: string,
-        tx?: PersonRepositoryTransaction
+        limit: number | undefined,
+        tx: PersonRepositoryTransaction
     ): Promise<MoveDistinctIdsResult> {
         this.incrementCount('moveDistinctIds', distinctId)
         this.incrementDatabaseOperation('moveDistinctIds', distinctId)
         const start = performance.now()
-        const response = await (tx || this.personRepository).moveDistinctIds(source, target)
+        const response = await tx.moveDistinctIds(source, target, limit)
         observeLatencyByVersion(target, start, 'moveDistinctIds')
 
         // Clear the cache for the source person id to ensure deleted person isn't cached
@@ -524,6 +527,21 @@ export class BatchWritingPersonsStoreForBatch implements PersonsStoreForBatch, B
                 this.setDistinctIdToPersonId(target.team_id, distinctId, target.id)
             }
         }
+
+        return response
+    }
+
+    async fetchPersonDistinctIds(
+        person: InternalPerson,
+        distinctId: string,
+        limit: number | undefined,
+        tx: PersonRepositoryTransaction
+    ): Promise<string[]> {
+        this.incrementCount('fetchPersonDistinctIds', distinctId)
+        this.incrementDatabaseOperation('fetchPersonDistinctIds', distinctId)
+        const start = performance.now()
+        const response = await tx.fetchPersonDistinctIds(person, limit)
+        observeLatencyByVersion(person, start, 'fetchPersonDistinctIds')
 
         return response
     }

@@ -1,9 +1,11 @@
-import { IconX } from '@posthog/icons'
-import { LemonButton, LemonDivider, TooltipProps } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'posthog-js'
 import React, { Fragment, useState } from 'react'
+
+import { IconX } from '@posthog/icons'
+import { LemonButton, LemonDivider, TooltipProps } from '@posthog/lemon-ui'
+
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Scene } from 'scenes/sceneTypes'
 
 type SidebarChangeNoticeProps = {

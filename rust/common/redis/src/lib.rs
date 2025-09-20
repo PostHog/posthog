@@ -398,7 +398,7 @@ impl Client for MockRedisClient {
         let mut calls = self.lock_calls();
         calls.push(MockRedisCall {
             op: "hincrby".to_string(),
-            key: format!("{}:{}", key, field),
+            key: format!("{key}:{field}"),
             value: match count {
                 None => MockRedisValue::None,
                 Some(v) => MockRedisValue::I32(v),
@@ -532,7 +532,7 @@ impl Client for MockRedisClient {
         let mut calls = self.lock_calls();
         calls.push(MockRedisCall {
             op: "hget".to_string(),
-            key: format!("{}:{}", key, field),
+            key: format!("{key}:{field}"),
             value: MockRedisValue::None,
         });
 

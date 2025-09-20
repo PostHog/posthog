@@ -1,6 +1,7 @@
+from django.conf import settings
+
 from posthog.settings import get_from_env, get_list
 from posthog.utils import str_to_bool
-from django.conf import settings
 
 # TRICKY: we saw unusual memory usage behavior in EU clickhouse cluster
 # when allowing use of denormalized properties in some session replay event queries

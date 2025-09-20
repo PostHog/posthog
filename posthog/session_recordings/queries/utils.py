@@ -1,25 +1,25 @@
 import re
 from typing import NamedTuple
 
+import structlog
+
+from posthog.schema import (
+    ActionsNode,
+    CohortPropertyFilter,
+    EventPropertyFilter,
+    EventsNode,
+    GroupPropertyFilter,
+    HogQLPropertyFilter,
+    PersonPropertyFilter,
+    PersonsOnEventsMode,
+    PropertyOperator,
+    QueryTiming,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.property import action_to_expr
-from posthog.models import Team, Action
-from posthog.schema import (
-    QueryTiming,
-    PersonsOnEventsMode,
-    EventsNode,
-    ActionsNode,
-    PersonPropertyFilter,
-    EventPropertyFilter,
-    GroupPropertyFilter,
-    HogQLPropertyFilter,
-    PropertyOperator,
-    CohortPropertyFilter,
-)
 
-import structlog
-
+from posthog.models import Action, Team
 from posthog.types import AnyPropertyFilter
 
 logger = structlog.get_logger(__name__)

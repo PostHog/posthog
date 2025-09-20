@@ -1,9 +1,11 @@
-import { LemonButton, LemonCollapse, LemonModal, LemonSelect, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonButton, LemonCollapse, LemonModal, LemonSelect, Spinner } from '@posthog/lemon-ui'
+
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { pluralize } from 'lib/utils'
 
-import { environmentRollbackModalLogic, type ProjectWithEnvironments } from './environmentRollbackModalLogic'
+import { type ProjectWithEnvironments, environmentRollbackModalLogic } from './environmentRollbackModalLogic'
 
 function ModalDescription(): JSX.Element {
     return (

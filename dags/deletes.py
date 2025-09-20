@@ -1,35 +1,37 @@
 import abc
-import pydantic
 import time
-from clickhouse_driver.client import Client
-from datetime import datetime
-from dataclasses import dataclass
-import dagster
-from django.conf import settings
-from functools import partial
 import uuid
-from django.utils import timezone
+from dataclasses import dataclass
+from datetime import datetime
+from functools import partial
+
+from django.conf import settings
 from django.db.models import Q
+from django.utils import timezone
+
+import dagster
+import pydantic
+from clickhouse_driver.client import Client
 from more_itertools import chunked
 
 from posthog.clickhouse.adhoc_events_deletion import ADHOC_EVENTS_DELETION_TABLE
 from posthog.clickhouse.cluster import (
     ClickhouseCluster,
-    MutationWaiter,
     LightweightDeleteMutationRunner,
+    MutationWaiter,
     NodeRole,
     Query,
 )
 from posthog.clickhouse.plugin_log_entries import PLUGIN_LOG_ENTRIES_TABLE
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.group.sql import GROUPS_TABLE
 from posthog.models.person.sql import (
     PERSON_DISTINCT_ID2_TABLE,
     PERSON_DISTINCT_ID_OVERRIDES_TABLE,
     PERSON_STATIC_COHORT_TABLE,
     PERSONS_TABLE,
 )
-from posthog.models.group.sql import GROUPS_TABLE
 
 from dags.common import JobOwners
 from dags.person_overrides import squash_person_overrides

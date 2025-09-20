@@ -1,5 +1,6 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
-from datetime import datetime, timedelta, UTC
 from freezegun import freeze_time
 
 from posthog.caching.utils import is_stale

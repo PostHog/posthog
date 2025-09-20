@@ -1,6 +1,8 @@
 import json
 from typing import Any, Optional
 
+from posthog.schema import PersonsOnEventsMode
+
 from posthog.constants import PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
@@ -11,12 +13,7 @@ from posthog.models.property import Property
 from posthog.models.team import Team
 from posthog.queries.actor_base_query import ActorBaseQuery
 from posthog.queries.trends.trends_event_query import TrendsEventQuery
-from posthog.queries.trends.util import (
-    PROPERTY_MATH_FUNCTIONS,
-    is_series_group_based,
-    process_math,
-)
-from posthog.schema import PersonsOnEventsMode
+from posthog.queries.trends.util import PROPERTY_MATH_FUNCTIONS, is_series_group_based, process_math
 
 
 class TrendsActors(ActorBaseQuery):

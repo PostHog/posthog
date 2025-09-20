@@ -1,5 +1,6 @@
 import { actions, afterMount, connect, kea, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 import { isObject } from 'lib/utils'
 import { variantKeyToIndexFeatureFlagPayloads } from 'scenes/feature-flags/featureFlagLogic'

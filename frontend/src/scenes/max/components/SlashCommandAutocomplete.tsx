@@ -1,7 +1,9 @@
 import { offset } from '@floating-ui/react'
-import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
-import { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
+import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+
 import { maxThreadLogic } from '../maxThreadLogic'
 import { MAX_SLASH_COMMANDS, SlashCommand } from '../slash-commands'
 

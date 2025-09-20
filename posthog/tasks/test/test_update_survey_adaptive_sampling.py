@@ -1,11 +1,14 @@
 import json
-from unittest.mock import patch, MagicMock
 from datetime import datetime
-from django.utils import timezone
+
 from freezegun import freeze_time
-from posthog.models import Survey, FeatureFlag
-from posthog.tasks.update_survey_adaptive_sampling import update_survey_adaptive_sampling
 from posthog.test.base import BaseTest
+from unittest.mock import MagicMock, patch
+
+from django.utils import timezone
+
+from posthog.models import FeatureFlag, Survey
+from posthog.tasks.update_survey_adaptive_sampling import update_survey_adaptive_sampling
 
 
 class TestUpdateSurveyAdaptiveSampling(BaseTest):

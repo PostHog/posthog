@@ -1,11 +1,15 @@
-import { IconPencil } from '@posthog/icons'
-import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import Fuse from 'fuse.js'
+import { MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import { List } from 'react-virtualized/dist/es/List'
+
+import { IconPencil } from '@posthog/icons'
+import { LemonCheckbox, Tooltip } from '@posthog/lemon-ui'
+
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { range } from 'lib/utils'
-import { MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
@@ -14,8 +18,6 @@ import { LemonDropdown } from '../LemonDropdown'
 import { LemonInput, LemonInputProps } from '../LemonInput'
 import { PopoverReferenceContext } from '../Popover'
 import { TooltipTitle } from '../Tooltip/Tooltip'
-import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { List } from 'react-virtualized/dist/es/List'
 
 const NON_ESCAPED_COMMA_REGEX = /(?<!\\),/
 
@@ -65,6 +67,8 @@ export type LemonInputSelectProps<T = string> = Pick<
     transparentBackground?: boolean
     displayMode?: 'snacks' | 'count'
     bulkActions?: 'clear-all' | 'select-and-clear-all'
+    /** Disable comma splitting for properties that contain commas in their values (e.g., user agent strings) */
+    disableCommaSplitting?: boolean
     action?: LemonInputSelectAction
     virtualized?: boolean
 }
@@ -96,6 +100,7 @@ export function LemonInputSelect<T = string>({
     fullWidth = false,
     displayMode = 'snacks',
     bulkActions,
+    disableCommaSplitting = false,
     action,
     virtualized = false,
 }: LemonInputSelectProps<T>): JSX.Element {
@@ -177,7 +182,7 @@ export function LemonInputSelect<T = string>({
         })
     )
 
-    const separateOnComma = allowCustomValues && mode === 'multiple'
+    const separateOnComma = allowCustomValues && mode === 'multiple' && !disableCommaSplitting
 
     // We stringify the objects to prevent wasteful recalculations (esp. Fuse). Note: labelComponent is not serializable
     const optionsKey = JSON.stringify(options, (key, value) => (key === 'labelComponent' ? value?.name : value))

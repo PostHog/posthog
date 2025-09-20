@@ -1,17 +1,19 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
+import { editor } from 'monaco-editor'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { tryJsonParse } from 'lib/utils'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { editor } from 'monaco-editor'
 
 import { groupsModel } from '~/models/groupsModel'
 import { CyclotronJobInvocationGlobals, CyclotronJobTestInvocationResult } from '~/types'
 
 import {
-    hogFunctionConfigurationLogic,
     HogFunctionConfigurationLogicProps,
+    hogFunctionConfigurationLogic,
     sanitizeConfiguration,
 } from './hogFunctionConfigurationLogic'
 import type { hogFunctionTestLogicType } from './hogFunctionTestLogicType'
@@ -101,7 +103,11 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
         receiveExampleGlobals: (globals: CyclotronJobInvocationGlobals | null) => ({ globals }),
         setJsonError: (error: string | null) => ({ error }),
         validateJson: (value: string, editor: editor.IStandaloneCodeEditor, decorations: string[]) =>
-            ({ value, editor, decorations }) as CodeEditorValidation,
+            ({
+                value,
+                editor,
+                decorations,
+            }) as CodeEditorValidation,
         setDecorationIds: (decorationIds: string[]) => ({ decorationIds }),
         cancelSampleGlobalsLoading: true,
     }),
@@ -289,7 +295,7 @@ export const hogFunctionTestLogic = kea<hogFunctionTestLogicType>([
                 if (values.configurationHasErrors) {
                     // Get the configuration logic instance
                     const configLogic = hogFunctionConfigurationLogic(props)
-                    const inputErrors = configLogic.values.inputFormErrors?.inputs || {}
+                    const inputErrors = configLogic.values.inputFormErrors || {}
 
                     // Create a simple list of errors
                     const errorMessages = Object.entries(inputErrors).map(([key, error]) => {

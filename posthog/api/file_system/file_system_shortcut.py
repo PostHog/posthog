@@ -1,6 +1,8 @@
 from typing import Any
-from django.db.models import QuerySet, Q
+
+from django.db.models import Q, QuerySet
 from django.db.models.functions import Lower
+
 from rest_framework import serializers, viewsets
 
 from posthog.api.routing import TeamAndOrgViewSetMixin

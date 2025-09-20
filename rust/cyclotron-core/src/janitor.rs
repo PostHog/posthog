@@ -51,7 +51,7 @@ impl Janitor {
             dead_letter(
                 &self.pool,
                 *job,
-                &format!("poison pill detected based on a timeout of {}", timeout),
+                &format!("poison pill detected based on a timeout of {timeout}"),
             )
             .await?;
         }

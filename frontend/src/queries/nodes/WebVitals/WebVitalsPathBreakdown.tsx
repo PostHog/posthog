@@ -1,8 +1,10 @@
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
+import { useMemo, useState } from 'react'
+
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { useMemo, useState } from 'react'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import {
@@ -16,11 +18,11 @@ import { PropertyFilterType } from '~/types'
 
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import {
-    computePositionInBand,
-    getValueWithUnit,
     ICON_PER_BAND,
     WEB_VITALS_COLORS,
     WEB_VITALS_THRESHOLDS,
+    computePositionInBand,
+    getValueWithUnit,
 } from './definitions'
 
 let uniqueNode = 0
@@ -28,6 +30,7 @@ export function WebVitalsPathBreakdown(props: {
     query: WebVitalsPathBreakdownQuery
     cachedResults?: AnyResponseType
     context: QueryContext
+    attachTo?: LogicWrapper | BuiltLogic
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `WebVitalsPathBreakdown.${uniqueNode++}`)
@@ -40,6 +43,8 @@ export function WebVitalsPathBreakdown(props: {
         onData,
         dataNodeCollectionId: dataNodeCollectionId ?? key,
     })
+
+    useAttachedLogic(logic, props.attachTo)
 
     const { response, responseLoading } = useValues(logic)
 

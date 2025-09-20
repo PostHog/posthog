@@ -1,22 +1,23 @@
 import { connect, kea, path, selectors } from 'kea'
 
+import { isNotNil } from 'lib/utils'
+import { MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS, TileId, loadPriorityMap } from 'scenes/web-analytics/common'
+import { getDashboardItemId } from 'scenes/web-analytics/insightsUtils'
+
 import {
-    ConversionGoalFilter,
-    NodeKind,
-    DataTableNode,
-    MarketingAnalyticsTableQuery,
-    MarketingAnalyticsHelperForColumnNames,
     CompareFilter,
+    ConversionGoalFilter,
+    DataTableNode,
+    MarketingAnalyticsHelperForColumnNames,
+    MarketingAnalyticsTableQuery,
+    NodeKind,
 } from '~/queries/schema/schema-general'
 import { BaseMathType, InsightLogicProps, IntervalType } from '~/types'
 
-import { isDraftConversionGoalColumn, getSortedColumnsByArray, orderArrayByPreference, getOrderBy } from './utils'
-import { isNotNil } from 'lib/utils'
 import { marketingAnalyticsLogic } from './marketingAnalyticsLogic'
-import type { marketingAnalyticsTilesLogicType } from './marketingAnalyticsTilesLogicType'
 import { marketingAnalyticsTableLogic } from './marketingAnalyticsTableLogic'
-import { getDashboardItemId } from 'scenes/web-analytics/insightsUtils'
-import { loadPriorityMap, MARKETING_ANALYTICS_DEFAULT_QUERY_TAGS, TileId } from 'scenes/web-analytics/common'
+import type { marketingAnalyticsTilesLogicType } from './marketingAnalyticsTilesLogicType'
+import { getOrderBy, getSortedColumnsByArray, isDraftConversionGoalColumn, orderArrayByPreference } from './utils'
 
 export const MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID = 'marketing-analytics'
 

@@ -1,7 +1,8 @@
 from unittest.mock import patch
 
-import kafka
 from django.test import TestCase, override_settings
+
+import kafka
 
 from posthog.kafka_client.client import _KafkaProducer, build_kafka_consumer
 

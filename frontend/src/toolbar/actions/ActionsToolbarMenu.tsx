@@ -1,11 +1,13 @@
-import { IconPlus } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconPlus } from '@posthog/icons'
+
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { ActionsEditingToolbarMenu } from '~/toolbar/actions/ActionsEditingToolbarMenu'

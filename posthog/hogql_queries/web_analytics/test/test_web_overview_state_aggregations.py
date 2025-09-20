@@ -1,24 +1,21 @@
 import math
-from freezegun import freeze_time
+from datetime import datetime
 
-from posthog.clickhouse.client.execute import sync_execute
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+
+from posthog.schema import CompareFilter, DateRange, WebOverviewQuery
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.printer import print_ast
-from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
-
-from posthog.schema import WebOverviewQuery, DateRange, CompareFilter
-from posthog.test.base import (
-    APIBaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-)
 from posthog.hogql.transforms.state_aggregations import (
     transform_query_to_state_aggregations,
     wrap_state_query_in_merge_query,
 )
+
+from posthog.clickhouse.client.execute import sync_execute
+from posthog.hogql_queries.web_analytics.web_overview import WebOverviewQueryRunner
 from posthog.models.utils import uuid7
-from datetime import datetime
 
 
 class TestWebOverviewStateTransform(ClickhouseTestMixin, APIBaseTest):

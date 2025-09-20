@@ -1,19 +1,14 @@
 from typing import Any, Optional
-from django.core.management.base import BaseCommand
+
 from django.conf import settings
+from django.core.management.base import BaseCommand
 
 import dlt
 import dlt.common
 import dlt.common.configuration.resolve
-
-from dlt.common.configuration.specs.base_configuration import (
-    is_secret_hint,
-)
+from dlt.common.configuration.exceptions import LookupTrace, ValueNotSecretException
 from dlt.common.configuration.providers.provider import ConfigProvider
-from dlt.common.configuration.exceptions import (
-    LookupTrace,
-    ValueNotSecretException,
-)
+from dlt.common.configuration.specs.base_configuration import is_secret_hint
 
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 

@@ -84,5 +84,7 @@
     "type": "product",
     "exposure_criteria": {},
     "metrics": [],
-    "metrics_secondary": []
+    "metrics_secondary": [],
+    "primary_metrics_ordered_uuids": [],
+    "secondary_metrics_ordered_uuids": []
 }

@@ -3,6 +3,8 @@
  * To make this easier this class is designed to abstract the queue as much as possible from
  * the underlying implementation.
  */
+import { chunk } from 'lodash'
+import { DateTime } from 'luxon'
 
 import {
     CyclotronJob,
@@ -11,12 +13,10 @@ import {
     CyclotronManager,
     CyclotronWorker,
 } from '@posthog/cyclotron'
-import { chunk } from 'lodash'
-import { DateTime } from 'luxon'
 
 import { CyclotronInvocationQueueParametersType } from '~/schema/cyclotron'
 
-import { PluginsServerConfig } from '../../../types'
+import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginsServerConfig } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { captureException } from '../../../utils/posthog'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
@@ -82,8 +82,20 @@ export class CyclotronJobQueuePostgres {
         return Promise.resolve()
     }
 
-    public isHealthy() {
-        return this.getCyclotronWorker().isHealthy()
+    public isHealthy(): HealthCheckResult {
+        try {
+            const worker = this.getCyclotronWorker()
+            const isHealthy = worker.isHealthy()
+            if (isHealthy) {
+                return new HealthCheckResultOk()
+            } else {
+                return new HealthCheckResultError('Cyclotron worker is not healthy', {})
+            }
+        } catch (error) {
+            return new HealthCheckResultError('Cyclotron worker not initialized', {
+                error: error instanceof Error ? error.message : String(error),
+            })
+        }
     }
 
     public async queueInvocations(invocations: CyclotronJobInvocation[]) {

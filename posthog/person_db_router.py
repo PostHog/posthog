@@ -9,13 +9,15 @@ class PersonDBRouter:
     PERSONS_DB_MODELS = {
         "person",
         "persondistinctid",
-        "personlessdistinctid",  # Assuming app_label 'posthog'
-        "personoverridemapping",  # Assuming app_label 'posthog'
-        "personoverride",  # Assuming app_label 'posthog'
-        "pendingpersonoverride",  # Assuming app_label 'posthog'
-        "flatpersonoverride",  # Assuming app_label 'posthog'
-        "featureflaghashkeyoverride",  # Assuming app_label 'posthog'
-        "cohortpeople",  # Assuming app_label 'posthog'
+        "personlessdistinctid",
+        "personoverridemapping",
+        "personoverride",
+        "pendingpersonoverride",
+        "flatpersonoverride",
+        "featureflaghashkeyoverride",
+        "cohortpeople",
+        "group",
+        "grouptypemapping",
     }
     PERSONS_APP_LABEL = "posthog"  # Assuming all models are in the 'posthog' app
 
@@ -44,11 +46,11 @@ class PersonDBRouter:
         by default, as Django doesn't support cross-database relations natively.
         You might need to adjust this based on specific foreign keys (e.g., Person -> Team).
         """
-        obj1_in_persons_db = (
-            obj1._meta.app_label == self.PERSONS_APP_LABEL and obj1._meta.model_name in self.PERSONS_DB_MODELS
+        obj1_in_persons_db = obj1._meta.app_label == self.PERSONS_APP_LABEL and self.is_persons_model(
+            obj1._meta.model_name
         )
-        obj2_in_persons_db = (
-            obj2._meta.app_label == self.PERSONS_APP_LABEL and obj2._meta.model_name in self.PERSONS_DB_MODELS
+        obj2_in_persons_db = obj2._meta.app_label == self.PERSONS_APP_LABEL and self.is_persons_model(
+            obj2._meta.model_name
         )
 
         if obj1_in_persons_db and obj2_in_persons_db:

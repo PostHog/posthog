@@ -1,6 +1,7 @@
 import { actions, connect, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
 import api from 'lib/api'
 import { DashboardRestrictionLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -37,6 +38,7 @@ const defaultFormValues: NewDashboardForm = {
 
 export interface NewDashboardLogicProps {
     featureFlagId?: number
+    initialTags?: string[]
 }
 
 // Currently this is a very generic recursive function incase we want to add template variables to aspects beyond events
@@ -61,8 +63,6 @@ export function applyTemplate(
                         mathAvailability = MathAvailability.ActorsOnly
                     } else if (queryKind === NodeKind.FunnelsQuery) {
                         mathAvailability = MathAvailability.FunnelsOnly
-                    } else if (queryKind === NodeKind.CalendarHeatmapQuery) {
-                        mathAvailability = MathAvailability.CalendarHeatmapOnly
                     }
                     return (
                         queryKind === NodeKind.RetentionQuery
@@ -167,7 +167,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             },
         ],
     }),
-    forms(({ actions }) => ({
+    forms(({ actions, props }) => ({
         newDashboard: {
             defaults: defaultFormValues,
             errors: ({ name, restrictionLevel }) => ({
@@ -187,6 +187,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                             description: description,
                             use_template: useTemplate,
                             restriction_level: restrictionLevel,
+                            ...(props.initialTags && { tags: props.initialTags }),
                             ...(typeof _create_in_folder === 'string' ? { _create_in_folder } : {}),
                         } as Partial<DashboardType>
                     )

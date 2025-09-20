@@ -1,10 +1,10 @@
 import openai
-from rest_framework import viewsets, response, request
+from rest_framework import request, response, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
-from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from posthog.api.csp import CSP_REPORT_TYPES_MAPPING_TABLE
+from posthog.api.routing import TeamAndOrgViewSetMixin
 
 prompt = r"""
 You are a security consultant that explains CSP violation reports.

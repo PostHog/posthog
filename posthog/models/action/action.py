@@ -1,19 +1,19 @@
 from dataclasses import asdict, dataclass
-from typing import Literal, Optional, Union, get_args, TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, Optional, Union, get_args
 
 from django.db import models
+from django.db.models import QuerySet
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
 from django.utils import timezone
 
 from posthog.hogql.errors import BaseHogQLError
+
 from posthog.models.file_system.file_system_mixin import FileSystemSyncMixin
+from posthog.models.file_system.file_system_representation import FileSystemRepresentation
 from posthog.models.signals import mutable_receiver
 from posthog.models.utils import RootTeamMixin
 from posthog.plugins.plugin_server_api import drop_action_on_workers, reload_action_on_workers
-from posthog.models.file_system.file_system_representation import FileSystemRepresentation
-
-from django.db.models import QuerySet
 
 if TYPE_CHECKING:
     from posthog.models.team import Team

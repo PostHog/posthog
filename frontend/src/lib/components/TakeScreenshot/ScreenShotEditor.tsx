@@ -1,18 +1,20 @@
+import { useActions, useValues } from 'kea'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
+
 import { IconPencil, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonColorPicker, LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { getSeriesColorPalette } from 'lib/colors'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { downloadFile } from 'lib/utils'
-import React, { useCallback, useEffect, useRef, useState } from 'react'
 
 import { FilmCameraHog } from '../hedgehogs'
 import {
     type DrawingItem,
     type HistoryItem,
     type Point,
-    takeScreenshotLogic,
     type TextItem,
+    takeScreenshotLogic,
 } from './takeScreenshotLogic'
 
 export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): JSX.Element {
@@ -28,7 +30,6 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
         dragStartOffset,
         textInputPosition,
         isLoading,
-        html,
         lineWidth,
         fontSize,
     } = useValues(takeScreenshotLogic({ screenshotKey: screenshotKey }))
@@ -42,7 +43,6 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
         setSelectedTextIndex,
         setDragStartOffset,
         setTextInputPosition,
-        setHtml,
         setImageFile,
         setLineWidth,
         setFontSize,
@@ -66,7 +66,6 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
         setSelectedTextIndex(null)
         setDragStartOffset(null)
         setMode('draw')
-        setHtml(null)
         setImageFile(null)
     }, [
         setIsOpen,
@@ -76,7 +75,6 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
         setSelectedTextIndex,
         setDragStartOffset,
         setMode,
-        setHtml,
         setImageFile,
     ])
 
@@ -180,9 +178,8 @@ export function ScreenShotEditor({ screenshotKey }: { screenshotKey: string }): 
             setTexts([])
             setHistoryStack([])
             setSelectedTextIndex(null)
-            setHtml(null)
         }
-    }, [isOpen, imageFile, originalImage, handleClose, html, setOriginalImage, setSelectedTextIndex, setHtml])
+    }, [isOpen, imageFile, originalImage, handleClose, setOriginalImage, setSelectedTextIndex])
 
     useEffect(() => {
         if (isOpen && originalImage) {

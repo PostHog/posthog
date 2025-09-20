@@ -1,4 +1,5 @@
 import clsx from 'clsx'
+
 import { getDisplayNameFromEntityFilter, isAllEventsEntityFilter } from 'scenes/insights/utils'
 
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
@@ -12,6 +13,7 @@ interface EntityFilterInfoProps {
     showSingleName?: boolean
     style?: React.CSSProperties
     filterGroupType?: TaxonomicFilterGroupType
+    isOptional?: boolean
 }
 
 export function EntityFilterInfo({
@@ -20,6 +22,7 @@ export function EntityFilterInfo({
     showSingleName = false,
     style,
     filterGroupType,
+    isOptional = false,
 }: EntityFilterInfoProps): JSX.Element {
     if (isAllEventsEntityFilter(filter) && !filter?.custom_name) {
         return (
@@ -28,6 +31,7 @@ export function EntityFilterInfo({
                 title="All events"
             >
                 All events
+                {isOptional && <span className="ml-1 text-xs font-normal text-secondary normal-case">(optional)</span>}
             </span>
         )
     }
@@ -47,6 +51,7 @@ export function EntityFilterInfo({
                 >
                     {titleToDisplay}
                 </span>
+                {isOptional && <span className="ml-1 text-xs font-normal text-secondary normal-case">(optional)</span>}
             </span>
         )
     }
@@ -63,6 +68,7 @@ export function EntityFilterInfo({
             >
                 {customTitle}
             </span>
+            {isOptional && <span className="ml-1 text-xs font-normal text-secondary normal-case">(optional)</span>}
             {!showSingleName && (
                 <span
                     className={clsx(

@@ -1,5 +1,6 @@
-import requests
 import itertools
+
+import requests
 
 
 def get_prefixes_from_url(url):

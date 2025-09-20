@@ -1,5 +1,4 @@
 // Metrics that make sense across all Kafka consumers
-
 import { Counter, Gauge, Summary } from 'prom-client'
 
 export const kafkaRebalancePartitionCount = new Gauge({

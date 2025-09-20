@@ -1,28 +1,29 @@
-import { LemonSegmentedButtonOption, Tooltip } from '@posthog/lemon-ui'
+import { useMountedLogic, useValues } from 'kea'
 
-import { IconGraph, IconInfo, IconLineGraph } from '@posthog/icons'
+import { IconInfo } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
+import {
+    InsightEmptyState,
+    InsightErrorState,
+    InsightLoadingState,
+    InsightTimeoutState,
+    InsightValidationError,
+} from 'scenes/insights/EmptyStates'
 import { InsightsWrapper } from 'scenes/insights/InsightsWrapper'
-import { QueryContext } from '~/queries/types'
-import { AnalyticsQueryResponseBase } from '~/queries/schema/schema-general'
-import { IconAreaChart } from 'lib/lemon-ui/icons'
-import { DisplayMode, revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
 import { LineGraph, LineGraphProps } from 'scenes/insights/views/LineGraph/LineGraph'
-import { useValues } from 'kea'
+
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { extractValidationError, isTimeoutError } from '~/queries/nodes/InsightViz/utils'
+import { AnyResponseType, GoalLine, RevenueAnalyticsGoal } from '~/queries/schema/schema-general'
+import { QueryContext } from '~/queries/types'
 import { GraphDataset, GraphType } from '~/types'
 
-// Simple mapping for the display mode options and their icons
-export const DISPLAY_MODE_OPTIONS: LemonSegmentedButtonOption<DisplayMode>[] = [
-    { value: 'line', icon: <IconLineGraph /> },
-    { value: 'area', icon: <IconAreaChart /> },
-    { value: 'bar', icon: <IconGraph /> },
-]
+import { DisplayMode, revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
 
 // Simple interface for the tile props, letting us create tiles with a consistent interface
-export interface TileProps<ResponseType extends AnalyticsQueryResponseBase<unknown>> {
-    response: ResponseType
-    responseLoading: boolean
-    queryId: string
+export interface TileProps {
     context: QueryContext
 }
 
@@ -37,10 +38,36 @@ export const extractLabelAndDatasets = (results: GraphDataset[]): { labels: stri
     }
 }
 
+// Helper to build goal lines from revenue goals
+export const goalLinesFromRevenueGoals = (
+    revenueGoals: RevenueAnalyticsGoal[],
+    mode: RevenueAnalyticsGoal['mrr_or_gross']
+): GoalLine[] => {
+    return revenueGoals
+        .filter((goal) => goal.mrr_or_gross === mode)
+        .map((goal) => {
+            const isFuture = dayjs(goal.due_date).isSameOrAfter(dayjs())
+
+            return {
+                label: `${goal.name} (${dayjs(goal.due_date).format('DD MMM YYYY')})`,
+                value: goal.goal,
+                displayLabel: true,
+                borderColor: isFuture ? 'green' : 'red',
+
+                // Only display smaller goals that are in the future
+                // This implies that past goals that have been achieved already
+                // will not be displayed
+                displayIfCrossed: isFuture,
+            }
+        })
+}
+
 interface TileWrapperProps {
+    context: QueryContext
     title: JSX.Element | string
     tooltip: JSX.Element | string
     extra?: JSX.Element
+    children: (response: AnyResponseType) => JSX.Element
 }
 
 export const TileWrapper = ({
@@ -48,7 +75,45 @@ export const TileWrapper = ({
     tooltip,
     extra,
     children,
+    context,
 }: React.PropsWithChildren<TileWrapperProps>): JSX.Element => {
+    const logic = useMountedLogic(dataNodeLogic)
+    const { response, responseLoading, responseErrorObject, query, queryId } = useValues(logic)
+
+    const validationError = extractValidationError(responseErrorObject)
+    const timeoutError = isTimeoutError(responseErrorObject)
+
+    // Empty states that completely replace the graph
+    const BlockingEmptyState = (() => {
+        if (responseLoading) {
+            return <InsightLoadingState queryId={queryId} key={queryId} insightProps={context.insightProps ?? {}} />
+        }
+
+        if (validationError) {
+            return <InsightValidationError query={query} detail={validationError} />
+        }
+
+        if (
+            !responseErrorObject &&
+            !responseLoading &&
+            response &&
+            'results' in response &&
+            response.results.length === 0
+        ) {
+            return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+        }
+
+        if (responseErrorObject) {
+            return <InsightErrorState query={query} queryId={queryId} />
+        }
+
+        if (timeoutError) {
+            return <InsightTimeoutState queryId={queryId} />
+        }
+
+        return null
+    })()
+
     return (
         <div className="flex flex-col gap-2">
             <div className="flex justify-between">
@@ -62,7 +127,9 @@ export const TileWrapper = ({
             </div>
 
             <InsightsWrapper>
-                <div className="TrendsInsight TrendsInsight--ActionsLineGraph">{children}</div>
+                <div className="TrendsInsight TrendsInsight--ActionsLineGraph">
+                    {BlockingEmptyState ? BlockingEmptyState : children(response as AnyResponseType)}
+                </div>
             </InsightsWrapper>
         </div>
     )
@@ -91,6 +158,7 @@ export const RevenueAnalyticsLineGraph = (
             legend={{ display: props.datasets.length > 1, position: 'right' }}
             trendsFilter={{ aggregationAxisFormat: 'numeric' }}
             labelGroupType="none"
+            goalLines={props.goalLines || props.trendsFilter?.goalLines}
             {...props}
         />
     )

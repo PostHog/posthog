@@ -1,16 +1,15 @@
-from unittest.mock import patch, MagicMock, AsyncMock
+import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+
 from rest_framework import status
 
-import pytest
-
-from ee.api.test.base import APILicensedTest
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
 from posthog.models.subscription import Subscription
-from posthog.temporal.subscriptions.subscription_scheduling_workflow import (
-    DeliverSubscriptionReportActivityInputs,
-)
+from posthog.temporal.subscriptions.subscription_scheduling_workflow import DeliverSubscriptionReportActivityInputs
+
+from ee.api.test.base import APILicensedTest
 
 
 @patch("posthoganalytics.feature_enabled", return_value=True)

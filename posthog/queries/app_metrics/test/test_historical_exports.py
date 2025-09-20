@@ -1,24 +1,16 @@
 import json
 from datetime import datetime
-from unittest import mock
 
 from freezegun.api import freeze_time
+from posthog.test.base import BaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries, snapshot_postgres_queries
+from unittest import mock
 
 from posthog.models.activity_logging.activity_log import Detail, Trigger, log_activity
 from posthog.models.plugin import Plugin, PluginConfig, PluginStorage
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
-from posthog.queries.app_metrics.historical_exports import (
-    historical_export_metrics,
-    historical_exports_activity,
-)
+from posthog.queries.app_metrics.historical_exports import historical_export_metrics, historical_exports_activity
 from posthog.queries.app_metrics.test.test_app_metrics import create_app_metric
-from posthog.test.base import (
-    BaseTest,
-    ClickhouseTestMixin,
-    snapshot_clickhouse_queries,
-    snapshot_postgres_queries,
-)
 
 SAMPLE_PAYLOAD = {"dateRange": ["2021-06-10", "2022-06-12"], "parallelism": 1}
 

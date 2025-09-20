@@ -1,29 +1,30 @@
 import json
-import urllib
 import uuid
+import urllib
 from datetime import datetime
 from typing import Any, List, Optional, Union  # noqa: UP035
-from posthog.hogql.query import execute_hogql_query
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
-from posthog.hogql import ast
-from django.utils import timezone
-from posthog.utils import relative_date_parse
 
 from django.db.models.query import Prefetch
+from django.utils import timezone
+
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from rest_framework import mixins, request, response, serializers, viewsets
-from posthog.api.utils import action
 from rest_framework.exceptions import NotFound
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
-from posthog.exceptions_capture import capture_exception
+
+from posthog.hogql import ast
+from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.property_utils import create_property_conditions
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.utils import action
 from posthog.clickhouse.client import query_with_columns
-from posthog.hogql.constants import DEFAULT_RETURNED_ROWS, MAX_SELECT_RETURNED_ROWS
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Element, Filter, Person
 from posthog.models.event.query_event_list import query_events_list
 from posthog.models.event.sql import SELECT_ONE_EVENT_SQL
@@ -31,12 +32,9 @@ from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.person.util import get_persons_by_distinct_ids
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
-from posthog.rate_limit import (
-    ClickHouseBurstRateThrottle,
-    ClickHouseSustainedRateThrottle,
-)
-from posthog.utils import convert_property_value, flatten
-from posthog.hogql.property_utils import create_property_conditions
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+from posthog.utils import convert_property_value, flatten, relative_date_parse
 
 QUERY_DEFAULT_EXPORT_LIMIT = 3_500
 

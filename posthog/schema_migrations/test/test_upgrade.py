@@ -1,7 +1,9 @@
-from posthog.schema import NodeKind
-from posthog.schema_migrations import LATEST_VERSIONS, SchemaMigration, MIGRATIONS
-from posthog.schema_migrations.upgrade import upgrade
 import pytest
+
+from posthog.schema import NodeKind
+
+from posthog.schema_migrations import LATEST_VERSIONS, MIGRATIONS, SchemaMigration
+from posthog.schema_migrations.upgrade import upgrade
 
 
 class SampleMigration(SchemaMigration):

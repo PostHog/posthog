@@ -1,6 +1,8 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { kea, path } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 
 import { Variable } from '../../types'

@@ -1,6 +1,7 @@
 import json
 
 import pytest
+
 from rest_framework.exceptions import ValidationError
 
 from posthog.models import Filter

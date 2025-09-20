@@ -30,6 +30,7 @@ pub fn create_release(
     hash_id: Option<String>,
     project: Option<String>,
     version: Option<String>,
+    skip_ssl_verification: bool,
 ) -> Result<Option<CreateReleaseResponse>> {
     let git_info = get_git_info(dir)?;
 
@@ -63,7 +64,9 @@ pub fn create_release(
         host, token.env_id
     );
 
-    let client = reqwest::blocking::Client::new();
+    let client = reqwest::blocking::Client::builder()
+        .danger_accept_invalid_certs(skip_ssl_verification)
+        .build()?;
 
     let response = client
         .post(&url)

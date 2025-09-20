@@ -18,10 +18,10 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { campaignLogic } from '../campaignLogic'
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'
+import { HogFlowEditorPanel } from './panel/HogFlowEditorPanel'
 import { REACT_FLOW_NODE_TYPES } from './steps/Nodes'
-import { HogFlowActionNode } from './types'
-import { HogFlowEditorRightPanel } from './HogFlowEditorRightPanel'
 import { REACT_FLOW_EDGE_TYPES } from './steps/SmartEdge'
+import { HogFlowActionNode } from './types'
 
 // Inner component that encapsulates React Flow
 function HogFlowEditorContent(): JSX.Element {
@@ -37,15 +37,19 @@ function HogFlowEditorContent(): JSX.Element {
         onDragStart,
         onDragOver,
         onDrop,
+        setReactFlowWrapper,
     } = useActions(hogFlowEditorLogic)
 
     const reactFlowWrapper = useRef<HTMLDivElement>(null)
-
     const reactFlowInstance = useReactFlow()
 
     useEffect(() => {
         setReactFlowInstance(reactFlowInstance)
     }, [reactFlowInstance, setReactFlowInstance])
+
+    useEffect(() => {
+        setReactFlowWrapper(reactFlowWrapper)
+    }, [setReactFlowWrapper])
 
     return (
         <div ref={reactFlowWrapper} className="w-full h-full">
@@ -70,7 +74,7 @@ function HogFlowEditorContent(): JSX.Element {
 
                 <Controls showInteractive={false} />
 
-                <HogFlowEditorRightPanel />
+                <HogFlowEditorPanel />
             </ReactFlow>
         </div>
     )

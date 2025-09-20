@@ -1,6 +1,6 @@
-import collections.abc
-import datetime as dt
 import typing
+import datetime as dt
+import collections.abc
 from dataclasses import asdict, dataclass, fields
 from uuid import UUID
 
@@ -19,16 +19,12 @@ from temporalio.client import (
     ScheduleState,
 )
 
-from posthog.batch_exports.models import (
-    BatchExport,
-    BatchExportBackfill,
-    BatchExportDestination,
-    BatchExportRun,
-)
-from posthog.clickhouse.client import sync_execute
-from posthog.constants import BATCH_EXPORTS_TASK_QUEUE, SYNC_BATCH_EXPORTS_TASK_QUEUE
 from posthog.hogql.database.database import create_hogql_database
 from posthog.hogql.hogql import HogQLContext
+
+from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun
+from posthog.clickhouse.client import sync_execute
+from posthog.constants import BATCH_EXPORTS_TASK_QUEUE, SYNC_BATCH_EXPORTS_TASK_QUEUE
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import (
     a_pause_schedule,

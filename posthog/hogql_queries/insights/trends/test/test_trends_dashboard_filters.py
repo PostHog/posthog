@@ -1,10 +1,11 @@
 from typing import Optional
-from posthog.hogql.constants import LimitContext
-from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+
+from posthog.test.base import BaseTest
 
 from posthog.schema import (
     ActionsNode,
     BreakdownFilter,
+    CompareFilter,
     DashboardFilter,
     DateRange,
     EventPropertyFilter,
@@ -16,10 +17,11 @@ from posthog.schema import (
     PropertyGroupFilterValue,
     TrendsFilter,
     TrendsQuery,
-    CompareFilter,
 )
 
-from posthog.test.base import BaseTest
+from posthog.hogql.constants import LimitContext
+
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 
 
 class TestTrendsDashboardFilters(BaseTest):

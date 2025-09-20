@@ -1,11 +1,11 @@
 from posthog.hogql.database.models import (
-    StringDatabaseField,
+    FieldOrTable,
     IntegerDatabaseField,
-    Table,
     LazyJoin,
     LazyTable,
-    FieldOrTable,
     LazyTableToAdd,
+    StringDatabaseField,
+    Table,
 )
 from posthog.hogql.database.schema.persons import join_with_persons_table
 
@@ -23,6 +23,7 @@ COHORT_PEOPLE_FIELDS = {
 
 def select_from_cohort_people_table(requested_fields: dict[str, list[str | int]], project_id: int):
     from posthog.hogql import ast
+
     from posthog.models import Cohort
 
     cohort_tuples = list(

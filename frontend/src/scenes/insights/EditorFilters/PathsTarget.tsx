@@ -1,9 +1,11 @@
-import { IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import { combineUrl, encodeParams, router } from 'kea-router'
+
+import { IconX } from '@posthog/icons'
+
 import { PathItemSelector } from 'lib/components/PropertyFilters/components/PathItemSelector'
-import { IconFunnelVertical } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconFunnelVertical } from 'lib/lemon-ui/icons'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'

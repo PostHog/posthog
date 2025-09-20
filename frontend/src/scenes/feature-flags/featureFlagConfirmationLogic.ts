@@ -1,7 +1,8 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { FeatureFlagType } from '~/types'
-import { openConfirmationModal } from './ConfirmationModal'
 
+import { FeatureFlagType } from '~/types'
+
+import { openConfirmationModal } from './ConfirmationModal'
 import type { featureFlagConfirmationLogicType } from './featureFlagConfirmationLogicType'
 
 /**

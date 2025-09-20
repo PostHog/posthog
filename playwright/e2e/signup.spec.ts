@@ -240,6 +240,6 @@ test.describe('Signup', () => {
         await page.locator('[data-attr=signup-submit]').click()
 
         // Verify we're redirected to verify_email page with next parameter preserved
-        await expect(page).toHaveURL(/\/verify_email\/[a-zA-Z0-9_.-]*\?next=\/custom_path/)
+        await expect(page).toHaveURL(/\/verify_email\/[a-zA-Z0-9_.-]*\?next=(\/|%2F)custom_path/)
     })
 })

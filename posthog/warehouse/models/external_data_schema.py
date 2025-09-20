@@ -1,17 +1,20 @@
 import uuid
-from dateutil import parser
 from datetime import datetime, timedelta
 from typing import Any, Literal, Optional
 
-import numpy
 from django.conf import settings
 from django.db import models
+
+import numpy
+from dateutil import parser
 from django_deprecate_fields import deprecate_field
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
+from posthog.exceptions_capture import capture_exception
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.team import Team
-from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDModel, sane_repr
-
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
+from posthog.sync import database_sync_to_async
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode
 from posthog.warehouse.data_load.service import (
     external_data_workflow_exists,
@@ -21,10 +24,9 @@ from posthog.warehouse.data_load.service import (
 )
 from posthog.warehouse.s3 import get_s3_client
 from posthog.warehouse.types import IncrementalFieldType
-from posthog.sync import database_sync_to_async
 
 
-class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, DeletedMetaFields):
+class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields):
     class Status(models.TextChoices):
         RUNNING = "Running", "Running"
         PAUSED = "Paused", "Paused"
@@ -251,8 +253,11 @@ class ExternalDataSchema(CreatedMetaFields, UpdatedMetaFields, UUIDModel, Delete
 
     def delete_table(self):
         if self.table is not None:
-            client = get_s3_client()
-            client.delete(f"{settings.BUCKET_URL}/{self.folder_path()}", recursive=True)
+            try:
+                client = get_s3_client()
+                client.delete(f"{settings.BUCKET_URL}/{self.folder_path()}", recursive=True)
+            except Exception as e:
+                capture_exception(e)
 
             self.table.soft_delete()
             self.table_id = None
@@ -290,11 +295,6 @@ def get_schema_if_exists(schema_name: str, team_id: int, source_id: uuid.UUID) -
         .first()
     )
     return schema
-
-
-@database_sync_to_async
-def aget_schema_if_exists(schema_name: str, team_id: int, source_id: uuid.UUID) -> ExternalDataSchema | None:
-    return get_schema_if_exists(schema_name=schema_name, team_id=team_id, source_id=source_id)
 
 
 @database_sync_to_async
@@ -342,14 +342,18 @@ def sync_old_schemas_with_new_schemas(
         ExternalDataSchema.objects.create(name=schema, team_id=team_id, source_id=source_id, should_sync=False)
 
     for schema in schemas_to_possibly_delete:
-        s = ExternalDataSchema.objects.get(team_id=team_id, name=schema, source_id=source_id)
-        if s.table_id is None:
-            s.soft_delete()
-            deleted_schemas.append(schema)
-        else:
-            s.should_sync = False
-            s.status = ExternalDataSchema.Status.COMPLETED
-            s.save()
+        # There _could_ exist multiple schemas with the same name, there shouldn't be, but it's not impossible
+        schemas_to_check = ExternalDataSchema.objects.filter(
+            team_id=team_id, name=schema, source_id=source_id, deleted=False
+        )
+        for s in schemas_to_check:
+            if s.table_id is None:
+                s.soft_delete()
+                deleted_schemas.append(schema)
+            else:
+                s.should_sync = False
+                s.status = ExternalDataSchema.Status.COMPLETED
+                s.save()
 
     return schemas_to_create, deleted_schemas
 

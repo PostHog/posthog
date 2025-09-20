@@ -1,6 +1,3 @@
-from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType
-from posthog.models.filters import Filter
-from posthog.queries.funnels.funnel_time_to_convert import ClickhouseFunnelTimeToConvert
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -9,6 +6,10 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 from unittest.case import skip
+
+from posthog.constants import INSIGHT_FUNNELS, TRENDS_LINEAR, FunnelOrderType
+from posthog.models.filters import Filter
+from posthog.queries.funnels.funnel_time_to_convert import ClickhouseFunnelTimeToConvert
 
 FORMAT_TIME = "%Y-%m-%d %H:%M:%S"
 FORMAT_TIME_DAY_END = "%Y-%m-%d 23:59:59"

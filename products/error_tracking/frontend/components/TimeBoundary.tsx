@@ -1,13 +1,15 @@
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { MouseEvent, useCallback } from 'react'
+import { P, match } from 'ts-pattern'
+
+import { LemonSkeleton } from '@posthog/lemon-ui'
+
 import { TZLabel } from 'lib/components/TZLabel'
 import { Dayjs } from 'lib/dayjs'
-import { MouseEvent, useCallback } from 'react'
-import { match, P } from 'ts-pattern'
 
 import { DateRange } from '~/queries/schema/schema-general'
 
-import { errorFiltersLogic } from './ErrorFilters/errorFiltersLogic'
+import { issueFiltersLogic } from './IssueFilters/issueFiltersLogic'
 
 type TimeBoundaryProps = {
     label: string
@@ -17,8 +19,8 @@ type TimeBoundaryProps = {
 }
 
 export function TimeBoundary({ time, loading, label, updateDateRange }: TimeBoundaryProps): JSX.Element {
-    const { dateRange } = useValues(errorFiltersLogic)
-    const { setDateRange } = useActions(errorFiltersLogic)
+    const { dateRange } = useValues(issueFiltersLogic)
+    const { setDateRange } = useActions(issueFiltersLogic)
     const onClick = useCallback(
         (e: MouseEvent): void => {
             setDateRange(updateDateRange(dateRange))

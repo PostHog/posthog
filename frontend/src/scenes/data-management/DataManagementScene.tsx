@@ -1,6 +1,9 @@
-import { IconInfo } from '@posthog/icons'
 import { actions, connect, kea, path, reducers, selectors, useValues } from 'kea'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
+import React from 'react'
+
+import { IconInfo } from '@posthog/icons'
+
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { PageHeader } from 'lib/components/PageHeader'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
@@ -10,19 +13,20 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { RevenueAnalyticsSettings } from 'products/revenue_analytics/frontend/settings/RevenueAnalyticsSettings'
-import React from 'react'
-import { NewActionButton } from 'scenes/actions/NewActionButton'
 import { Annotations } from 'scenes/annotations'
-import { Comments } from 'scenes/data-management/comments/Comments'
 import { NewAnnotationButton } from 'scenes/annotations/AnnotationModal'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { AdvancedActivityLogsList } from 'scenes/audit-logs/AdvancedActivityLogsList'
+import { Comments } from 'scenes/data-management/comments/Comments'
+import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { MarketingAnalyticsSettings } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/MarketingAnalyticsSettings'
 
 import { ActivityScope, Breadcrumb } from '~/types'
 
-import { ActionsTable } from './actions/ActionsTable'
+import { ActionsTable } from 'products/actions/frontend/components/ActionsTable'
+import { NewActionButton } from 'products/actions/frontend/components/NewActionButton'
+import { RevenueAnalyticsSettings } from 'products/revenue_analytics/frontend/settings/RevenueAnalyticsSettings'
+
 import type { dataManagementSceneLogicType } from './DataManagementSceneType'
 import { EventDefinitionsTable } from './events/EventDefinitionsTable'
 import { IngestionWarningsView } from './ingestion-warnings/IngestionWarningsView'
@@ -35,22 +39,27 @@ export enum DataManagementTab {
     Annotations = 'annotations',
     Comments = 'comments',
     History = 'history',
+    ActivityLogs = 'activity-logs',
     IngestionWarnings = 'warnings',
     Revenue = 'revenue',
     MarketingAnalytics = 'marketing-analytics',
 }
 
-const tabs: Record<
-    DataManagementTab,
-    {
-        url: string
-        label: LemonTab<any>['label']
-        content: JSX.Element
-        buttons?: React.ReactNode
-        flag?: FeatureFlagKey
-        tooltipDocLink?: string
+type TabConfig = {
+    url: string
+    label: LemonTab<any>['label']
+    content: JSX.Element
+    buttons?: React.ReactNode
+    flag?: FeatureFlagKey
+    tooltipDocLink?: string
+    children?: {
+        [path: string]: {
+            component?: JSX.Element
+        }
     }
-> = {
+}
+
+const tabs: Record<DataManagementTab, TabConfig> = {
     [DataManagementTab.EventDefinitions]: {
         url: urls.eventDefinitions(),
         label: 'Events',
@@ -96,6 +105,9 @@ const tabs: Record<
         label: 'Annotations',
         buttons: <NewAnnotationButton />,
         tooltipDocLink: 'https://posthog.com/docs/data/annotations',
+        children: {
+            [urls.annotation(':id')]: {},
+        },
     },
     [DataManagementTab.Comments]: {
         url: urls.comments(),
@@ -114,6 +126,12 @@ const tabs: Record<
             />
         ),
         tooltipDocLink: 'https://posthog.com/docs/data#history',
+    },
+    [DataManagementTab.ActivityLogs]: {
+        url: urls.advancedActivityLogs(),
+        label: 'Activity logs',
+        content: <AdvancedActivityLogsList />,
+        flag: FEATURE_FLAGS.ADVANCED_ACTIVITY_LOGS,
     },
     [DataManagementTab.Revenue]: {
         url: urls.revenueSettings(),
@@ -171,11 +189,6 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
             (tab): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.DataManagement,
-                        name: `Data management`,
-                        path: tabs.events.url,
-                    },
-                    {
                         key: tab,
                         name: capitalizeFirstLetter(tab),
                         path: tabs[tab].url,
@@ -187,6 +200,7 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
             (s) => [s.featureFlags],
             (featureFlags): DataManagementTab[] => {
                 const allTabs = Object.entries(tabs)
+
                 return allTabs
                     .filter(([_, tab]) => {
                         return !tab.flag || !!featureFlags[tab.flag]
@@ -207,16 +221,31 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
         },
     })),
     urlToAction(({ actions, values }) => {
-        return Object.fromEntries(
-            Object.entries(tabs).map(([key, tab]) => [
-                tab.url,
-                () => {
-                    if (values.tab !== key) {
-                        actions.setTab(key as DataManagementTab)
+        const mappings: Record<string, () => void> = {}
+
+        Object.entries(tabs).forEach(([tabKey, tabConfig]) => {
+            const tabEnum = tabKey as DataManagementTab
+
+            // First main tab URLs
+            mappings[tabConfig.url] = () => {
+                if (values.tab !== tabEnum) {
+                    actions.setTab(tabEnum)
+                }
+            }
+
+            // Then child URLs
+            if (tabConfig.children) {
+                Object.keys(tabConfig.children).forEach((childUrl) => {
+                    mappings[childUrl] = () => {
+                        if (values.tab !== tabEnum) {
+                            actions.setTab(tabEnum)
+                        }
                     }
-                },
-            ])
-        )
+                })
+            }
+        })
+
+        return mappings
     }),
 ])
 

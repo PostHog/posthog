@@ -1,9 +1,11 @@
-import { LemonButton, LemonDivider, LemonModal } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
+import { SurveyQuestionType } from 'posthog-js'
+
+import { LemonButton, LemonDivider, LemonModal } from '@posthog/lemon-ui'
+
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
-import { SurveyQuestionType } from 'posthog-js'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { urls } from 'scenes/urls'
 

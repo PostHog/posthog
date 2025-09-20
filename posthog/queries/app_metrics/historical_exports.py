@@ -1,16 +1,12 @@
 import json
 from datetime import timedelta
 from typing import Optional
-
 from zoneinfo import ZoneInfo
 
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.plugin import PluginStorage
 from posthog.models.team.team import Team
-from posthog.queries.app_metrics.app_metrics import (
-    AppMetricsErrorsQuery,
-    AppMetricsQuery,
-)
+from posthog.queries.app_metrics.app_metrics import AppMetricsErrorsQuery, AppMetricsQuery
 from posthog.queries.app_metrics.serializers import AppMetricsRequestSerializer
 
 

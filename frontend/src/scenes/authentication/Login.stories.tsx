@@ -1,5 +1,7 @@
 import { Meta, StoryFn } from '@storybook/react'
 import { router } from 'kea-router'
+
+import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
@@ -8,7 +10,6 @@ import preflightJson from '../../mocks/fixtures/_preflight.json'
 import { Login } from './Login'
 import { Login2FA } from './Login2FA'
 import { loginLogic } from './loginLogic'
-import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 const meta: Meta = {
     title: 'Scenes-Other/Login',

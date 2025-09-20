@@ -1,17 +1,19 @@
 import clsx from 'clsx'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, BuiltLogic, LogicWrapper, useValues } from 'kea'
+import type { IDisposable } from 'monaco-editor'
+import { useEffect, useRef, useState } from 'react'
+
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
-import type { IDisposable } from 'monaco-editor'
-import { useEffect, useRef, useState } from 'react'
 
-import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
-import { HogQuery, HogQueryResponse } from '~/queries/schema/schema-general'
+import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { HogQLQueryModifiers, HogQuery, HogQueryResponse } from '~/queries/schema/schema-general'
 
 export interface HogQueryEditorProps {
     query: HogQuery
@@ -108,11 +110,19 @@ interface HogDebugProps {
     query: HogQuery
     setQuery: (query: HogQuery) => void
     debug?: boolean
+    modifiers?: HogQLQueryModifiers
+    attachTo?: LogicWrapper | BuiltLogic
 }
 
-export function HogDebug({ query, setQuery, queryKey, debug }: HogDebugProps): JSX.Element {
-    const dataNodeLogicProps: DataNodeLogicProps = { query, key: queryKey, dataNodeCollectionId: queryKey }
+export function HogDebug({ query, setQuery, queryKey, debug, modifiers, attachTo }: HogDebugProps): JSX.Element {
+    const dataNodeLogicProps: DataNodeLogicProps = {
+        query,
+        key: queryKey,
+        dataNodeCollectionId: queryKey,
+        modifiers,
+    }
     const { dataLoading, response: _response } = useValues(dataNodeLogic(dataNodeLogicProps))
+    useAttachedLogic(dataNodeLogic(dataNodeLogicProps), attachTo)
     const response = _response as HogQueryResponse | null
     const [tab, setTab] = useState('results' as 'results' | 'bytecode' | 'coloredBytecode' | 'stdout')
 

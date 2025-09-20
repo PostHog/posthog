@@ -1,22 +1,26 @@
-import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
-import { FeatureFlagBasicType, Survey } from '~/types'
 import { BindLogic, useActions, useValues } from 'kea'
-import { IconSurveys } from 'lib/lemon-ui/icons'
-import { LemonDivider } from '@posthog/lemon-ui'
-import { urls } from 'scenes/urls'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { notebookNodeLogic } from './notebookNodeLogic'
-import { buildFlagContent } from './NotebookNodeFlag'
-import { surveyLogic } from 'scenes/surveys/surveyLogic'
-import { StatusTag } from 'scenes/surveys/Surveys'
-import { SurveyResult } from 'scenes/surveys/SurveyView'
-import { SurveyDisplaySummary } from 'scenes/surveys/Survey'
 import { useEffect } from 'react'
+
+import { LemonDivider } from '@posthog/lemon-ui'
+
 import { NotFound } from 'lib/components/NotFound'
-import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
-import { UUID_REGEX_MATCH_GROUPS } from './utils'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { IconSurveys } from 'lib/lemon-ui/icons'
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { SurveyDisplaySummary } from 'scenes/surveys/Survey'
+import { SurveyAppearancePreview } from 'scenes/surveys/SurveyAppearancePreview'
+import { SurveyResult } from 'scenes/surveys/SurveyView'
+import { StatusTag } from 'scenes/surveys/Surveys'
+import { surveyLogic } from 'scenes/surveys/surveyLogic'
+import { urls } from 'scenes/urls'
+
+import { FeatureFlagBasicType, Survey } from '~/types'
+
 import { NotebookNodeProps, NotebookNodeType } from '../types'
+import { buildFlagContent } from './NotebookNodeFlag'
+import { notebookNodeLogic } from './notebookNodeLogic'
+import { UUID_REGEX_MATCH_GROUPS } from './utils'
 
 const Component = ({ attributes }: NotebookNodeProps<NotebookNodeSurveyAttributes>): JSX.Element => {
     const { id } = attributes

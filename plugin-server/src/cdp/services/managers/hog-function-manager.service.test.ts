@@ -131,7 +131,6 @@ describe('HogFunctionManager', () => {
                     "type": "string",
                   },
                 ],
-                "is_addon_required": true,
                 "mappings": null,
                 "masking": null,
                 "name": "Test Hog Function team 1",

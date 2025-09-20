@@ -1,7 +1,7 @@
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.session_recordings.sql.session_replay_embeddings_sql import (
-    SESSION_REPLAY_EMBEDDINGS_TABLE_SQL,
     DISTRIBUTED_SESSION_REPLAY_EMBEDDINGS_TABLE_SQL,
+    SESSION_REPLAY_EMBEDDINGS_TABLE_SQL,
     WRITABLE_SESSION_REPLAY_EMBEDDINGS_TABLE_SQL,
 )
 

@@ -1,10 +1,11 @@
 import { Meta } from '@storybook/react'
 import { BindLogic } from 'kea'
 
-import { PlayerSidebarOverviewOtherWatchers } from './PlayerSidebarOverviewOtherWatchers'
+import { mswDecorator } from '~/mocks/browser'
+
 import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
-import { mswDecorator } from '~/mocks/browser'
+import { PlayerSidebarOverviewOtherWatchers } from './PlayerSidebarOverviewOtherWatchers'
 
 const meta: Meta<typeof PlayerSidebarOverviewOtherWatchers> = {
     title: 'Replay/Overview Tab/Other Watchers',

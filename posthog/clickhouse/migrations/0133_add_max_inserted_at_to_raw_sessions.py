@@ -1,0 +1,3 @@
+from posthog.models.raw_sessions.migrations import ADD_MAX_INSERTED_AT_COLUMN_SQL, update_raw_sessions_table
+
+operations = update_raw_sessions_table(ADD_MAX_INSERTED_AT_COLUMN_SQL)

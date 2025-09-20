@@ -1,5 +1,5 @@
 from asgiref.sync import async_to_sync
-from temporalio.client import Client, Schedule, ScheduleUpdate, ScheduleUpdateInput, ScheduleOverlapPolicy
+from temporalio.client import Client, Schedule, ScheduleOverlapPolicy, ScheduleUpdate, ScheduleUpdateInput
 
 
 @async_to_sync

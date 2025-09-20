@@ -1,12 +1,16 @@
-import { LemonButton, LemonTable, LemonTableColumns, LemonModal } from '@posthog/lemon-ui'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { TZLabel } from 'lib/components/TZLabel'
-import { OptOutEntry, optOutListLogic } from './optOutListLogic'
 import { useActions, useValues } from 'kea'
-import { DataTable } from '~/queries/nodes/DataTable/DataTable'
-import { DataTableNode, ActorsQuery, NodeKind } from '~/queries/schema/schema-general'
-import { MessageCategory } from './optOutCategoriesLogic'
+
 import { IconExternal } from '@posthog/icons'
+import { LemonButton, LemonModal, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+
+import { TZLabel } from 'lib/components/TZLabel'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+
+import { DataTable } from '~/queries/nodes/DataTable/DataTable'
+import { ActorsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
+
+import { MessageCategory } from './optOutCategoriesLogic'
+import { OptOutEntry, optOutListLogic } from './optOutListLogic'
 
 export function OptOutList({ category }: { category?: MessageCategory }): JSX.Element {
     const logic = optOutListLogic({ category })

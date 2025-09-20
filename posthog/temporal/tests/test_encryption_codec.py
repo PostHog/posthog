@@ -1,16 +1,19 @@
-import dataclasses
 import json
 import uuid
+import dataclasses
 
 import pytest
-import temporalio.converter
+
 from django.conf import settings
+
+import temporalio.converter
 from temporalio.api.enums.v1 import EventType
 from temporalio.client import Client
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.batch_exports.service import NoOpInputs
 from posthog.temporal.common.codec import EncryptionCodec
+
 from products.batch_exports.backend.temporal.noop import NoOpWorkflow, noop_activity
 
 

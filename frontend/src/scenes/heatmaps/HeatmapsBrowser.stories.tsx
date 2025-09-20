@@ -1,9 +1,12 @@
 import { Meta, StoryObj } from '@storybook/react'
+
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
-import heatmapResults from './__mocks__/heatmapResults.json'
+
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { MockSignature } from '~/mocks/utils'
+
+import heatmapResults from './__mocks__/heatmapResults.json'
 
 const query = (topUrls: [string, number][] = []): MockSignature => {
     return async (req, res, ctx) => {
@@ -67,12 +70,12 @@ export function HeatmapsBrowserNoPageSelected(): JSX.Element {
 
 export const HeatmapsBrowserWithUnauthorizedPageSelected: Story = {
     parameters: {
-        pageUrl: urls.heatmaps('pageURL=https://example.com'),
+        pageUrl: urls.heatmaps('pageURL=https://random.example.com'),
     },
 }
 
 export const HeatmapsBrowserWithPageSelected: Story = {
     parameters: {
-        pageUrl: urls.heatmaps('pageURL=https://posthog.com&heatmapPalette=red&heatmapFilters={"type"%3A"mousemove"}'),
+        pageUrl: urls.heatmaps('pageURL=https://example.com&heatmapPalette=red&heatmapFilters={"type"%3A"mousemove"}'),
     },
 }

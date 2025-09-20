@@ -1,7 +1,8 @@
 // Helpers for Kea issue with double importing
-import { getText, TextSerializer } from '@tiptap/core'
+import { TextSerializer, getText } from '@tiptap/core'
 
 import { JSONContent, RichContentNode, TTEditor } from 'lib/components/RichContentEditor/types'
+
 import { CreatePostHogWidgetNodeOptions, NotebookNodeType } from './types'
 
 export const KNOWN_NODES: Record<string, CreatePostHogWidgetNodeOptions<any>> = {}
@@ -58,6 +59,7 @@ export const textContent = (node: RichContentNode): string => {
         [NotebookNodeType.Mention]: customOrTitleSerializer,
         [NotebookNodeType.Embed]: customOrTitleSerializer,
         [NotebookNodeType.Latex]: customOrTitleSerializer,
+        [NotebookNodeType.TaskCreate]: customOrTitleSerializer,
     }
 
     return getText(node, {

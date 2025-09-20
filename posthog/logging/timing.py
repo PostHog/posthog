@@ -2,8 +2,8 @@ import functools
 from time import time
 from typing import Any, Optional
 
-from statshog.defaults.django import statsd
 import structlog
+from statshog.defaults.django import statsd
 
 logger = structlog.get_logger(__name__)
 

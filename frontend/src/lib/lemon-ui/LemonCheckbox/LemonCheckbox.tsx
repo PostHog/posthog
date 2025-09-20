@@ -22,7 +22,7 @@ export interface LemonCheckboxProps {
     bordered?: boolean
     /** @deprecated See https://github.com/PostHog/posthog/pull/9357#pullrequestreview-933783868. */
     color?: string
-    dataAttr?: string
+    'data-attr'?: string
     /** Whether to stop propagation of events from the input */
     stopPropagation?: boolean
 }
@@ -52,7 +52,7 @@ export function LemonCheckbox({
     bordered,
     color,
     size,
-    dataAttr,
+    'data-attr': dataAttr,
     stopPropagation,
 }: LemonCheckboxProps): JSX.Element {
     const indeterminate = checked === 'indeterminate'

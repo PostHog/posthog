@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
+
 import { QueryCard } from 'lib/components/Cards/InsightCard/QueryCard'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { useEffect, useState } from 'react'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { groupLogic } from 'scenes/groups/groupLogic'
@@ -219,23 +220,25 @@ export function GroupDashboardCard(): JSX.Element {
                     }
                     context={{ refresh: 'force_blocking' }}
                 />
+            </div>
+            <div className="grid grid-cols-1 gap-2">
                 <QueryCard
                     title="Retained users"
-                    description={`Shows the number of users from this ${groupTypeName} who returned seven days after their first visit`}
+                    description={`Shows the number of users from this ${groupTypeName} who returned 12 weeks after their first visit`}
                     query={
                         {
                             kind: NodeKind.InsightVizNode,
                             source: {
                                 kind: NodeKind.RetentionQuery,
                                 retentionFilter: {
-                                    period: 'Day',
+                                    period: 'Week',
                                     targetEntity: {
                                         id: '$pageview',
                                         name: '$pageview',
                                         type: 'events',
                                     },
                                     retentionType: 'retention_first_time',
-                                    totalIntervals: 8,
+                                    totalIntervals: 12,
                                     returningEntity: {
                                         id: '$pageview',
                                         name: '$pageview',

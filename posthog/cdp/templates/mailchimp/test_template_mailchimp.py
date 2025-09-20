@@ -1,8 +1,7 @@
 from inline_snapshot import snapshot
+
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-from posthog.cdp.templates.mailchimp.template_mailchimp import (
-    template as template_mailchimp,
-)
+from posthog.cdp.templates.mailchimp.template_mailchimp import template as template_mailchimp
 
 
 def create_inputs(**kwargs):

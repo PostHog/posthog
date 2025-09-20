@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useEffect, useState } from 'react'
+
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { cn } from 'lib/utils/css-classes'
-import { useEffect, useState } from 'react'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'

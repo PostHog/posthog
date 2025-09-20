@@ -1,11 +1,12 @@
 import { useValues } from 'kea'
 
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { Query } from '~/queries/Query/Query'
 import { CurrencyCode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
-import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 import { Currency, Revenue } from './RevenueExampleTableColumns'
+import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
 const queryContext: QueryContext = {
     showOpenEditorButton: true,
@@ -48,14 +49,11 @@ export function RevenueExampleEventsTable(): JSX.Element | null {
     }
 
     return (
-        <div>
-            <h3>Revenue events</h3>
-            <p>
-                The following revenue events are available in your data. This is helpful when you're trying to debug
-                what your revenue events look like.
-            </p>
-
-            <Query query={exampleEventsQuery} context={queryContext} />
-        </div>
+        <SceneSection
+            title="Revenue events"
+            description="The following revenue events are available in your data. This is helpful when you're trying to debug what your revenue events look like."
+        >
+            <Query attachTo={revenueAnalyticsSettingsLogic} query={exampleEventsQuery} context={queryContext} />
+        </SceneSection>
     )
 }

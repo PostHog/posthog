@@ -1,15 +1,30 @@
+import re
 import uuid
 from datetime import datetime, timedelta
-import re
 from typing import Optional
 
-from django.utils import timezone
 from freezegun import freeze_time
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    also_test_with_materialized_columns,
+    flush_persons_and_events,
+    snapshot_clickhouse_insert_cohortpeople_queries,
+    snapshot_clickhouse_queries,
+)
+
+from django.utils import timezone
+
 from rest_framework.exceptions import ValidationError
 
-from posthog.clickhouse.client import sync_execute
+from posthog.schema import PersonsOnEventsMode
+
 from posthog.hogql.constants import MAX_SELECT_COHORT_CALCULATION_LIMIT
 from posthog.hogql.hogql import HogQLContext
+
+from posthog.clickhouse.client import sync_execute
 from posthog.models.action import Action
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID
@@ -17,22 +32,11 @@ from posthog.models.cohort.util import format_filter_query
 from posthog.models.filters import Filter
 from posthog.models.organization import Organization
 from posthog.models.person import Person
+from posthog.models.person.sql import GET_LATEST_PERSON_SQL, GET_PERSON_IDS_BY_FILTER
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import Team
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.util import PersonPropertiesMode
-from posthog.schema import PersonsOnEventsMode
-from posthog.test.base import (
-    BaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    flush_persons_and_events,
-    snapshot_clickhouse_insert_cohortpeople_queries,
-    snapshot_clickhouse_queries,
-    also_test_with_materialized_columns,
-)
-from posthog.models.person.sql import GET_LATEST_PERSON_SQL, GET_PERSON_IDS_BY_FILTER
 
 
 def _create_action(**kwargs):

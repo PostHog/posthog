@@ -24,11 +24,11 @@ import {
 } from '~/types'
 
 import { getNiceTickValues } from './MetricsView/shared/utils'
+import { filterToMetricConfig } from './metricQueryUtils'
 import {
     exposureConfigToFilter,
     featureFlagEligibleForExperiment,
     filterToExposureConfig,
-    filterToMetricConfig,
     getViewRecordingFilters,
     getViewRecordingFiltersLegacy,
     isLegacyExperiment,
@@ -214,6 +214,8 @@ describe('getViewRecordingFilters', () => {
         filters: {},
         metrics: [],
         metrics_secondary: [],
+        primary_metrics_ordered_uuids: null,
+        secondary_metrics_ordered_uuids: null,
         saved_metrics_ids: [],
         saved_metrics: [],
         parameters: {

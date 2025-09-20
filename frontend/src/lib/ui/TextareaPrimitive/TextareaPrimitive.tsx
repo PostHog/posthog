@@ -1,9 +1,11 @@
-import { cn } from 'lib/utils/css-classes'
-import TextareaAutosize, { TextareaAutosizeProps } from 'react-textarea-autosize'
-import { TextInputBaseProps, textInputVariants } from '../TextInputPrimitive/TextInputPrimitive'
 import { forwardRef } from 'react'
+import TextareaAutosize, { TextareaAutosizeProps } from 'react-textarea-autosize'
+
 import { IconMarkdown } from 'lib/lemon-ui/icons/icons'
+import { cn } from 'lib/utils/css-classes'
+
 import { ButtonPrimitive } from '../Button/ButtonPrimitives'
+import { TextInputBaseProps, textInputVariants } from '../TextInputPrimitive/TextInputPrimitive'
 
 type TextareaPrimitiveProps = TextareaAutosizeProps &
     TextInputBaseProps & {

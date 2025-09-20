@@ -1,18 +1,21 @@
 import './FeatureFlag.scss'
 
-import { IconCopy, IconPlus, IconTrash, IconFlag } from '@posthog/icons'
-import { LemonInput, LemonSelect, LemonSnack, Link, Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { Fragment } from 'react'
+
+import { IconCopy, IconFlag, IconPlus, IconTrash } from '@posthog/icons'
+import { LemonInput, LemonSelect, LemonSnack, Link, Tooltip } from '@posthog/lemon-ui'
+
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
+import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
-import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
-import { IconArrowDown, IconArrowUp, IconErrorOutline, IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
+import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -20,15 +23,19 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { IconArrowDown, IconArrowUp, IconErrorOutline, IconOpenInNew, IconSubArrowRight } from 'lib/lemon-ui/icons'
 import { capitalizeFirstLetter, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
 import { urls } from 'scenes/urls'
+
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { groupsModel } from '~/models/groupsModel'
 import { getFilterLabel } from '~/taxonomy/helpers'
 import { AnyPropertyFilter, FeatureFlagGroupType, PropertyFilterType, PropertyOperator } from '~/types'
+
 import { featureFlagLogic } from './featureFlagLogic'
 import {
-    featureFlagReleaseConditionsLogic,
     FeatureFlagReleaseConditionsLogicProps,
+    featureFlagReleaseConditionsLogic,
 } from './featureFlagReleaseConditionsLogic'
 
 function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): JSX.Element {
@@ -162,8 +169,8 @@ export function FeatureFlagReleaseConditions({
     const renderReleaseConditionGroup = (group: FeatureFlagGroupType, index: number): JSX.Element => {
         return (
             <div className="w-full" key={group.sort_key}>
-                {index > 0 && <div className="condition-set-separator">OR</div>}
-                <div className="mb-4 border rounded p-4 bg-surface-primary">
+                {index > 0 && <div className="condition-set-separator my-1 py-0">OR</div>}
+                <div className="border rounded p-4 bg-surface-primary">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center">
                             <LemonSnack className="mr-2">Set {index + 1}</LemonSnack>
@@ -198,7 +205,10 @@ export function FeatureFlagReleaseConditions({
                                             disabledReason={
                                                 index === filterGroups.length - 1
                                                     ? 'Cannot move last condition set down'
-                                                    : null
+                                                    : affectedUsers[index] === undefined ||
+                                                        affectedUsers[index + 1] === undefined
+                                                      ? 'Cannot move condition sets while calculating affected users'
+                                                      : null
                                             }
                                             onClick={() => moveConditionSetDown(index)}
                                         />
@@ -207,7 +217,14 @@ export function FeatureFlagReleaseConditions({
                                             icon={<IconArrowUp />}
                                             noPadding
                                             tooltip="Move condition set up in precedence"
-                                            disabledReason={index === 0 ? 'Cannot move first condition set up' : null}
+                                            disabledReason={
+                                                index === 0
+                                                    ? 'Cannot move first condition set up'
+                                                    : affectedUsers[index] === undefined ||
+                                                        affectedUsers[index - 1] === undefined
+                                                      ? 'Cannot move condition sets while calculating affected users'
+                                                      : null
+                                            }
                                             onClick={() => moveConditionSetUp(index)}
                                         />
                                     </div>
@@ -235,6 +252,22 @@ export function FeatureFlagReleaseConditions({
                             </div>
                         )}
                     </div>
+                    {!readOnly && (
+                        <div className="mt-3 max-w-md">
+                            <EditableField
+                                multiline
+                                name="description"
+                                value={group.description || ''}
+                                placeholder="Description (optional)"
+                                onSave={(value) => updateConditionSet(index, undefined, undefined, undefined, value)}
+                                saveOnBlur={true}
+                                maxLength={600}
+                                data-attr={`condition-set-${index}-description`}
+                                compactButtons
+                            />
+                        </div>
+                    )}
+                    {readOnly && group.description && <div className="mt-2 text-muted">{group.description}</div>}
                     <LemonDivider className="my-3" />
                     {!readOnly && hasNonInstantProperty(group.properties || []) && (
                         <LemonBanner type="info" className="mt-3 mb-3">
@@ -247,13 +280,6 @@ export function FeatureFlagReleaseConditions({
                             </Link>
                         </LemonBanner>
                     )}
-                    {group.properties?.some((property) => property.type === PropertyFilterType.Flag) && (
-                        <LemonBanner type="warning" className="mt-3 mb-3">
-                            Local evaluation is not supported for feature flags with dependencies. These flags will
-                            require a server request to evaluate.
-                        </LemonBanner>
-                    )}
-
                     {readOnly ? (
                         <>
                             {group.properties?.map((property, idx) => (
@@ -337,7 +363,7 @@ export function FeatureFlagReleaseConditions({
                                                       <IconErrorOutline className="text-xl" /> {message.value}
                                                   </div>
                                               ) : (
-                                                  <></>
+                                                  <Fragment key={index} />
                                               )
                                           })
                                         : null
@@ -486,7 +512,7 @@ export function FeatureFlagReleaseConditions({
 
         return (
             <div className="w-full" key={group.sort_key}>
-                {index > 0 && <div className="condition-set-separator">OR</div>}
+                {index > 0 && <div className="condition-set-separator my-1 py-0">OR</div>}
                 <div className="mb-4 rounded p-4 bg-surface-primary">
                     <div className="flex items-center justify-between">
                         <div className="flex items-center">
@@ -541,92 +567,70 @@ export function FeatureFlagReleaseConditions({
     }
 
     return (
-        <>
-            <div className={`feature-flag-form-row ${excludeTitle && 'mb-2'}`}>
-                <div data-attr="feature-flag-release-conditions" className="w-full">
-                    {readOnly ? (
-                        excludeTitle ? null : (
-                            <h3 className="l3">{isSuper ? 'Super Release Conditions' : 'Release conditions'}</h3>
-                        )
-                    ) : (
-                        <>
-                            {!excludeTitle && (
-                                <>
-                                    <h3 className="l3">Release conditions</h3>
-                                    <div className="text-secondary">
-                                        Specify {aggregationTargetName} for flag release. Condition sets are evaluated
-                                        top to bottom - the first matching set is used. A condition matches when all
-                                        property filters pass AND the target falls within the rollout percentage.
-                                    </div>
-                                    <div className="text-secondary mb-4">
-                                        {aggregationTargetName === 'users' && (
-                                            <>
-                                                {' '}
-                                                Cohort-based targeting{' '}
-                                                <Link to="https://posthog.com/docs/data/cohorts#can-you-use-a-dynamic-cohort-as-a-feature-flag-target">
-                                                    doesn't support dynamic behavioral cohorts.
-                                                </Link>{' '}
-                                            </>
-                                        )}
-                                    </div>
-                                </>
-                            )}
-                        </>
-                    )}
-                    {!readOnly &&
-                        !filterGroups.every(
-                            (group) =>
-                                filterGroups.filter((g) => g.variant === group.variant && g.variant !== null).length < 2
-                        ) && (
-                            <LemonBanner type="info" className="mt-3 mb-3">
-                                Multiple variant overrides detected. We use the variant override for the first condition
-                                set that matches.
-                            </LemonBanner>
-                        )}
-                </div>
-                {!readOnly && showGroupsOptions && !hideMatchOptions && (
-                    <div className="centered">
-                        Match by
-                        <LemonSelect
-                            dropdownMatchSelectWidth={false}
-                            className="ml-2"
-                            data-attr="feature-flag-aggregation-filter"
-                            onChange={(value) => {
-                                // MatchByGroupsIntroductionOption
-                                if (value == -2) {
-                                    return
-                                }
-
-                                const groupTypeIndex = value !== -1 ? value : null
-                                setAggregationGroupTypeIndex(groupTypeIndex)
-                            }}
-                            value={
-                                filters.aggregation_group_type_index != null ? filters.aggregation_group_type_index : -1
-                            }
-                            options={[
-                                { value: -1, label: 'Users' },
-                                ...Array.from(groupTypes.values()).map((groupType) => ({
-                                    value: groupType.group_type_index,
-                                    label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
-                                    disabledReason: hasEarlyAccessFeatures
-                                        ? 'This feature flag cannot be group-based, because it is linked to an early access feature.'
-                                        : null,
-                                })),
-                                ...(includeGroupsIntroductionOption()
-                                    ? [
-                                          {
-                                              value: -2,
-                                              label: 'MatchByGroupsIntroductionOption',
-                                              labelInMenu: matchByGroupsIntroductionOption,
-                                          },
-                                      ]
-                                    : []),
-                            ]}
-                        />
-                    </div>
+        <SceneSection
+            title={excludeTitle ? null : isSuper ? 'Super release conditions' : 'Release conditions'}
+            data-attr="feature-flag-release-conditions"
+            description={
+                !readOnly &&
+                !excludeTitle && (
+                    <>
+                        <div className="text-secondary mb-2">
+                            Specify {aggregationTargetName} for flag release. Condition sets are evaluated top to bottom
+                            - the first matching set is used. A condition matches when all property filters pass AND the
+                            target falls within the rollout percentage.
+                        </div>
+                    </>
+                )
+            }
+        >
+            {!readOnly &&
+                !filterGroups.every(
+                    (group) => filterGroups.filter((g) => g.variant === group.variant && g.variant !== null).length < 2
+                ) && (
+                    <LemonBanner type="info" className="mt-3 mb-3">
+                        Multiple variant overrides detected. We use the variant override for the first condition set
+                        that matches.
+                    </LemonBanner>
                 )}
-            </div>
-            <div className="FeatureConditionCard">
+            {!readOnly && showGroupsOptions && !hideMatchOptions && (
+                <div className="centered">
+                    Match by
+                    <LemonSelect
+                        dropdownMatchSelectWidth={false}
+                        data-attr="feature-flag-aggregation-filter"
+                        onChange={(value) => {
+                            // MatchByGroupsIntroductionOption
+                            if (value == -2) {
+                                return
+                            }
+
+                            const groupTypeIndex = value !== -1 ? value : null
+                            setAggregationGroupTypeIndex(groupTypeIndex)
+                        }}
+                        value={filters.aggregation_group_type_index != null ? filters.aggregation_group_type_index : -1}
+                        options={[
+                            { value: -1, label: 'Users' },
+                            ...Array.from(groupTypes.values()).map((groupType) => ({
+                                value: groupType.group_type_index,
+                                label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
+                                disabledReason: hasEarlyAccessFeatures
+                                    ? 'This feature flag cannot be group-based, because it is linked to an early access feature.'
+                                    : null,
+                            })),
+                            ...(includeGroupsIntroductionOption()
+                                ? [
+                                      {
+                                          value: -2,
+                                          label: 'MatchByGroupsIntroductionOption',
+                                          labelInMenu: matchByGroupsIntroductionOption,
+                                      },
+                                  ]
+                                : []),
+                        ]}
+                    />
+                </div>
+            )}
+            <div className="FeatureConditionCard max-w-prose">
                 {filterGroups.map((group, index) => (
                     <div key={group.sort_key || index}>
                         {isSuper
@@ -640,6 +644,6 @@ export function FeatureFlagReleaseConditions({
                     Add condition set
                 </LemonButton>
             )}
-        </>
+        </SceneSection>
     )
 }

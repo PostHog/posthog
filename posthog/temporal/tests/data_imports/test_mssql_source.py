@@ -18,23 +18,21 @@ OBJECT_STORAGE_ENDPOINT=http://localhost:19000 \
 This might be due to the fact that I am using a free tier of Azure SQL Database which might need a bit of time to wake up.)
 """
 
-import datetime as dt
-import operator
 import os
 import uuid
+import datetime as dt
+import operator
 from collections.abc import Generator
 from decimal import Decimal
 from typing import Any
 
-import pymssql
 import pytest
+
 import pytz
+import pymssql
 import structlog
 
-from posthog.temporal.data_imports.sources.mssql.mssql import (
-    _get_table_average_row_size,
-    _get_table_stats,
-)
+from posthog.temporal.data_imports.sources.mssql.mssql import _get_table_average_row_size, _get_table_stats
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
 from posthog.warehouse.models import ExternalDataSchema, ExternalDataSource
 from posthog.warehouse.types import IncrementalFieldType

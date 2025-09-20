@@ -12,6 +12,7 @@ import { closeHub, createHub } from '../utils/db/hub'
 import { parseRawClickHouseEvent } from '../utils/event'
 import { parseJSON } from '../utils/json-parse'
 import { UUIDT } from '../utils/utils'
+import { fetchDistinctIds } from '../worker/ingestion/persons/repositories/test-helpers'
 import { IngestionConsumer } from './ingestion-consumer'
 
 // Mock the limiter so it always returns true
@@ -1301,7 +1302,7 @@ describe('Event Pipeline E2E tests', () => {
                     test_name: testName,
                 })
             )
-            const distinctIdsPersons = await hub.db.fetchDistinctIds({
+            const distinctIdsPersons = await fetchDistinctIds(hub.db.postgres, {
                 id: persons[0].id,
                 team_id: team.id,
             } as InternalPerson)
@@ -1416,7 +1417,7 @@ describe('Event Pipeline E2E tests', () => {
                     test_name: testName,
                 })
             )
-            const distinctIdsPersons = await hub.db.fetchDistinctIds({
+            const distinctIdsPersons = await fetchDistinctIds(hub.db.postgres, {
                 id: persons[0].id,
                 team_id: team.id,
             } as InternalPerson)
@@ -1532,7 +1533,7 @@ describe('Event Pipeline E2E tests', () => {
                     test_name: testName,
                 })
             )
-            const distinctIdsPersons = await hub.db.fetchDistinctIds({
+            const distinctIdsPersons = await fetchDistinctIds(hub.db.postgres, {
                 id: persons[0].id,
                 team_id: team.id,
             } as InternalPerson)
@@ -1676,7 +1677,7 @@ describe('Event Pipeline E2E tests', () => {
                 )
                 const person1 = persons.find((person) => person.properties.name === 'User 1')!
                 const person2 = persons.find((person) => person.properties.name === 'User 2')!
-                const distinctIdsPersons1 = await hub.db.fetchDistinctIds({
+                const distinctIdsPersons1 = await fetchDistinctIds(hub.db.postgres, {
                     id: person1.id,
                     team_id: team.id,
                 } as InternalPerson)
@@ -1685,7 +1686,7 @@ describe('Event Pipeline E2E tests', () => {
                 expect(distinctIdsPersons1.map((distinctId) => distinctId.distinct_id)).toEqual(
                     expect.arrayContaining([user1DistinctId])
                 )
-                const distinctIdsPersons2 = await hub.db.fetchDistinctIds({
+                const distinctIdsPersons2 = await fetchDistinctIds(hub.db.postgres, {
                     id: person2.id,
                     team_id: team.id,
                 } as InternalPerson)

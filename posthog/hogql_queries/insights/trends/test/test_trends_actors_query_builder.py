@@ -2,29 +2,32 @@ from datetime import UTC, datetime
 from typing import Optional, cast
 
 from freezegun import freeze_time
+from posthog.test.base import BaseTest
+
 from hogql_parser import parse_select
 
-from posthog.constants import UNIQUE_GROUPS
+from posthog.schema import (
+    BaseMathType,
+    ChartDisplayType,
+    Compare,
+    CompareFilter,
+    DateRange,
+    EventsNode,
+    IntervalType,
+    MathGroupTypeIndex,
+    TrendsFilter,
+    TrendsQuery,
+)
+
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.printer import print_ast
 from posthog.hogql.timings import HogQLTimings
+
+from posthog.constants import UNIQUE_GROUPS
 from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
-from posthog.schema import (
-    BaseMathType,
-    ChartDisplayType,
-    Compare,
-    CompareFilter,
-    EventsNode,
-    DateRange,
-    IntervalType,
-    TrendsFilter,
-    TrendsQuery,
-    MathGroupTypeIndex,
-)
-from posthog.test.base import BaseTest
 
 default_query = TrendsQuery(series=[EventsNode(event="$pageview")], dateRange=DateRange(date_from="-7d"))
 

@@ -1,5 +1,5 @@
 import pytest
-from posthog.hogql_queries.insights.utils.entities import is_equal, is_superset
+
 from posthog.schema import (
     ActionsNode,
     EmptyPropertyFilter,
@@ -9,6 +9,7 @@ from posthog.schema import (
     PropertyOperator,
 )
 
+from posthog.hogql_queries.insights.utils.entities import is_equal, is_superset
 
 testdata_equals = [
     (EventsNode(), EventsNode(), True),

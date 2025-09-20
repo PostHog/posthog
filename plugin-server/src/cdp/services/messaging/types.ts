@@ -112,7 +112,7 @@ export type MailjetWebhookEvent =
 export const EVENT_TYPE_TO_CATEGORY = {
     sent: 'email_sent',
     open: 'email_opened',
-    click: 'email_clicked',
+    click: 'email_link_clicked',
     bounce: 'email_bounced',
     blocked: 'email_blocked',
     spam: 'email_spam',

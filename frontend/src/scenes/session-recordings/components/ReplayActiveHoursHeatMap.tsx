@@ -1,8 +1,9 @@
 import { useValues } from 'kea'
+
+import { teamLogic } from 'scenes/teamLogic'
 import { CalendarHeatMap } from 'scenes/web-analytics/CalendarHeatMap/CalendarHeatMap'
 
 import { getOnClickTooltip, onCellClick, replayActiveHoursHeatMapLogic } from './replayActiveHoursHeatMapLogic'
-import { teamLogic } from 'scenes/teamLogic'
 
 export const ReplayActiveHoursHeatMap = (): JSX.Element => {
     const { timezone } = useValues(teamLogic)

@@ -1,16 +1,20 @@
 import '~/styles'
+
+import { Controls, Description, Primary, Stories, Subtitle, Title } from '@storybook/blocks'
 import type { Meta, Parameters, Preview } from '@storybook/react'
-import { Title, Subtitle, Description, Primary, Controls, Stories } from '@storybook/blocks'
-import { worker } from '~/mocks/browser'
+
+import { apiHostOrigin } from 'lib/utils/apiHost'
+
 import { loadPostHogJS } from '~/loadPostHogJS'
+import { worker } from '~/mocks/browser'
+import { defaultMocks } from '~/mocks/handlers'
+
+import { getStorybookAppContext } from './app-context'
+import { withFeatureFlags } from './decorators/withFeatureFlags'
 import { withKea } from './decorators/withKea'
 import { withMockDate } from './decorators/withMockDate'
-import { defaultMocks } from '~/mocks/handlers'
-import { withFeatureFlags } from './decorators/withFeatureFlags'
-import { withTheme } from './decorators/withTheme'
-import { apiHostOrigin } from 'lib/utils/apiHost'
-import { getStorybookAppContext } from './app-context'
 import { withPageUrl } from './decorators/withPageUrl'
+import { withTheme } from './decorators/withTheme'
 
 const setupMsw = (): void => {
     // Make sure the msw worker is started

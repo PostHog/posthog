@@ -1,10 +1,11 @@
 import { expectLogic } from 'kea-test-utils'
+
 import api from 'lib/api'
 import { delay } from 'lib/utils'
 
 import { initKeaTests } from '~/test/init'
 
-import { eventIngestionRestrictionLogic, RestrictionType } from './eventIngestionRestrictionLogic'
+import { RestrictionType, eventIngestionRestrictionLogic } from './eventIngestionRestrictionLogic'
 
 jest.mock('lib/api')
 

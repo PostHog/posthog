@@ -237,7 +237,7 @@ describe('SessionBatchRecorder', () => {
 
     // Helper to capture written data
     const captureWrittenData = (mockWriteSession: jest.Mock): string[] => {
-        return mockWriteSession.mock.calls.map(([buffer]) => buffer.toString())
+        return mockWriteSession.mock.calls.map(([data]) => data.buffer.toString())
     }
 
     describe('recording and writing', () => {
@@ -1031,7 +1031,9 @@ describe('SessionBatchRecorder', () => {
                 ),
             ]
 
-            messages.forEach((message) => recorder.record(message))
+            for (const message of messages) {
+                await recorder.record(message)
+            }
             await recorder.flush()
 
             expect(mockMetadataStore.storeSessionBlocks).toHaveBeenCalledWith(
@@ -1112,7 +1114,9 @@ describe('SessionBatchRecorder', () => {
                 ),
             ]
 
-            messages.forEach((message) => recorder.record(message))
+            for (const message of messages) {
+                await recorder.record(message)
+            }
             await recorder.flush()
 
             const writtenData = captureWrittenData(mockWriter.writeSession as jest.Mock)
@@ -1151,7 +1155,9 @@ describe('SessionBatchRecorder', () => {
                 ),
             ]
 
-            messages.forEach((message) => recorder.record(message))
+            for (const message of messages) {
+                await recorder.record(message)
+            }
             recorder.discardPartition(1)
             await recorder.flush()
 
@@ -1289,7 +1295,9 @@ describe('SessionBatchRecorder', () => {
                 ),
             ]
 
-            messages.forEach((message) => recorder.record(message))
+            for (const message of messages) {
+                await recorder.record(message)
+            }
             recorder.discardPartition(1)
             await recorder.flush()
 

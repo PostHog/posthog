@@ -1,13 +1,14 @@
 import pytest
+from posthog.test.base import _create_person
 
-from ee.clickhouse.materialized_columns.columns import materialize
 from posthog.clickhouse.client import sync_execute
+from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
+from posthog.models.property import Property
 from posthog.models.team import Team
 from posthog.queries.person_query import PersonQuery
-from posthog.test.base import _create_person
-from posthog.models.cohort import Cohort
-from posthog.models.property import Property
+
+from ee.clickhouse.materialized_columns.columns import materialize
 
 
 def person_query(team: Team, filter: Filter, **kwargs):

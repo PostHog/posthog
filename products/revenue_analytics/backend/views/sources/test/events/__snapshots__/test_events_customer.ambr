@@ -1,0 +1,67 @@
+# serializer version: 1
+# name: TestCustomerEventsBuilder.test_build_customer_queries_for_all_events
+  '''
+  SELECT toString(id) AS id,
+         'revenue_analytics.events.purchase' AS source_label,
+         created_at AS timestamp,
+         properties.name AS name,
+         properties.email AS email,
+         properties.phone AS phone,
+         properties.address AS address,
+         properties.metadata AS metadata,
+         properties.$geoip_country_name AS country,
+         formatDateTime(toStartOfMonth(created_at), '%Y-%m') AS cohort,
+         NULL AS initial_coupon,
+         NULL AS initial_coupon_id
+  FROM persons AS persons
+  INNER JOIN
+    (SELECT DISTINCT events.person.id AS person_id
+     FROM events
+     WHERE true) AS events ON equals(id, person_id)
+  ORDER BY created_at DESC
+  '''
+# ---
+# name: TestCustomerEventsBuilder.test_customer_query_structure
+  '''
+  SELECT toString(id) AS id,
+         'revenue_analytics.events.purchase' AS source_label,
+         created_at AS timestamp,
+         properties.name AS name,
+         properties.email AS email,
+         properties.phone AS phone,
+         properties.address AS address,
+         properties.metadata AS metadata,
+         properties.$geoip_country_name AS country,
+         formatDateTime(toStartOfMonth(created_at), '%Y-%m') AS cohort,
+         NULL AS initial_coupon,
+         NULL AS initial_coupon_id
+  FROM persons AS persons
+  INNER JOIN
+    (SELECT DISTINCT events.person.id AS person_id
+     FROM events
+     WHERE true) AS events ON equals(id, person_id)
+  ORDER BY created_at DESC
+  '''
+# ---
+# name: TestCustomerEventsBuilder.test_customer_query_uses_distinct_persons
+  '''
+  SELECT toString(id) AS id,
+         'revenue_analytics.events.subscription_charge' AS source_label,
+         created_at AS timestamp,
+         properties.name AS name,
+         properties.email AS email,
+         properties.phone AS phone,
+         properties.address AS address,
+         properties.metadata AS metadata,
+         properties.$geoip_country_name AS country,
+         formatDateTime(toStartOfMonth(created_at), '%Y-%m') AS cohort,
+         NULL AS initial_coupon,
+         NULL AS initial_coupon_id
+  FROM persons AS persons
+  INNER JOIN
+    (SELECT DISTINCT events.person.id AS person_id
+     FROM events
+     WHERE true) AS events ON equals(id, person_id)
+  ORDER BY created_at DESC
+  '''
+# ---

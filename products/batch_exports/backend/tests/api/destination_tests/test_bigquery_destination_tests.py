@@ -1,10 +1,11 @@
-import json
 import os
-import typing
+import json
 import uuid
+import typing
 import warnings
 
 import pytest
+
 from google.cloud import bigquery, exceptions
 
 from products.batch_exports.backend.api.destination_tests import (

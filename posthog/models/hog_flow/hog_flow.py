@@ -3,11 +3,12 @@ from typing import TYPE_CHECKING
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch.dispatcher import receiver
+
 import structlog
 
-from posthog.models.utils import UUIDModel
 from posthog.models.action.action import Action
 from posthog.models.team.team import Team
+from posthog.models.utils import UUIDTModel
 from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
 
 if TYPE_CHECKING:
@@ -16,7 +17,7 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
-class HogFlow(UUIDModel):
+class HogFlow(UUIDTModel):
     """
     Stores the version, layout and other meta information for each HogFlow
     """

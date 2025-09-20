@@ -1,9 +1,11 @@
-import { IconBug } from '@posthog/icons'
-import { LemonTag, Spinner } from '@posthog/lemon-ui'
-import { ExceptionAttributes } from 'lib/components/Errors/types'
-import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 import { Children } from 'react'
 import { match } from 'ts-pattern'
+
+import { IconBug } from '@posthog/icons'
+import { LemonTag, Spinner } from '@posthog/lemon-ui'
+
+import { ExceptionAttributes } from 'lib/components/Errors/types'
+import { PropertyIcon } from 'lib/components/PropertyIcon/PropertyIcon'
 
 export interface ExceptionAttributesPreviewProps {
     attributes: ExceptionAttributes | null

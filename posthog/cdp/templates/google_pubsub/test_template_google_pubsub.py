@@ -1,11 +1,12 @@
 from datetime import datetime
+
+from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from inline_snapshot import snapshot
 
 from posthog.cdp.templates.google_pubsub.template_google_pubsub import TemplateGooglePubSubMigrator
-from posthog.models import PluginConfig, PluginAttachment, Plugin, Integration
-from posthog.test.base import BaseTest
+from posthog.models import Integration, Plugin, PluginAttachment, PluginConfig
 
 
 class TestTemplateMigration(BaseTest):

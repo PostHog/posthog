@@ -40,6 +40,7 @@ pub fn match_property(
     // only looks for matches where key exists in override_property_values
     // doesn't support operator is_not_set with partial_props
     if partial_props && !matching_property_values.contains_key(&property.key) {
+        tracing::warn!("Missing property for matching: {}", property.key);
         return Err(FlagMatchingError::MissingProperty(format!(
             "can't match properties without a value. Missing property: {}",
             property.key
@@ -184,18 +185,32 @@ pub fn match_property(
                 }
             };
 
-            let parsed_value = match to_f64_representation(match_value.unwrap_or(&Value::Null)) {
+            let parsed_value = match to_f64_representation(
+                match_value.unwrap_or(&serde_json::Value::Null),
+            ) {
                 Some(parsed_value) => parsed_value,
                 None => {
+                    tracing::debug!(
+                        "Failed to parse property value '{}' for key '{}' as number for operator {:?}",
+                        match_value.unwrap_or(&serde_json::Value::Null),
+                        key,
+                        operator
+                    );
                     return Err(FlagMatchingError::ValidationError(
                         "value is not a number".to_string(),
-                    ))
+                    ));
                 }
             };
 
             if let Some(override_value) = to_f64_representation(value) {
                 Ok(compare(parsed_value, override_value, operator))
             } else {
+                tracing::debug!(
+                    "Failed to parse filter value '{}' for key '{}' as number for operator {:?}",
+                    value,
+                    key,
+                    operator
+                );
                 Err(FlagMatchingError::ValidationError(
                     "override value is not a number".to_string(),
                 ))

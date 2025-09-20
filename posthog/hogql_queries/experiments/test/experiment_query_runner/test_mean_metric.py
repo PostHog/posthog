@@ -1,14 +1,10 @@
 from typing import cast
 
-from django.test import override_settings
 from freezegun import freeze_time
+from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 
-from posthog.hogql_queries.experiments.experiment_query_runner import (
-    ExperimentQueryRunner,
-)
-from posthog.hogql_queries.experiments.test.experiment_query_runner.base import (
-    ExperimentQueryRunnerBaseTest,
-)
+from django.test import override_settings
+
 from posthog.schema import (
     EventsNode,
     ExperimentMeanMetric,
@@ -16,12 +12,9 @@ from posthog.schema import (
     ExperimentQuery,
     ExperimentQueryResponse,
 )
-from posthog.test.base import (
-    _create_event,
-    _create_person,
-    flush_persons_and_events,
-    snapshot_clickhouse_queries,
-)
+
+from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
+from posthog.hogql_queries.experiments.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 from posthog.test.test_journeys import journeys_for
 
 
@@ -346,6 +339,8 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
                     *_create_events_for_user("control", 3, "c_1_b"),
                 ],
                 "control_2": _create_events_for_user("control", 3, "c_2_a"),
+                # Control 3 has zero pageviews, so this session should not be included in the session metric count
+                "control_3": _create_events_for_user("control", 0, "c_3_a"),
                 # 5 unique sessions in test
                 "test_1": [
                     *_create_events_for_user("test", 3, "t_1_a"),
@@ -390,7 +385,7 @@ class TestExperimentMeanMetric(ExperimentQueryRunnerBaseTest):
 
         self.assertEqual(control_variant.sum, 3)
         self.assertEqual(test_variant.sum, 5)
-        self.assertEqual(control_variant.number_of_samples, 2)
+        self.assertEqual(control_variant.number_of_samples, 3)
         self.assertEqual(test_variant.number_of_samples, 2)
 
     @freeze_time("2024-01-01T12:00:00Z")

@@ -1,6 +1,6 @@
 import { EitherMembershipLevel, FEATURE_FLAGS } from 'lib/constants'
 
-import { Realm, TeamPublicType, TeamType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, Realm, TeamPublicType, TeamType } from '~/types'
 
 export type SettingsLogicProps = {
     logicKey?: string
@@ -55,6 +55,7 @@ export type SettingSectionId =
     | 'user-customization'
     | 'user-danger-zone'
     | 'user-feature-previews'
+    | 'mcp-server'
 
 export type SettingId =
     | 'replay-triggers'
@@ -70,6 +71,7 @@ export type SettingId =
     | 'internal-user-filtering'
     | 'data-theme'
     | 'correlation-analysis'
+    | 'crm-usage-metrics'
     | 'person-display-name'
     | 'path-cleaning'
     | 'datacapture'
@@ -81,6 +83,7 @@ export type SettingId =
     | 'replay-masking'
     | 'replay-authorized-domains'
     | 'replay-ingestion'
+    | 'replay-retention'
     | 'surveys-interface'
     | 'feature-flags-interface'
     | 'error-tracking-exception-autocapture'
@@ -93,6 +96,7 @@ export type SettingId =
     | 'integration-webhooks'
     | 'integration-slack'
     | 'integration-error-tracking'
+    | 'integration-github'
     | 'integration-other'
     | 'integration-ip-allowlist'
     | 'environment-access-control'
@@ -142,9 +146,11 @@ export type SettingId =
     | 'core-memory'
     | 'customization-irl'
     | 'web-analytics-pre-aggregated-tables'
+    | 'web-analytics-opt-in-pre-aggregated-tables-and-api'
     | 'csp-reporting'
     | 'base-currency'
     | 'marketing-settings'
+    | 'mcp-server-configure'
 
 type FeatureFlagKey = keyof typeof FEATURE_FLAGS
 
@@ -153,13 +159,16 @@ export type Setting = {
     title: JSX.Element | string
     description?: JSX.Element | string
     component: JSX.Element
+    searchTerm?: string
+    hideOn?: Realm[]
+
     /**
      * Feature flag to gate the setting being shown.
      * If prefixed with !, the condition is inverted - the setting will only be shown if the is flag false.
      * When an array is provided, the setting will be shown if ALL of the conditions are met.
      */
     flag?: FeatureFlagKey | `!${FeatureFlagKey}` | (FeatureFlagKey | `!${FeatureFlagKey}`)[]
-    hideOn?: Realm[]
+
     /**
      * defaults to true if not provided
      * can check if a team should have access to a setting and return false if not
@@ -175,4 +184,14 @@ export interface SettingSection extends Pick<Setting, 'flag'> {
     level: SettingLevelId
     settings: Setting[]
     minimumAccessLevel?: EitherMembershipLevel
+    searchValue?: string
+
+    /**
+     * If the setting is restricted, the resource type and minimum access level
+     * that are required to access the setting
+     */
+    accessControl?: {
+        resourceType: AccessControlResourceType
+        minimumAccessLevel: AccessControlLevel
+    }
 }

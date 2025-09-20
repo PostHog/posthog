@@ -2,21 +2,23 @@ import time
 from typing import Optional
 from uuid import UUID
 
-import posthoganalytics
-import requests
-from celery import shared_task
 from django.conf import settings
 from django.db import connection
 from django.utils import timezone
+
+import requests
+import posthoganalytics
+from celery import shared_task
 from prometheus_client import Gauge
 from redis import Redis
 from structlog import get_logger
+
+from posthog.hogql.constants import LimitContext
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, limit_concurrency
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
-from posthog.hogql.constants import LimitContext
 from posthog.metrics import pushed_metrics_registry
 from posthog.ph_client import get_regional_ph_client
 from posthog.redis import get_client
@@ -656,9 +658,7 @@ def calculate_decide_usage() -> None:
 def find_flags_with_enriched_analytics() -> None:
     from datetime import datetime, timedelta
 
-    from posthog.models.feature_flag.flag_analytics import (
-        find_flags_with_enriched_analytics,
-    )
+    from posthog.models.feature_flag.flag_analytics import find_flags_with_enriched_analytics
 
     end = datetime.now()
     begin = end - timedelta(hours=12)
@@ -692,9 +692,7 @@ def check_async_migration_health() -> None:
 
 @shared_task(ignore_result=True)
 def verify_persons_data_in_sync() -> None:
-    from posthog.tasks.verify_persons_data_in_sync import (
-        verify_persons_data_in_sync as verify,
-    )
+    from posthog.tasks.verify_persons_data_in_sync import verify_persons_data_in_sync as verify
 
     if not is_cloud():
         return
@@ -737,9 +735,7 @@ def recompute_materialized_columns_enabled() -> bool:
 def clickhouse_materialize_columns() -> None:
     if recompute_materialized_columns_enabled():
         try:
-            from ee.clickhouse.materialized_columns.analyze import (
-                materialize_properties_task,
-            )
+            from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
         except ImportError:
             pass
         else:
@@ -756,9 +752,7 @@ def send_org_usage_reports() -> None:
 @shared_task(ignore_result=True)
 def schedule_all_subscriptions() -> None:
     try:
-        from ee.tasks.subscriptions import (
-            schedule_all_subscriptions as _schedule_all_subscriptions,
-        )
+        from ee.tasks.subscriptions import schedule_all_subscriptions as _schedule_all_subscriptions
     except ImportError:
         pass
     else:
@@ -787,23 +781,13 @@ def check_flags_to_rollback() -> None:
 
 
 @shared_task(ignore_result=True)
-def ee_persist_single_recording(id: str, team_id: int) -> None:
+def ee_persist_single_recording_v2(id: str, team_id: int) -> None:
     try:
-        from ee.session_recordings.persistence_tasks import persist_single_recording
+        from ee.session_recordings.persistence_tasks import persist_single_recording_v2
 
-        persist_single_recording(id, team_id)
+        persist_single_recording_v2(id, team_id)
     except ImportError:
         pass
-
-
-@shared_task(ignore_result=True)
-def ee_persist_finished_recordings() -> None:
-    try:
-        from ee.session_recordings.persistence_tasks import persist_finished_recordings
-    except ImportError:
-        pass
-    else:
-        persist_finished_recordings()
 
 
 @shared_task(ignore_result=True)
@@ -853,7 +837,9 @@ def background_delete_model_task(
         records_to_delete: Maximum number of records to delete (None means delete all)
     """
     import logging
+
     from django.apps import apps
+
     import structlog
 
     logger = structlog.get_logger(__name__)
@@ -937,3 +923,52 @@ def background_delete_model_task(
     except Exception as e:
         logger.error(f"Error in background deletion for {model_name}, team_id={team_id}: {str(e)}", exc_info=True)
         raise
+
+
+@shared_task(ignore_result=True)
+def refresh_activity_log_fields_cache() -> None:
+    """Refresh fields cache for large organizations every 12 hours"""
+    from django.db.models import Count
+
+    from posthog.api.advanced_activity_logs.field_discovery import AdvancedActivityLogFieldDiscovery, DetailFieldsResult
+    from posthog.api.advanced_activity_logs.fields_cache import cache_fields
+    from posthog.api.advanced_activity_logs.queries import SMALL_ORG_THRESHOLD
+    from posthog.exceptions_capture import capture_exception
+    from posthog.models import Organization
+
+    logger.info("[refresh_activity_log_fields_cache] running task")
+
+    large_orgs = Organization.objects.annotate(activity_count=Count("activitylog")).filter(
+        activity_count__gt=SMALL_ORG_THRESHOLD
+    )
+
+    org_count = len(large_orgs)
+    logger.info(f"[refresh_activity_log_fields_cache] processing {org_count} large organizations")
+
+    for org in large_orgs:
+        try:
+            discovery = AdvancedActivityLogFieldDiscovery(org.id)
+
+            result: DetailFieldsResult = {}
+
+            top_level_fields = discovery._get_top_level_fields()
+            discovery._merge_fields_into_result(result, top_level_fields)
+
+            nested_fields = discovery._compute_nested_fields_realtime()
+            discovery._merge_fields_into_result(result, nested_fields)
+
+            changes_fields = discovery._get_changes_fields()
+            discovery._merge_fields_into_result(result, changes_fields)
+
+            record_count = discovery._get_org_record_count()
+            cache_fields(str(org.id), result, record_count)
+
+        except Exception as e:
+            logger.exception(
+                "Failed to refresh activity log fields cache for org",
+                org_id=org.id,
+                error=e,
+            )
+            capture_exception(e)
+
+    logger.info(f"[refresh_activity_log_fields_cache] completed for {org_count} organizations")

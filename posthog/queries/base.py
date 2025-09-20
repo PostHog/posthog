@@ -1,28 +1,21 @@
-import datetime
-import hashlib
 import re
-from typing import (
-    Any,
-    Optional,
-    TypeVar,
-    Union,
-    cast,
-)
+import hashlib
+import datetime
 from collections.abc import Callable
+from typing import Any, Optional, TypeVar, Union, cast
 from zoneinfo import ZoneInfo
-from dateutil.relativedelta import relativedelta
-from dateutil import parser
+
 from django.db.models import Exists, OuterRef, Q, Value
+
+from dateutil import parser
+from dateutil.relativedelta import relativedelta
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import PropertyOperatorType
-from posthog.models.cohort import Cohort, CohortPeople, CohortOrEmpty
+from posthog.models.cohort import Cohort, CohortOrEmpty, CohortPeople
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
-from posthog.models.property import (
-    Property,
-    PropertyGroup,
-)
+from posthog.models.property import Property, PropertyGroup
 from posthog.models.property.property import OperatorType, ValueT
 from posthog.models.team import Team
 from posthog.queries.util import convert_to_datetime_aware
@@ -404,9 +397,16 @@ def property_to_Q(
         effective_operator = "gt" if property.operator == "is_date_after" else "lt"
         effective_value = value
 
+        # First try relative date parsing
         relative_date = relative_date_parse_for_feature_flag_matching(str(value))
         if relative_date:
             effective_value = relative_date.isoformat()
+        else:
+            # Parse the date string and convert to ISO format for consistent comparison
+            # This ensures we're comparing dates in the same format (ISO 8601)
+            parsed_date = determine_parsed_date_for_property_matching(value)
+            if parsed_date:
+                effective_value = parsed_date.isoformat()
 
         return Q(**{f"{column}__{property.key}__{effective_operator}": effective_value})
 

@@ -1,24 +1,27 @@
+import clsx from 'clsx'
+import { BuiltLogic, LogicWrapper, useValues } from 'kea'
+import { useState } from 'react'
+
 import { IconDashboard, IconGear, IconTrending } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
-import clsx from 'clsx'
-import { useValues } from 'kea'
+
 import { getColorVar } from 'lib/colors'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { DEFAULT_CURRENCY } from 'lib/utils/geography/currency'
-import { useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
 import {
     AnyResponseType,
+    WebAnalyticsItemKind,
     WebOverviewItem,
-    WebOverviewItemKind,
     WebOverviewQuery,
     WebOverviewQueryResponse,
 } from '~/queries/schema/schema-general'
@@ -37,9 +40,12 @@ export function WebOverview(props: {
     query: WebOverviewQuery
     cachedResults?: AnyResponseType
     context: QueryContext
+    attachTo?: LogicWrapper | BuiltLogic
+    uniqueKey?: string | number
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
-    const [key] = useState(() => `WebOverview.${uniqueNode++}`)
+    const [_key] = useState(() => `WebOverview.${uniqueNode++}`)
+    const key = props.uniqueKey ? String(props.uniqueKey) : _key
     const logic = dataNodeLogic({
         query: props.query,
         key,
@@ -49,6 +55,7 @@ export function WebOverview(props: {
         dataNodeCollectionId: dataNodeCollectionId ?? key,
     })
     const { response, responseLoading } = useValues(logic)
+    useAttachedLogic(logic, props.attachTo)
 
     const webOverviewQueryResponse = response as WebOverviewQueryResponse | undefined
 
@@ -207,7 +214,7 @@ const formatUnit = (x: number, options?: { precise?: boolean }): string => {
 
 const formatItem = (
     value: number | undefined,
-    kind: WebOverviewItemKind,
+    kind: WebAnalyticsItemKind,
     options?: { precise?: boolean; currency?: string }
 ): string => {
     if (value == null) {

@@ -1,11 +1,12 @@
 import re
 from typing import Optional
 
-from posthog.clickhouse.client.escape import substitute_params
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import FunctionCallTable
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.escape_sql import escape_hogql_identifier
+
+from posthog.clickhouse.client.escape import substitute_params
 
 
 def build_function_call(
@@ -15,7 +16,12 @@ def build_function_call(
     access_secret: Optional[str] = None,
     structure: Optional[str] = None,
     context: Optional[HogQLContext] = None,
+    table_size_mib: Optional[float] = None,
 ) -> str:
+    use_s3_cluster = False
+    if table_size_mib is not None and table_size_mib >= 1024:  # 1 GiB
+        use_s3_cluster = True
+
     raw_params: dict[str, str] = {}
 
     def add_param(value: str, is_sensitive: bool = True) -> str:
@@ -44,7 +50,10 @@ def build_function_call(
         if structure:
             escaped_structure = add_param(structure, False)
 
-        expr = f"s3({escaped_url}"
+        if use_s3_cluster:
+            expr = f"s3Cluster('posthog', {escaped_url}"
+        else:
+            expr = f"s3({escaped_url}"
 
         if access_key and access_secret:
             escaped_access_key = add_param(access_key)
@@ -113,7 +122,10 @@ def build_function_call(
     if structure:
         escaped_structure = add_param(structure, False)
 
-    expr = f"s3({escaped_url}"
+    if use_s3_cluster:
+        expr = f"s3Cluster('posthog', {escaped_url}"
+    else:
+        expr = f"s3({escaped_url}"
 
     if access_key and access_secret:
         escaped_access_key = add_param(access_key)
@@ -130,11 +142,14 @@ def build_function_call(
 
 
 class S3Table(FunctionCallTable):
+    requires_args: bool = False
     url: str
     format: str = "CSVWithNames"
     access_key: Optional[str] = None
     access_secret: Optional[str] = None
     structure: Optional[str] = None
+    table_id: Optional[str] = None
+    table_size_mib: Optional[float] = None
 
     def to_printed_hogql(self):
         return escape_hogql_identifier(self.name)
@@ -147,4 +162,11 @@ class S3Table(FunctionCallTable):
             access_secret=self.access_secret,
             structure=self.structure,
             context=context,
+            table_size_mib=self.table_size_mib,
         )
+
+
+class DataWarehouseTable(S3Table):
+    """A table placeholder for checking warehouse tables"""
+
+    pass

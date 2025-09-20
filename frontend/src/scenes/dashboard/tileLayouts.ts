@@ -1,4 +1,5 @@
 import { Layout } from 'react-grid-layout'
+
 import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'

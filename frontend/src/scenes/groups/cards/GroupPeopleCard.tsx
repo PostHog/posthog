@@ -12,7 +12,7 @@ export function GroupPeopleCard({ groupData }: { groupData: Group }): JSX.Elemen
                 groupTypeIndex={groupData.group_type_index}
                 id={groupData.group_key}
                 type="person"
-                limit={5}
+                pageSize={5}
             />
             <div className="flex justify-end">
                 <LemonButton

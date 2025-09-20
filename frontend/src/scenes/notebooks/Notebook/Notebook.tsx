@@ -2,12 +2,15 @@ import './Notebook.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+
 import { NotFound } from 'lib/components/NotFound'
+import { EditorFocusPosition, JSONContent } from 'lib/components/RichContentEditor/types'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { useWhyDidIRender } from 'lib/hooks/useWhyDidIRender'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
-import { useEffect } from 'react'
-import { notebookLogic, NotebookLogicProps } from 'scenes/notebooks/Notebook/notebookLogic'
+import { NotebookLogicProps, notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { SCRATCHPAD_NOTEBOOK } from '~/models/notebooksModel'
@@ -19,8 +22,6 @@ import { NotebookConflictWarning } from './NotebookConflictWarning'
 import { NotebookHistoryWarning } from './NotebookHistory'
 import { NotebookLoadingState } from './NotebookLoadingState'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
-import { EditorFocusPosition, JSONContent } from 'lib/components/RichContentEditor/types'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export type NotebookProps = NotebookLogicProps & {
     initialAutofocus?: EditorFocusPosition
@@ -124,7 +125,7 @@ export function Notebook({
                     {shortId === SCRATCHPAD_NOTEBOOK.short_id ? (
                         <LemonBanner
                             type="info"
-                            className="my-4"
+                            className="mb-3"
                             action={{
                                 children: 'Convert to Notebook',
                                 onClick: duplicateNotebook,
@@ -135,7 +136,7 @@ export function Notebook({
                         </LemonBanner>
                     ) : null}
 
-                    <div className="flex flex-1 justify-center">
+                    <div className="Notebook_content">
                         <NotebookColumnLeft />
                         <ErrorBoundary>
                             <Editor />

@@ -9,7 +9,8 @@ import { SettingSectionId } from './settings/types'
 
 export enum Scene {
     Action = 'Action',
-    Activity = 'Activity',
+    Actions = 'Actions',
+    AdvancedActivityLogs = 'AdvancedActivityLogs',
     AsyncMigrations = 'AsyncMigrations',
     BatchExport = 'BatchExport',
     BatchExportNew = 'BatchExportNew',
@@ -20,6 +21,7 @@ export enum Scene {
     Cohort = 'Cohort',
     Cohorts = 'Cohorts',
     CustomCss = 'CustomCss',
+    CustomerAnalytics = 'CustomerAnalytics',
     Dashboard = 'Dashboard',
     Dashboards = 'Dashboards',
     DataManagement = 'DataManagement',
@@ -39,14 +41,15 @@ export enum Scene {
     ErrorProjectUnavailable = 'ProjectUnavailable',
     ErrorTracking = 'ErrorTracking',
     ErrorTrackingConfiguration = 'ErrorTrackingConfiguration',
-    ErrorTrackingImpact = 'ErrorTrackingImpact',
     ErrorTrackingIssue = 'ErrorTrackingIssue',
+    ErrorTrackingIssueFingerprints = 'ErrorTrackingIssueFingerprints',
     EventDefinition = 'EventDefinition',
     EventDefinitionEdit = 'EventDefinitionEdit',
     Experiment = 'Experiment',
     Experiments = 'Experiments',
     ExperimentsSharedMetric = 'ExperimentsSharedMetric',
     ExperimentsSharedMetrics = 'ExperimentsSharedMetrics',
+    ExploreEvents = 'ExploreEvents',
     FeatureFlag = 'FeatureFlag',
     FeatureFlags = 'FeatureFlags',
     Game368 = 'Game368',
@@ -61,6 +64,7 @@ export enum Scene {
     LegacyPlugin = 'LegacyPlugin',
     Link = 'Link',
     Links = 'Links',
+    LiveEvents = 'LiveEvents',
     Login = 'Login',
     Login2FA = 'Login2FA',
     Max = 'Max',
@@ -113,29 +117,47 @@ export enum Scene {
     WebAnalyticsMarketing = 'WebAnalyticsMarketing',
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',
     WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
+    EmbeddedAnalytics = 'EmbeddedAnalytics',
     Wizard = 'Wizard',
 }
 
-export type SceneProps = Record<string, any>
+export type SceneComponent<T> = (props: T) => JSX.Element | null
 
-export type SceneComponent = (params?: SceneProps) => JSX.Element | null
-
-export interface SceneExport {
+export interface SceneExport<T = {}> {
     /** component to render for this scene */
-    component: SceneComponent
+    component: SceneComponent<T>
     /** logic to mount for this scene */
     logic?: LogicWrapper
     /** setting section id to open when clicking the settings button */
     settingSectionId?: SettingSectionId
     /** convert URL parameters from scenes.ts into logic props */
-    paramsToProps?: (params: SceneParams) => SceneProps
+    paramsToProps?: (params: SceneParams) => T
     /** when was the scene last touched, unix timestamp for sortability */
     lastTouch?: number
 }
 
-export interface LoadedScene extends SceneExport {
+type SceneProps = Record<string, any>
+
+// KLUDGE: LoadedScene is used in a logic and therefore cannot accept generics
+// we use an untyped SceneProps to satisfy the types
+export interface LoadedScene extends SceneExport<SceneProps> {
     id: string
+    tabId?: string
     sceneParams: SceneParams
+}
+
+export interface SceneTab {
+    id: string
+    pathname: string
+    search: string
+    hash: string
+    title: string
+    active: boolean
+    customTitle?: string
+
+    sceneId?: string
+    sceneKey?: string
+    sceneParams?: SceneParams
 }
 
 export interface SceneParams {
@@ -157,12 +179,13 @@ export interface SceneConfig {
     allowUnauthenticated?: boolean
     /**
      * If `app`, navigation is shown, and the scene has default padding.
+     * If `app-full-scene-height`, navigation is shown, and the scene has default padding and wrapper takes full screen height.
      * If `app-raw`, navigation is shown, but the scene has no padding.
      * If `app-container`, navigation is shown, and the scene is centered with a max width.
      * If `plain`, there's no navigation present, and the scene has no padding.
      * @default 'app'
      */
-    layout?: 'app' | 'app-raw' | 'app-container' | 'app-raw-no-header' | 'plain'
+    layout?: 'app' | 'app-raw' | 'app-container' | 'app-raw-no-header' | 'plain' | 'app-full-scene-height'
     /** Hides project notice (ProjectNotice.tsx). */
     hideProjectNotice?: boolean
     /** Hides billing notice (BillingAlertsV2.tsx). */
@@ -177,8 +200,8 @@ export interface SceneConfig {
     projectBased?: boolean
     /** Set the scope of the activity (affects activity and discussion panel) */
     activityScope?: ActivityScope | string
-    /** Default docs path - what the docs side panel will open by default if this scene is active  */
-    defaultDocsPath?: string
+    /** Default docs path - what the docs side panel will open by default when this scene is active  */
+    defaultDocsPath?: string | (() => string) | (() => Promise<string>)
     /** Component import, used only in manifests */
     import?: () => Promise<any>
 }
@@ -200,4 +223,12 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     // Notebooks
     [Scene.Notebook]: AccessControlResourceType.Notebook,
     [Scene.Notebooks]: AccessControlResourceType.Notebook,
+
+    // Session recording
+    [Scene.Replay]: AccessControlResourceType.SessionRecording,
+    [Scene.ReplaySingle]: AccessControlResourceType.SessionRecording,
+    [Scene.ReplayPlaylist]: AccessControlResourceType.SessionRecording,
+
+    // Revenue analytics
+    [Scene.RevenueAnalytics]: AccessControlResourceType.RevenueAnalytics,
 }

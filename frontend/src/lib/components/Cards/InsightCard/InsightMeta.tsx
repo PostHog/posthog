@@ -1,11 +1,18 @@
 import clsx from 'clsx'
-import { lemonToast } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
+import React from 'react'
+
+import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { lemonToast } from '@posthog/lemon-ui'
+
+import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
 import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { DashboardPrivilegeLevel } from 'lib/constants'
+import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -15,8 +22,8 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
-import React from 'react'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -25,11 +32,17 @@ import { urls } from 'scenes/urls'
 
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { isDataVisualizationNode } from '~/queries/utils'
-import { ExporterFormat, InsightColor, QueryBasedInsightModel } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    DashboardPlacement,
+    ExporterFormat,
+    InsightColor,
+    QueryBasedInsightModel,
+} from '~/types'
 
 import { InsightCardProps } from './InsightCard'
 import { InsightDetails } from './InsightDetails'
-import { TZLabel } from 'lib/components/TZLabel'
 
 interface InsightMetaProps
     extends Pick<
@@ -43,13 +56,16 @@ interface InsightMetaProps
         | 'loading'
         | 'loadingQueued'
         | 'rename'
+        | 'setOverride'
         | 'duplicate'
         | 'dashboardId'
         | 'moveToDashboard'
         | 'showEditingControls'
         | 'showDetailsControls'
         | 'moreButtons'
+        | 'filtersOverride'
         | 'variablesOverride'
+        | 'placement'
     > {
     insight: QueryBasedInsightModel
     areDetailsShown?: boolean
@@ -61,6 +77,7 @@ export function InsightMeta({
     ribbonColor,
     dashboardId,
     updateColor,
+    filtersOverride,
     variablesOverride,
     removeFromDashboard,
     deleteWithUndo,
@@ -70,25 +87,109 @@ export function InsightMeta({
     loadingQueued,
     rename,
     duplicate,
+    setOverride,
     moveToDashboard,
     areDetailsShown,
     setAreDetailsShown,
     showEditingControls = true,
     showDetailsControls = true,
     moreButtons,
+    placement,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, dashboards, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
     const { insightProps } = useValues(insightLogic)
     const { exportContext } = useValues(insightDataLogic(insightProps))
     const { samplingFactor } = useValues(insightVizDataLogic(insightProps))
     const { nameSortedDashboards } = useValues(dashboardsModel)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const otherDashboards = nameSortedDashboards.filter((d) => !dashboards?.includes(d.id))
 
-    // (@zach) Access Control TODO: add access control checks for remove from dashboard
-    const editable = insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
+    const canViewInsight = insight.user_access_level
+        ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Viewer)
+        : true
+    const canEditInsight =
+        insight.user_access_level && canViewInsight
+            ? accessLevelSatisfied(
+                  AccessControlResourceType.Insight,
+                  insight.user_access_level,
+                  AccessControlLevel.Editor
+              )
+            : true
+
+    // For dashboard-specific actions (remove from dashboard, change tile color), check dashboard permissions
+    const currentDashboard = dashboardId ? nameSortedDashboards.find((d) => d.id === dashboardId) : null
+    const canEditDashboard = currentDashboard?.user_access_level
+        ? accessLevelSatisfied(
+              AccessControlResourceType.Dashboard,
+              currentDashboard.user_access_level,
+              AccessControlLevel.Editor
+          )
+        : true
+
+    const canAccessTileOverrides = !!featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_OVERRIDES]
 
     const summary = useSummarizeInsight()(insight.query)
+
+    // Feedback buttons for Customer Analytics
+    const feedbackButtons =
+        placement === DashboardPlacement.CustomerAnalytics && featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] ? (
+            <div className="flex gap-0">
+                <LemonButton
+                    size="small"
+                    icon={<IconThumbsUp />}
+                    onClick={() => {
+                        posthog.capture('customer-analytics-insight-liked', {
+                            insight_id: insight.short_id,
+                            insight_name: insight.name,
+                            dashboard_id: dashboardId,
+                        })
+                    }}
+                    tooltip="Like this insight"
+                />
+                <LemonButton
+                    size="small"
+                    icon={<IconThumbsDown />}
+                    onClick={() => {
+                        posthog.capture('customer-analytics-insight-disliked', {
+                            insight_id: insight.short_id,
+                            insight_name: insight.name,
+                            dashboard_id: dashboardId,
+                        })
+                    }}
+                    tooltip="Dislike this insight"
+                />
+            </div>
+        ) : null
+
+    // If user can't view the insight, show minimal interface
+    if (!canViewInsight) {
+        return (
+            <CardMeta
+                ribbonColor={ribbonColor}
+                showEditingControls={false}
+                showDetailsControls={false}
+                setAreDetailsShown={setAreDetailsShown}
+                areDetailsShown={areDetailsShown}
+                detailsTooltip="Show insight details, such as creator, last edit, and applied filters."
+                topHeading={null}
+                content={
+                    <InsightMetaContent
+                        link={undefined}
+                        title="Access denied"
+                        fallbackTitle={summary}
+                        description={undefined}
+                        loading={loading}
+                        loadingQueued={loadingQueued}
+                        tags={[]}
+                    />
+                }
+                metaDetails={null}
+                samplingFactor={samplingFactor}
+            />
+        )
+    }
+
     const refreshDisabledReason =
         nextAllowedClientRefresh && dayjs(nextAllowedClientRefresh).isAfter(dayjs())
             ? 'You are viewing the most recent calculated results.'
@@ -107,7 +208,7 @@ export function InsightMeta({
             topHeading={<TopHeading query={insight.query} lastRefresh={insight.last_refresh} />}
             content={
                 <InsightMetaContent
-                    link={urls.insightView(short_id, dashboardId, variablesOverride)}
+                    link={urls.insightView(short_id, dashboardId, variablesOverride, filtersOverride)}
                     title={name}
                     fallbackTitle={summary}
                     description={insight.description}
@@ -123,7 +224,7 @@ export function InsightMeta({
             moreButtons={
                 <>
                     {/* Insight related */}
-                    {editable && (
+                    {canEditInsight && (
                         <>
                             <LemonButton
                                 to={
@@ -138,6 +239,11 @@ export function InsightMeta({
                             <LemonButton onClick={rename} fullWidth>
                                 Rename
                             </LemonButton>
+                            {canAccessTileOverrides && (
+                                <LemonButton onClick={setOverride} fullWidth>
+                                    Set override
+                                </LemonButton>
+                            )}
                         </>
                     )}
                     <LemonButton
@@ -151,7 +257,7 @@ export function InsightMeta({
                     </LemonButton>
 
                     {/* Dashboard related */}
-                    {editable && (
+                    {canEditDashboard && (
                         <>
                             <LemonDivider />
                             {updateColor && (
@@ -208,27 +314,33 @@ export function InsightMeta({
                                     Move to
                                 </LemonButtonWithDropdown>
                             )}
-                            {removeFromDashboard ? (
+                            {removeFromDashboard && (
                                 <LemonButton status="danger" onClick={removeFromDashboard} fullWidth>
                                     Remove from dashboard
                                 </LemonButton>
-                            ) : (
-                                <LemonButton
-                                    status="danger"
-                                    onClick={() => {
-                                        void (async () => {
-                                            try {
-                                                await deleteWithUndo?.()
-                                            } catch (error: any) {
-                                                lemonToast.error(`Failed to delete insight meta: ${error.detail}`)
-                                            }
-                                        })()
-                                    }}
-                                    fullWidth
-                                >
-                                    Delete insight
-                                </LemonButton>
                             )}
+                        </>
+                    )}
+
+                    {/* Insight deletion - separate from dashboard actions */}
+                    {canEditInsight && !removeFromDashboard && deleteWithUndo && (
+                        <>
+                            <LemonDivider />
+                            <LemonButton
+                                status="danger"
+                                onClick={() => {
+                                    void (async () => {
+                                        try {
+                                            await deleteWithUndo?.()
+                                        } catch (error: any) {
+                                            lemonToast.error(`Failed to delete insight meta: ${error.detail}`)
+                                        }
+                                    })()
+                                }}
+                                fullWidth
+                            >
+                                Delete insight
+                            </LemonButton>
                         </>
                     )}
 
@@ -294,8 +406,9 @@ export function InsightMeta({
                 </>
             }
             moreTooltip={
-                editable ? 'Rename, duplicate, export, refresh and more…' : 'Duplicate, export, refresh and more…'
+                canEditInsight ? 'Rename, duplicate, export, refresh and more…' : 'Duplicate, export, refresh and more…'
             }
+            extraControls={feedbackButtons}
         />
     )
 }

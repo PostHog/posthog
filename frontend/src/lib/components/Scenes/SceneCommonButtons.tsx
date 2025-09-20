@@ -1,22 +1,26 @@
+import { useActions } from 'kea'
+import posthog from 'posthog-js'
+
 import {
+    IconComment,
     IconCopy,
-    IconShare,
     IconExpand45,
     IconPin,
     IconPinFilled,
     IconRewindPlay,
+    IconShare,
     IconStar,
     IconStarFilled,
-    IconComment,
 } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { SceneDataAttrKeyProps } from './utils'
-import { useActions } from 'kea'
+
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import posthog from 'posthog-js'
+import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
+
+import { SceneDataAttrKeyProps } from './utils'
 
 type SceneCommonButtonsButtonProps = {
     onClick?: () => void

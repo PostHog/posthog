@@ -1,12 +1,13 @@
 import pytest
+
 from django.test.client import Client as HttpClient
 
+from posthog.api.test.batch_exports.fixtures import create_organization
 from posthog.api.test.batch_exports.operations import (
     create_batch_export_ok,
     delete_batch_export_ok,
     list_batch_exports_ok,
 )
-from posthog.api.test.batch_exports.fixtures import create_organization
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 
@@ -15,13 +16,10 @@ pytestmark = [
 ]
 
 
-def test_list_batch_exports(client: HttpClient):
+def test_list_batch_exports(client: HttpClient, organization, team, user):
     """
     Should be able to list batch exports.
     """
-    organization = create_organization("Test Org")
-    team = create_team(organization)
-    user = create_user("test@user.com", "Test User", organization)
     client.force_login(user)
 
     destination_data = {
@@ -57,14 +55,10 @@ def test_list_batch_exports(client: HttpClient):
     assert len(response["results"]) == 0
 
 
-def test_cannot_list_batch_exports_for_other_organizations(client: HttpClient):
+def test_cannot_list_batch_exports_for_other_organizations(client: HttpClient, organization, team, user):
     """
     Should not be able to list batch exports for other teams.
     """
-    organization = create_organization("Test Org")
-    team = create_team(organization)
-    user = create_user("test@user.com", "Test User", organization)
-
     other_organization = create_organization("Other Test Org")
     other_team = create_team(other_organization)
     other_user = create_user("another-test@user.com", "Another Test User", other_organization)
@@ -99,14 +93,11 @@ def test_cannot_list_batch_exports_for_other_organizations(client: HttpClient):
     assert len(response["results"]) == 0
 
 
-def test_list_is_partitioned_by_team(client: HttpClient):
+def test_list_is_partitioned_by_team(client: HttpClient, organization, team, user):
     """
     Should be able to list batch exports for a specific team.
     """
-    organization = create_organization("Test Org")
-    team = create_team(organization)
     another_team = create_team(organization)
-    user = create_user("test@user.com", "Test User", organization)
 
     destination_data = {
         "type": "S3",

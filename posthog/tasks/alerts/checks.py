@@ -1,42 +1,38 @@
 import traceback
-
-from datetime import datetime, timedelta, UTC
-from typing import cast
+from collections import defaultdict
 from collections.abc import Callable
-from dateutil.relativedelta import relativedelta
+from datetime import UTC, datetime, timedelta
+from typing import cast
 
+from django.db import transaction
+from django.db.models import F, Q
+
+import structlog
 from celery import shared_task
 from celery.canvas import chain
-from django.db import transaction
-from posthog.schema_migrations.upgrade_manager import upgrade_query
-import structlog
-from posthog.clickhouse.query_tagging import tag_queries
+from dateutil.relativedelta import relativedelta
 
+from posthog.schema import AlertCalculationInterval, AlertState, TrendsQuery
+
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.exceptions_capture import capture_exception
 from posthog.models import AlertConfiguration, User
 from posthog.models.alert import AlertCheck
-from posthog.tasks.utils import CeleryQueue
-from posthog.schema import (
-    TrendsQuery,
-    AlertCalculationInterval,
-    AlertState,
-)
-from posthog.utils import get_from_dict_or_attr
-from django.db.models import Q, F
-from collections import defaultdict
+from posthog.ph_client import ph_scoped_capture
+from posthog.schema_migrations.upgrade_manager import upgrade_query
+from posthog.tasks.alerts.trends import check_trends_alert
 from posthog.tasks.alerts.utils import (
+    WRAPPER_NODE_KINDS,
     AlertEvaluationResult,
     calculation_interval_to_order,
     next_check_time,
     send_notifications_for_breaches,
     send_notifications_for_errors,
     skip_because_of_weekend,
-    WRAPPER_NODE_KINDS,
 )
-from posthog.tasks.alerts.trends import check_trends_alert
-from posthog.ph_client import ph_scoped_capture
-
+from posthog.tasks.utils import CeleryQueue
+from posthog.utils import get_from_dict_or_attr
 
 logger = structlog.get_logger(__name__)
 

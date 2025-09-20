@@ -1,6 +1,7 @@
 import { SurveyQuestion, SurveyQuestionBranchingType, SurveyQuestionType } from '~/types'
 
 import {
+    SPECIFIC_QUESTION_SEPARATOR,
     branchingConfigToDropdownValue,
     canQuestionHaveResponseBasedBranching,
     createBranchingConfig,
@@ -10,7 +11,6 @@ import {
     isSpecificQuestionValue,
     isValidBranchingType,
     parseSpecificQuestionValue,
-    SPECIFIC_QUESTION_SEPARATOR,
 } from './utils'
 
 describe('branching utils', () => {

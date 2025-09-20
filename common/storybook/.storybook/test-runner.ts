@@ -1,9 +1,10 @@
-import { toMatchImageSnapshot } from 'jest-image-snapshot'
-import { getStoryContext, TestRunnerConfig, TestContext } from '@storybook/test-runner'
-import type { Locator, Page, LocatorScreenshotOptions } from '@playwright/test'
-import type { Mocks } from '~/mocks/utils'
+import type { Locator, LocatorScreenshotOptions, Page } from '@playwright/test'
 import { StoryContext } from '@storybook/csf'
+import { TestContext, TestRunnerConfig, getStoryContext } from '@storybook/test-runner'
+import { toMatchImageSnapshot } from 'jest-image-snapshot'
 import path from 'path'
+
+import type { Mocks } from '~/mocks/utils'
 
 const DEFAULT_VIEWPORT = { width: 1280, height: 720 }
 
@@ -171,7 +172,23 @@ async function takeSnapshotWithTheme(
     await waitForPageReady(page)
     // check if all images have width, unless purposefully skipped
     if (!allowImagesWithoutWidth) {
-        await page.waitForFunction(() => Array.from(document.images).every((i: HTMLImageElement) => !!i.naturalWidth))
+        await page.waitForFunction(() => {
+            const allImages = Array.from(document.images)
+            const areAllImagesLoaded = allImages.every(
+                // ProseMirror-separator isn't an actual image of any sort, so we ignore those
+                (i: HTMLImageElement) => !!i.naturalWidth || i.classList.contains('ProseMirror-separator')
+            )
+            if (areAllImagesLoaded) {
+                // Hide gifs to prevent their animations causing flakiness
+                for (const image of allImages) {
+                    if (image.src.endsWith('.gif')) {
+                        image.style.visibility = 'hidden'
+                        image.style.background = 'red'
+                    }
+                }
+            }
+            return areAllImagesLoaded
+        })
     }
     await page.waitForTimeout(2000)
 

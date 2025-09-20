@@ -1,10 +1,10 @@
-import asyncio
-import dataclasses
-import datetime as dt
 import enum
 import json
-import threading
 import time
+import asyncio
+import datetime as dt
+import threading
+import dataclasses
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy

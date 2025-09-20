@@ -1,12 +1,14 @@
-import { IconGear } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, LemonSwitch, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { DeepPartialMap, ValidationErrorType } from 'kea-forms'
+import { useState } from 'react'
+
+import { IconGear } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonDivider, LemonSwitch, Link } from '@posthog/lemon-ui'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { useState } from 'react'
 import { surveysLogic } from 'scenes/surveys/surveysLogic'
 import { sanitizeSurveyAppearance, validateSurveyAppearance } from 'scenes/surveys/utils'
 import { teamLogic } from 'scenes/teamLogic'
@@ -14,9 +16,9 @@ import { urls } from 'scenes/urls'
 
 import { SurveyAppearance } from '~/types'
 
-import { defaultSurveyAppearance, NEW_SURVEY } from './constants'
-import { Customization } from './survey-appearance/SurveyCustomization'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
+import { NEW_SURVEY, defaultSurveyAppearance } from './constants'
+import { Customization } from './survey-appearance/SurveyCustomization'
 
 interface Props {
     isModal?: boolean

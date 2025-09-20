@@ -4,11 +4,11 @@ from posthog.clickhouse.property_groups import property_groups
 
 operations = [
     *[
-        run_sql_with_exceptions(statement, node_role=NodeRole.DATA, sharded=True)
+        run_sql_with_exceptions(statement, node_roles=[NodeRole.DATA], sharded=True)
         for statement in [*property_groups.get_alter_modify_statements("sharded_events", "properties", "ai")]
     ],
     *[
-        run_sql_with_exceptions(statement, node_role=NodeRole.ALL)
+        run_sql_with_exceptions(statement, node_roles=[NodeRole.DATA, NodeRole.COORDINATOR])
         for statement in [*property_groups.get_alter_modify_statements("events", "properties", "ai")]
     ],
 ]

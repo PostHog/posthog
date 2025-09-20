@@ -1,10 +1,11 @@
 import pytest
-from unittest.mock import Mock, patch, MagicMock
-from opentelemetry.trace import Status, StatusCode
-from clickhouse_driver.errors import ServerException
+from unittest.mock import MagicMock, Mock, patch
 
+from clickhouse_driver.errors import ServerException
+from opentelemetry.trace import Status, StatusCode
+
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.tracing import trace_clickhouse_query_decorator
-from posthog.clickhouse.client.connection import Workload, ClickHouseUser
 from posthog.settings import CLICKHOUSE_DATABASE, CLICKHOUSE_HOST
 
 

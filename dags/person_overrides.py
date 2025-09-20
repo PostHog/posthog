@@ -1,6 +1,6 @@
-import datetime
 import time
 import uuid
+import datetime
 from dataclasses import dataclass
 from functools import partial
 
@@ -8,16 +8,17 @@ import dagster
 import pydantic
 from clickhouse_driver import Client
 
-from dags.common import JobOwners
 from posthog import settings
 from posthog.clickhouse.cluster import (
-    ClickhouseCluster,
-    MutationWaiter,
     AlterTableMutationRunner,
+    ClickhouseCluster,
     LightweightDeleteMutationRunner,
+    MutationWaiter,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.person.sql import PERSON_DISTINCT_ID_OVERRIDES_TABLE
+
+from dags.common import JobOwners
 
 
 @dataclass

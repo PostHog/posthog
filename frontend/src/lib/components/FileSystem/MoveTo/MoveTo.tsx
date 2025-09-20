@@ -1,6 +1,8 @@
-import { LemonSnack } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { LemonSnack } from '@posthog/lemon-ui'
+
 import { FolderSelect } from 'lib/components/FileSystem/FolderSelect/FolderSelect'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -25,7 +27,7 @@ export function MoveToModal(): JSX.Element {
             description={
                 <>
                     You are moving {movingItems.length} item{movingItems.length === 1 ? '' : 's'} to{' '}
-                    <LemonSnack>{destinationFolder}</LemonSnack>`
+                    <LemonSnack>{destinationFolder}</LemonSnack>
                 </>
             }
             // This is a bit of a hack. Without it, the flow "insight" -> "add to dashboard button" ->

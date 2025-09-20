@@ -1,5 +1,5 @@
-import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
-import { summarizeInsight, SummaryContext } from 'scenes/insights/summarizeInsight'
+import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS, RETENTION_RECURRING } from 'lib/constants'
+import { SummaryContext, summarizeInsight } from 'scenes/insights/summarizeInsight'
 import {
     BASE_MATH_DEFINITIONS,
     COUNT_PER_ACTOR_MATH_DEFINITIONS,
@@ -317,7 +317,7 @@ describe('summarizing insights', () => {
                         name: '$autocapture',
                         type: 'events',
                     },
-                    retentionType: RETENTION_FIRST_TIME,
+                    retentionType: RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
                 },
             }
 
@@ -327,7 +327,7 @@ describe('summarizing insights', () => {
             )
 
             expect(result).toEqual(
-                'Retention of users based on doing Autocapture for the first time and returning with the same event'
+                'Retention of users based on doing Autocapture first occurrence matching filters and returning with the same event'
             )
         })
 

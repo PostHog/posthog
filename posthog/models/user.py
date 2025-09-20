@@ -7,18 +7,20 @@ from django.db import models, transaction
 from django.db.models import Q
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+
 from rest_framework.exceptions import ValidationError
 
 from posthog.cloud_utils import get_cached_instance_license, is_cloud
 from posthog.constants import AvailableFeature
+from posthog.exceptions_capture import capture_exception
+from posthog.helpers.email_utils import EmailNormalizer
 from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
-from posthog.helpers.email_utils import EmailNormalizer
 
 from .organization import Organization, OrganizationMembership
 from .personal_api_key import PersonalAPIKey, hash_key_value
 from .team import Team
-from .utils import UUIDClassicModel, generate_random_token, sane_repr
+from .utils import UUIDTClassicModel, generate_random_token, sane_repr
 
 
 class Notifications(TypedDict, total=False):
@@ -144,7 +146,7 @@ class ThemeMode(models.TextChoices):
     SYSTEM = "system", "System"
 
 
-class User(AbstractUser, UUIDClassicModel):
+class User(AbstractUser, UUIDTClassicModel):
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS: list[str] = []
 
@@ -257,6 +259,7 @@ class User(AbstractUser, UUIDClassicModel):
     ) -> OrganizationMembership:
         with transaction.atomic():
             membership = OrganizationMembership.objects.create(user=self, organization=organization, level=level)
+
             self.current_organization = organization
             if (
                 not organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
@@ -265,10 +268,42 @@ class User(AbstractUser, UUIDClassicModel):
                 # If project access control is NOT applicable, simply prefer open projects just in case
                 self.current_team = organization.teams.order_by("access_control", "id").first()
             else:
-                # If project access control IS applicable, make sure the user is assigned a project they have access to
-                # We don't need to check for ExplicitTeamMembership as none can exist for a completely new member
-                self.current_team = organization.teams.order_by("id").filter(access_control=False).first()
+                # If access control IS applicable, make sure the user is assigned a project they have access to
+                if organization.teams.filter(access_control=True).exists():
+                    # Legacy access control
+                    self.current_team = organization.teams.order_by("id").filter(access_control=False).first()
+                else:
+                    # New access control
+                    from posthog.rbac.user_access_control import UserAccessControl
+
+                    uac = UserAccessControl(user=self, organization_id=str(organization.id))
+                    self.current_team = (
+                        uac.filter_queryset_by_access_level(organization.teams.all(), include_all_if_admin=True)
+                        .order_by("id")
+                        .first()
+                        or organization.teams.order_by("id").first()  # fallback if user has NO access to any project
+                    )
             self.save()
+
+        # Auto-assign default role if configured
+        if organization.default_role_id:
+            try:
+                from ee.models import RoleMembership
+
+                RoleMembership.objects.create(
+                    role_id=organization.default_role_id, user=self, organization_member=membership
+                )
+            except Exception as e:
+                capture_exception(
+                    e,
+                    {
+                        "organization_id": organization.id,
+                        "role_id": organization.default_role_id,
+                        "context": "default_role_assignment",
+                        "tag": "platform-features",
+                    },
+                )
+
         self.update_billing_organization_users(organization)
         return membership
 

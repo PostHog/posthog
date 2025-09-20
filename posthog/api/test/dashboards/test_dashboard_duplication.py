@@ -1,5 +1,6 @@
-from posthog.api.test.dashboards import DashboardAPI
 from posthog.test.base import APIBaseTest, QueryMatchingTest
+
+from posthog.api.test.dashboards import DashboardAPI
 
 
 class TestDashboardDuplication(APIBaseTest, QueryMatchingTest):

@@ -1,12 +1,16 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { router } from 'kea-router'
+
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { AlertType } from 'lib/components/Alerts/types'
 import { dayjs } from 'lib/dayjs'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
+import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
+import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
+import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
@@ -46,6 +50,7 @@ export interface SavedInsightFilters {
     page: number
     dashboardId: number | undefined | null
     events: string[] | undefined | null
+    hideFeatureFlagInsights: boolean | undefined | null
 }
 
 export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters {
@@ -61,13 +66,15 @@ export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsight
         page: parseInt(String(values.page)) || 1,
         dashboardId: values.dashboardId,
         events: values.events,
+        hideFeatureFlagInsights: values.hideFeatureFlagInsights || false,
     }
 }
 
 export const savedInsightsLogic = kea<savedInsightsLogicType>([
     path(['scenes', 'saved-insights', 'savedInsightsLogic']),
+    tabAwareScene(),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId'], sceneLogic, ['activeScene']],
+        values: [teamLogic, ['currentTeamId'], sceneLogic, ['activeSceneId']],
         logic: [eventUsageLogic],
     })),
     actions({
@@ -128,7 +135,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
 
                 // scroll to top if the page changed, except if changed via back/forward
                 if (
-                    sceneLogic.findMounted()?.values.activeScene === Scene.SavedInsights &&
+                    sceneLogic.findMounted()?.values.activeSceneId === Scene.SavedInsights &&
                     router.values.lastMethod !== 'POP' &&
                     values.insights.filters?.page !== filters.page
                 ) {
@@ -242,6 +249,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 ...(!!filters.dashboardId && {
                     dashboards: [filters.dashboardId],
                 }),
+                ...(filters.hideFeatureFlagInsights && { hide_feature_flag_insights: true }),
             }),
         ],
         pagination: [
@@ -332,7 +340,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             }
         },
     })),
-    actionToUrl(({ values }) => {
+    tabAwareActionToUrl(({ values }) => {
         const changeUrl = ():
             | [
                   string,
@@ -344,7 +352,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
               ]
             | void => {
             const currentScene = sceneLogic.findMounted()?.values
-            if (currentScene?.activeScene === Scene.SavedInsights) {
+            if (currentScene?.activeSceneId === Scene.SavedInsights) {
                 const nextValues = cleanFilters(values.filters)
                 const urlValues = cleanFilters(router.values.searchParams)
                 if (!objectsEqual(nextValues, urlValues)) {
@@ -362,7 +370,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             setLayoutView: changeUrl,
         }
     }),
-    urlToAction(({ actions, values }) => ({
+    tabAwareUrlToAction(({ actions, values }) => ({
         [urls.savedInsights()]: async (
             _,
             { alert_id, ...searchParams }, // search params,

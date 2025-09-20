@@ -1,11 +1,13 @@
-import json
 import re
+import json
 import uuid
 from collections import defaultdict
 from collections.abc import Callable, Iterator, Mapping
-from unittest.mock import Mock, patch, sentinel
 
 import pytest
+from posthog.test.base import materialized
+from unittest.mock import Mock, patch, sentinel
+
 from clickhouse_driver import Client
 
 from posthog.clickhouse.client.connection import NodeRole, Workload
@@ -22,7 +24,6 @@ from posthog.clickhouse.cluster import (
     get_cluster,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
-from posthog.test.base import materialized
 
 
 @pytest.fixture

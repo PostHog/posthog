@@ -2,23 +2,15 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any, Optional
 
-from dateutil.rrule import (
-    FR,
-    MO,
-    SA,
-    SU,
-    TH,
-    TU,
-    WE,
-    rrule,
-)
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.utils import timezone
-from posthog.exceptions_capture import capture_exception
 
+from dateutil.rrule import FR, MO, SA, SU, TH, TU, WE, rrule
+
+from posthog.exceptions_capture import capture_exception
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
 from posthog.utils import absolute_uri
 

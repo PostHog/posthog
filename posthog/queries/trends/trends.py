@@ -1,15 +1,15 @@
 import copy
 import threading
-import posthoganalytics
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from itertools import accumulate
 from typing import Any, Optional, cast
-from collections.abc import Callable
 from zoneinfo import ZoneInfo
 
+import posthoganalytics
 from dateutil import parser
 
-from posthog.clickhouse.query_tagging import get_query_tags, QueryTags, update_tags
+from posthog.clickhouse.query_tagging import QueryTags, get_query_tags, update_tags
 from posthog.constants import (
     INSIGHT_LIFECYCLE,
     NON_BREAKDOWN_DISPLAY_TYPES,

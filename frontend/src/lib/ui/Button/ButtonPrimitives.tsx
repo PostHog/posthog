@@ -1,9 +1,10 @@
 import './ButtonPrimitives.scss'
 
-import { cva, type VariantProps } from 'cva'
+import { type VariantProps, cva } from 'cva'
+import React, { ReactNode, createContext, forwardRef, useContext } from 'react'
+
 import { Tooltip, TooltipProps } from 'lib/lemon-ui/Tooltip/Tooltip'
 import { cn } from 'lib/utils/css-classes'
-import React, { createContext, forwardRef, ReactNode, useContext } from 'react'
 
 /* -------------------------------------------------------------------------- */
 /*                           Props & Contexts & Hooks                         */
@@ -45,6 +46,7 @@ type ButtonBaseProps = {
     tooltip?: TooltipProps['title']
     tooltipDocLink?: TooltipProps['docLink']
     tooltipPlacement?: TooltipProps['placement']
+    tooltipVisible?: boolean
     buttonWrapper?: (button: JSX.Element) => JSX.Element
     // Like disabled but doesn't show the disabled state or focus state (still shows tooltip)
     inert?: boolean
@@ -120,7 +122,9 @@ ButtonGroupPrimitive.displayName = 'ButtonGroupPrimitive'
 /*                              Button Base Component                         */
 /* -------------------------------------------------------------------------- */
 
-export interface ButtonPrimitiveProps extends ButtonBaseProps, React.ButtonHTMLAttributes<HTMLButtonElement> {}
+export interface ButtonPrimitiveProps extends ButtonBaseProps, React.ButtonHTMLAttributes<HTMLButtonElement> {
+    'data-attr'?: string
+}
 
 export const buttonPrimitiveVariants = cva({
     base: 'button-primitive group/button-primitive',
@@ -145,7 +149,7 @@ export const buttonPrimitiveVariants = cva({
             fit: 'px-0',
         },
         autoHeight: {
-            true: 'button-primitive--height-auto',
+            true: 'button-primitive--height-auto h-auto',
             false: '',
         },
         iconOnly: {
@@ -258,6 +262,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
         tooltip,
         tooltipPlacement,
         tooltipDocLink,
+        tooltipVisible,
         autoHeight,
         inert,
         ...rest
@@ -309,6 +314,7 @@ export const ButtonPrimitive = forwardRef<HTMLButtonElement, ButtonPrimitiveProp
                 }
                 placement={tooltipPlacement}
                 docLink={tooltipDocLink}
+                visible={tooltipVisible}
             >
                 {buttonComponent}
             </Tooltip>

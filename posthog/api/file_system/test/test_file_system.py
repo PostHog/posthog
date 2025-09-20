@@ -1,13 +1,17 @@
+from datetime import UTC
+
 import pytest
 from freezegun import freeze_time
+from posthog.test.base import APIBaseTest
+from unittest.mock import patch
+
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
-from posthog.test.base import APIBaseTest
-from posthog.models import User, FeatureFlag, Dashboard, Experiment, Insight, Notebook, Team, Project
+
+from posthog.models import Dashboard, Experiment, FeatureFlag, Insight, Notebook, Project, Team, User
 from posthog.models.file_system.file_system import FileSystem
-from unittest.mock import patch
+
 from ee.models.rbac.access_control import AccessControl
-from datetime import UTC
 
 
 class TestFileSystemAPI(APIBaseTest):
@@ -837,7 +841,8 @@ class TestFileSystemAPI(APIBaseTest):
         Updating the same file a second time must overwrite the fields.
         """
         from datetime import datetime
-        from posthog.models.file_system.file_system import create_or_update_file, FileSystem
+
+        from posthog.models.file_system.file_system import FileSystem, create_or_update_file
 
         # Fixed timestamp for determinism
         ts_1 = datetime(2021, 5, 4, 12, 34, 56, tzinfo=UTC)
@@ -886,8 +891,9 @@ class TestFileSystemAPI(APIBaseTest):
         `created_at` and `created_by` into both the FileSystem columns and the
         `meta` dict.
         """
-        from django.utils import timezone
         from freezegun import freeze_time
+
+        from django.utils import timezone
 
         # Create a FeatureFlag at a known moment in time
         with freeze_time("2023-02-10 15:00:00"):

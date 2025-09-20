@@ -42,7 +42,7 @@ impl<'a> Transaction<'a> for &'a StdoutEmitter {
             if self.as_json {
                 println!("{}", serde_json::to_string(&event)?);
             } else {
-                println!("{:?}", event);
+                println!("{event:?}");
             }
         }
         Ok(())
@@ -102,7 +102,7 @@ impl<'a> Transaction<'a> for &'a FileEmitter {
             let data = if self.as_json {
                 format!("{}\n", serde_json::to_string(&event)?)
             } else {
-                format!("{:?}\n", event)
+                format!("{event:?}\n")
             };
             file.write_all(data.as_bytes()).await?;
         }

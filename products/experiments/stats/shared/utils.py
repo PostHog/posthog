@@ -7,13 +7,7 @@ by both frequentist and Bayesian methods.
 
 import numpy as np
 
-from .statistics import (
-    AnyStatistic,
-    ProportionStatistic,
-    RatioStatistic,
-    SampleMeanStatistic,
-    StatisticError,
-)
+from .statistics import AnyStatistic, ProportionStatistic, RatioStatistic, SampleMeanStatistic, StatisticError
 
 
 def get_mean(statistic: AnyStatistic) -> float:

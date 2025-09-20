@@ -1,9 +1,10 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
 import { uuid } from 'lib/utils'
-import { eventUsageLogic, GraphSeriesAddedSource } from 'lib/utils/eventUsageLogic'
+import { GraphSeriesAddedSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
@@ -52,6 +53,8 @@ export function toFilters(localFilters: LocalFilter[]): FilterType {
     const filters = localFilters.map((filter, index) => ({
         ...filter,
         order: index,
+        // The first step of a funnel cannot be optional
+        optionalInFunnel: index == 0 ? undefined : filter.optionalInFunnel,
     }))
 
     return {
@@ -91,6 +94,15 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             math_hogql: filter.math_hogql,
             index: filter.index,
             math_group_type_index: filter.math_group_type_index,
+        }),
+        updateFilterOptional: (
+            filter: Partial<ActionFilter> & {
+                index: number
+            }
+        ) => ({
+            type: filter.type as EntityType,
+            index: filter.index,
+            optionalInFunnel: filter.optionalInFunnel,
         }),
         updateFilter: (
             filter: (EntityFilter | ActionFilter | DataWarehouseFilter) & {
@@ -244,6 +256,11 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
         updateFilterMath: async ({ index, ...mathProperties }) => {
             actions.setFilters(
                 values.localFilters.map((filter, i) => (i === index ? { ...filter, ...mathProperties } : filter))
+            )
+        },
+        updateFilterOptional: async ({ index, optionalInFunnel }) => {
+            actions.setFilters(
+                values.localFilters.map((filter, i) => (i === index ? { ...filter, optionalInFunnel } : filter))
             )
         },
         removeLocalFilter: async ({ index }) => {

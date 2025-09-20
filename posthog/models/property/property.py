@@ -1,12 +1,6 @@
 import json
 from enum import StrEnum
-from typing import (
-    Any,
-    Literal,
-    Optional,
-    Union,
-    cast,
-)
+from typing import Any, Literal, Optional, Union, cast
 
 from posthog.constants import PropertyOperatorType
 from posthog.models.filters.mixins.utils import cached_property

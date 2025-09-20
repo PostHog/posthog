@@ -1,5 +1,7 @@
-import { Tooltip } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { Tooltip } from '@posthog/lemon-ui'
+
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'

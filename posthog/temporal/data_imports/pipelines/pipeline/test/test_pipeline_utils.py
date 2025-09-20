@@ -1,9 +1,10 @@
-import decimal
 import uuid
+import decimal
 from ipaddress import IPv4Address, IPv6Address
 
-import pyarrow as pa
 import pytest
+
+import pyarrow as pa
 from dateutil import parser
 
 from posthog.temporal.data_imports.pipelines.pipeline.utils import (

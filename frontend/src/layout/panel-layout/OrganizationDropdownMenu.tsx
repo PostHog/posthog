@@ -1,31 +1,39 @@
-import { IconCheck, IconPlusSmall } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+
+import { IconCheck, IconPlusSmall } from '@posthog/icons'
+
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
-import { IconBlank } from 'lib/lemon-ui/icons'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo/UploadedLogo'
+import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive, ButtonPrimitiveProps } from 'lib/ui/Button/ButtonPrimitives'
 import { Combobox } from 'lib/ui/Combobox/Combobox'
+import { DropdownMenuOpenIndicator } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { Label } from 'lib/ui/Label/Label'
 import {
     PopoverPrimitive,
     PopoverPrimitiveContent,
     PopoverPrimitiveTrigger,
 } from 'lib/ui/PopoverPrimitive/PopoverPrimitive'
-import { organizationLogic } from 'scenes/organizationLogic'
+import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
+
 import { globalModalsLogic } from '~/layout/GlobalModals'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { AvailableFeature } from '~/types'
-import { DropdownMenuOpenIndicator } from 'lib/ui/DropdownMenu/DropdownMenu'
-import { panelLayoutLogic } from './panelLayoutLogic'
+
 import { AccessLevelIndicator } from '../navigation/AccessLevelIndicator'
-import { cn } from 'lib/utils/css-classes'
+import { panelLayoutLogic } from './panelLayoutLogic'
 
 export function OrganizationDropdownMenu({
     buttonProps = { className: 'font-semibold' },
+    showName = true,
+    allowCreate = true,
 }: {
+    showName?: boolean
     buttonProps?: ButtonPrimitiveProps
+    allowCreate?: boolean
 }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { otherOrganizations } = useValues(userLogic)
@@ -62,7 +70,7 @@ export function OrganizationDropdownMenu({
                                 size={isLayoutNavCollapsed ? 'medium' : 'xsmall'}
                             />
                         )}
-                        {!isLayoutNavCollapsed && (
+                        {!isLayoutNavCollapsed && showName && (
                             <>
                                 <span className="truncate font-semibold">
                                     {currentOrganization ? currentOrganization.name : 'Select organization'}
@@ -79,8 +87,34 @@ export function OrganizationDropdownMenu({
                     <Combobox>
                         <Combobox.Search placeholder="Filter organizations..." />
                         <Combobox.Content>
-                            <Label intent="menu" className="px-2">
-                                Organizations
+                            {preflight?.can_create_org && (
+                                <Combobox.Item asChild>
+                                    <ButtonPrimitive
+                                        menuItem
+                                        data-attr="new-organization-button"
+                                        onClick={() =>
+                                            guardAvailableFeature(
+                                                AvailableFeature.ORGANIZATIONS_PROJECTS,
+                                                () => {
+                                                    closeAccountPopover()
+                                                    showCreateOrganizationModal()
+                                                },
+                                                {
+                                                    guardOnCloud: false,
+                                                }
+                                            )
+                                        }
+                                        tooltip="Create a new organization"
+                                        tooltipPlacement="right"
+                                    >
+                                        <IconPlusSmall className="size-4" />
+                                        New organization
+                                    </ButtonPrimitive>
+                                </Combobox.Item>
+                            )}
+
+                            <Label intent="menu" className="px-2 mt-2">
+                                Current organization
                             </Label>
                             <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
 
@@ -112,6 +146,11 @@ export function OrganizationDropdownMenu({
                                 </Combobox.Group>
                             )}
 
+                            <Label intent="menu" className="px-2 mt-2">
+                                Other organizations
+                            </Label>
+                            <div className="-mx-1 my-1 h-px bg-border-primary shrink-0" />
+
                             {otherOrganizations.map((otherOrganization) => (
                                 <Combobox.Group value={[otherOrganization.name]} key={otherOrganization.id}>
                                     <Combobox.Item key={otherOrganization.id} asChild>
@@ -138,7 +177,7 @@ export function OrganizationDropdownMenu({
                                 </Combobox.Group>
                             ))}
 
-                            {preflight?.can_create_org && (
+                            {preflight?.can_create_org && allowCreate && (
                                 <Combobox.Item asChild>
                                     <ButtonPrimitive
                                         menuItem

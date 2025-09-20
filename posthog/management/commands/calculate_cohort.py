@@ -2,9 +2,9 @@ import logging
 import traceback
 
 from django.core.management.base import BaseCommand
+
 from posthog.models import Cohort
-from posthog.tasks.calculate_cohort import increment_version_and_enqueue_calculate_cohort
-from posthog.tasks.calculate_cohort import calculate_cohort_ch
+from posthog.tasks.calculate_cohort import calculate_cohort_ch, increment_version_and_enqueue_calculate_cohort
 
 logger = logging.getLogger(__name__)
 

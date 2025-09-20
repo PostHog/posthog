@@ -1,7 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { LemonButton, LemonInput, LemonTextArea, LemonModal, LemonSelect, Link } from '@posthog/lemon-ui'
+
+import { LemonButton, LemonInput, LemonModal, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
+
 import { LemonField } from 'lib/lemon-ui/LemonField'
+
 import { newCategoryLogic } from './newCategoryLogic'
 
 interface MessageCategory {

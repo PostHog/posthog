@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { notebookLogic } from './notebookLogic'
+
 import { LemonWidget, Link } from '@posthog/lemon-ui'
+
+import { notebookLogic } from './notebookLogic'
 import { notebookSettingsLogic } from './notebookSettingsLogic'
 
 export function NotebookTableOfContents(): JSX.Element {

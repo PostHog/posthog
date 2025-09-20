@@ -1,9 +1,11 @@
-import json
 import os
+import json
+
+import pytest
+
+from django.test import override_settings
 
 import pyarrow as pa
-import pytest
-from django.test import override_settings
 
 from posthog.models import Team
 from posthog.models.organization import Organization

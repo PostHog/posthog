@@ -4,9 +4,9 @@ import {
     CachedExperimentFunnelsQueryResponse,
     CachedExperimentTrendsQueryResponse,
     CachedLegacyExperimentQueryResponse,
-    ExperimentMetricType,
     ExperimentSignificanceCode,
     NodeKind,
+    isExperimentFunnelMetric,
 } from '~/queries/schema/schema-general'
 import {
     CountPerActorMathType,
@@ -53,10 +53,7 @@ export function conversionRateForVariant(
         return null
     }
 
-    if (
-        metricResult.kind === NodeKind.ExperimentQuery &&
-        metricResult.metric.metric_type === ExperimentMetricType.FUNNEL
-    ) {
+    if (metricResult.kind === NodeKind.ExperimentQuery && isExperimentFunnelMetric(metricResult.metric)) {
         const variants = metricResult.variants as FunnelExperimentVariant[]
         const variantResults = variants.find((variant) => variant.key === variantKey)
 

@@ -3,15 +3,18 @@ import './ActionFilter.scss'
 import { DndContext } from '@dnd-kit/core'
 import { restrictToParentElement, restrictToVerticalAxis } from '@dnd-kit/modifiers'
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable'
-import { IconPlusSmall } from '@posthog/icons'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import React, { useEffect } from 'react'
+
+import { IconPlusSmall } from '@posthog/icons'
+
 import { DataWarehousePopoverField, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicPopoverProps } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { DISPLAY_TYPES_TO_CATEGORIES as DISPLAY_TYPES_TO_CATEGORY } from 'lib/constants'
 import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
 import { verticalSortableListCollisionDetection } from 'lib/sortable'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import React, { useEffect } from 'react'
 import { RenameModal } from 'scenes/insights/filters/ActionFilter/RenameModal'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
@@ -26,7 +29,7 @@ import {
 
 import { teamLogic } from '../../../teamLogic'
 import { ActionFilterRow, MathAvailability } from './ActionFilterRow/ActionFilterRow'
-import { entityFilterLogic, LocalFilter, toFilters } from './entityFilterLogic'
+import { LocalFilter, entityFilterLogic, toFilters } from './entityFilterLogic'
 
 export interface ActionFilterProps {
     setFilters: (filters: FilterType) => void
@@ -94,6 +97,8 @@ export interface ActionFilterProps {
     filtersLeftPadding?: boolean
     /** Doc link to show in the tooltip of the New Filter button */
     addFilterDocLink?: string
+    /** Properties to exclude from the properties filter */
+    excludedProperties?: TaxonomicPopoverProps['excludedProperties']
 }
 
 export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(function ActionFilter(
@@ -128,6 +133,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         dataWarehousePopoverFields,
         filtersLeftPadding,
         addFilterDocLink,
+        excludedProperties,
     },
     ref
 ): JSX.Element {
@@ -190,6 +196,7 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
         dataWarehousePopoverFields,
         filtersLeftPadding,
         addFilterDocLink,
+        excludedProperties,
     }
 
     const reachedLimit: boolean = Boolean(entitiesLimit && localFilters.length >= entitiesLimit)

@@ -1,7 +1,10 @@
 import re
-from django.http import JsonResponse, Http404, HttpResponse
+
+from django.http import Http404, HttpResponse, JsonResponse
+
 from rest_framework.exceptions import ValidationError
 from rest_framework.views import APIView
+
 from posthog.models.remote_config import RemoteConfig
 
 

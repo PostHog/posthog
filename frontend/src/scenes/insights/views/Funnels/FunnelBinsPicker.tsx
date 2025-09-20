@@ -1,8 +1,10 @@
+import { useActions, useValues } from 'kea'
+import { useState } from 'react'
+
 import { IconGraph } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
+
 import { BIN_COUNT_AUTO } from 'lib/constants'
-import { useState } from 'react'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
@@ -34,7 +36,7 @@ const BIN_OPTIONS: BinOption[] = [
 ]
 
 export function FunnelBinsPicker(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { funnelsFilter, numericBinCount } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
     const [visible, setVisible] = useState<boolean>(false)
@@ -98,7 +100,13 @@ export function FunnelBinsPicker(): JSX.Element {
                 className="w-32"
                 placement="bottom-end"
             >
-                <LemonButton size="small" type="secondary" icon={<IconGraph />} onClick={() => setVisible(true)}>
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    icon={<IconGraph />}
+                    onClick={() => setVisible(true)}
+                    disabledReason={editingDisabledReason}
+                >
                     {selectedOption?.label}
                 </LemonButton>
             </LemonDropdown>

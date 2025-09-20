@@ -1,6 +1,8 @@
-import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
+
+import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
+
 import SignupReferralSource from 'lib/components/SignupReferralSource'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 import { LemonField } from 'lib/lemon-ui/LemonField'

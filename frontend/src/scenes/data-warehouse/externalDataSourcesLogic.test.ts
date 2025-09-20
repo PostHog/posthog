@@ -1,8 +1,9 @@
 import { expectLogic } from 'kea-test-utils'
+
 import api, { PaginatedResponse } from 'lib/api'
 
-import { DataWarehouseSyncInterval, ExternalDataSource } from '~/types'
 import { initKeaTests } from '~/test/init'
+import { DataWarehouseSyncInterval, ExternalDataSource } from '~/types'
 
 import { externalDataSourcesLogic } from './externalDataSourcesLogic'
 
@@ -32,7 +33,10 @@ describe('externalDataSourcesLogic', () => {
                     schemas: [],
                     prefix: 'test',
                     latest_error: null,
-                    revenue_analytics_enabled: false,
+                    revenue_analytics_config: {
+                        enabled: false,
+                        include_invoiceless_charges: true,
+                    },
                     sync_frequency: '24hour' as DataWarehouseSyncInterval,
                     job_inputs: {},
                 },

@@ -1,10 +1,9 @@
-import { cn } from 'lib/utils/css-classes'
 import React, {
+    ReactNode,
     cloneElement,
     createContext,
     forwardRef,
     isValidElement,
-    ReactNode,
     useCallback,
     useContext,
     useEffect,
@@ -13,6 +12,8 @@ import React, {
     useRef,
     useState,
 } from 'react'
+
+import { cn } from 'lib/utils/css-classes'
 
 /** Imperative API handle for Combobox to call focusFirstItem() etc */
 export interface ListBoxHandle {
@@ -34,6 +35,7 @@ interface ListBoxProps extends React.HTMLAttributes<HTMLDivElement> {
     className?: string
     focusedElement?: HTMLElement | null
     virtualFocus?: boolean
+    autoSelectFirst?: boolean
     onFinishedKeyDown?: ({
         e,
         activeElement,
@@ -49,7 +51,7 @@ interface ListBoxProps extends React.HTMLAttributes<HTMLDivElement> {
 
 /** Root ListBox implementation */
 const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
-    { children, className, onFinishedKeyDown, focusedElement, virtualFocus = false, ...props },
+    { children, className, onFinishedKeyDown, focusedElement, virtualFocus = false, autoSelectFirst = false, ...props },
     ref
 ) {
     const containerRef = useRef<HTMLDivElement>(null)
@@ -76,11 +78,14 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
 
         elements.forEach((el) => el.removeAttribute('data-focused'))
 
+        // Find first element with data-focus-first="true", otherwise use first element
+        const firstFocusElement = elements.find((el) => el.getAttribute('data-focus-first') === 'true') || elements[0]
+
         if (virtualFocus) {
-            setVirtualFocusedElement(elements[0])
-            elements[0].setAttribute('data-focused', 'true')
+            setVirtualFocusedElement(firstFocusElement)
+            firstFocusElement.setAttribute('data-focused', 'true')
         } else {
-            elements[0].focus()
+            firstFocusElement.focus()
         }
     }, [virtualFocus, recalculateFocusableElements])
 
@@ -125,10 +130,26 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
 
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                 e.preventDefault()
-                nextIndex = (currentIndex + (e.key === 'ArrowDown' ? 1 : -1) + elements.length) % elements.length
+
+                // If current element is not in the list (like focusing from input), prioritize focusFirst items
+                if (currentIndex === -1) {
+                    if (e.key === 'ArrowDown') {
+                        const firstFocusElement = elements.find((el) => el.getAttribute('data-focus-first') === 'true')
+                        nextIndex = firstFocusElement ? elements.indexOf(firstFocusElement) : 0
+                    } else {
+                        nextIndex = elements.length - 1
+                    }
+                } else {
+                    nextIndex = (currentIndex + (e.key === 'ArrowDown' ? 1 : -1) + elements.length) % elements.length
+                }
             } else if (e.key === 'Home' || e.key === 'End') {
                 e.preventDefault()
-                nextIndex = e.key === 'Home' ? 0 : elements.length - 1
+                if (e.key === 'Home') {
+                    const firstFocusElement = elements.find((el) => el.getAttribute('data-focus-first') === 'true')
+                    nextIndex = firstFocusElement ? elements.indexOf(firstFocusElement) : 0
+                } else {
+                    nextIndex = elements.length - 1
+                }
             }
 
             if (virtualFocus) {
@@ -159,7 +180,10 @@ const InnerListBox = forwardRef<ListBoxHandle, ListBoxProps>(function ListBox(
 
     useEffect(() => {
         recalculateFocusableElements()
-    }, [children]) // oxlint-disable-line react-hooks/exhaustive-deps
+        if (autoSelectFirst) {
+            focusFirstItem()
+        }
+    }, [children, autoSelectFirst, focusFirstItem]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useEffect(() => {
         if (focusedElement) {
@@ -192,10 +216,11 @@ export interface ListBoxItemProps extends React.LiHTMLAttributes<HTMLLIElement> 
     children: ReactNode
     asChild?: boolean
     virtualFocusIgnore?: boolean
+    focusFirst?: boolean
 }
 
 const ListBoxItem = forwardRef<HTMLLIElement, ListBoxItemProps>(
-    ({ children, asChild, onClick, virtualFocusIgnore, ...props }, ref): JSX.Element => {
+    ({ children, asChild, onClick, virtualFocusIgnore, focusFirst, ...props }, ref): JSX.Element => {
         const { containerRef } = useContext(ListBoxContext)
 
         const handleFocus = (e: React.FocusEvent): void => {
@@ -237,9 +262,10 @@ const ListBoxItem = forwardRef<HTMLLIElement, ListBoxItemProps>(
                 onBlur: handleBlur,
                 ref,
                 ...(virtualFocusIgnore ? { 'data-virtual-focus-ignore': 'true' } : {}),
+                ...(focusFirst ? { 'data-focus-first': 'true' } : {}),
                 ...props,
             }),
-            [handleItemClick, handleFocus, handleBlur, ref, virtualFocusIgnore, props]
+            [handleItemClick, handleFocus, handleBlur, ref, virtualFocusIgnore, focusFirst, props]
         )
 
         if (asChild && isValidElement(children)) {

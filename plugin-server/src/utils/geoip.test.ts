@@ -2,7 +2,7 @@ import { Reader } from '@maxmind/geoip2-node'
 
 import { defaultConfig } from '../config/config'
 import { PluginsServerConfig } from '../types'
-import { GeoIp, GeoIPService } from './geoip'
+import { GeoIPService, GeoIp } from './geoip'
 
 describe('GeoIp', () => {
     let service: GeoIPService

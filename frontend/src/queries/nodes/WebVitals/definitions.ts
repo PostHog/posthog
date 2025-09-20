@@ -1,4 +1,5 @@
 import { IconCheckCircle, IconWarning } from '@posthog/icons'
+
 import { IconExclamation } from 'lib/lemon-ui/icons'
 import { WebVitalsPercentile } from 'scenes/web-analytics/common'
 

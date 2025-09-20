@@ -1,20 +1,22 @@
+import uuid
 from datetime import datetime, timedelta
 from functools import partial
 from typing import Optional
-from unittest.mock import MagicMock, patch
 from uuid import UUID
-import uuid
+
+import pytest
+from unittest.mock import MagicMock, patch
 
 import boto3
-from clickhouse_driver import Client
 import dagster
-import pytest
-from dags.backups import Backup, BackupConfig, get_latest_backup, non_sharded_backup, prepare_run_config, sharded_backup
+from clickhouse_driver import Client
+from dagster_aws.s3 import S3Resource
+
 from posthog import settings
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.cluster import ClickhouseCluster
 
-from dagster_aws.s3 import S3Resource
+from dags.backups import Backup, BackupConfig, get_latest_backup, non_sharded_backup, prepare_run_config, sharded_backup
 
 
 @pytest.mark.parametrize("table", ["", "test"])

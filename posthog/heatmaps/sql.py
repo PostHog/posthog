@@ -1,14 +1,9 @@
 from django.conf import settings
 
 from posthog.clickhouse.kafka_engine import kafka_engine, ttl_period
-from posthog.clickhouse.table_engines import (
-    Distributed,
-    ReplicationScheme,
-    MergeTreeEngine,
-)
+from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_HEATMAP_EVENTS
 from posthog.session_recordings.sql.session_recording_event_sql import ON_CLUSTER_CLAUSE
-
 
 HEATMAPS_DATA_TABLE = lambda: "sharded_heatmaps"
 

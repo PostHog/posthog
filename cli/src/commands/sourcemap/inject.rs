@@ -5,7 +5,7 @@ use uuid;
 
 use crate::utils::{posthog::capture_command_invoked, sourcemaps::read_pairs};
 
-pub fn inject(directory: &Path) -> Result<()> {
+pub fn inject(directory: &Path, ignore_globs: &[String]) -> Result<()> {
     let capture_handle = capture_command_invoked("sourcemap_inject", None::<&str>);
     let directory = directory.canonicalize().map_err(|e| {
         anyhow!(
@@ -15,7 +15,7 @@ pub fn inject(directory: &Path) -> Result<()> {
         )
     })?;
     info!("Processing directory: {}", directory.display());
-    let mut pairs = read_pairs(&directory)?;
+    let mut pairs = read_pairs(&directory, ignore_globs)?;
     if pairs.is_empty() {
         bail!("No source files found");
     }

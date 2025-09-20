@@ -1,14 +1,15 @@
-import { LemonDivider } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
+import { LemonDivider } from '@posthog/lemon-ui'
+
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { apiHostOrigin } from 'lib/utils/apiHost'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import SetupWizardBanner from './components/SetupWizardBanner'
-import { JSInstallSnippet } from './js-web'
 import { SDK_DEFAULTS_DATE } from './constants'
+import { JSInstallSnippet } from './js-web'
 
 function ReactEnvVarsSnippet(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)

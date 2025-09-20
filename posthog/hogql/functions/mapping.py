@@ -2,24 +2,25 @@ from dataclasses import dataclass
 from itertools import chain
 from typing import Optional
 
-
-from posthog.cloud_utils import is_cloud, is_ci
 from posthog.hogql import ast
 from posthog.hogql.ast import (
     ArrayType,
     BooleanType,
     DateTimeType,
     DateType,
+    DecimalType,
     FloatType,
+    IntegerType,
     IntervalType,
     StringType,
     TupleType,
-    IntegerType,
-    DecimalType,
     UUIDType,
 )
 from posthog.hogql.base import ConstantType, UnknownType
 from posthog.hogql.errors import QueryError
+from posthog.hogql.language_mappings import LANGUAGE_CODES, LANGUAGE_NAMES
+
+from posthog.cloud_utils import is_ci, is_cloud
 
 
 def validate_function_args(
@@ -453,6 +454,17 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ((StringType(), IntegerType(), StringType()), DateTimeType()),
         ],
     ),
+    "toDateTime64": HogQLFunctionMeta(
+        "toDateTime64",
+        1,
+        3,
+        tz_aware=True,
+        signatures=[
+            ((DateTimeType(),), DateTimeType()),
+            ((DateTimeType(), IntegerType()), DateTimeType()),
+            ((DateTimeType(), IntegerType(), StringType()), DateTimeType()),
+        ],
+    ),
     "toDateTimeUS": HogQLFunctionMeta(
         "parseDateTime64BestEffortUSOrNull",
         1,
@@ -499,7 +511,15 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "toSecond": HogQLFunctionMeta("toSecond", 1, 1),
     "toUnixTimestamp": HogQLFunctionMeta("toUnixTimestamp", 1, 2),
     "toUnixTimestamp64Milli": HogQLFunctionMeta("toUnixTimestamp64Milli", 1, 1),
-    "toStartOfInterval": HogQLFunctionMeta("toStartOfInterval", 2, 2),
+    "toStartOfInterval": HogQLFunctionMeta(
+        "toStartOfInterval",
+        2,
+        3,
+        signatures=[
+            ((DateTimeType(), IntervalType()), DateTimeType()),
+            ((DateTimeType(), IntervalType(), DateTimeType()), DateTimeType()),
+        ],
+    ),
     "toStartOfYear": HogQLFunctionMeta("toStartOfYear", 1, 1),
     "toStartOfISOYear": HogQLFunctionMeta("toStartOfISOYear", 1, 1),
     "toStartOfQuarter": HogQLFunctionMeta("toStartOfQuarter", 1, 1),
@@ -1342,8 +1362,8 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "first_value": HogQLFunctionMeta("first_value", 1, 1),
     "last_value": HogQLFunctionMeta("last_value", 1, 1),
     "nth_value": HogQLFunctionMeta("nth_value", 2, 2),
-    "lagInFrame": HogQLFunctionMeta("lagInFrame", 1, 1),
-    "leadInFrame": HogQLFunctionMeta("leadInFrame", 1, 1),
+    "lagInFrame": HogQLFunctionMeta("lagInFrame", 1, 3),
+    "leadInFrame": HogQLFunctionMeta("leadInFrame", 1, 3),
     # table functions
     "generateSeries": HogQLFunctionMeta("generate_series", 3, 3),
     # PostgreSQL-style date/time functions
@@ -1443,16 +1463,17 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         )
         for name in ["today", "current_date"]
     },
-    #  This doesn't work yet but will in a new version of Clickhouse: https://github.com/ClickHouse/ClickHouse/pull/56738
-    # "date_bin": HogQLFunctionMeta(
-    #     "toSTartOfInterval({1}, {0}, {2})",
-    #     3,
-    #     3,
-    #     tz_aware=True,
-    #     signatures=[
-    #         ((IntervalType(), DateTimeType(), DateTimeType()), DateTimeType()),
-    #     ],
-    # ),
+    "date_bin": HogQLFunctionMeta(
+        "toStartOfInterval({1}, {0}, {2})",
+        3,
+        3,
+        tz_aware=True,
+        signatures=[
+            ((IntervalType(), DateTimeType(), DateTimeType()), DateTimeType()),
+        ],
+        using_placeholder_arguments=True,
+        using_positional_arguments=True,
+    ),
     "date_add": HogQLFunctionMeta(
         "date_add",
         2,
@@ -1630,6 +1651,18 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     ),
     "uniqueSurveySubmissionsFilter": HogQLFunctionMeta(
         "uniqueSurveySubmissionsFilter", 1, 1, signatures=[((StringType(),), StringType())]
+    ),
+    # Translates languages codes to full language name
+    "languageCodeToName": HogQLFunctionMeta(
+        clickhouse_name="transform",
+        min_args=1,
+        max_args=1,
+        suffix_args=[
+            ast.Constant(value=LANGUAGE_CODES),
+            ast.Constant(value=LANGUAGE_NAMES),
+            ast.Constant(value="Unknown"),
+        ],
+        signatures=[((StringType(),), StringType())],
     ),
 }
 
@@ -1947,13 +1980,16 @@ HOGQL_PERMITTED_PARAMETRIC_FUNCTIONS: set[str] = {
 
 
 UDFS: dict[str, HogQLFunctionMeta] = {
-    "aggregate_funnel": HogQLFunctionMeta("aggregate_funnel", 6, 6, aggregate=False),
-    "aggregate_funnel_array": HogQLFunctionMeta("aggregate_funnel_array", 6, 6, aggregate=False),
-    "aggregate_funnel_cohort": HogQLFunctionMeta("aggregate_funnel_cohort", 6, 6, aggregate=False),
+    "aggregate_funnel": HogQLFunctionMeta("aggregate_funnel", 7, 7, aggregate=False),
+    "aggregate_funnel_array": HogQLFunctionMeta("aggregate_funnel_array", 7, 7, aggregate=False),
+    "aggregate_funnel_cohort": HogQLFunctionMeta("aggregate_funnel_cohort", 7, 7, aggregate=False),
+    "aggregate_funnel_test": HogQLFunctionMeta("aggregate_funnel_test", 7, 7, aggregate=False),
     "aggregate_funnel_trends": HogQLFunctionMeta("aggregate_funnel_trends", 8, 8, aggregate=False),
     "aggregate_funnel_array_trends": HogQLFunctionMeta("aggregate_funnel_array_trends", 8, 8, aggregate=False),
     "aggregate_funnel_cohort_trends": HogQLFunctionMeta("aggregate_funnel_cohort_trends", 8, 8, aggregate=False),
-    "aggregate_funnel_test": HogQLFunctionMeta("aggregate_funnel_test", 6, 6, aggregate=False),
+    "aggregate_funnel_array_trends_test": HogQLFunctionMeta(
+        "aggregate_funnel_array_trends_test", 8, 8, aggregate=False
+    ),
 }
 # We want CI to fail if there is a breaking change and the version hasn't been incremented
 if is_cloud() or is_ci():

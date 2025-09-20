@@ -1,5 +1,7 @@
-import { LemonCheckbox } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+
+import { LemonCheckbox } from '@posthog/lemon-ui'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { insightVizDataLogic } from '../insightVizDataLogic'

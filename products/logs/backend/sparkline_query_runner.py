@@ -1,18 +1,16 @@
-from posthog.clickhouse.client.connection import Workload
-from posthog.hogql import ast
-
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.parser import parse_select
 from posthog.schema import HogQLFilters, PropertyGroupsMode
 
-from products.logs.backend.logs_query_runner import (
-    LogsQueryRunner,
-    LogsQueryResponse,
-)
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.client.connection import Workload
+
+from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQueryRunner
 
 
 class SparklineQueryRunner(LogsQueryRunner):
-    def calculate(self) -> LogsQueryResponse:
+    def _calculate(self) -> LogsQueryResponse:
         self.modifiers.convertToProjectTimezone = False
         self.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
         response = execute_hogql_query(
@@ -44,7 +42,7 @@ class SparklineQueryRunner(LogsQueryRunner):
             """
                 SELECT
                     am.time_bucket AS time,
-                    level,
+                    severity_text,
                     ifNull(ac.event_count, 0) AS count
                 FROM (
                     SELECT
@@ -61,11 +59,11 @@ class SparklineQueryRunner(LogsQueryRunner):
                 LEFT JOIN (
                     SELECT
                         toStartOfInterval(timestamp, {one_interval_period}) AS time,
-                        level,
+                        severity_text,
                         count() AS event_count
                     FROM logs
                     WHERE {where}
-                    GROUP BY level, time
+                    GROUP BY severity_text, time
                 ) AS ac ON am.time_bucket = ac.time
                 ORDER BY time asc
                 LIMIT 1000

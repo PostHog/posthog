@@ -1,11 +1,15 @@
+import { useActions } from 'kea'
+import { useState } from 'react'
+
 import { IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, Link } from '@posthog/lemon-ui'
-import { useActions } from 'kea'
+
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { useState } from 'react'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { MARKETING_ANALYTICS_SCHEMA, MarketingAnalyticsColumnsSchemaNames } from '~/queries/schema/schema-general'
+
 import { useSortedPaginatedList } from '../../hooks/useSortedPaginatedList'
 import { ExternalTable } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
@@ -27,8 +31,8 @@ export type SimpleDataWarehouseTable = {
 }
 
 interface SharedExternalDataSourceConfigurationProps<T extends string> {
-    title: string
-    description: string
+    title?: string
+    description?: string
     tables: ExternalTable[]
     loading: boolean
     validSources: T[]
@@ -45,7 +49,6 @@ export function SharedExternalDataSourceConfiguration<T extends string>({
 }: SharedExternalDataSourceConfigurationProps<T>): JSX.Element {
     const { updateSourceMapping } = useActions(marketingAnalyticsSettingsLogic)
     const [editingTable, setEditingTable] = useState<ExternalTable | null>(null)
-
     const requiredFields = Object.values(MarketingAnalyticsColumnsSchemaNames).filter(
         (field) => MARKETING_ANALYTICS_SCHEMA[field].required
     )
@@ -136,9 +139,7 @@ export function SharedExternalDataSourceConfiguration<T extends string>({
     }
 
     return (
-        <div>
-            <h3 className="mb-2">{title}</h3>
-            <p className="mb-4">{description}</p>
+        <SceneSection title={title} description={description}>
             <PaginationControls
                 hasMoreItems={hasMoreTables}
                 showAll={showAll}
@@ -227,6 +228,6 @@ export function SharedExternalDataSourceConfiguration<T extends string>({
                 ]}
             />
             <ColumnMappingModal table={editingTable} isOpen={!!editingTable} onClose={() => setEditingTable(null)} />
-        </div>
+        </SceneSection>
     )
 }

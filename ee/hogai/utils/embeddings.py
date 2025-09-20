@@ -1,10 +1,11 @@
 from collections.abc import Generator
 from typing import cast
 
+from django.conf import settings
+
 from azure.ai.inference import EmbeddingsClient
 from azure.ai.inference.aio import EmbeddingsClient as EmbeddingsClientAsync
 from azure.core.credentials import AzureKeyCredential
-from django.conf import settings
 
 
 def get_azure_embeddings_client() -> EmbeddingsClient:

@@ -1,13 +1,15 @@
-import { Link } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
 import { useState } from 'react'
+
+import { Link } from '@posthog/lemon-ui'
+
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { CreateOrganizationModal } from 'scenes/organization/CreateOrganizationModal'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { organizationLogic } from '../scenes/organizationLogic'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 export function ErrorProjectUnavailable(): JSX.Element {
     const { projectCreationForbiddenReason } = useValues(organizationLogic)

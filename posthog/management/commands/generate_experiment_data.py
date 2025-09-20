@@ -1,17 +1,19 @@
-from datetime import datetime, timedelta
-import logging
-import random
 import sys
+import json
 import time
 import uuid
-import json
+import random
+import logging
+from datetime import datetime, timedelta
 from typing import Any, Literal, Union
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
-from posthog.models import Team, User
+
 import posthoganalytics
-from pydantic import BaseModel, ValidationError, Field
+from pydantic import BaseModel, Field, ValidationError
+
+from posthog.models import Team, User
 
 
 def initialize_self_capture():

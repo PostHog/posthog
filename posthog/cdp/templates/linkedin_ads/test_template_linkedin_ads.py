@@ -1,8 +1,7 @@
 from inline_snapshot import snapshot
+
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
-from posthog.cdp.templates.linkedin_ads.template_linkedin_ads import (
-    template as template_linkedin_ads,
-)
+from posthog.cdp.templates.linkedin_ads.template_linkedin_ads import template as template_linkedin_ads
 
 
 class TestTemplateLinkedInAds(BaseHogFunctionTemplateTest):
@@ -38,7 +37,7 @@ class TestTemplateLinkedInAds(BaseHogFunctionTemplateTest):
                     "headers": {
                         "Authorization": "Bearer oauth-1234",
                         "Content-Type": "application/json",
-                        "LinkedIn-Version": "202409",
+                        "LinkedIn-Version": "202508",
                     },
                     "body": {
                         "conversion": "urn:lla:llaPartnerConversion:conversion-rule-12345",
@@ -75,7 +74,7 @@ class TestTemplateLinkedInAds(BaseHogFunctionTemplateTest):
                     "headers": {
                         "Authorization": "Bearer oauth-1234",
                         "Content-Type": "application/json",
-                        "LinkedIn-Version": "202409",
+                        "LinkedIn-Version": "202508",
                     },
                     "body": {
                         "conversion": "urn:lla:llaPartnerConversion:conversion-rule-12345",

@@ -1,6 +1,7 @@
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { marked } from 'marked'
 import { memo, useMemo } from 'react'
+
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 function parseMarkdownIntoBlocks(markdown: string): string[] {
     const tokens = marked.lexer(markdown)

@@ -1,6 +1,6 @@
 /* global require, module, process, __dirname */
 const path = require('path')
-const webpack = require('webpack')
+
 const HtmlWebpackPlugin = require('html-webpack-plugin')
 const HtmlWebpackHarddiskPlugin = require('html-webpack-harddisk-plugin')
 
@@ -29,10 +29,10 @@ function createEntry(entry) {
             process.env.GENERATE_SOURCEMAP === 'false'
                 ? false
                 : process.env.NODE_ENV === 'production'
-                ? 'source-map'
-                : 'inline-source-map',
+                  ? 'source-map'
+                  : 'inline-source-map',
         entry: {
-            [entry]: entry === 'main' || entry === 'cypress' ? './src/index.tsx' : null,
+            [entry]: entry === 'main' ? './src/index.tsx' : null,
         },
         watchOptions: {
             ignored: /node_modules/,
@@ -43,8 +43,8 @@ function createEntry(entry) {
             publicPath: process.env.JS_URL
                 ? `${process.env.JS_URL}${process.env.JS_URL.endsWith('/') ? '' : '/'}static/`
                 : process.env.NODE_ENV === 'production'
-                ? '/static/'
-                : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerFrontendAddr}:8234/static/`,
+                  ? '/static/'
+                  : `http${process.env.LOCAL_HTTPS ? 's' : ''}://${webpackDevServerFrontendAddr}:8234/static/`,
         },
         resolve: {
             extensions: ['.js', '.jsx', '.ts', '.tsx'],
@@ -60,7 +60,6 @@ function createEntry(entry) {
                 storybook: path.resolve(__dirname, '..', '..', 'frontend', '.storybook'),
                 types: path.resolve(__dirname, '..', '..', 'frontend', 'types'),
                 public: path.resolve(__dirname, '..', '..', 'frontend', 'public'),
-                cypress: path.resolve(__dirname, '..', '..', 'cypress'),
                 process: 'process/browser',
                 products: path.resolve(__dirname, '..', '..', 'products'),
             },
@@ -205,13 +204,6 @@ function createEntry(entry) {
                           template: path.join(__dirname, 'src', 'layout.ejs'),
                       }),
                       new HtmlWebpackHarddiskPlugin(),
-                  ]
-                : entry === 'cypress'
-                ? [
-                      new HtmlWebpackHarddiskPlugin(),
-                      new webpack.ProvidePlugin({
-                          process: 'process/browser',
-                      }),
                   ]
                 : []
         ),

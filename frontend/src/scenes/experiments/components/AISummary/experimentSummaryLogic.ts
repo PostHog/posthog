@@ -1,9 +1,12 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
+
 import type { CachedNewExperimentQueryResponse } from '~/queries/schema/schema-general'
 import type { ExperimentIdType } from '~/types'
+
 import type { experimentSummaryLogicType } from './experimentSummaryLogicType'
 
 export function formatExperimentResultsForAI(

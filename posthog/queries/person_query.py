@@ -5,14 +5,8 @@ from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.constants import PropertyOperatorType
 from posthog.models import Filter
 from posthog.models.cohort import Cohort
-from posthog.models.cohort.sql import (
-    GET_COHORTPEOPLE_BY_COHORT_ID,
-    GET_STATIC_COHORTPEOPLE_BY_COHORT_ID,
-)
-from posthog.models.cohort.util import (
-    format_precalculated_cohort_query,
-    format_static_cohort_query,
-)
+from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID, GET_STATIC_COHORTPEOPLE_BY_COHORT_ID
+from posthog.models.cohort.util import format_precalculated_cohort_query, format_static_cohort_query
 from posthog.models.entity import Entity
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter

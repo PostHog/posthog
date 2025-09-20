@@ -1,36 +1,33 @@
 from enum import Enum
 from typing import Any, Literal
 
-from django.db.models import Q, QuerySet
-from django.db.models.signals import pre_delete
+from django.db.models import Case, F, Q, QuerySet, Value, When
+from django.db.models.functions import Now
 from django.dispatch import receiver
+
 from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from ee.clickhouse.queries.experiments.utils import requires_flag_warning
-from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
-from ee.clickhouse.views.experiment_saved_metrics import (
-    ExperimentToSavedMetricSerializer,
-)
+from posthog.schema import ExperimentEventExposureConfig
+
 from posthog.api.cohort import CohortSerializer
 from posthog.api.feature_flag import FeatureFlagSerializer, MinimalFeatureFlagSerializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.models.experiment import (
-    Experiment,
-    ExperimentHoldout,
-    ExperimentSavedMetric,
-)
+from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
+from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import model_activity_signal
 from posthog.models.team.team import Team
-from posthog.models.activity_logging.activity_log import Detail, log_activity, changes_between
-from posthog.schema import ExperimentEventExposureConfig
+
+from ee.clickhouse.queries.experiments.utils import requires_flag_warning
+from ee.clickhouse.views.experiment_holdouts import ExperimentHoldoutSerializer
+from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
 
 class ExperimentSerializer(serializers.ModelSerializer):
@@ -76,6 +73,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "_create_in_folder",
             "conclusion",
             "conclusion_comment",
+            "primary_metrics_ordered_uuids",
+            "secondary_metrics_ordered_uuids",
         ]
         read_only_fields = [
             "id",
@@ -140,43 +139,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
 
         return value
 
-    def validate_metrics(self, value):
-        EXPERIMENT_METRIC_QTY_LIMIT = 10  # This should match frontend constant
-        if value and len(value) > EXPERIMENT_METRIC_QTY_LIMIT:
-            raise ValidationError(f"You can only have up to {EXPERIMENT_METRIC_QTY_LIMIT} primary metrics")
-        return value
-
-    def validate_metrics_secondary(self, value):
-        EXPERIMENT_METRIC_QTY_LIMIT = 10  # This should match frontend constant
-        if value and len(value) > EXPERIMENT_METRIC_QTY_LIMIT:
-            raise ValidationError(f"You can only have up to {EXPERIMENT_METRIC_QTY_LIMIT} secondary metrics")
-        return value
-
     def validate(self, data):
-        # Validate that total metrics (regular + shared) don't exceed limits
-        metrics = data.get("metrics", [])
-        metrics_secondary = data.get("metrics_secondary", [])
-        saved_metrics_ids = data.get("saved_metrics_ids", [])
-
-        if saved_metrics_ids:
-            EXPERIMENT_METRIC_QTY_LIMIT = 10  # This should match frontend constant
-            primary_shared_count = len([m for m in saved_metrics_ids if m.get("metadata", {}).get("type") == "primary"])
-            secondary_shared_count = len(
-                [m for m in saved_metrics_ids if m.get("metadata", {}).get("type") == "secondary"]
-            )
-
-            total_primary = len(metrics) + primary_shared_count
-            total_secondary = len(metrics_secondary) + secondary_shared_count
-
-            if total_primary > EXPERIMENT_METRIC_QTY_LIMIT:
-                raise ValidationError(
-                    f"You can only have up to {EXPERIMENT_METRIC_QTY_LIMIT} primary metrics (including shared metrics)"
-                )
-            if total_secondary > EXPERIMENT_METRIC_QTY_LIMIT:
-                raise ValidationError(
-                    f"You can only have up to {EXPERIMENT_METRIC_QTY_LIMIT} secondary metrics (including shared metrics)"
-                )
-
         # Validate start/end dates
         start_date = data.get("start_date")
         end_date = data.get("end_date")
@@ -382,6 +345,8 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "stats_config",
             "conclusion",
             "conclusion_comment",
+            "primary_metrics_ordered_uuids",
+            "secondary_metrics_ordered_uuids",
         }
         given_keys = set(validated_data.keys())
         extra_keys = given_keys - expected_keys
@@ -527,7 +492,35 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
         # Ordering
         order = self.request.query_params.get("order")
         if order:
-            queryset = queryset.order_by(order)
+            # Handle computed field sorting
+            if order in ["duration", "-duration"]:
+                # Duration = end_date - start_date (or now() - start_date if running)
+                queryset = queryset.annotate(
+                    computed_duration=Case(
+                        When(start_date__isnull=True, then=Value(None)),
+                        When(end_date__isnull=False, then=F("end_date") - F("start_date")),
+                        default=Now() - F("start_date"),
+                    )
+                )
+                queryset = queryset.order_by(f"{'-' if order.startswith('-') else ''}computed_duration")
+            elif order in ["status", "-status"]:
+                # Status ordering: Draft (no start) -> Running (no end) -> Complete (has end)
+                # Annotate with numeric status values for clear ordering
+                queryset = queryset.annotate(
+                    computed_status=Case(
+                        When(start_date__isnull=True, then=Value(0)),  # Draft
+                        When(end_date__isnull=True, then=Value(1)),  # Running
+                        default=Value(2),  # Complete
+                    )
+                )
+                if order.startswith("-"):
+                    # Descending: Complete -> Running -> Draft
+                    queryset = queryset.order_by(F("computed_status").desc())
+                else:
+                    # Ascending: Draft -> Running -> Complete
+                    queryset = queryset.order_by(F("computed_status").asc())
+            else:
+                queryset = queryset.order_by(order)
 
         return queryset
 
@@ -584,6 +577,8 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
             "exposure_criteria": source_experiment.exposure_criteria,
             "saved_metrics_ids": saved_metrics_data,
             "feature_flag_key": feature_flag_key,  # Use provided key or fall back to existing
+            "primary_metrics_ordered_uuids": source_experiment.primary_metrics_ordered_uuids,
+            "secondary_metrics_ordered_uuids": source_experiment.secondary_metrics_ordered_uuids,
             # Reset fields for new experiment
             "start_date": None,
             "end_date": None,
@@ -691,13 +686,13 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
 
 
 @receiver(model_activity_signal, sender=Experiment)
-def handle_experiment_change(sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs):
+def handle_experiment_change(
+    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
+):
     log_activity(
         organization_id=after_update.team.organization_id,
         team_id=after_update.team_id,
-        user=after_update.created_by
-        if activity == "created"
-        else getattr(after_update, "last_modified_by", after_update.created_by),
+        user=user,
         was_impersonated=was_impersonated,
         item_id=after_update.id,
         scope=scope,
@@ -705,41 +700,4 @@ def handle_experiment_change(sender, scope, before_update, after_update, activit
         detail=Detail(
             changes=changes_between(scope, previous=before_update, current=after_update), name=after_update.name
         ),
-    )
-
-
-@receiver(model_activity_signal, sender=ExperimentSavedMetric)
-def handle_experiment_saved_metric_change(
-    sender, scope, before_update, after_update, activity, was_impersonated=False, **kwargs
-):
-    log_activity(
-        organization_id=after_update.team.organization_id,
-        team_id=after_update.team_id,
-        user=after_update.created_by
-        if activity == "created"
-        else getattr(after_update, "last_modified_by", after_update.created_by),
-        was_impersonated=was_impersonated,
-        item_id=after_update.id,
-        scope="Experiment",  # log under Experiment scope so it appears in experiment activity log
-        activity=activity,
-        detail=Detail(
-            # need to use ExperimentSavedMetric here for field exclusions...
-            changes=changes_between("ExperimentSavedMetric", previous=before_update, current=after_update),
-            name=after_update.name,
-            type="shared_metric",
-        ),
-    )
-
-
-@receiver(pre_delete, sender=ExperimentSavedMetric)
-def handle_experiment_saved_metric_delete(sender, instance, **kwargs):
-    log_activity(
-        organization_id=instance.team.organization_id,
-        team_id=instance.team_id,
-        user=getattr(instance, "last_modified_by", instance.created_by),
-        was_impersonated=False,
-        item_id=instance.id,
-        scope="Experiment",  # log under Experiment scope so it appears in experiment activity log
-        activity="deleted",
-        detail=Detail(name=instance.name, type="shared_metric"),
     )

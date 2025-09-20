@@ -1,11 +1,13 @@
-import { IconInfo } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
-import { TitleWithIcon } from 'lib/components/TitleWithIcon'
-import { IconLink } from 'lib/lemon-ui/icons'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import posthog from 'posthog-js'
 import { useState } from 'react'
+
+import { IconInfo } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
+import { TitleWithIcon } from 'lib/components/TitleWithIcon'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconLink } from 'lib/lemon-ui/icons'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 interface TemplateLinkSectionProps {
     templateLink: string

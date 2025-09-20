@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
+
 import { getSeriesBackgroundColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { useEffect, useRef } from 'react'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { formatBreakdownLabel, getTrendResultCustomizationKey } from 'scenes/insights/utils'
 import { formatCompareLabel } from 'scenes/insights/views/InsightsTable/columns/SeriesColumn'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
@@ -14,24 +15,32 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { ChartDisplayType } from '~/types'
 
-import { shouldHighlightThisRow } from './utils'
-
 type InsightLegendRowProps = {
-    rowIndex: number
     item: IndexedTrendResult
 }
 
-export function InsightLegendRow({ rowIndex, item }: InsightLegendRowProps): JSX.Element {
+export function InsightLegendRow({ item }: InsightLegendRowProps): JSX.Element {
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
-    const { insightProps, highlightedSeries } = useValues(insightLogic)
-    const { display, trendsFilter, breakdownFilter, isSingleSeries, hiddenLegendIndexes, getTrendsColor } = useValues(
-        trendsDataLogic(insightProps)
-    )
-    const { toggleHiddenLegendIndex } = useActions(trendsDataLogic(insightProps))
+    const { insightProps, highlightedSeries, editingDisabledReason } = useValues(insightLogic)
+    const {
+        display,
+        trendsFilter,
+        breakdownFilter,
+        isSingleSeries,
+        getTrendsColor,
+        getTrendsHidden,
+        resultCustomizationBy,
+    } = useValues(trendsDataLogic(insightProps))
+    const { toggleResultHidden } = useActions(trendsDataLogic(insightProps))
 
-    const highlighted = shouldHighlightThisRow(rowIndex, highlightedSeries, hiddenLegendIndexes)
+    let highlighted = false
+    if (highlightedSeries) {
+        const currentKey = getTrendResultCustomizationKey(resultCustomizationBy, item)
+        const highlightedKey = getTrendResultCustomizationKey(resultCustomizationBy, highlightedSeries)
+        highlighted = currentKey === highlightedKey
+    }
     const highlightStyle: Record<string, any> = highlighted
         ? {
               style: { backgroundColor: getSeriesBackgroundColor(item.seriesIndex) },
@@ -55,6 +64,7 @@ export function InsightLegendRow({ rowIndex, item }: InsightLegendRowProps): JSX
     const isPrevious = !!item.compare && item.compare_label === 'previous'
 
     const themeColor = getTrendsColor(item)
+    const isHidden = getTrendsHidden(item)
     const mainColor = isPrevious ? `${themeColor}80` : themeColor
 
     return (
@@ -63,8 +73,8 @@ export function InsightLegendRow({ rowIndex, item }: InsightLegendRowProps): JSX
                 <LemonCheckbox
                     className="text-xs mr-4"
                     color={mainColor}
-                    checked={!hiddenLegendIndexes.includes(rowIndex)}
-                    onChange={() => toggleHiddenLegendIndex(rowIndex)}
+                    checked={!isHidden}
+                    onChange={() => toggleResultHidden(item)}
                     fullWidth
                     label={
                         <InsightLabel
@@ -79,6 +89,7 @@ export function InsightLegendRow({ rowIndex, item }: InsightLegendRowProps): JSX
                             hideIcon
                         />
                     }
+                    disabledReason={editingDisabledReason}
                 />
             </div>
             {display === ChartDisplayType.ActionsPie && (

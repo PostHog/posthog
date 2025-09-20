@@ -1,12 +1,13 @@
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { router } from 'kea-router'
+
 import { getRelativeNextPath } from 'lib/utils'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ProductKey, OnboardingStepKey } from '~/types'
+import { OnboardingStepKey, ProductKey } from '~/types'
 
 import type { productsLogicType } from './productsLogicType'
 

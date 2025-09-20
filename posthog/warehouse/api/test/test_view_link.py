@@ -1,8 +1,10 @@
 from posthog.test.base import APIBaseTest, FuzzyInt
+
 from posthog.warehouse.models import DataWarehouseJoin, DataWarehouseTable
 from posthog.warehouse.models.credential import DataWarehouseCredential
 from posthog.warehouse.models.external_data_schema import ExternalDataSchema
 from posthog.warehouse.models.external_data_source import ExternalDataSource
+from posthog.warehouse.types import ExternalDataSourceType
 
 
 class TestViewLinkQuery(APIBaseTest):
@@ -42,7 +44,7 @@ class TestViewLinkQuery(APIBaseTest):
             source_id="source_id",
             connection_id="connection_id",
             status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSource.Type.STRIPE,
+            source_type=ExternalDataSourceType.STRIPE,
         )
         credentials = DataWarehouseCredential.objects.create(access_key="blah", access_secret="blah", team=self.team)
         warehouse_table = DataWarehouseTable.objects.create(
@@ -259,7 +261,7 @@ class TestViewLinkQuery(APIBaseTest):
         # Test that listing joins uses efficient querying
 
         with self.assertNumQueries(
-            FuzzyInt(16, 17)
+            FuzzyInt(17, 18)
         ):  # depends when team revenue analytisc config cache is hit in a test
             response = self.client.get(f"/api/environments/{self.team.id}/warehouse_view_links/")
 

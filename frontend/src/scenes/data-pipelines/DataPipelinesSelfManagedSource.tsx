@@ -1,6 +1,8 @@
-import { LemonButton } from '@posthog/lemon-ui'
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { PageHeader } from 'lib/components/PageHeader'
 import { DatawarehouseTableForm } from 'scenes/data-warehouse/new/DataWarehouseTableForm'
 import { dataWarehouseTableLogic } from 'scenes/data-warehouse/new/dataWarehouseTableLogic'
@@ -38,7 +40,7 @@ export function DataPipelinesSelfManagedSourceTable({ table, updateTable, editin
                         type="secondary"
                         onClick={() => {
                             editingTable(false)
-                            router.actions.push(urls.pipeline())
+                            router.actions.push(urls.dataPipelines('sources'))
                         }}
                     >
                         Cancel

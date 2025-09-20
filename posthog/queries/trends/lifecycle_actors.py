@@ -1,9 +1,8 @@
 from typing import Optional
 
+from posthog.models.filters.lifecycle_filter import LifecycleFilter
 from posthog.queries.actor_base_query import ActorBaseQuery
 from posthog.queries.trends.lifecycle import LifecycleEventQuery
-from posthog.models.filters.lifecycle_filter import LifecycleFilter
-
 from posthog.queries.trends.sql import LIFECYCLE_PEOPLE_SQL
 
 

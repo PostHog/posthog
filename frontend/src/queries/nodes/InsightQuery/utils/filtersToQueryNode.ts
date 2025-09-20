@@ -1,9 +1,9 @@
-import { objectCleanWithEmpty } from 'lib/utils'
 import posthog from 'posthog-js'
+
+import { objectCleanWithEmpty } from 'lib/utils'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import {
-    isCalendarHeatmapFilter,
     isFunnelsFilter,
     isLifecycleFilter,
     isPathsFilter,
@@ -16,7 +16,6 @@ import {
     ActionsNode,
     AnalyticsQueryResponseBase,
     BreakdownFilter,
-    CalendarHeatmapFilter,
     CompareFilter,
     DataWarehouseNode,
     EventsNode,
@@ -37,7 +36,6 @@ import {
     TrendsFilter,
 } from '~/queries/schema/schema-general'
 import {
-    isCalendarHeatmapQuery,
     isFunnelsQuery,
     isInsightQueryWithBreakdown,
     isInsightQueryWithCompare,
@@ -52,7 +50,6 @@ import {
 import {
     ActionFilter,
     BaseMathType,
-    CalendarHeatmapFilterType,
     CalendarHeatmapMathType,
     DataWarehouseFilter,
     FilterType,
@@ -62,11 +59,11 @@ import {
     GroupMathType,
     HogQLMathType,
     InsightType,
-    isDataWarehouseFilter,
     PathsFilterType,
     RetentionEntity,
     RetentionFilterType,
     TrendsFilterType,
+    isDataWarehouseFilter,
 } from '~/types'
 
 import { cleanEntityProperties, cleanGlobalProperties } from './cleanProperties'
@@ -81,7 +78,6 @@ const insightTypeToNodeKind: Record<
     [InsightType.PATHS]: NodeKind.PathsQuery,
     [InsightType.STICKINESS]: NodeKind.StickinessQuery,
     [InsightType.LIFECYCLE]: NodeKind.LifecycleQuery,
-    [InsightType.CALENDAR_HEATMAP]: NodeKind.CalendarHeatmapQuery,
 }
 
 const actorsOnlyMathTypes = [
@@ -140,6 +136,12 @@ export const legacyEntityToNode = (
                 shared = {
                     ...shared,
                     math: entity.math as MathType,
+                }
+            }
+            if (entity.optionalInFunnel) {
+                shared = {
+                    ...shared,
+                    optionalInFunnel: true,
                 }
             }
         } else if (mathAvailability === MathAvailability.CalendarHeatmapOnly) {
@@ -290,7 +292,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         throw new Error('filtersToQueryNode expects "insight"')
     }
 
-    const query: InsightsQueryBase<AnalyticsQueryResponseBase<unknown>> = {
+    const query: InsightsQueryBase<AnalyticsQueryResponseBase> = {
         kind: insightTypeToNodeKind[filters.insight],
         properties: cleanGlobalProperties(filters.properties),
         filterTestAccounts: filters.filter_test_accounts,
@@ -376,11 +378,6 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     // trends filter
     if (isTrendsFilter(filters) && isTrendsQuery(query)) {
         query.trendsFilter = trendsFilterToQuery(filters)
-    }
-
-    // calendar heatmap filter
-    if (isCalendarHeatmapFilter(filters) && isCalendarHeatmapQuery(query)) {
-        query.calendarHeatmapFilter = calendarHeatmapFilterToQuery(filters)
     }
 
     // funnels filter
@@ -495,13 +492,6 @@ export const filtersToFunnelPathsQuery = (filters: Partial<PathsFilterType>): Fu
         funnelPathType: filters.funnel_paths,
         funnelSource: filtersToQueryNode(filters.funnel_filter) as FunnelsQuery,
         funnelStep: filters.funnel_filter?.funnel_step,
-    }
-}
-
-export const calendarHeatmapFilterToQuery = (filters: Partial<CalendarHeatmapFilterType>): CalendarHeatmapFilter => {
-    // Reserved for future filter properties
-    return {
-        dummy: filters?.dummy,
     }
 }
 

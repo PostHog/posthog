@@ -1,5 +1,6 @@
-import { dayjs } from 'lib/dayjs'
 import tk from 'timekeeper'
+
+import { dayjs } from 'lib/dayjs'
 
 import { ElementType, EventType, PropertyType, TimeUnitType } from '~/types'
 

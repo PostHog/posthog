@@ -1,56 +1,55 @@
+import hashlib
 from typing import Any, Optional, Protocol, TypeVar
 
-from django.core.files.uploadedfile import UploadedFile
-from posthog.models.team.team import Team
-import structlog
-import hashlib
-
-from rest_framework import serializers, viewsets, status, request
-from rest_framework.response import Response
-from rest_framework.exceptions import ValidationError
-from rest_framework.parsers import MultiPartParser, FileUploadParser, JSONParser
-
-from django.http import JsonResponse
 from django.conf import settings
+from django.core.files.uploadedfile import UploadedFile
 from django.db import transaction
+from django.http import JsonResponse
 
-from common.hogvm.python.operation import Operation
+import structlog
+import posthoganalytics
+from loginas.utils import is_impersonated_session
+from rest_framework import request, serializers, status, viewsets
+from rest_framework.exceptions import ValidationError
+from rest_framework.parsers import FileUploadParser, JSONParser, MultiPartParser
+from rest_framework.response import Response
+
+from posthog.schema import PropertyGroupFilterValue
+
+from posthog.hogql import ast
+from posthog.hogql.compiler.bytecode import create_bytecode
+from posthog.hogql.property import property_to_expr
+
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
-
 from posthog.api.utils import action
-from posthog.models.utils import UUIDT
-from posthog.models.integration import Integration, GitHubIntegration, LinearIntegration
+from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
+from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.error_tracking import (
-    ErrorTrackingIssue,
-    ErrorTrackingRelease,
-    ErrorTrackingSymbolSet,
     ErrorTrackingAssignmentRule,
+    ErrorTrackingExternalReference,
     ErrorTrackingGroupingRule,
-    ErrorTrackingSuppressionRule,
-    ErrorTrackingStackFrame,
+    ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
     ErrorTrackingIssueFingerprintV2,
-    ErrorTrackingExternalReference,
+    ErrorTrackingRelease,
+    ErrorTrackingStackFrame,
+    ErrorTrackingSuppressionRule,
+    ErrorTrackingSymbolSet,
 )
-from posthog.models.activity_logging.activity_log import log_activity, Detail, Change, load_activity
-from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.error_tracking.hogvm_stl import RUST_HOGVM_STL
-from posthog.models.utils import uuid7
+from posthog.models.integration import GitHubIntegration, Integration, LinearIntegration
+from posthog.models.team.team import Team
+from posthog.models.utils import UUIDT, uuid7
 from posthog.storage import object_storage
-from loginas.utils import is_impersonated_session
-from posthog.hogql.property import property_to_expr
-from posthog.hogql import ast
-
 from posthog.tasks.email import send_error_tracking_issue_assigned
-from posthog.hogql.compiler.bytecode import create_bytecode
-from posthog.schema import PropertyGroupFilterValue
+
+from common.hogvm.python.operation import Operation
 
 ONE_HUNDRED_MEGABYTES = 1024 * 1024 * 100
 JS_DATA_MAGIC = b"posthog_error_tracking"
 JS_DATA_VERSION = 1
 JS_DATA_TYPE_SOURCE_AND_MAP = 2
-PRESIGNED_SINGLE_UPLOAD_TIMEOUT = 60
 PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT = 60 * 5
 
 logger = structlog.get_logger(__name__)
@@ -77,13 +76,15 @@ class ErrorTrackingExternalReferenceSerializer(serializers.ModelSerializer):
         fields = ["id", "integration", "integration_id", "config", "issue", "external_url"]
         read_only_fields = ["external_url"]
 
-    def get_external_url(self, reference: ErrorTrackingExternalReference):
+    def get_external_url(self, reference: ErrorTrackingExternalReference) -> str:
+        external_context: dict[str, str] = reference.external_context or {}
         if reference.integration.kind == Integration.IntegrationKind.LINEAR:
             url_key = LinearIntegration(reference.integration).url_key()
-            return f"https://linear.app/{url_key}/issue/{reference.external_context['id']}"
+            return f"https://linear.app/{url_key}/issue/{external_context['id']}"
         elif reference.integration.kind == Integration.IntegrationKind.GITHUB:
             org = GitHubIntegration(reference.integration).organization()
-            return f"https://github.com/{org}/{reference.external_context['repository']}/issues/{reference.external_context['number']}"
+            return f"https://github.com/{org}/{external_context['repository']}/issues/{external_context['number']}"
+        raise ValidationError("Provider not supported")
 
     def validate(self, data):
         issue = data["issue"]
@@ -196,6 +197,25 @@ class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
         return updated_instance
 
 
+class ErrorTrackingFingerprintSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ErrorTrackingIssueFingerprintV2
+        fields = ["fingerprint", "issue_id"]
+
+
+class ErrorTrackingFingerprintViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ReadOnlyModelViewSet):
+    scope_object = "error_tracking"
+    queryset = ErrorTrackingIssueFingerprintV2.objects.all()
+    serializer_class = ErrorTrackingFingerprintSerializer
+
+    def safely_get_queryset(self, queryset):
+        params = self.request.GET.dict()
+        queryset = queryset.filter(team_id=self.team.id)
+        if params.get("issue_id"):
+            queryset = queryset.filter(issue_id=params["issue_id"])
+        return queryset
+
+
 class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = ErrorTrackingIssue.objects.with_first_seen().all()
@@ -238,6 +258,14 @@ class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, view
         # Make sure we don't delete the issue being merged into (defensive of frontend bugs)
         ids = [x for x in ids if x != str(issue.id)]
         issue.merge(issue_ids=ids)
+        return Response({"success": True})
+
+    @action(methods=["POST"], detail=True)
+    def split(self, request, **kwargs):
+        issue: ErrorTrackingIssue = self.get_object()
+        fingerprints: list[str] = request.data.get("fingerprints", [])
+        exclusive: bool = request.data.get("exclusive", True)
+        issue.split(fingerprints=fingerprints, exclusive=exclusive)
         return Response({"success": True})
 
     @action(methods=["PATCH"], detail=True)
@@ -397,36 +425,6 @@ def assign_issue(issue: ErrorTrackingIssue, assignee, organization, user, team_i
     )
 
 
-class ErrorTrackingStackFrameSerializer(serializers.ModelSerializer):
-    symbol_set_ref = serializers.CharField(source="symbol_set.ref", default=None)
-
-    class Meta:
-        model = ErrorTrackingStackFrame
-        fields = ["id", "raw_id", "created_at", "contents", "resolved", "context", "symbol_set_ref"]
-
-
-class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ReadOnlyModelViewSet):
-    scope_object = "INTERNAL"
-    queryset = ErrorTrackingStackFrame.objects.all()
-    serializer_class = ErrorTrackingStackFrameSerializer
-
-    @action(methods=["POST"], detail=False)
-    def batch_get(self, request, **kwargs):
-        raw_ids = request.data.get("raw_ids", [])
-        symbol_set = request.data.get("symbol_set", None)
-
-        queryset = self.queryset.filter(team_id=self.team.id)
-
-        if raw_ids:
-            queryset = queryset.filter(raw_id__in=raw_ids)
-
-        if symbol_set:
-            queryset = queryset.filter(symbol_set=symbol_set)
-
-        serializer = self.get_serializer(queryset, many=True)
-        return Response({"results": serializer.data})
-
-
 class ErrorTrackingReleaseSerializer(serializers.ModelSerializer):
     class Meta:
         model = ErrorTrackingRelease
@@ -504,6 +502,37 @@ class ErrorTrackingReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
+class ErrorTrackingStackFrameSerializer(serializers.ModelSerializer):
+    symbol_set_ref = serializers.CharField(source="symbol_set.ref", default=None)
+    release = ErrorTrackingReleaseSerializer(source="symbol_set.release", read_only=True)
+
+    class Meta:
+        model = ErrorTrackingStackFrame
+        fields = ["id", "raw_id", "created_at", "contents", "resolved", "context", "symbol_set_ref", "release"]
+
+
+class ErrorTrackingStackFrameViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ReadOnlyModelViewSet):
+    scope_object = "INTERNAL"
+    queryset = ErrorTrackingStackFrame.objects.all()
+    serializer_class = ErrorTrackingStackFrameSerializer
+
+    @action(methods=["POST"], detail=False)
+    def batch_get(self, request, **kwargs):
+        raw_ids = request.data.get("raw_ids", [])
+        symbol_set = request.data.get("symbol_set", None)
+
+        queryset = self.queryset.filter(team_id=self.team.id).select_related("symbol_set__release")
+
+        if raw_ids:
+            queryset = queryset.filter(raw_id__in=raw_ids)
+
+        if symbol_set:
+            queryset = queryset.filter(symbol_set=symbol_set)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({"results": serializer.data})
+
+
 class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):
     class Meta:
         model = ErrorTrackingSymbolSet
@@ -562,11 +591,18 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         ErrorTrackingStackFrame.objects.filter(team=self.team, symbol_set=symbol_set).delete()
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
 
+    # DEPRECATED: newer versions of the CLI use bulk uploads
     def create(self, request, *args, **kwargs) -> Response:
         # pull the symbol set reference from the query params
         chunk_id = request.query_params.get("chunk_id", None)
         multipart = request.query_params.get("multipart", False)
         release_id = request.query_params.get("release_id", None)
+
+        posthoganalytics.capture(
+            "error_tracking_symbol_set_deprecated_endpoint",
+            distinct_id=request.user.pk,
+            properties={"team_id": self.team.id, "endpoint": "create"},
+        )
 
         if not chunk_id:
             return Response({"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
@@ -586,9 +622,16 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         return Response({"ok": True}, status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=False)
+    # DEPRECATED: we should eventually remove this once everyone is using a new enough version of the CLI
     def start_upload(self, request, **kwargs):
         chunk_id = request.query_params.get("chunk_id", None)
         release_id = request.query_params.get("release_id", None)
+
+        posthoganalytics.capture(
+            "error_tracking_symbol_set_deprecated_endpoint",
+            distinct_id=request.user.pk,
+            properties={"team_id": self.team.id, "endpoint": "start_upload"},
+        )
 
         if not settings.OBJECT_STORAGE_ENABLED:
             raise ValidationError(
@@ -603,7 +646,6 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
         presigned_url = object_storage.get_presigned_post(
             file_key=file_key,
             conditions=[["content-length-range", 0, ONE_HUNDRED_MEGABYTES]],
-            expiration=PRESIGNED_SINGLE_UPLOAD_TIMEOUT,
         )
 
         symbol_set = create_symbol_set(chunk_id, self.team, release_id, file_key)
@@ -656,9 +698,9 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
     @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
     def bulk_start_upload(self, request, **kwargs):
         # Extract a list of chunk IDs from the request json
-        chunk_ids = request.data.get("chunk_ids")
+        chunk_ids: list[str] | None = request.data.get("chunk_ids")
         # Grab the release ID from the request json
-        release_id = request.data.get("release_id", None)
+        release_id: str | None = request.data.get("release_id", None)
         if not chunk_ids:
             return Response({"detail": "chunk_ids query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -668,19 +710,9 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 detail="Object storage must be available to allow source map uploads.",
             )
 
-        # For each of the chunk IDs, make a new symbol set and presigned URL
-        id_url_map = {}
-        for chunk_id in chunk_ids:
-            file_key = generate_symbol_set_file_key()
-            presigned_url = object_storage.get_presigned_post(
-                file_key=file_key,
-                conditions=[["content-length-range", 0, ONE_HUNDRED_MEGABYTES]],
-                expiration=PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT,
-            )
-            symbol_set = create_symbol_set(chunk_id, self.team, release_id, file_key)
-            id_url_map[chunk_id] = {"presigned_url": presigned_url, "symbol_set_id": str(symbol_set.pk)}
+        chunk_id_url_map = bulk_create_symbol_sets(chunk_ids, self.team, release_id)
 
-        return Response({"id_map": id_url_map}, status=status.HTTP_201_CREATED)
+        return Response({"id_map": chunk_id_url_map}, status=status.HTTP_201_CREATED)
 
     @action(methods=["POST"], detail=False, parser_classes=[JSONParser])
     def bulk_finish_upload(self, request, **kwargs):
@@ -697,9 +729,11 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                 detail="Object storage must be available to allow source map uploads.",
             )
 
+        symbol_set_ids = content_hashes.keys()
+        symbol_sets = ErrorTrackingSymbolSet.objects.filter(team=self.team, id__in=symbol_set_ids)
+
         try:
-            for symbol_set_id, content_hash in content_hashes.items():
-                symbol_set = ErrorTrackingSymbolSet.objects.get(id=symbol_set_id, team=self.team)
+            for symbol_set in symbol_sets:
                 s3_upload = None
                 if symbol_set.storage_ptr:
                     s3_upload = object_storage.head_object(file_key=symbol_set.storage_ptr)
@@ -720,9 +754,9 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSe
                         detail="No file has been uploaded for the symbol set.",
                     )
 
-                if not symbol_set.content_hash:
-                    symbol_set.content_hash = content_hash
-                    symbol_set.save()
+                content_hash = content_hashes[str(symbol_set.id)]
+                symbol_set.content_hash = content_hash
+            ErrorTrackingSymbolSet.objects.bulk_update(symbol_sets, ["content_hash"])
         except Exception:
             for id in content_hashes.keys():
                 # Try to clean up the symbol sets preemptively if the upload fails
@@ -976,6 +1010,67 @@ def create_symbol_set(
         return symbol_set
 
 
+def bulk_create_symbol_sets(
+    chunk_ids: list[str],
+    team: Team,
+    release_id: str | None,
+) -> dict[str, dict[str, str]]:
+    release = create_release(team, release_id) if release_id else None
+
+    id_url_map: dict[str, dict[str, str]] = {}
+
+    with transaction.atomic():
+        existing_symbol_sets = list(ErrorTrackingSymbolSet.objects.filter(team=team, ref__in=chunk_ids))
+        existing_symbol_set_refs = [s.ref for s in existing_symbol_sets]
+        missing_symbol_set_refs = list(set(chunk_ids) - set(existing_symbol_set_refs))
+
+        symbol_sets_to_be_created = []
+        for chunk_id in missing_symbol_set_refs:
+            storage_ptr = generate_symbol_set_file_key()
+            presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr)
+            id_url_map[chunk_id] = {"presigned_url": presigned_url}
+            symbol_sets_to_be_created.append(
+                ErrorTrackingSymbolSet(
+                    team=team,
+                    ref=chunk_id,
+                    release=release,
+                    storage_ptr=storage_ptr,
+                )
+            )
+
+        # create missing symbol sets
+        created_symbol_sets = ErrorTrackingSymbolSet.objects.bulk_create(symbol_sets_to_be_created)
+
+        for symbol_set in created_symbol_sets:
+            id_url_map[symbol_set.ref]["symbol_set_id"] = str(symbol_set.pk)
+
+        # update existing symbol sets
+        for symbol_set in existing_symbol_sets:
+            if symbol_set.release is None:
+                symbol_set.release = release
+            elif symbol_set.release != release:
+                raise ValidationError(f"Symbol set has already been uploaded for a different release")
+
+            storage_ptr = generate_symbol_set_file_key()
+            presigned_url = generate_symbol_set_upload_presigned_url(storage_ptr)
+            id_url_map[symbol_set.ref] = {"presigned_url": presigned_url, "symbol_set_id": str(symbol_set.id)}
+            symbol_set.storage_ptr = storage_ptr
+            symbol_set.content_hash = None
+        ErrorTrackingSymbolSet.objects.bulk_update(existing_symbol_sets, ["release", "storage_ptr", "content_hash"])
+
+        # Delete any existing frames associated with this symbol set
+        ErrorTrackingStackFrame.objects.filter(team=team, symbol_set__ref__in=chunk_ids).delete()
+
+    return id_url_map
+
+
+def create_release(team: Team, release_id: str) -> ErrorTrackingRelease | None:
+    objects = ErrorTrackingRelease.objects.all().filter(team=team, id=release_id)
+    if len(objects) < 1:
+        raise ValueError(f"Unknown release: {release_id}")
+    return objects[0]
+
+
 def upload_symbol_set(minified: UploadedFile, source_map: UploadedFile) -> tuple[str, str]:
     js_data = construct_js_data_object(minified.read(), source_map.read())
     return upload_content(js_data)
@@ -1039,6 +1134,14 @@ def validate_bytecode(bytecode: list[Any]) -> None:
 
 def get_suppression_rules(team: Team):
     return list(ErrorTrackingSuppressionRule.objects.filter(team=team).values_list("filters", flat=True))
+
+
+def generate_symbol_set_upload_presigned_url(file_key: str):
+    return object_storage.get_presigned_post(
+        file_key=file_key,
+        conditions=[["content-length-range", 0, ONE_HUNDRED_MEGABYTES]],
+        expiration=PRESIGNED_MULTIPLE_UPLOAD_TIMEOUT,
+    )
 
 
 def generate_symbol_set_file_key():

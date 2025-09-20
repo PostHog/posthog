@@ -1,6 +1,6 @@
+import { existsSync, mkdirSync, readFileSync, readdirSync, unlinkSync, writeFileSync } from 'fs'
+import { dirname, join, relative, resolve } from 'path'
 import type { Plugin } from 'vite'
-import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync, readdirSync } from 'fs'
-import { resolve, dirname, join, relative } from 'path'
 
 function deleteAssetsFiles(): void {
     try {

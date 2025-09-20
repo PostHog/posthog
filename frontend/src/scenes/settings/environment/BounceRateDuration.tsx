@@ -1,8 +1,10 @@
-import { IconX } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
+import React, { useState } from 'react'
+
+import { IconX } from '@posthog/icons'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import React, { useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
 const MIN_BOUNCE_RATE_DURATION = 1

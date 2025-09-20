@@ -1,6 +1,8 @@
-import { expectLogic } from 'kea-test-utils'
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+
+import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
+
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'

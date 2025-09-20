@@ -1,8 +1,5 @@
-from ee.hogai.summarizers.property_filters import (
-    PropertyFilterCollectionDescriber,
-    PropertyFilterDescriber,
-    retrieve_hardcoded_taxonomy,
-)
+from posthog.test.base import BaseTest
+
 from posthog.schema import (
     DataWarehousePropertyFilter,
     ElementPropertyFilter,
@@ -13,7 +10,12 @@ from posthog.schema import (
     PropertyOperator,
     SessionPropertyFilter,
 )
-from posthog.test.base import BaseTest
+
+from ee.hogai.summarizers.property_filters import (
+    PropertyFilterCollectionDescriber,
+    PropertyFilterDescriber,
+    retrieve_hardcoded_taxonomy,
+)
 
 
 class TestPropertyFilterDescriber(BaseTest):

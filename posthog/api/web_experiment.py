@@ -3,6 +3,7 @@ from typing import Any
 from django.http import HttpResponse, JsonResponse
 from django.utils.text import slugify
 from django.views.decorators.csrf import csrf_exempt
+
 from nanoid import generate
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -12,9 +13,7 @@ from rest_framework.request import Request
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import get_token
-from posthog.auth import (
-    TemporaryTokenAuthentication,
-)
+from posthog.auth import TemporaryTokenAuthentication
 from posthog.exceptions import generate_exception_response
 from posthog.models import Team, WebExperiment
 from posthog.utils_cors import cors_response

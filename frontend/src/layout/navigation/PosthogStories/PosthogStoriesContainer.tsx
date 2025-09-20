@@ -1,9 +1,10 @@
-import { IconChevronRight } from '@posthog/icons'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { storiesLogic } from './storiesLogic'
+import { IconChevronRight } from '@posthog/icons'
+
 import { StoriesModal } from './StoriesModal'
+import { storiesLogic } from './storiesLogic'
 
 export const PosthogStoriesContainer = (): JSX.Element => {
     const { stories, isStoryViewed, storiesCollapsed } = useValues(storiesLogic)

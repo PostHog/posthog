@@ -140,7 +140,7 @@ mod tests {
 
         for (ip, expected_country) in test_cases {
             let result = service.get_geoip_properties(ip).unwrap();
-            println!("GeoIP lookup result for IP {}: {:?}", ip, result);
+            println!("GeoIP lookup result for IP {ip}: {result:?}");
             println!(
                 "Expected country: {}, Actual country: {:?}",
                 expected_country,

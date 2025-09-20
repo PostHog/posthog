@@ -3,6 +3,7 @@ from typing import Any, Optional
 from rest_framework.request import Request
 
 from posthog.constants import INSIGHT_PATHS
+
 from .base_filter import BaseFilter
 from .mixins.common import (
     BreakdownMixin,
@@ -17,11 +18,7 @@ from .mixins.common import (
     SampleMixin,
     SearchMixin,
 )
-from .mixins.funnel import (
-    FunnelCorrelationMixin,
-    FunnelPersonsStepMixin,
-    FunnelWindowMixin,
-)
+from .mixins.funnel import FunnelCorrelationMixin, FunnelPersonsStepMixin, FunnelWindowMixin
 from .mixins.groups import GroupsAggregationMixin
 from .mixins.interval import IntervalMixin
 from .mixins.paths import (
@@ -32,10 +29,10 @@ from .mixins.paths import (
     PathLimitsMixin,
     PathPersonsMixin,
     PathReplacementMixin,
+    PathsHogQLExpressionMixin,
     PathStepLimitMixin,
     StartPointMixin,
     TargetEventsMixin,
-    PathsHogQLExpressionMixin,
 )
 from .mixins.property import PropertyMixin
 from .mixins.simplify import SimplifyFilterMixin

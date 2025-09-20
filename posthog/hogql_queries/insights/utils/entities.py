@@ -1,3 +1,5 @@
+from collections import Counter
+
 from posthog.schema import (
     ActionsNode,
     CohortPropertyFilter,
@@ -8,8 +10,8 @@ from posthog.schema import (
     FunnelExclusionEventsNode,
     HogQLPropertyFilter,
 )
+
 from posthog.types import AnyPropertyFilter, EntityNode, ExclusionEntityNode
-from collections import Counter
 
 
 def is_equal_type(a: EntityNode, b: EntityNode | ExclusionEntityNode) -> bool:

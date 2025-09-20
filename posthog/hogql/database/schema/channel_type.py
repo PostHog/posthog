@@ -2,19 +2,13 @@ from dataclasses import dataclass
 from functools import cache
 from typing import Optional, Union
 
+from posthog.schema import CustomChannelField, CustomChannelOperator, CustomChannelRule, DefaultChannelTypes
 
 from posthog.hogql import ast
 from posthog.hogql.database.models import ExpressionField
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.placeholders import replace_placeholders
 from posthog.hogql.timings import HogQLTimings
-from posthog.schema import (
-    CustomChannelRule,
-    CustomChannelOperator,
-    CustomChannelField,
-    DefaultChannelTypes,
-)
-
 
 # Create a virtual field that categories the type of channel that a user was acquired through. Use GA4's definitions as
 # a starting point, but also add some custom logic to handle some edge cases that GA4 doesn't handle.

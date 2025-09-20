@@ -1,13 +1,14 @@
 import pathlib
-
+from datetime import UTC, datetime
 from typing import Any, cast
-from datetime import datetime, UTC
-from unittest.mock import patch, MagicMock
 from uuid import uuid4
+
+from posthog.test.base import BaseTest
+from unittest.mock import MagicMock, patch
+
 from prance import ResolvingParser
 
-from posthog.api.capture import capture_internal, capture_batch_internal, CaptureInternalError
-from posthog.test.base import BaseTest
+from posthog.api.capture import CaptureInternalError, capture_batch_internal, capture_internal
 from posthog.settings.ingestion import (
     CAPTURE_INTERNAL_URL,
     CAPTURE_REPLAY_INTERNAL_URL,

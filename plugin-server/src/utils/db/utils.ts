@@ -1,5 +1,6 @@
-import { Properties } from '@posthog/plugin-scaffold'
 import { Counter } from 'prom-client'
+
+import { Properties } from '@posthog/plugin-scaffold'
 
 import { TopicMessage } from '~/kafka/producer'
 

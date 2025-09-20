@@ -1,15 +1,17 @@
-from typing import cast, Optional
+from typing import Optional, cast
 
 from rest_framework.exceptions import ValidationError
 
+from posthog.schema import BreakdownAttributionType, BreakdownType
+
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
-from posthog.hogql.parser import parse_select, parse_expr
+from posthog.hogql.parser import parse_expr, parse_select
+
 from posthog.hogql_queries.insights.funnels import FunnelTrends
 from posthog.hogql_queries.insights.funnels.base import JOIN_ALGOS
 from posthog.hogql_queries.insights.funnels.funnel_udf import FunnelUDFMixin
 from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql_str
-from posthog.schema import BreakdownType, BreakdownAttributionType
 from posthog.utils import DATERANGE_MAP, relative_date_parse
 
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"

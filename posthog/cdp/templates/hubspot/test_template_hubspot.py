@@ -1,15 +1,17 @@
 import pytest
+from posthog.test.base import BaseTest
+
 from inline_snapshot import snapshot
 
-from common.hogvm.python.utils import UncaughtHogVMException
 from posthog.cdp.templates.helpers import BaseHogFunctionTemplateTest
 from posthog.cdp.templates.hubspot.template_hubspot import (
+    TemplateHubspotMigrator,
     template as template_hubspot,
     template_event as template_hubspot_event,
-    TemplateHubspotMigrator,
 )
 from posthog.models import PluginConfig
-from posthog.test.base import BaseTest
+
+from common.hogvm.python.utils import UncaughtHogVMException
 
 
 class TestTemplateHubspot(BaseHogFunctionTemplateTest):

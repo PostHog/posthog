@@ -6,8 +6,8 @@ import {
     HumanMessage,
     ReasoningMessage,
 } from '~/queries/schema/schema-assistant-messages'
-import { MaxContextType } from '../maxTypes'
 
+import { MaxContextType } from '../maxTypes'
 import failureMessage from './failureMessage.json'
 import summaryMessage from './summaryMessage.json'
 import visualizationMessage from './visualizationMessage.json'
@@ -60,17 +60,8 @@ export const chatMidwayResponseChunk = generateChunk([
 ])
 
 const generationFailure: AssistantGenerationStatusEvent = { type: AssistantGenerationStatusType.GenerationError }
-const responseWithReasoningStepsOnly = {
-    ...visualizationMessage,
-    answer: null,
-}
 
-export const generationFailureChunk = generateChunk([
-    'event: message',
-    `data: ${JSON.stringify(responseWithReasoningStepsOnly)}`,
-    'event: status',
-    `data: ${JSON.stringify(generationFailure)}`,
-])
+export const generationFailureChunk = generateChunk(['event: status', `data: ${JSON.stringify(generationFailure)}`])
 
 export const failureChunk = generateChunk(['event: message', `data: ${JSON.stringify(failureMessage)}`])
 

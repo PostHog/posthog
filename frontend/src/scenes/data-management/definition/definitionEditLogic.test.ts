@@ -1,5 +1,6 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
 import { definitionEditLogic } from 'scenes/data-management/definition/definitionEditLogic'
 import { definitionLogic } from 'scenes/data-management/definition/definitionLogic'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'

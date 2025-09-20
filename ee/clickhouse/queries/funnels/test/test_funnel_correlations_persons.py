@@ -1,21 +1,8 @@
 import urllib.parse
 from datetime import datetime, timedelta
-from unittest.mock import patch
 from uuid import UUID
 
-from django.utils import timezone
 from freezegun import freeze_time
-
-from ee.clickhouse.queries.funnels.funnel_correlation_persons import (
-    FunnelCorrelationActors,
-)
-from posthog.constants import INSIGHT_FUNNELS
-from posthog.models import Cohort, Filter
-from posthog.models.person import Person
-from posthog.session_recordings.queries.test.session_replay_sql import (
-    produce_replay_summary,
-)
-from posthog.tasks.calculate_cohort import insert_cohort_from_insight_filter
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -23,7 +10,18 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
+
+from django.utils import timezone
+
+from posthog.constants import INSIGHT_FUNNELS
+from posthog.models import Cohort, Filter
+from posthog.models.person import Person
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
+from posthog.tasks.calculate_cohort import insert_cohort_from_insight_filter
 from posthog.test.test_journeys import journeys_for
+
+from ee.clickhouse.queries.funnels.funnel_correlation_persons import FunnelCorrelationActors
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
 MAX_STEP_COLUMN = 0

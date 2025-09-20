@@ -1,20 +1,22 @@
-import datetime as dt
-import gzip
-import json
-import operator
 import os
 import re
+import gzip
+import json
 import typing as t
+import datetime as dt
+import operator
 from collections import deque
 from uuid import uuid4
 
 import pytest
+
 import responses
 import snowflake.connector
 from requests.models import PreparedRequest
 
 from posthog.batch_exports.service import BackfillDetails, BatchExportModel, BatchExportSchema
 from posthog.temporal.common.clickhouse import ClickHouseClient
+
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import snowflake_default_fields
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import Producer, RecordBatchQueue

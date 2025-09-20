@@ -1,11 +1,14 @@
-from unittest.mock import patch, MagicMock
-from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
-from posthog.models.team import Team
-from posthog.models.person.person import Person
-from posthog.models.feature_flag.feature_flag import FeatureFlag
-from products.early_access_features.backend.models import EarlyAccessFeature
-from posthog.tasks.early_access_feature import send_events_for_early_access_feature_stage_change
 from posthog.test.base import APIBaseTest
+from unittest.mock import MagicMock, patch
+
+from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
+
+from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.person.person import Person
+from posthog.models.team import Team
+from posthog.tasks.early_access_feature import send_events_for_early_access_feature_stage_change
+
+from products.early_access_features.backend.models import EarlyAccessFeature
 
 
 class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):

@@ -1,12 +1,13 @@
-import { LemonBanner, Spinner } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 import useResizeObserver from 'use-resize-observer'
 
+import { LemonBanner, Spinner } from '@posthog/lemon-ui'
+
 import { ToolbarUserIntent } from '~/types'
 
 import { appEditorUrl } from '../AuthorizedUrlList/authorizedUrlListLogic'
-import { iframedToolbarBrowserLogic, UserIntentVerb } from './iframedToolbarBrowserLogic'
+import { UserIntentVerb, iframedToolbarBrowserLogic } from './iframedToolbarBrowserLogic'
 
 function IframeErrorOverlay({ userIntent }: { userIntent?: string }): JSX.Element | null {
     const logic = iframedToolbarBrowserLogic()

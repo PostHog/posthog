@@ -1,7 +1,10 @@
-import { DEFAULT_TIMEOUT_MS, exec, ExecOptions, ExecResult } from '@posthog/hogvm'
 import crypto from 'crypto'
 import { Counter } from 'prom-client'
 import RE2 from 're2'
+
+import { DEFAULT_TIMEOUT_MS, ExecOptions, ExecResult, exec } from '@posthog/hogvm'
+
+import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { Semaphore } from './sempahore'
 
@@ -55,17 +58,19 @@ export async function execHog(
     waitedForThreadRelief: boolean
 }> {
     return await semaphore.run(async () => {
-        const waitedForInitialRelief = await waitForThreadRelief(options?.timeout)
-        const result = execHogImmediate(bytecode, options)
-        const waitedForFinalRelief = await waitForThreadRelief(options?.timeout)
+        return await instrumentFn(`hog-exec`, async () => {
+            const waitedForInitialRelief = await waitForThreadRelief(options?.timeout)
+            const result = execHogImmediate(bytecode, options)
+            const waitedForFinalRelief = await waitForThreadRelief(options?.timeout)
 
-        const waitedForThreadRelief = waitedForInitialRelief || waitedForFinalRelief
-        hogExecThreadReliefCounter.inc({ waited: waitedForThreadRelief ? 'true' : 'false' })
+            const waitedForThreadRelief = waitedForInitialRelief || waitedForFinalRelief
+            hogExecThreadReliefCounter.inc({ waited: waitedForThreadRelief ? 'true' : 'false' })
 
-        return {
-            ...result,
-            waitedForThreadRelief,
-        }
+            return {
+                ...result,
+                waitedForThreadRelief,
+            }
+        })
     })
 }
 
@@ -80,6 +85,7 @@ function execHogImmediate(
     const now = performance.now()
     let execResult: ExecResult | undefined
     let error: any
+
     try {
         execResult = exec(bytecode, {
             timeout: DEFAULT_TIMEOUT_MS,

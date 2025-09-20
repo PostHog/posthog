@@ -1,5 +1,7 @@
-import { Tooltip } from '@posthog/lemon-ui'
 import clsx from 'clsx'
+
+import { Tooltip } from '@posthog/lemon-ui'
+
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { IndexedTrendResult } from 'scenes/trends/types'

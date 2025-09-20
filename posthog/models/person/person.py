@@ -1,6 +1,6 @@
 from typing import Any, Optional
 
-from django.db import models, transaction, connections
+from django.db import connections, models, transaction
 from django.db.models import F, Q
 
 from posthog.models.utils import UUIDT
@@ -109,10 +109,7 @@ class Person(models.Model):
                     pdi.version = (pdi.version or 0) + 1
                     pdi.save(update_fields=["version", "person_id"])
 
-                from posthog.models.person.util import (
-                    create_person,
-                    create_person_distinct_id,
-                )
+                from posthog.models.person.util import create_person, create_person_distinct_id
 
                 create_person_distinct_id(
                     team_id=self.team_id,

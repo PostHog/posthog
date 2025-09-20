@@ -1,7 +1,9 @@
-import { LemonButton, LemonDivider, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { Fragment } from 'react'
+
+import { LemonButton, LemonDivider, LemonModal } from '@posthog/lemon-ui'
+
+import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 
 import { sessionRecordingPlayerLogic } from './sessionRecordingPlayerLogic'
 

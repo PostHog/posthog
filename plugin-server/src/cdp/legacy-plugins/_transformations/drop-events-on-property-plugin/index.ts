@@ -1,5 +1,4 @@
 // Learn more about plugins at: https://posthog.com/docs/plugins/build/overview
-
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { LegacyTransformationPluginMeta } from '../../types'

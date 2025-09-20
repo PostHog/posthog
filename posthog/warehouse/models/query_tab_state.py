@@ -1,9 +1,10 @@
 from django.db import models
-from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDModel
+
 from posthog.models.team import Team
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDTModel
 
 
-class QueryTabState(CreatedMetaFields, UUIDModel, DeletedMetaFields):
+class QueryTabState(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
     state = models.JSONField(
         default=dict,

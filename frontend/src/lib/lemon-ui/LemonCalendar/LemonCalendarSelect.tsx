@@ -1,17 +1,19 @@
-import { IconX } from '@posthog/icons'
 import clsx from 'clsx'
+import { useMemo, useRef, useState } from 'react'
+
+import { IconX } from '@posthog/icons'
+
 import { dayjs } from 'lib/dayjs'
+import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton, LemonButtonProps, LemonButtonWithSideActionProps, SideAction } from 'lib/lemon-ui/LemonButton'
 import {
     GetLemonButtonTimePropsOpts,
     LemonCalendar,
     LemonCalendarProps,
 } from 'lib/lemon-ui/LemonCalendar/LemonCalendar'
-import { useMemo, useRef, useState } from 'react'
 
 import { LemonSwitch } from '../LemonSwitch'
 import { Popover } from '../Popover'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 function timeDataAttr({ unit, value }: GetLemonButtonTimePropsOpts): string {
     return `${value}-${unit}`

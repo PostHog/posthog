@@ -337,6 +337,7 @@
                 }
               }
               ctes: {}
+              is_lambda_type: False
               tables: {
                 events: <recursion ...>
               }
@@ -1336,6 +1337,7 @@
         uuid: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {}
     }
   }
@@ -2266,6 +2268,7 @@
         uuid: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         events: <recursion ...>
       }
@@ -2346,6 +2349,9 @@
                       hidden: False
                     },
                     properties: {
+                      hidden: False
+                    },
+                    retention_period_days: {
                       hidden: False
                     },
                     session: {
@@ -2632,6 +2638,24 @@
         }
       },
       {
+        alias: "retention_period_days"
+        expr: {
+          chain: [
+            "e",
+            "retention_period_days"
+          ]
+          type: {
+            name: "retention_period_days"
+            table_type: <recursion ...>
+          }
+        }
+        hidden: True
+        type: {
+          alias: "retention_period_days"
+          type: <recursion ...>
+        }
+      },
+      {
         alias: "start_time"
         expr: {
           chain: [
@@ -2824,6 +2848,9 @@
                           id: {
                             hidden: False
                           },
+                          max_inserted_at: {
+                            hidden: False
+                          },
                           session_id: {
                             hidden: False
                           },
@@ -2905,12 +2932,14 @@
         keypress_count: <recursion ...>,
         message_count: <recursion ...>,
         mouse_activity_count: <recursion ...>,
+        retention_period_days: <recursion ...>,
         session_id: <recursion ...>,
         size: <recursion ...>,
         snapshot_source: <recursion ...>,
         start_time: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         e: <recursion ...>,
         s: <recursion ...>
@@ -2957,6 +2986,7 @@
                   b: <recursion ...>
                 }
                 ctes: {}
+                is_lambda_type: False
                 tables: {}
               }
             }
@@ -3047,6 +3077,7 @@
                         b: <recursion ...>
                       }
                       ctes: {}
+                      is_lambda_type: False
                       tables: {}
                     }
                   }
@@ -3123,6 +3154,7 @@
         b: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         x: <recursion ...>,
         y: <recursion ...>
@@ -3469,6 +3501,7 @@
                 }
               }
               ctes: {}
+              is_lambda_type: False
               tables: {
                 events: <recursion ...>
               }
@@ -5359,6 +5392,7 @@
                   uuid: <recursion ...>
                 }
                 ctes: {}
+                is_lambda_type: False
                 tables: {
                   events: <recursion ...>
                 }
@@ -5406,6 +5440,7 @@
         uuid: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {}
     }
   }
@@ -5446,6 +5481,7 @@
                 b: <recursion ...>
               }
               ctes: {}
+              is_lambda_type: False
               tables: {}
             }
           }
@@ -5510,6 +5546,7 @@
         b: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {}
     }
   }
@@ -5553,6 +5590,7 @@
                   b: <recursion ...>
                 }
                 ctes: {}
+                is_lambda_type: False
                 tables: {}
               }
             }
@@ -5618,6 +5656,7 @@
         b: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         x: <recursion ...>
       }
@@ -6547,6 +6586,7 @@
         uuid: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         events: <recursion ...>
       }
@@ -7480,6 +7520,7 @@
         uuid: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         e: <recursion ...>
       }
@@ -7667,6 +7708,7 @@
         max(timestamp): <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         events: <recursion ...>
       }
@@ -7978,6 +8020,7 @@
         some_expr: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         e: <recursion ...>,
         p: <recursion ...>
@@ -8053,6 +8096,7 @@
       anonymous_tables: []
       columns: {}
       ctes: {}
+      is_lambda_type: False
       tables: {}
     }
   }
@@ -8170,6 +8214,7 @@
       anonymous_tables: []
       columns: {}
       ctes: {}
+      is_lambda_type: False
       tables: {}
     }
   }
@@ -8355,6 +8400,7 @@
         timestamp: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         events: <recursion ...>
       }
@@ -8578,6 +8624,7 @@
         timestamp: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         e: <recursion ...>
       }
@@ -8833,6 +8880,7 @@
         timestamp: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         e: <recursion ...>
       }
@@ -9038,6 +9086,7 @@
                   c: <recursion ...>
                 }
                 ctes: {}
+                is_lambda_type: False
                 tables: {
                   events: <recursion ...>
                 }
@@ -9109,6 +9158,7 @@
         b: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         e: <recursion ...>
       }
@@ -9369,6 +9419,7 @@
         id: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         events: <recursion ...>
       }
@@ -9602,6 +9653,7 @@
         id: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         e: <recursion ...>
       }
@@ -9817,6 +9869,7 @@
         person_id: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         events: <recursion ...>
       }
@@ -10037,6 +10090,7 @@
         person_id: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         e: <recursion ...>
       }
@@ -10131,6 +10185,7 @@
         id: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         person_distinct_ids: <recursion ...>
       }
@@ -10318,6 +10373,7 @@
           timestamp: <recursion ...>
         }
         ctes: {}
+        is_lambda_type: False
         tables: {
           events: <recursion ...>
         }
@@ -10502,6 +10558,7 @@
               timestamp: <recursion ...>
             }
             ctes: {}
+            is_lambda_type: False
             tables: {
               events: <recursion ...>
             }
@@ -10697,6 +10754,9 @@
                   },
                   properties: {
                     hidden: False
+                  },
+                  revenue_analytics: {
+                    hidden: False
                   }
                 },
                 hidden: False
@@ -10728,6 +10788,7 @@
         id: <recursion ...>
       }
       ctes: {}
+      is_lambda_type: False
       tables: {
         events: <recursion ...>
       }

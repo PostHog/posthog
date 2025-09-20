@@ -1,4 +1,5 @@
 import { IconCheck, IconLoading, IconX } from '@posthog/icons'
+
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { SelectPrimitiveItemProps } from 'lib/ui/SelectPrimitive/SelectPrimitive'
 
@@ -64,7 +65,7 @@ export function SceneSaveCancelButtons({
     dataAttrKey,
 }: SceneSaveCancelButtonsProps): JSX.Element {
     return (
-        <div className="flex gap-1 px-button-padding-x">
+        <div className="flex gap-1">
             <ButtonPrimitive
                 type="submit"
                 variant="outline"

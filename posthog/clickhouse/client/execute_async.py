@@ -1,5 +1,5 @@
-import datetime
 import uuid
+import datetime
 from typing import TYPE_CHECKING, Optional
 
 import orjson as json
@@ -8,16 +8,18 @@ from prometheus_client import Histogram
 from pydantic import BaseModel
 from rest_framework.exceptions import APIException, NotFound
 
+from posthog.schema import ClickhouseQueryProgress, QueryStatus
+
+from posthog.hogql.constants import LimitContext
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog import celery, redis
 from posthog.clickhouse.client.async_task_chain import add_task_to_on_commit
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
-from posthog.hogql.constants import LimitContext
-from posthog.hogql.errors import ExposedHogQLError
-from posthog.renderers import SafeJSONRenderer
-from posthog.schema import ClickhouseQueryProgress, QueryStatus
-from posthog.tasks.tasks import process_query_task
 from posthog.exceptions_capture import capture_exception
+from posthog.renderers import SafeJSONRenderer
+from posthog.tasks.tasks import process_query_task
 
 if TYPE_CHECKING:
     from posthog.models.team.team import Team
@@ -205,8 +207,13 @@ def execute_process_query(
     except CHQueryErrorTooManySimultaneousQueries:
         raise
     except Exception as err:
+        from posthog.rbac.user_access_control import UserAccessControlError
+
         query_status.results = None  # Clear results in case they are faulty
-        if isinstance(err, APIException | ExposedHogQLError | ExposedCHQueryError) or is_staff_user:
+        if (
+            isinstance(err, APIException | ExposedHogQLError | ExposedCHQueryError | UserAccessControlError)
+            or is_staff_user
+        ):
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
             query_status.error_message = str(err)
         logger.exception("Error processing query async", team_id=team_id, query_id=query_id, exc_info=True)

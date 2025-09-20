@@ -1,5 +1,7 @@
-import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useValues } from 'kea'
+
+import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+
 import { SocialLoginIcon } from 'lib/components/SocialLoginButton/SocialLoginIcon'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'

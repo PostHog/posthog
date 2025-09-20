@@ -1,5 +1,6 @@
-from django.db import migrations
 import json
+
+from django.db import migrations
 
 
 def re_encrypt_integrations(apps, schema_editor):

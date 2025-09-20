@@ -1,9 +1,9 @@
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.db import transaction
-from django.utils.html import format_html
-from django.urls import reverse, path
 from django.shortcuts import redirect
-from django.contrib import messages
+from django.urls import path, reverse
+from django.utils.html import format_html
+
 from posthog.models import ExperimentSavedMetric
 from posthog.models.utils import convert_legacy_metric
 

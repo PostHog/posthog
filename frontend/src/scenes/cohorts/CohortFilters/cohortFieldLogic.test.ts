@@ -1,6 +1,8 @@
-import { expectLogic } from 'kea-test-utils'
 import { MOCK_GROUP_TYPES } from 'lib/api.mock'
-import { cohortFieldLogic, CohortFieldLogicProps } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
+
+import { expectLogic } from 'kea-test-utils'
+
+import { CohortFieldLogicProps, cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import { FIELD_VALUES } from 'scenes/cohorts/CohortFilters/constants'
 import { FieldOptionsType } from 'scenes/cohorts/CohortFilters/types'
 

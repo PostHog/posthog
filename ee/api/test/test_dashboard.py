@@ -1,15 +1,17 @@
 from typing import cast
 
 from django.utils import timezone
+
 from rest_framework import status
 
-from ee.api.test.base import APILicensedTest
-from ee.models.explicit_team_membership import ExplicitTeamMembership
-from ee.models.license import License
 from posthog.models import OrganizationMembership
 from posthog.models.dashboard import Dashboard
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
+
+from ee.api.test.base import APILicensedTest
+from ee.models.explicit_team_membership import ExplicitTeamMembership
+from ee.models.license import License
 
 
 class TestDashboardEnterpriseAPI(APILicensedTest):

@@ -1,5 +1,6 @@
 import { actions, kea, path, reducers } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
+
 import { urls } from 'scenes/urls'
 
 import { stringifiedExamples } from '~/queries/examples'

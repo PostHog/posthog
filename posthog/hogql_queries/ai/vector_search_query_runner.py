@@ -1,9 +1,3 @@
-from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.printer import to_printed_hogql
-from posthog.hogql.query import execute_hogql_query
-from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
-from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.schema import (
     CachedVectorSearchQueryResponse,
     VectorSearchQuery,
@@ -11,16 +5,23 @@ from posthog.schema import (
     VectorSearchResponseItem,
 )
 
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.printer import to_printed_hogql
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+
 LATEST_ACTIONS_EMBEDDING_VERSION: int = 2
 """Bump the version when the embedding behavior changes for actions."""
 
 
-class VectorSearchQueryRunner(TaxonomyCacheMixin, QueryRunner):
+class VectorSearchQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[VectorSearchQueryResponse]):
     query: VectorSearchQuery
-    response: VectorSearchQueryResponse
     cached_response: CachedVectorSearchQueryResponse
 
-    def calculate(self):
+    def _calculate(self):
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team)
 

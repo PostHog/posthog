@@ -1,37 +1,37 @@
-import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
+
+import { lemonToast } from '@posthog/lemon-ui'
+
 import api from 'lib/api'
 import { ProductIntentContext } from 'lib/utils/product-intents'
-import posthog from 'posthog-js'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { activationLogic, ActivationTask } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import { ActivationTask, activationLogic } from '~/layout/navigation-3000/sidepanel/panels/activation/activationLogic'
+import {
+    ExternalDataSourceType,
+    SourceConfig,
+    SourceFieldConfig,
+    SourceFieldSwitchGroupConfig,
+    externalDataSources,
+} from '~/queries/schema/schema-general'
 import {
     Breadcrumb,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSyncSchema,
-    manualLinkSources,
     ManualLinkSourceType,
-    PipelineStage,
-    PipelineTab,
     ProductKey,
+    manualLinkSources,
 } from '~/types'
 
 import { dataWarehouseSettingsLogic } from '../settings/dataWarehouseSettingsLogic'
 import { dataWarehouseTableLogic } from './dataWarehouseTableLogic'
 import type { sourceWizardLogicType } from './sourceWizardLogicType'
-import {
-    externalDataSources,
-    ExternalDataSourceType,
-    SourceConfig,
-    SourceFieldConfig,
-    SourceFieldSwitchGroupConfig,
-} from '~/queries/schema/schema-general'
 
 export const SSH_FIELD: SourceFieldSwitchGroupConfig = {
     name: 'ssh_tunnel',
@@ -179,6 +179,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     props({} as SourceWizardLogicProps),
     actions({
         selectConnector: (connector: SourceConfig | null) => ({ connector }),
+        setInitialConnector: (connector: SourceConfig | null) => ({ connector }),
         toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
         handleRedirect: (source: ExternalDataSourceType, searchParams?: any) => ({ source, searchParams }),
         onClear: true,
@@ -245,6 +246,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             null as SourceConfig | null,
             {
                 selectConnector: (_, { connector }) => connector,
+                setInitialConnector: (_, { connector }) => connector,
             },
         ],
         isManualLinkFormVisible: [
@@ -260,6 +262,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 onBack: (state) => state - 1,
                 onClear: () => 1,
                 setStep: (_, { step }) => step,
+                setInitialConnector: () => 2,
             },
         ],
         databaseSchema: [
@@ -348,23 +351,20 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
     }),
     selectors({
-        availableSources: [
-            () => [(_, props) => props.availableSources],
-            (availableSources): Record<string, SourceConfig> => availableSources,
-        ],
+        availableSources: [() => [(_, p) => p.availableSources], (availableSources) => availableSources],
         breadcrumbs: [
             (s) => [s.selectedConnector, s.manualLinkingProvider, s.manualConnectors],
             (selectedConnector, manualLinkingProvider, manualConnectors): Breadcrumb[] => {
                 return [
                     {
-                        key: Scene.Pipeline,
+                        key: Scene.DataPipelines,
                         name: 'Data pipelines',
-                        path: urls.pipeline(PipelineTab.Overview),
+                        path: urls.dataPipelines('overview'),
                     },
                     {
-                        key: [Scene.Pipeline, 'sources'],
+                        key: [Scene.DataPipelines, 'sources'],
                         name: `Sources`,
-                        path: urls.pipeline(PipelineTab.Sources),
+                        path: urls.dataPipelines('sources'),
                     },
                     {
                         key: Scene.DataWarehouseSource,
@@ -436,7 +436,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         ],
         connectors: [
             (s) => [s.dataWarehouseSources, s.availableSources],
-            (sources, availableSources): SourceConfig[] => {
+            (sources, availableSources: Record<string, SourceConfig>): SourceConfig[] => {
                 return Object.values(availableSources).map((connector) => ({
                     ...connector,
                     disabledReason:
@@ -474,20 +474,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
                 if (currentStep === 4) {
                     return 'Importing your data...'
-                }
-
-                return ''
-            },
-        ],
-        modalCaption: [
-            (s) => [s.selectedConnector, s.currentStep, s.availableSources],
-            (selectedConnector, currentStep, availableSources) => {
-                if (currentStep === 2 && selectedConnector) {
-                    return availableSources[selectedConnector.name]?.caption
-                }
-
-                if (currentStep === 4) {
-                    return "Sit tight as we import your data! After it's done, you will be able to query it in PostHog."
                 }
 
                 return ''
@@ -555,7 +541,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         },
         closeWizard: () => {
             actions.cancelWizard()
-            router.actions.push(urls.pipeline(PipelineTab.Sources))
+            router.actions.push(urls.dataPipelines('sources'))
         },
         cancelWizard: () => {
             actions.onClear()
@@ -662,7 +648,6 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
 
         return {
             [urls.dataWarehouseSourceNew()]: handleUrlChange,
-            [urls.pipelineNodeNew(PipelineStage.Source)]: handleUrlChange,
         }
     }),
 

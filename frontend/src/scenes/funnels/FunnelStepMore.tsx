@@ -1,7 +1,8 @@
 import { useValues } from 'kea'
+import { useCallback } from 'react'
+
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { useCallback } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
 
