@@ -100,13 +100,20 @@ export class CyclotronJobQueueDelay {
     private async delayWithCancellation(delayMs: number): Promise<void> {
         const checkInterval = 1000 // Check every second
         const startTime = Date.now()
+        let lastHeartbeatTime = startTime
 
         while (Date.now() - startTime < delayMs) {
             if (this.kafkaConsumer?.isShuttingDown() || this.kafkaConsumer?.isRebalancing()) {
                 throw new Error('Delay cancelled due to consumer shutdown or rebalancing')
             }
 
-            const remainingTime = delayMs - (Date.now() - startTime)
+            const now = Date.now()
+            if (now - lastHeartbeatTime >= 25000) {
+                this.kafkaConsumer?.heartbeat()
+                lastHeartbeatTime = now
+            }
+
+            const remainingTime = delayMs - (now - startTime)
             const currentDelay = Math.min(remainingTime, checkInterval)
 
             if (currentDelay > 0) {
@@ -144,6 +151,7 @@ export class CyclotronJobQueueDelay {
         logger.info('🔁', `${this.name} - Consuming batch`, { messageCount: messages.length })
 
         const maxDelayMs = getDelayByQueue(this.queue)
+        const processingPromises: Promise<void>[] = []
 
         for (let i = 0; i < messages.length; i++) {
             const message = messages[i]
@@ -180,17 +188,17 @@ export class CyclotronJobQueueDelay {
 
                 await this.delayWithCancellation(waitTime)
 
-                const producer = this.getKafkaProducer()
-
-                await producer.produce({
-                    value: message.value,
-                    key: message.key as string,
-                    topic:
-                        delayMs === 0
-                            ? returnTopic
-                            : `cdp_cyclotron_${getDelayQueue(DateTime.fromMillis(scheduledTime.getTime() - waitTime))}`,
-                    headers: message.headers as unknown as Record<string, string>,
-                })
+                processingPromises.push(
+                    this.getKafkaProducer().produce({
+                        value: message.value,
+                        key: message.key as string,
+                        topic:
+                            delayMs === 0
+                                ? returnTopic
+                                : `cdp_cyclotron_${getDelayQueue(DateTime.fromMillis(scheduledTime.getTime() - waitTime))}`,
+                        headers: message.headers as unknown as Record<string, string>,
+                    })
+                )
 
                 const result = this.kafkaConsumer?.offsetsStore([
                     {
@@ -211,6 +219,8 @@ export class CyclotronJobQueueDelay {
                 throw error
             }
         }
+
+        await Promise.all(processingPromises)
 
         logger.info('🔁', `${this.name} - Consumed full delay batch`, { messageCount: messages.length })
 
