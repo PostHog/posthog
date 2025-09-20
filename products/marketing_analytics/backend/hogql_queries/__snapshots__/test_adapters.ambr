@@ -49,6 +49,15 @@
   GROUP BY toString(linkedin_campaigns.name)
   '''
 # ---
+# name: TestMarketingAnalyticsAdapters.test_meta_ads_query_generation
+  '''
+  
+  SELECT toString(meta_campaigns.name) AS campaign, toString('meta') AS source, toFloat(SUM(toFloat(meta_campaign_stats.impressions))) AS impressions, toFloat(SUM(toFloat(meta_campaign_stats.clicks))) AS clicks, toFloat(SUM(toFloat(meta_campaign_stats.spend))) AS cost, 0 AS reported_conversion 
+  FROM meta_campaigns LEFT JOIN meta_campaign_stats ON equals(meta_campaigns.id, meta_campaign_stats.campaign_id) 
+  WHERE and(greaterOrEquals(toDateTime(meta_campaign_stats.date_stop), toDateTime('2024-01-01 00:00:00')), lessOrEquals(toDateTime(meta_campaign_stats.date_stop), toDateTime('2024-12-31 23:59:59'))) 
+  GROUP BY toString(meta_campaigns.name)
+  '''
+# ---
 # name: TestMarketingAnalyticsAdapters.test_reddit_ads_query_generation
   '''
   
