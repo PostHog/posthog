@@ -3,6 +3,8 @@ import { Upload } from '@aws-sdk/lib-storage'
 import { randomBytes } from 'crypto'
 import { PassThrough } from 'stream'
 
+import { isDevEnv } from '~/utils/env-utils'
+
 import { logger } from '../../../../utils/logger'
 import { SessionBatchMetrics } from './metrics'
 import {
@@ -44,6 +46,8 @@ class S3SessionBatchFileWriter implements SessionBatchFileWriter {
                 Body: this.stream,
                 ContentType: 'application/octet-stream',
             },
+            // 1 for dev to reduce S3 throttling
+            queueSize: isDevEnv() ? 1 : undefined,
         })
 
         this.stream.on('error', (error) => {
