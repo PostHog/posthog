@@ -36,7 +36,6 @@ export interface ExperimentsFilters {
 export interface FeatureFlagModalFilters {
     active?: string
     created_by_id?: number
-    type?: string
     search?: string
     order?: string
     page?: number
@@ -54,7 +53,6 @@ const DEFAULT_FILTERS: ExperimentsFilters = {
 const DEFAULT_MODAL_FILTERS: FeatureFlagModalFilters = {
     active: undefined,
     created_by_id: undefined,
-    type: undefined,
     search: undefined,
     order: undefined,
     page: 1,
