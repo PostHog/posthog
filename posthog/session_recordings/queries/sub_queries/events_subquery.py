@@ -124,8 +124,24 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
         for p in self.event_properties:
             if self._allow_event_property_expansion:
-                event_enriched_event_property_exprs = self.with_team_events_added(p, self._team)
-                gathered_exprs.append(event_enriched_event_property_exprs)
+                events_seen_with_this_property, property_expr = self.with_team_events_added(p, self._team)
+                gathered_exprs.append(
+                    ast.And(
+                        # we can include with the property the events it was seen with
+                        # this should recruit the table's order by and speeed things up
+                        exprs=[
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.In,
+                                left=ast.Field(chain=["events", "event"]),
+                                # sort them only so the snapshot tests don't flap
+                                right=ast.Constant(value=sorted(events_seen_with_this_property)),
+                            ),
+                            property_expr,
+                        ]
+                    )
+                    if events_seen_with_this_property
+                    else property_expr
+                )
             else:
                 gathered_exprs.append(
                     property_to_expr(
@@ -354,44 +370,28 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
     @staticmethod
     @tracer.start_as_current_span("ReplayFiltersEventsSubQuery.with_team_events_added")
-    def with_team_events_added(p: AnyPropertyFilter, team: Team) -> ast.Expr:
+    def with_team_events_added(p: AnyPropertyFilter, team: Team) -> tuple[list[str], ast.Expr]:
         """
         We support property only filters because users expect it, but unlike insights
         we don't have event series to help us hit the good-spot of an events table query
         and these can get slow fast.
         this should be fixed elsewhere but in the short term,
-        we can load the events for a given property from postgres and convert a property only filter
-        into an event and property filter
+        we can load the events for a given property from postgres and return the event properties used and the property expression
         """
         try:
             if not isinstance(p, EventPropertyFilter):
                 # something unexpected has been passed to us,
                 # but we would always have called property_to_expr before
                 # so let's just do that
-                return property_to_expr(p, team=team, scope="replay")
+                return [], property_to_expr(p, team=team, scope="replay")
 
-            events_that_have_the_property = EventProperty.objects.filter(team_id=team.id, property=p.key).values_list(
-                "event", flat=True
+            events_that_have_the_property: list[str] = list(
+                EventProperty.objects.filter(team_id=team.id, property=p.key).values_list("event", flat=True)
             )
 
-            if not events_that_have_the_property:
-                # If no events have this property, just  return the property expression itself
-                return property_to_expr(p, team=team, scope="replay")
-
-            entities = []
-            for event_name in events_that_have_the_property:
-                entity = EventsNode(
-                    event=event_name,
-                    name=event_name,
-                    properties=[p],  # Attach the original property filter
-                )
-                entities.append(entity)
-
-            event_exprs = ReplayFiltersEventsSubQuery._event_predicates(entities, team)
-
-            return ast.Or(exprs=event_exprs)
+            return events_that_have_the_property, property_to_expr(p, team=team, scope="replay")
         except Exception as e:
             posthoganalytics.capture_exception(e, properties={"replay_feature": "with_team_events_added"})
             # we can return this transformation here because this is what was always run in the past
             # so if _that_ is going to fail nothing this method can do could change it
-            return property_to_expr(p, team=team, scope="replay")
+            return [], property_to_expr(p, team=team, scope="replay")
