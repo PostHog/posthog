@@ -65,6 +65,7 @@ class TestWithTeamEventsAdded(BaseTest):
         for events in events_to_create:
             EventProperty.objects.create(team=self.team, event=events, property=property_to_create)
 
-        result = ReplayFiltersEventsSubQuery.with_team_events_added(input_filter, self.team)
+        events, expr = ReplayFiltersEventsSubQuery.with_team_events_added(input_filter, self.team)
 
-        assert result == expected_filter
+        assert events == expected_filter
+        assert expr == expected_filter
