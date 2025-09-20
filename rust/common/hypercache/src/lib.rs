@@ -42,6 +42,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::time::timeout;
+use tracing::debug;
 
 /// Metric name for tracking hypercache operations in Prometheus (same one used in Django's HyperCache)
 const HYPERCACHE_COUNTER_NAME: &str = "posthog_hypercache_get_from_cache";
@@ -324,31 +325,62 @@ impl HyperCacheReader {
 
     async fn try_get_from_redis(&self, cache_key: &str) -> Result<Value, HyperCacheError> {
         // Try raw bytes (Django compresses data > 512 bytes with Zstd)
-        if let Ok(raw_bytes) = self.redis_client.get_raw_bytes(cache_key.to_string()).await {
-            // Try Zstd(Pickle(JSON)) decompression pipeline
-            if let Ok(decompressed_bytes) = decompress_zstd(&raw_bytes) {
-                if let Ok(json_string) =
-                    serde_pickle::from_slice::<String>(&decompressed_bytes, Default::default())
-                {
-                    if json_string == HYPER_CACHE_EMPTY_VALUE {
-                        return Ok(Value::String(json_string));
+        match self.redis_client.get_raw_bytes(cache_key.to_string()).await {
+            Ok(raw_bytes) => {
+                // Try Zstd(Pickle(JSON)) decompression pipeline
+                match decompress_zstd(&raw_bytes) {
+                    Ok(decompressed_bytes) => {
+                        match serde_pickle::from_slice::<String>(
+                            &decompressed_bytes,
+                            Default::default(),
+                        ) {
+                            Ok(json_string) => {
+                                if json_string == HYPER_CACHE_EMPTY_VALUE {
+                                    return Ok(Value::String(json_string));
+                                }
+                                match serde_json::from_str(&json_string) {
+                                    Ok(value) => return Ok(value),
+                                    Err(e) => {
+                                        debug!("Failed to parse JSON from compressed Redis data for key '{}': {}", cache_key, e);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                debug!("Failed to deserialize pickle from compressed Redis data for key '{}': {}", cache_key, e);
+                            }
+                        }
                     }
-                    if let Ok(value) = serde_json::from_str(&json_string) {
-                        return Ok(value);
+                    Err(e) => {
+                        debug!(
+                            "Failed to decompress Redis data for key '{}': {}",
+                            cache_key, e
+                        );
+                    }
+                }
+
+                // Try Pickle(JSON) without compression
+                match serde_pickle::from_slice::<String>(&raw_bytes, Default::default()) {
+                    Ok(json_string) => {
+                        if json_string == HYPER_CACHE_EMPTY_VALUE {
+                            return Ok(Value::String(json_string));
+                        }
+                        match serde_json::from_str(&json_string) {
+                            Ok(value) => return Ok(value),
+                            Err(e) => {
+                                debug!("Failed to parse JSON from uncompressed Redis data for key '{}': {}", cache_key, e);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        debug!("Failed to deserialize pickle from uncompressed Redis data for key '{}': {}", cache_key, e);
                     }
                 }
             }
-
-            // Try Pickle(JSON) without compression
-            if let Ok(json_string) =
-                serde_pickle::from_slice::<String>(&raw_bytes, Default::default())
-            {
-                if json_string == HYPER_CACHE_EMPTY_VALUE {
-                    return Ok(Value::String(json_string));
-                }
-                if let Ok(value) = serde_json::from_str(&json_string) {
-                    return Ok(value);
-                }
+            Err(e) => {
+                debug!(
+                    "Failed to get raw bytes from Redis for key '{}': {}",
+                    cache_key, e
+                );
             }
         }
 
@@ -356,12 +388,26 @@ impl HyperCacheReader {
     }
 
     pub(crate) async fn try_get_from_s3(&self, cache_key: &str) -> Result<Value, HyperCacheError> {
-        let body_str = self
+        match self
             .s3_client
             .get_string(&self.config.s3_bucket, cache_key)
-            .await?;
-        let value: Value = serde_json::from_str(&body_str)?;
-        Ok(value)
+            .await
+        {
+            Ok(body_str) => match serde_json::from_str(&body_str) {
+                Ok(value) => Ok(value),
+                Err(e) => {
+                    debug!(
+                        "Failed to parse JSON from S3 data for key '{}': {}",
+                        cache_key, e
+                    );
+                    Err(HyperCacheError::Json(e))
+                }
+            },
+            Err(e) => {
+                debug!("Failed to get data from S3 for key '{}': {}", cache_key, e);
+                Err(HyperCacheError::S3(e))
+            }
+        }
     }
 }
 
