@@ -106,6 +106,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         if not hogql_context:
             hogql_context = create_hogql_database(team_id=self.context["team_id"])
 
+        if schema.table and schema.table.deleted:
+            return None
+
         return SimpleTableSerializer(schema.table, context={"database": hogql_context}).data or None
 
     def get_sync_frequency(self, schema: ExternalDataSchema):
