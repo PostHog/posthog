@@ -1,0 +1,27 @@
+# Go binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+pod-rebalancer
+
+# Test binaries and coverage
+*.test
+*.out
+coverage.html
+
+# Build artifacts
+bin/
+dist/
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+
+# Environment files
+.env
+.env.local

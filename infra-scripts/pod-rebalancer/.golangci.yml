@@ -1,0 +1,73 @@
+version: '2'
+run:
+    tests: true
+linters:
+    enable:
+        - cyclop
+        - funlen
+        - gocognit
+        - gosec
+        - lll
+        - misspell
+        - nestif
+    disable:
+        - wsl
+    settings:
+        cyclop:
+            max-complexity: 15
+        funlen:
+            lines: 100
+            statements: 50
+        gosec:
+            excludes:
+                - G104
+        govet:
+            enable-all: true
+            disable:
+                - fieldalignment
+        misspell:
+            locale: US
+        staticcheck:
+            checks:
+                - all
+    exclusions:
+        generated: lax
+        presets:
+            - comments
+            - common-false-positives
+            - legacy
+            - std-error-handling
+        rules:
+            - linters:
+                  - cyclop
+                  - funlen
+                  - gocognit
+                  - errcheck
+                  - lll
+              path: _test\.go
+            - linters:
+                  - unused
+              path: tools\.go
+        paths:
+            - third_party$
+            - builtin$
+            - examples$
+issues:
+    max-issues-per-linter: 0
+    max-same-issues: 0
+formatters:
+    enable:
+        - gofmt
+        - goimports
+    settings:
+        gofmt:
+            simplify: true
+        goimports:
+            local-prefixes:
+                - github.com/posthog/pod-rebalancer
+    exclusions:
+        generated: lax
+        paths:
+            - third_party$
+            - builtin$
+            - examples$
