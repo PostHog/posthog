@@ -1,6 +1,6 @@
 procs:
     backend:
-        shell: 'uv sync --active && bin/check_kafka_clickhouse_up && python manage.py migrate && ./bin/start-backend'
+        shell: 'uv sync --active && bin/check_kafka_clickhouse_up && (python bin/check_migrations_cached.py || python manage.py migrate) && ./bin/start-backend'
         env:
             POSTHOG_USE_VITE: '1'
 
