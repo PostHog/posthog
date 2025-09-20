@@ -9,8 +9,6 @@ class TaskProcessingInputs:
 
     task_id: str
     team_id: int
-    previous_status: str
-    new_status: str
     user_id: Optional[int] = None
 
     def __post_init__(self):
