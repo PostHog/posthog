@@ -3631,6 +3631,10 @@ class TestDecide(BaseTest, QueryMatchingTest):
     @flaky(max_runs=3, min_passes=1)
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_decide_analytics_samples_appropriately(self, *args):
+        # Explicitly clear Redis analytics keys before test
+        client = redis.get_client()
+        client.delete(f"posthog:decide_requests:{self.team.pk}")
+
         random.seed(67890)
         FeatureFlag.objects.create(
             team=self.team,
@@ -3656,6 +3660,10 @@ class TestDecide(BaseTest, QueryMatchingTest):
     @flaky(max_runs=3, min_passes=1)
     @patch("posthog.models.feature_flag.flag_analytics.CACHE_BUCKET_SIZE", 10)
     def test_decide_analytics_samples_appropriately_with_small_sample_rate(self, *args):
+        # Explicitly clear Redis analytics keys before test
+        client = redis.get_client()
+        client.delete(f"posthog:decide_requests:{self.team.pk}")
+
         random.seed(12345)
         FeatureFlag.objects.create(
             team=self.team,
