@@ -84,8 +84,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 execute_task_processing_workflow(
                     task_id=str(task.id),
                     team_id=task.team.id,
-                    previous_status=previous_status,
-                    new_status=new_status,
                     user_id=getattr(self.request.user, "id", None),
                 )
                 logger.info(f"Workflow trigger completed for task {task.id}")
@@ -128,8 +126,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     execute_task_processing_workflow(
                         task_id=str(task.id),
                         team_id=task.team.id,
-                        previous_status=previous_status,
-                        new_status=new_status,
                         user_id=getattr(request.user, "id", None),
                     )
                     logger.info(f"Workflow trigger completed for task {task.id}")
@@ -252,8 +248,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     execute_task_processing_workflow(
                         task_id=str(task_id),
                         team_id=task_by_id[str(task_id)].team.id,
-                        previous_status=previous_status,
-                        new_status=new_status,
                         user_id=getattr(self.request.user, "id", None),
                     )
                 except Exception:

@@ -1,17 +1,19 @@
-import { actions, kea, path, props, reducers, selectors, listeners, afterMount, propsChanged } from 'kea'
+import { actions, afterMount, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+
 import api from 'lib/api'
 
+import type { taskDetailLogicType } from './taskDetailLogicType'
 import { Task } from './types'
 
 export interface TaskDetailLogicProps {
     taskId: string
 }
 
-export const taskDetailLogic = kea([
+export const taskDetailLogic = kea<taskDetailLogicType>([
     path(['products', 'tasks', 'taskDetailLogic']),
     props({} as TaskDetailLogicProps),
-    
+
     actions({
         updateTask: (taskId: string, updates: Partial<Task>) => ({ taskId, updates }),
     }),
