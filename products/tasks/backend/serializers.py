@@ -207,11 +207,10 @@ class TaskWorkflowSerializer(serializers.ModelSerializer):
         # Only one default workflow per team
         if data.get("is_default", False):
             team = self.context["team"]
-            existing_default = (
-                TaskWorkflow.objects.filter(team=team, is_default=True, is_active=True)
-                .exclude(id=self.instance.id if self.instance else None)
-                .exists()
-            )
+            qs = TaskWorkflow.objects.filter(team=team, is_default=True, is_active=True)
+            if self.instance and getattr(self.instance, "id", None):
+                qs = qs.exclude(id=self.instance.id)
+            existing_default = qs.exists()
 
             if existing_default:
                 raise serializers.ValidationError("Only one default workflow allowed per team")

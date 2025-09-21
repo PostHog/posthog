@@ -1,4 +1,5 @@
 import uuid
+from typing import Optional
 
 from django.db import models
 from django.utils import timezone
@@ -36,31 +37,57 @@ class TaskWorkflow(models.Model):
         return Task.objects.filter(workflow=self)
 
     def can_delete(self) -> tuple[bool, str]:
-        """Check if workflow can be safely deleted."""
-        task_count = self.get_tasks_in_workflow().count()
-        if task_count > 0:
-            return False, f"Cannot delete workflow with {task_count} active tasks"
+        """Workflows can always be deleted; tasks will be moved to backlog (no workflow)."""
         return True, ""
 
-    def migrate_tasks_to_workflow(self, target_workflow: "TaskWorkflow"):
-        """Migrate all tasks from this workflow to another workflow."""
+    def delete(self, *args, **kwargs):
+        """Override delete to remove workflow from tasks so they go to backlog."""
         from django.db import transaction
 
         with transaction.atomic():
-            tasks = self.get_tasks_in_workflow()
-            fallback_stage = target_workflow.get_active_stages().first()
+            Task.objects.filter(workflow=self).update(workflow=None, current_stage=None)
+            super().delete(*args, **kwargs)
 
-            for task in tasks:
-                # Try to find a matching stage by key
-                try:
-                    matching_stage = target_workflow.stages.get(key=task.current_stage.key, is_archived=False)
-                    task.current_stage = matching_stage
-                except (WorkflowStage.DoesNotExist, AttributeError):
-                    # No matching stage, use fallback
-                    task.current_stage = fallback_stage
+    def migrate_tasks_to_workflow(self, target_workflow: "TaskWorkflow"):
+        """Migrate all tasks from this workflow to another workflow. Returns number of tasks updated."""
+        from django.db import transaction
 
-                task.workflow = target_workflow
-                task.save(update_fields=["workflow", "current_stage"])
+        # No-op if migrating to self
+        if target_workflow.id == self.id:
+            return 0
+
+        # Extra safety: ensure both workflows belong to the same team
+        if self.team_id != target_workflow.team_id:
+            raise ValueError("Source and target workflows must belong to the same team")
+
+        tasks_qs = self.get_tasks_in_workflow().select_related("current_stage")
+        if not tasks_qs.exists():
+            return 0
+
+        # Prefetch target stages once; preserve deterministic fallback using stage position ordering
+        active_stages = list(target_workflow.stages.filter(is_archived=False).order_by("position"))
+        stages_by_key = {stage.key: stage for stage in active_stages}
+        fallback_stage = active_stages[0] if active_stages else None
+
+        updated_tasks = []
+        with transaction.atomic():
+            for task in tasks_qs:
+                # Match by stage key when possible, otherwise fallback (which can be None)
+                next_stage = None
+                if task.current_stage and task.current_stage.key in stages_by_key:
+                    next_stage = stages_by_key[task.current_stage.key]
+                else:
+                    next_stage = fallback_stage
+
+                if task.workflow_id != target_workflow.id or task.current_stage != next_stage:
+                    task.workflow = target_workflow
+                    task.current_stage = next_stage
+                    updated_tasks.append(task)
+
+            if updated_tasks:
+                Task.objects.bulk_update(updated_tasks, ["workflow", "current_stage"])
+
+        return len(updated_tasks)
 
     def deactivate_safely(self):
         """Deactivate workflow and move tasks to team default."""
@@ -352,7 +379,7 @@ class Task(models.Model):
             return None
 
     @property
-    def effective_workflow(self) -> "TaskWorkflow":
+    def effective_workflow(self) -> Optional["TaskWorkflow"]:
         """Get the workflow this task should use (custom or team default)"""
         if self.workflow:
             return self.workflow

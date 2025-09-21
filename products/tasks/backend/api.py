@@ -357,7 +357,6 @@ class TaskWorkflowViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "destroy",
             "set_default",
             "deactivate",
-            "migrate_tasks",
             "create_default",
         ]
     }
@@ -392,19 +391,6 @@ class TaskWorkflowViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"message": "Workflow deactivated successfully"})
         except ValueError:
             return Response({"error": "Cannot deactivate the default workflow"}, status=status.HTTP_400_BAD_REQUEST)
-
-    @action(detail=True, methods=["post"])
-    def migrate_tasks(self, request, pk=None):
-        """Migrate tasks to another workflow"""
-        source_workflow = self.get_object()
-        target_workflow_id = request.data.get("target_workflow_id")
-
-        try:
-            target_workflow = TaskWorkflow.objects.get(id=target_workflow_id, team=self.team)
-            source_workflow.migrate_tasks_to_workflow(target_workflow)
-            return Response({"message": f"Tasks migrated to {target_workflow.name}"})
-        except TaskWorkflow.DoesNotExist:
-            return Response({"error": "Target workflow not found"}, status=status.HTTP_404_NOT_FOUND)
 
     @action(detail=False, methods=["post"])
     def create_default(self, request):

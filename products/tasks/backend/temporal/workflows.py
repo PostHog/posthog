@@ -85,8 +85,8 @@ class WorkflowAgnosticTaskProcessingWorkflow(PostHogWorkflow):
             )
 
             if not workflow_config.get("has_workflow", False):
-                logger.info("No workflow configuration found, falling back to legacy processing")
-                return await self._execute_legacy_workflow(inputs)
+                logger.info("No workflow configuration found")
+                raise ValueError("No workflow configuration found")
 
             current_stage_key = workflow_config.get("current_stage_key")
             logger.info(f"Current stage: {current_stage_key} in workflow: {workflow_config.get('workflow_name')}")
@@ -203,69 +203,3 @@ class WorkflowAgnosticTaskProcessingWorkflow(PostHogWorkflow):
         except Exception as e:
             logger.exception(f"Failed to setup repository: {e}")
             return {"success": False, "error": str(e)}
-
-    async def _execute_legacy_workflow(self, inputs: TaskProcessingInputs) -> str:
-        """Fall back to legacy workflow behavior."""
-        logger.info("Executing legacy workflow behavior")
-
-        if inputs.new_status != "todo":
-            return "Legacy workflow: No processing required for non-TODO status"
-
-        try:
-            # Execute the legacy TODO processing
-            repo_info = await self._setup_repository(inputs)
-
-            if repo_info.get("success"):
-                # Move to in_progress
-                await workflow.execute_activity(
-                    move_task_to_stage_activity,
-                    {
-                        "task_id": inputs.task_id,
-                        "team_id": inputs.team_id,
-                    },
-                    start_to_close_timeout=timedelta(minutes=2),
-                )
-
-                # Execute AI agent
-                agent_result = await workflow.execute_activity(
-                    execute_agent_for_transition_activity,
-                    {
-                        "task_id": inputs.task_id,
-                        "team_id": inputs.team_id,
-                        "transition_config": {
-                            "agent_type": "code_generation",
-                            "to_stage_key": "testing",
-                            "agent_config": {},
-                        },
-                        "repo_info": repo_info,
-                    },
-                    start_to_close_timeout=timedelta(minutes=30),
-                )
-
-                # Move to testing
-                if agent_result.get("success"):
-                    await workflow.execute_activity(
-                        move_task_to_stage_activity,
-                        {
-                            "task_id": inputs.task_id,
-                            "team_id": inputs.team_id,
-                        },
-                        start_to_close_timeout=timedelta(minutes=2),
-                    )
-
-                # Cleanup
-                if repo_info.get("repo_path"):
-                    try:
-                        await workflow.execute_activity(
-                            cleanup_repo_activity,
-                            repo_info["repo_path"],
-                            start_to_close_timeout=timedelta(minutes=2),
-                        )
-                    except Exception:
-                        pass  # Don't fail for cleanup issues
-
-            return "Legacy workflow processing completed"
-
-        except Exception as e:
-            logger.exception(f"Legacy workflow failed: {e}")
-            return f"Legacy workflow failed: {str(e)}"
