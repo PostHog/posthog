@@ -3,9 +3,10 @@ import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, redu
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { isNotNil } from 'lib/utils'
+// import { isNotNil } from 'lib/utils' // Unused after bulk fetching removal
 import { getAppContext } from 'lib/utils/getAppContext'
-import { diffVersions, parseVersion, tryParseVersion } from 'lib/utils/semver'
+import { diffVersions, parseVersion } from 'lib/utils/semver'
+// Removed tryParseVersion (unused after bulk fetching removal)
 import { teamLogic } from 'scenes/teamLogic'
 
 import { EventType, EventsListQueryParams } from '~/types'
@@ -97,55 +98,58 @@ export type FeatureFlagMisconfiguration = {
 
 export type SdkHealthStatus = 'healthy' | 'warning' | 'critical'
 
-// Add a cache utility for GitHub API responses
-const GITHUB_CACHE_KEY = 'posthog_sdk_versions_cache'
+// Add per-SDK cache utility for GitHub API responses
 const GITHUB_CACHE_EXPIRY = 6 * 60 * 60 * 1000 // 6 hours in milliseconds (faster refresh for PostHog's release frequency)
 
-interface GitHubCache {
+interface SdkCache {
     timestamp: number
-    data: Record<SdkType, { latestVersion: string; versions: string[]; releaseDates?: Record<string, string> }>
+    data: { latestVersion: string; versions: string[]; releaseDates?: Record<string, string> }
 }
 
-// Utility functions for the GitHub API cache
-const getGitHubCache = (): GitHubCache | null => {
+// Utility functions for per-SDK GitHub API cache
+const getSdkCache = (sdkType: SdkType): SdkCache | null => {
     try {
-        const cachedData = localStorage.getItem(GITHUB_CACHE_KEY)
+        const cacheKey = `posthog_sdk_${sdkType}_cache`
+        const cachedData = localStorage.getItem(cacheKey)
         if (!cachedData) {
             return null
         }
 
-        const parsedCache = JSON.parse(cachedData) as GitHubCache
+        const parsedCache = JSON.parse(cachedData) as SdkCache
         const now = Date.now()
 
         // Check if cache is expired
         if (now - parsedCache.timestamp > GITHUB_CACHE_EXPIRY) {
-            localStorage.removeItem(GITHUB_CACHE_KEY)
+            localStorage.removeItem(cacheKey)
             return null
         }
 
         return parsedCache
     } catch {
-        // console.error('[SDK Doctor] Error reading GitHub cache:', error)
-        localStorage.removeItem(GITHUB_CACHE_KEY)
+        const cacheKey = `posthog_sdk_${sdkType}_cache`
+        localStorage.removeItem(cacheKey)
         return null
     }
 }
 
-const setGitHubCache = (
-    data: Record<SdkType, { latestVersion: string; versions: string[]; releaseDates?: Record<string, string> }>
+const setSdkCache = (
+    sdkType: SdkType,
+    data: { latestVersion: string; versions: string[]; releaseDates?: Record<string, string> }
 ): void => {
     try {
-        const cacheData: GitHubCache = {
+        const cacheKey = `posthog_sdk_${sdkType}_cache`
+        const cacheData: SdkCache = {
             timestamp: Date.now(),
             data,
         }
-        localStorage.setItem(GITHUB_CACHE_KEY, JSON.stringify(cacheData))
+        localStorage.setItem(cacheKey, JSON.stringify(cacheData))
     } catch {
-        // console.error('[SDK Doctor] Error saving GitHub cache:', error)
+        // Fail silently on cache errors
     }
 }
 
-// Fetch release dates from GitHub Releases API for accurate time-based detection
+// DISABLED: Bulk GitHub API functions (causing 403 errors) - kept for future per-SDK implementation
+/*
 const fetchGitHubReleaseDates = async (): Promise<Record<string, string>> => {
     try {
         const response = await fetch('https://api.github.com/repos/PostHog/posthog-js/releases?per_page=100')
@@ -283,6 +287,689 @@ const fetchNodeGitHubReleaseDates = async (): Promise<Record<string, string>> =>
     }
 }
 
+// Fetch iOS SDK release dates from GitHub Releases API for time-based detection
+const fetchiOSGitHubReleaseDates = async (): Promise<Record<string, string>> => {
+    try {
+        const response = await fetch('https://api.github.com/repos/PostHog/posthog-ios/releases?per_page=100')
+        if (!response.ok) {
+            throw new Error(`GitHub API error: ${response.status}`)
+        }
+
+        const releases = await response.json()
+        const releaseDates: Record<string, string> = {}
+
+        // iOS releases use simple semantic version tags like "3.30.1"
+        releases.forEach((release: any) => {
+            if (release.tag_name && /^\d+\.\d+\.\d+$/.test(release.tag_name)) {
+                releaseDates[release.tag_name] = release.published_at
+            }
+        })
+
+        console.info(
+            `[SDK Doctor] Fetched ${Object.keys(releaseDates).length} iOS SDK release dates from GitHub API`
+        )
+        return releaseDates
+    } catch (error) {
+        console.warn('[SDK Doctor] Failed to fetch iOS SDK GitHub release dates:', error)
+        return {}
+    }
+}
+
+// Fetch Android SDK release dates from GitHub Releases API for time-based detection
+const fetchAndroidGitHubReleaseDates = async (): Promise<Record<string, string>> => {
+    try {
+        console.info('[SDK Doctor] Starting Android GitHub API fetch...')
+        const response = await fetch('https://api.github.com/repos/PostHog/posthog-android/releases?per_page=100')
+        console.info(`[SDK Doctor] Android GitHub API response status: ${response.status}`)
+
+        if (!response.ok) {
+            throw new Error(`GitHub API error: ${response.status}`)
+        }
+
+        const releases = await response.json()
+        console.info(`[SDK Doctor] Android GitHub API returned ${releases.length} releases`)
+        const releaseDates: Record<string, string> = {}
+
+        // Android releases use simple semantic version tags like "3.20.2"
+        releases.forEach((release: any) => {
+            if (release.tag_name && /^\d+\.\d+\.\d+$/.test(release.tag_name)) {
+                releaseDates[release.tag_name] = release.published_at
+                console.info(`[SDK Doctor] Android: ${release.tag_name} -> ${release.published_at}`)
+            }
+        })
+
+        console.info(
+            `[SDK Doctor] Fetched ${Object.keys(releaseDates).length} Android SDK release dates from GitHub API`
+        )
+        return releaseDates
+    } catch (error) {
+        console.warn('[SDK Doctor] Failed to fetch Android SDK GitHub release dates:', error)
+        return {}
+    }
+}
+
+// Fetch Ruby SDK release dates from GitHub Releases API for time-based detection
+const fetchRubyGitHubReleaseDates = async (): Promise<Record<string, string>> => {
+    try {
+        const response = await fetch('https://api.github.com/repos/PostHog/posthog-ruby/releases?per_page=100')
+        if (!response.ok) {
+            throw new Error(`GitHub API error: ${response.status}`)
+        }
+
+        const releases = await response.json()
+        const releaseDates: Record<string, string> = {}
+
+        // Ruby releases use simple semantic version tags like "3.1.2"
+        releases.forEach((release: any) => {
+            if (release.tag_name && /^\d+\.\d+\.\d+$/.test(release.tag_name)) {
+                releaseDates[release.tag_name] = release.published_at
+            }
+        })
+
+        console.info(
+            `[SDK Doctor] Fetched ${Object.keys(releaseDates).length} Ruby SDK release dates from GitHub API`
+        )
+        return releaseDates
+    } catch (error) {
+        console.warn('[SDK Doctor] Failed to fetch Ruby SDK GitHub release dates:', error)
+        return {}
+    }
+}
+*/
+
+// NEW: Fetch individual SDK data on-demand with per-SDK caching
+const fetchSdkData = async (
+    sdkType: SdkType
+): Promise<{ latestVersion: string; versions: string[]; releaseDates?: Record<string, string> } | null> => {
+    // Check cache first
+    const cached = getSdkCache(sdkType)
+    if (cached) {
+        if (IS_DEBUG_MODE) {
+            console.info(`[SDK Doctor] Using cached data for ${sdkType}`)
+        }
+        return cached.data
+    }
+
+    // Implement per-SDK fetching for all time-based detection SDKs
+    if (
+        ![
+            'web',
+            'python',
+            'node',
+            'react-native',
+            'flutter',
+            'ios',
+            'android',
+            'go',
+            'ruby',
+            'php',
+            'elixir',
+            'dotnet',
+        ].includes(sdkType)
+    ) {
+        if (IS_DEBUG_MODE) {
+            console.info(`[SDK Doctor] Per-SDK fetch not implemented for ${sdkType} yet`)
+        }
+        return null
+    }
+
+    try {
+        console.info(`[SDK Doctor] fetchSdkData() called for ${sdkType} - fetching fresh data...`)
+
+        let changelogUrl: string
+        let versionRegex: RegExp
+        let githubFetcher: () => Promise<Record<string, string>>
+
+        // Configure per-SDK parameters
+        switch (sdkType) {
+            case 'web':
+                changelogUrl = 'https://raw.githubusercontent.com/PostHog/posthog-js/main/packages/browser/CHANGELOG.md'
+                versionRegex = /^## (\d+\.\d+\.\d+)$/gm
+                githubFetcher = async () => {
+                    const response = await fetch(
+                        'https://api.github.com/repos/PostHog/posthog-js/releases?per_page=100'
+                    )
+                    if (!response.ok) {
+                        throw new Error(`GitHub API error: ${response.status}`)
+                    }
+                    const releases = await response.json()
+                    const releaseDates: Record<string, string> = {}
+                    releases
+                        .filter((r: any) => r.tag_name?.startsWith('posthog-js@'))
+                        .forEach((r: any) => {
+                            const version = r.tag_name.replace('posthog-js@', '')
+                            releaseDates[version] = r.published_at
+                        })
+                    return releaseDates
+                }
+                break
+
+            case 'python':
+                // Python SDK has special handling - dates are in CHANGELOG.md
+                const pythonChangelogResponse = await fetch(
+                    'https://raw.githubusercontent.com/PostHog/posthog-python/master/CHANGELOG.md'
+                )
+                if (!pythonChangelogResponse.ok) {
+                    throw new Error(`Failed to fetch Python CHANGELOG.md: ${pythonChangelogResponse.status}`)
+                }
+                const pythonChangelogText = await pythonChangelogResponse.text()
+
+                // Extract versions and dates from CHANGELOG.md format: # 6.7.5 - 2025-09-16
+                const pythonMatches = [...pythonChangelogText.matchAll(/^# (\d+\.\d+\.\d+) - (\d{4}-\d{2}-\d{2})/gm)]
+                const pythonVersions = pythonMatches.map((match) => match[1])
+                const pythonReleaseDates: Record<string, string> = {}
+
+                pythonMatches.forEach((match) => {
+                    const version = match[1]
+                    const dateStr = match[2] + 'T00:00:00Z' // Convert YYYY-MM-DD to ISO format
+                    pythonReleaseDates[version] = dateStr
+                })
+
+                const pythonResult = {
+                    latestVersion: pythonVersions[0],
+                    versions: pythonVersions,
+                    releaseDates: pythonReleaseDates,
+                }
+
+                console.info(
+                    `[SDK Doctor] Python SDK complete result: latestVersion=${pythonResult.latestVersion}, release dates count=${Object.keys(pythonResult.releaseDates).length}`
+                )
+
+                // Cache and return
+                setSdkCache(sdkType, pythonResult)
+                return pythonResult
+
+            case 'node':
+                changelogUrl = 'https://raw.githubusercontent.com/PostHog/posthog-js/main/packages/node/CHANGELOG.md'
+                versionRegex = /^## (\d+\.\d+\.\d+)$/gm
+                githubFetcher = async () => {
+                    // Fetch CHANGELOG.md to extract PR links for each version
+                    const changelogResponse = await fetch(
+                        'https://raw.githubusercontent.com/PostHog/posthog-js/main/packages/node/CHANGELOG.md'
+                    )
+                    if (!changelogResponse.ok) {
+                        throw new Error(`Failed to fetch Node.js CHANGELOG.md: ${changelogResponse.status}`)
+                    }
+                    const changelogText = await changelogResponse.text()
+
+                    const releaseDates: Record<string, string> = {}
+
+                    // Extract version sections with their PR links
+                    const versionSections = changelogText.split(/^## (\d+\.\d+\.\d+)$/gm)
+
+                    for (let i = 1; i < versionSections.length; i += 2) {
+                        const version = versionSections[i]
+                        const content = versionSections[i + 1]
+
+                        // Extract first PR link: [#2346](https://github.com/PostHog/posthog-js/pull/2346)
+                        const prMatch = content.match(
+                            /\[#(\d+)\]\(https:\/\/github\.com\/PostHog\/posthog-js\/pull\/(\d+)\)/
+                        )
+
+                        if (prMatch) {
+                            const prNumber = prMatch[2]
+                            try {
+                                // Fetch PR merge date from GitHub API
+                                const prResponse = await fetch(
+                                    `https://api.github.com/repos/PostHog/posthog-js/pulls/${prNumber}`
+                                )
+                                if (prResponse.ok) {
+                                    const prData = await prResponse.json()
+                                    if (prData.merged_at) {
+                                        releaseDates[version] = prData.merged_at
+                                        console.info(
+                                            `[SDK Doctor] Node.js ${version} -> ${prData.merged_at} (from PR #${prNumber})`
+                                        )
+                                    }
+                                }
+                            } catch (error) {
+                                console.warn(
+                                    `[SDK Doctor] Failed to fetch PR #${prNumber} for Node.js ${version}:`,
+                                    error
+                                )
+                            }
+
+                            // Add delay to avoid rate limiting
+                            await new Promise((resolve) => setTimeout(resolve, 100))
+                        }
+                    }
+
+                    console.info(
+                        `[SDK Doctor] Fetched ${Object.keys(releaseDates).length} Node.js version dates from PR merge dates`
+                    )
+                    return releaseDates
+                }
+                break
+
+            case 'react-native':
+                changelogUrl =
+                    'https://raw.githubusercontent.com/PostHog/posthog-js/main/packages/react-native/CHANGELOG.md'
+                versionRegex = /^## (\d+\.\d+\.\d+)$/gm
+                githubFetcher = async () => {
+                    const response = await fetch(
+                        'https://api.github.com/repos/PostHog/posthog-js/releases?per_page=100'
+                    )
+                    if (!response.ok) {
+                        throw new Error(`GitHub API error: ${response.status}`)
+                    }
+                    const releases = await response.json()
+                    const releaseDates: Record<string, string> = {}
+                    releases
+                        .filter((r: any) => r.tag_name?.startsWith('posthog-react-native@'))
+                        .forEach((r: any) => {
+                            const version = r.tag_name.replace('posthog-react-native@', '')
+                            releaseDates[version] = r.published_at
+                        })
+                    return releaseDates
+                }
+                break
+
+            case 'flutter':
+                changelogUrl = 'https://raw.githubusercontent.com/PostHog/posthog-flutter/main/CHANGELOG.md'
+                versionRegex = /^## (\d+\.\d+\.\d+)$/gm
+                githubFetcher = async () => {
+                    const response = await fetch(
+                        'https://api.github.com/repos/PostHog/posthog-flutter/releases?per_page=100'
+                    )
+                    if (!response.ok) {
+                        throw new Error(`GitHub API error: ${response.status}`)
+                    }
+                    const releases = await response.json()
+                    const releaseDates: Record<string, string> = {}
+                    releases.forEach((r: any) => {
+                        if (r.tag_name && /^\d+\.\d+\.\d+$/.test(r.tag_name)) {
+                            releaseDates[r.tag_name] = r.published_at
+                        }
+                    })
+                    return releaseDates
+                }
+                break
+
+            case 'ios':
+                // iOS SDK has special handling - dates are in CHANGELOG.md
+                const iosChangelogResponse = await fetch(
+                    'https://raw.githubusercontent.com/PostHog/posthog-ios/main/CHANGELOG.md'
+                )
+                if (!iosChangelogResponse.ok) {
+                    throw new Error(`Failed to fetch iOS CHANGELOG.md: ${iosChangelogResponse.status}`)
+                }
+                const iosChangelogText = await iosChangelogResponse.text()
+
+                // Extract versions and dates from CHANGELOG.md format: ## 3.31.0 - 2025-08-29
+                const iosMatches = [...iosChangelogText.matchAll(/^## (\d+\.\d+\.\d+) - (\d{4}-\d{2}-\d{2})/gm)]
+                const iosVersions = iosMatches.map((match) => match[1])
+                const iosReleaseDates: Record<string, string> = {}
+
+                iosMatches.forEach((match) => {
+                    const version = match[1]
+                    const dateStr = match[2] + 'T00:00:00Z' // Convert YYYY-MM-DD to ISO format
+                    iosReleaseDates[version] = dateStr
+                })
+
+                const iosResult = {
+                    latestVersion: iosVersions[0],
+                    versions: iosVersions,
+                    releaseDates: iosReleaseDates,
+                }
+
+                console.info(
+                    `[SDK Doctor] iOS SDK complete result: latestVersion=${iosResult.latestVersion}, release dates count=${Object.keys(iosResult.releaseDates).length}`
+                )
+
+                // Cache and return
+                setSdkCache(sdkType, iosResult)
+                return iosResult
+
+            case 'android':
+                // Android SDK has special handling - dates are in CHANGELOG.md
+                const androidChangelogResponse = await fetch(
+                    'https://raw.githubusercontent.com/PostHog/posthog-android/main/CHANGELOG.md'
+                )
+                if (!androidChangelogResponse.ok) {
+                    throw new Error(`Failed to fetch Android CHANGELOG.md: ${androidChangelogResponse.status}`)
+                }
+                const androidChangelogText = await androidChangelogResponse.text()
+
+                // Extract versions and dates from CHANGELOG.md format: ## 3.21.3 - 2025-09-16
+                const androidMatches = [...androidChangelogText.matchAll(/^## (\d+\.\d+\.\d+) - (\d{4}-\d{2}-\d{2})/gm)]
+                const androidVersions = androidMatches.map((match) => match[1])
+                const androidReleaseDates: Record<string, string> = {}
+
+                androidMatches.forEach((match) => {
+                    const version = match[1]
+                    const dateStr = match[2] + 'T00:00:00Z' // Convert YYYY-MM-DD to ISO format
+                    androidReleaseDates[version] = dateStr
+                })
+
+                const androidResult = {
+                    latestVersion: androidVersions[0],
+                    versions: androidVersions,
+                    releaseDates: androidReleaseDates,
+                }
+
+                console.info(
+                    `[SDK Doctor] Android SDK complete result: latestVersion=${androidResult.latestVersion}, release dates count=${Object.keys(androidResult.releaseDates).length}`
+                )
+
+                // Cache and return
+                setSdkCache(sdkType, androidResult)
+                return androidResult
+
+            case 'php':
+                // PHP SDK has special format in History.md: "3.7.0 / 2025-08-26"
+                const phpHistoryResponse = await fetch(
+                    'https://raw.githubusercontent.com/PostHog/posthog-php/master/History.md'
+                )
+                if (!phpHistoryResponse.ok) {
+                    throw new Error(`Failed to fetch PHP History.md: ${phpHistoryResponse.status}`)
+                }
+                const phpHistoryText = await phpHistoryResponse.text()
+
+                // Extract versions from History.md (format: "3.7.0 / 2025-08-26")
+                const phpVersions: string[] = []
+                const phpReleaseDates: Record<string, string> = {}
+
+                // Split by lines and process each line
+                const lines = phpHistoryText.split('\n')
+                for (const line of lines) {
+                    const match = line.match(/^(\d+\.\d+\.\d+)\s*\/\s*(\d{4}-\d{2}-\d{2})/)
+                    if (match) {
+                        const [, version, date] = match
+                        phpVersions.push(version)
+                        phpReleaseDates[version] = `${date}T00:00:00Z`
+                    }
+                }
+
+                if (phpVersions.length === 0) {
+                    throw new Error('No PHP versions found in History.md')
+                }
+
+                const phpResult = {
+                    latestVersion: phpVersions[0],
+                    versions: phpVersions,
+                    releaseDates: phpReleaseDates,
+                }
+
+                console.info(
+                    `[SDK Doctor] PHP SDK complete result: latestVersion=${phpResult.latestVersion}, versions count=${phpVersions.length}, versions=${phpVersions.slice(0, 5).join(', ')}`
+                )
+                console.info(`[SDK Doctor] PHP SDK setting cache and returning result for 'php' type`)
+
+                // Cache and return
+                setSdkCache(sdkType, phpResult)
+                return phpResult
+
+            case 'elixir':
+                // Elixir SDK has format in CHANGELOG.md: "## 1.1.0 - 2025-07-01"
+                const elixirChangelogResponse = await fetch(
+                    'https://raw.githubusercontent.com/PostHog/posthog-elixir/master/CHANGELOG.md'
+                )
+                if (!elixirChangelogResponse.ok) {
+                    throw new Error(`Failed to fetch Elixir CHANGELOG.md: ${elixirChangelogResponse.status}`)
+                }
+                const elixirChangelogText = await elixirChangelogResponse.text()
+                // Extract versions from CHANGELOG.md (format: "## 1.1.0 - 2025-07-01")
+                const elixirVersions: string[] = []
+                const elixirReleaseDates: Record<string, string> = {}
+                // Parse version entries with date format
+                const elixirMatches = [...elixirChangelogText.matchAll(/^## (\d+\.\d+\.\d+) - (\d{4}-\d{2}-\d{2})/gm)]
+                elixirMatches.forEach((match) => {
+                    const [, version, date] = match
+                    elixirVersions.push(version)
+                    elixirReleaseDates[version] = `${date}T00:00:00Z`
+                })
+                if (elixirVersions.length === 0) {
+                    throw new Error('No Elixir versions found in CHANGELOG.md')
+                }
+                const elixirResult = {
+                    latestVersion: elixirVersions[0],
+                    versions: elixirVersions,
+                    releaseDates: elixirReleaseDates,
+                }
+                console.info(
+                    `[SDK Doctor] Elixir SDK complete result: latestVersion=${elixirResult.latestVersion}, versions count=${elixirVersions.length}, versions=${elixirVersions.slice(0, 5).join(', ')}`
+                )
+                console.info(`[SDK Doctor] Elixir SDK setting cache and returning result for 'elixir' type`)
+                // Cache and return
+                setSdkCache(sdkType, elixirResult)
+                return elixirResult
+
+            case 'dotnet':
+                // .NET SDK uses GitHub Releases (format: "v2.0.0")
+                const dotnetReleasesResponse = await fetch(
+                    'https://api.github.com/repos/PostHog/posthog-dotnet/releases?per_page=100'
+                )
+                if (!dotnetReleasesResponse.ok) {
+                    throw new Error(`Failed to fetch .NET GitHub releases: ${dotnetReleasesResponse.status}`)
+                }
+                const dotnetReleases = await dotnetReleasesResponse.json()
+                // Extract versions from GitHub releases (format: "v2.0.0")
+                const dotnetVersions: string[] = []
+                const dotnetReleaseDates: Record<string, string> = {}
+                // Parse releases and extract semantic versions
+                dotnetReleases.forEach((release: any) => {
+                    if (release.tag_name && release.tag_name.startsWith('v')) {
+                        const version = release.tag_name.replace('v', '')
+                        if (/^\d+\.\d+\.\d+$/.test(version)) {
+                            // Only semantic versions
+                            dotnetVersions.push(version)
+                            dotnetReleaseDates[version] = release.published_at
+                        }
+                    }
+                })
+                if (dotnetVersions.length === 0) {
+                    throw new Error('No .NET versions found in GitHub releases')
+                }
+                const dotnetResult = {
+                    latestVersion: dotnetVersions[0],
+                    versions: dotnetVersions,
+                    releaseDates: dotnetReleaseDates,
+                }
+                console.info(
+                    `[SDK Doctor] .NET SDK complete result: latestVersion=${dotnetResult.latestVersion}, versions count=${dotnetVersions.length}, versions=${dotnetVersions.slice(0, 5).join(', ')}`
+                )
+                console.info(`[SDK Doctor] .NET SDK setting cache and returning result for 'dotnet' type`)
+                // Cache and return
+                setSdkCache(sdkType, dotnetResult)
+                return dotnetResult
+
+            case 'ruby':
+                changelogUrl = 'https://raw.githubusercontent.com/PostHog/posthog-ruby/master/CHANGELOG.md'
+                versionRegex = /^## (\d+\.\d+\.\d+)/gm
+                githubFetcher = async () => {
+                    const response = await fetch(
+                        'https://api.github.com/repos/PostHog/posthog-ruby/releases?per_page=100'
+                    )
+                    if (!response.ok) {
+                        throw new Error(`GitHub API error: ${response.status}`)
+                    }
+                    const releases = await response.json()
+                    const releaseDates: Record<string, string> = {}
+                    releases.forEach((r: any) => {
+                        if (r.tag_name && /^\d+\.\d+\.\d+$/.test(r.tag_name)) {
+                            releaseDates[r.tag_name] = r.published_at
+                        }
+                    })
+                    return releaseDates
+                }
+                break
+
+            case 'go':
+                // Go SDK has special handling - fetch everything in one go
+                const goChangelogResponse = await fetch(
+                    'https://raw.githubusercontent.com/PostHog/posthog-go/master/CHANGELOG.md'
+                )
+                if (!goChangelogResponse.ok) {
+                    throw new Error(`Failed to fetch Go CHANGELOG.md: ${goChangelogResponse.status}`)
+                }
+                const goChangelogText = await goChangelogResponse.text()
+
+                // Extract versions from CHANGELOG.md
+                const goVersionMatches = goChangelogText.match(/^## (\d+\.\d+\.\d+)$/gm)
+                if (!goVersionMatches) {
+                    throw new Error('No Go versions found in CHANGELOG.md')
+                }
+                const goVersions = goVersionMatches
+                    .map((match) => match.replace(/^## /, ''))
+                    .filter((v) => /^\d+\.\d+\.\d+$/.test(v))
+
+                // Fetch release dates
+                const goReleaseDates = await fetchGoGitHubReleaseDates()
+
+                const goResult = {
+                    latestVersion: goVersions[0],
+                    versions: goVersions,
+                    releaseDates: goReleaseDates,
+                }
+
+                console.info(
+                    `[SDK Doctor] Go SDK complete result: latestVersion=${goResult.latestVersion}, release dates count=${Object.keys(goResult.releaseDates).length}`
+                )
+
+                // Cache and return
+                setSdkCache(sdkType, goResult)
+                return goResult
+
+            default:
+                throw new Error(`Unsupported SDK type: ${sdkType}`)
+        }
+
+        // Fetch CHANGELOG.md data
+        const changelogResponse = await fetch(changelogUrl)
+        if (!changelogResponse.ok) {
+            throw new Error(`Failed to fetch CHANGELOG.md: ${changelogResponse.status}`)
+        }
+        const changelogText = await changelogResponse.text()
+
+        // Extract versions
+        const versionMatches = changelogText.match(versionRegex)
+        if (!versionMatches) {
+            throw new Error(`No versions found in CHANGELOG.md for ${sdkType}`)
+        }
+
+        const versions = versionMatches
+            .map((match) => match.replace(/^## /, '')) // Remove "## " prefix
+            .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
+
+        if (versions.length === 0) {
+            throw new Error(`No valid versions found for ${sdkType}`)
+        }
+
+        // Fetch GitHub release dates for time-based detection
+        console.info(`[SDK Doctor] Calling GitHub fetcher for ${sdkType}...`)
+        const releaseDates = await githubFetcher()
+        console.info(`[SDK Doctor] GitHub fetcher returned ${Object.keys(releaseDates).length} dates for ${sdkType}`)
+
+        const result = {
+            latestVersion: versions[0],
+            versions: versions,
+            releaseDates,
+        }
+
+        console.info(
+            `[SDK Doctor] fetchSdkData() returning for ${sdkType}: latestVersion=${result.latestVersion}, release dates count=${Object.keys(result.releaseDates).length}`
+        )
+
+        // Cache the result
+        setSdkCache(sdkType, result)
+        return result
+    } catch (error) {
+        console.warn(`[SDK Doctor] Failed to fetch ${sdkType} data:`, error)
+        return null
+    }
+}
+
+// Fetch Go SDK release dates by following the "Full changelog" links from CHANGELOG.md
+const fetchGoGitHubReleaseDates = async (): Promise<Record<string, string>> => {
+    try {
+        console.info('[SDK Doctor] Starting Go SDK release date fetch via Full changelog links...')
+
+        // First, get the CHANGELOG.md to extract the Full changelog links
+        const changelogResponse = await fetch(
+            'https://raw.githubusercontent.com/PostHog/posthog-go/master/CHANGELOG.md'
+        )
+        if (!changelogResponse.ok) {
+            console.error('[SDK Doctor] Failed to fetch Go CHANGELOG.md:', changelogResponse.status)
+            throw new Error(`Failed to fetch CHANGELOG.md: ${changelogResponse.status}`)
+        }
+
+        const changelogText = await changelogResponse.text()
+        console.info('[SDK Doctor] Go CHANGELOG.md fetched, length:', changelogText.length)
+        const releaseDates: Record<string, string> = {}
+
+        // Extract just the latest ~5 versions and their Full Changelog links
+        // Pattern: ## 1.6.8 followed by * [Full Changelog](https://github.com/PostHog/posthog-go/compare/v1.6.7...v1.6.8)
+        const versionPattern = /^## (\d+\.\d+\.\d+)\s*\n[\s\S]*?\* \[Full Changelog\]\(([^)]+)\)/gm
+        const matches = [...changelogText.matchAll(versionPattern)]
+
+        console.info(`[SDK Doctor] Found Go version entries: ${matches.length}`)
+
+        // Only process the latest 5 versions to avoid excessive API calls
+        const latestMatches = matches.slice(0, 5)
+        console.info(`[SDK Doctor] Processing latest ${latestMatches.length} Go versions`)
+
+        for (const match of latestMatches) {
+            const version = match[1]
+            const compareUrl = match[2]
+
+            console.info(`[SDK Doctor] Go version ${version}, compare URL: ${compareUrl}`)
+
+            try {
+                // Extract the target tag from the compare URL
+                // e.g., https://github.com/PostHog/posthog-go/compare/v1.6.7...v1.6.8 -> v1.6.8
+                const targetTagMatch = compareUrl.match(/\.\.\.(.+)$/)
+
+                if (targetTagMatch) {
+                    const targetTag = targetTagMatch[1]
+                    console.info(`[SDK Doctor] Fetching date for Go ${version} via tag ${targetTag}`)
+
+                    // Fetch the tag information from GitHub API
+                    const tagResponse = await fetch(
+                        `https://api.github.com/repos/PostHog/posthog-go/git/refs/tags/${targetTag}`
+                    )
+
+                    if (tagResponse.ok) {
+                        const tagData = await tagResponse.json()
+                        const commitSha = tagData.object?.sha
+
+                        if (commitSha) {
+                            // Fetch the commit details to get the date
+                            const commitResponse = await fetch(
+                                `https://api.github.com/repos/PostHog/posthog-go/commits/${commitSha}`
+                            )
+
+                            if (commitResponse.ok) {
+                                const commitData = await commitResponse.json()
+                                const commitDate = commitData.commit?.author?.date || commitData.commit?.committer?.date
+
+                                if (commitDate) {
+                                    releaseDates[version] = commitDate
+                                    console.info(`[SDK Doctor] ✅ Go ${version} -> ${commitDate}`)
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                console.warn(`[SDK Doctor] Failed to fetch date for Go version ${version}:`, error)
+            }
+
+            // Shorter delay since we're only processing 5 versions
+            await new Promise((resolve) => setTimeout(resolve, 100))
+        }
+
+        console.info(
+            `[SDK Doctor] Fetched ${Object.keys(releaseDates).length} Go SDK version dates via Full changelog links`
+        )
+        console.info('[SDK Doctor] Go release dates object:', JSON.stringify(releaseDates))
+
+        return releaseDates
+    } catch (error) {
+        console.warn('[SDK Doctor] Failed to fetch Go SDK release dates via Full changelog:', error)
+        return {}
+    }
+}
+
 export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelSdkDoctorLogic']),
 
@@ -293,6 +980,7 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
     actions({
         loadRecentEvents: true,
         loadLatestSdkVersions: true,
+        updateSdkVersionsMap: (updatedMap: Record<string, SdkVersionInfo>) => ({ updatedMap }),
     }),
 
     loaders(({ values }) => ({
@@ -338,37 +1026,9 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
             >,
             {
                 loadLatestSdkVersions: async () => {
-                    // console.log('[SDK Doctor] Loading latest SDK versions')
-
-                    // Check cache first (but with short expiry for debugging)
-                    const cachedData = getGitHubCache()
-                    if (cachedData && Date.now() - cachedData.timestamp < 5 * 60 * 1000) {
-                        // 5 minute expiry for debugging
-                        if (IS_DEBUG_MODE) {
-                            console.info('[SDK Doctor] Using cached GitHub data (debug mode)')
-                        }
-                        return cachedData.data
-                    }
-
-                    // console.log('[SDK Doctor] No valid cache found, fetching from GitHub API')
-
-                    // Map SDK types to their GitHub repositories
-                    const sdkRepoMap: Record<SdkType, { repo: string; versionPrefix?: string; subdirectory?: string }> =
-                        {
-                            web: { repo: 'posthog-js' },
-                            ios: { repo: 'posthog-ios' },
-                            android: { repo: 'posthog-android' },
-                            node: { repo: 'posthog-js', subdirectory: 'posthog-node' },
-                            python: { repo: 'posthog-python' },
-                            php: { repo: 'posthog-php' },
-                            ruby: { repo: 'posthog-ruby' },
-                            go: { repo: 'posthog-go' },
-                            flutter: { repo: 'posthog-flutter' },
-                            'react-native': { repo: 'posthog-react-native' },
-                            dotnet: { repo: 'posthog-dotnet', versionPrefix: 'v' },
-                            elixir: { repo: 'posthog-elixir' },
-                            other: { repo: '' }, // Skip for "other"
-                        }
+                    // TEMPORARY: Return empty result to avoid all GitHub API calls
+                    // Go SDK will use async per-SDK fetching instead
+                    console.info('[SDK Doctor] Skipping bulk GitHub API fetch - using per-SDK approach for Go only')
 
                     const result: Record<
                         SdkType,
@@ -378,653 +1038,20 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                         { latestVersion: string; versions: string[]; releaseDates?: Record<string, string> }
                     >
 
-                    // Create an array of promises for each SDK type
-                    const promises = Object.entries(sdkRepoMap)
-                        .filter(([_, { repo }]) => !!repo) // Skip entries with empty repos
-                        .map(async ([sdkType, { repo }]) => {
-                            try {
-                                // Using the same approach as versionCheckerLogic
-                                // For Node.js SDK we need special handling since it's in a subdirectory of posthog-js-lite
-                                const isNodeSdk = sdkType === 'node'
-
-                                // Special handling for Web SDK: use CHANGELOG.md for versions + GitHub Releases for dates
-                                if (sdkType === 'web') {
-                                    const changelogPromise = fetch(
-                                        'https://raw.githubusercontent.com/PostHog/posthog-js/main/packages/browser/CHANGELOG.md'
-                                    )
-                                        .then((r) => {
-                                            if (!r.ok) {
-                                                throw new Error(`Failed to fetch CHANGELOG.md: ${r.status}`)
-                                            }
-                                            return r.text()
-                                        })
-                                        .then(async (changelogText) => {
-                                            // Extract version numbers using the same regex as test files
-                                            const versionMatches = changelogText.match(/^## (\d+\.\d+\.\d+)$/gm)
-
-                                            if (versionMatches) {
-                                                const versions = versionMatches
-                                                    .map((match) => match.replace(/^## /, ''))
-                                                    .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
-
-                                                if (versions.length > 0) {
-                                                    // Fetch GitHub release dates for accurate time-based detection
-                                                    const releaseDates = await fetchGitHubReleaseDates()
-
-                                                    if (IS_DEBUG_MODE) {
-                                                        console.info(
-                                                            `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
-                                                            versions.slice(0, 5)
-                                                        )
-                                                        console.info(
-                                                            `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
-                                                        )
-                                                        console.info(
-                                                            `[SDK Doctor] ${sdkType} release dates: ${Object.keys(releaseDates).length} found`
-                                                        )
-                                                    }
-                                                    return {
-                                                        sdkType,
-                                                        versions: versions,
-                                                        latestVersion: versions[0],
-                                                        releaseDates: releaseDates,
-                                                    }
-                                                }
-                                            }
-                                            return null
-                                        })
-
-                                    return changelogPromise
-                                }
-
-                                // Special handling for React Native SDK: use CHANGELOG.md + GitHub releases for time-based detection
-                                if (sdkType === 'react-native') {
-                                    const changelogPromise = fetch(
-                                        'https://raw.githubusercontent.com/PostHog/posthog-js/main/packages/react-native/CHANGELOG.md'
-                                    )
-                                        .then((r) => {
-                                            if (!r.ok) {
-                                                throw new Error(`Failed to fetch CHANGELOG.md: ${r.status}`)
-                                            }
-                                            return r.text()
-                                        })
-                                        .then(async (changelogText) => {
-                                            // Extract version numbers using the same regex as test files
-                                            const versionMatches = changelogText.match(/^## (\d+\.\d+\.\d+)$/gm)
-
-                                            if (versionMatches) {
-                                                const versions = versionMatches
-                                                    .map((match) => match.replace(/^## /, ''))
-                                                    .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
-
-                                                if (versions.length > 0) {
-                                                    // Fetch GitHub release dates for accurate time-based detection
-                                                    const releaseDates = await fetchReactNativeGitHubReleaseDates()
-
-                                                    if (IS_DEBUG_MODE) {
-                                                        console.info(
-                                                            `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
-                                                            versions.slice(0, 5)
-                                                        )
-                                                        console.info(
-                                                            `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
-                                                        )
-                                                        console.info(
-                                                            `[SDK Doctor] ${sdkType} release dates: ${Object.keys(releaseDates).length} found`
-                                                        )
-                                                    }
-                                                    return {
-                                                        sdkType,
-                                                        versions: versions,
-                                                        latestVersion: versions[0],
-                                                        releaseDates: releaseDates,
-                                                    }
-                                                }
-                                            }
-                                            return null
-                                        })
-
-                                    return changelogPromise
-                                }
-
-                                // Special handling for Node.js SDK: use CHANGELOG.md for versions + GitHub Releases for dates
-                                if (sdkType === 'node') {
-                                    const changelogPromise = fetch(
-                                        'https://raw.githubusercontent.com/PostHog/posthog-js/main/packages/node/CHANGELOG.md'
-                                    )
-                                        .then((r) => {
-                                            if (!r.ok) {
-                                                throw new Error(`Failed to fetch CHANGELOG.md: ${r.status}`)
-                                            }
-                                            return r.text()
-                                        })
-                                        .then(async (changelogText) => {
-                                            // Node.js CHANGELOG.md format: "## 5.8.4" (no date in header)
-                                            const versionMatches = changelogText.match(/^## (\d+\.\d+\.\d+)$/gm)
-
-                                            if (versionMatches) {
-                                                const versions = versionMatches
-                                                    .map((match) => match.replace(/^## /, '')) // Remove "## " prefix
-                                                    .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
-
-                                                if (versions.length > 0) {
-                                                    // Fetch GitHub release dates for accurate time-based detection
-                                                    const releaseDates = await fetchNodeGitHubReleaseDates()
-
-                                                    if (IS_DEBUG_MODE) {
-                                                        console.info(
-                                                            `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
-                                                            versions.slice(0, 5)
-                                                        )
-                                                        console.info(
-                                                            `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
-                                                        )
-                                                        console.info(
-                                                            `[SDK Doctor] ${sdkType} release dates: ${Object.keys(releaseDates).length} found`
-                                                        )
-                                                    }
-                                                    return {
-                                                        sdkType,
-                                                        versions: versions,
-                                                        latestVersion: versions[0],
-                                                        releaseDates: releaseDates,
-                                                    }
-                                                }
-                                            }
-                                            return null
-                                        })
-
-                                    return changelogPromise
-                                }
-
-                                // Special handling for Python SDK: use CHANGELOG.md instead of GitHub releases
-                                if (sdkType === 'python') {
-                                    const changelogPromise = fetch(
-                                        'https://raw.githubusercontent.com/PostHog/posthog-python/master/CHANGELOG.md'
-                                    )
-                                        .then((r) => {
-                                            if (!r.ok) {
-                                                throw new Error(`Failed to fetch CHANGELOG.md: ${r.status}`)
-                                            }
-                                            return r.text()
-                                        })
-                                        .then(async (changelogText) => {
-                                            // Python CHANGELOG.md format: "# 6.7.5 - 2025-09-16"
-                                            const versionMatches = changelogText.match(
-                                                /^# (\d+\.\d+\.\d+) - \d{4}-\d{2}-\d{2}$/gm
-                                            )
-
-                                            if (versionMatches) {
-                                                const versions = versionMatches
-                                                    .map((match) =>
-                                                        match.replace(/^# /, '').replace(/ - \d{4}-\d{2}-\d{2}$/, '')
-                                                    ) // Remove "# " and " - YYYY-MM-DD" parts
-                                                    .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
-
-                                                if (versions.length > 0) {
-                                                    // Fetch GitHub release dates for accurate time-based detection
-                                                    const releaseDates = await fetchPythonGitHubReleaseDates()
-
-                                                    if (IS_DEBUG_MODE) {
-                                                        console.info(
-                                                            `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
-                                                            versions.slice(0, 5)
-                                                        )
-                                                        console.info(
-                                                            `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
-                                                        )
-                                                        console.info(
-                                                            `[SDK Doctor] ${sdkType} release dates: ${Object.keys(releaseDates).length} found`
-                                                        )
-                                                    }
-                                                    return {
-                                                        sdkType,
-                                                        versions: versions,
-                                                        latestVersion: versions[0],
-                                                        releaseDates: releaseDates,
-                                                    }
-                                                }
-                                            }
-                                            return null
-                                        })
-
-                                    return changelogPromise
-                                }
-
-                                // Special handling for Flutter SDK: use CHANGELOG.md instead of GitHub releases
-                                if (sdkType === 'flutter') {
-                                    const changelogPromise = fetch(
-                                        'https://raw.githubusercontent.com/PostHog/posthog-flutter/main/CHANGELOG.md'
-                                    )
-                                        .then((r) => {
-                                            if (!r.ok) {
-                                                throw new Error(`Failed to fetch CHANGELOG.md: ${r.status}`)
-                                            }
-                                            return r.text()
-                                        })
-                                        .then(async (changelogText) => {
-                                            // Extract version numbers using the same regex as test files
-                                            const versionMatches = changelogText.match(/^## (\d+\.\d+\.\d+)$/gm)
-
-                                            if (versionMatches) {
-                                                const versions = versionMatches
-                                                    .map((match) => match.replace(/^## /, ''))
-                                                    .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
-
-                                                if (versions.length > 0) {
-                                                    // Fetch GitHub release dates for accurate time-based detection
-                                                    const releaseDates = await fetchFlutterGitHubReleaseDates()
-
-                                                    if (IS_DEBUG_MODE) {
-                                                        console.info(
-                                                            `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
-                                                            versions.slice(0, 5)
-                                                        )
-                                                        console.info(
-                                                            `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
-                                                        )
-                                                        console.info(
-                                                            `[SDK Doctor] ${sdkType} release dates: ${Object.keys(releaseDates).length} found`
-                                                        )
-                                                    }
-                                                    return {
-                                                        sdkType,
-                                                        versions: versions,
-                                                        latestVersion: versions[0],
-                                                        releaseDates: releaseDates,
-                                                    }
-                                                }
-                                            }
-                                            return null
-                                        })
-
-                                    return changelogPromise
-                                }
-
-                                // Special handling for iOS SDK: use CHANGELOG.md instead of GitHub releases
-                                if (sdkType === 'ios') {
-                                    const changelogPromise = fetch(
-                                        'https://raw.githubusercontent.com/PostHog/posthog-ios/main/CHANGELOG.md'
-                                    )
-                                        .then((r) => {
-                                            if (!r.ok) {
-                                                throw new Error(`Failed to fetch CHANGELOG.md: ${r.status}`)
-                                            }
-                                            return r.text()
-                                        })
-                                        .then((changelogText) => {
-                                            // iOS CHANGELOG.md format: "## 3.30.1 - 2025-08-12"
-                                            const versionMatches = changelogText.match(
-                                                /^## (\d+\.\d+\.\d+) - \d{4}-\d{2}-\d{2}$/gm
-                                            )
-
-                                            if (versionMatches) {
-                                                const versions = versionMatches
-                                                    .map((match) =>
-                                                        match.replace(/^## /, '').replace(/ - \d{4}-\d{2}-\d{2}$/, '')
-                                                    ) // Remove "## " and " - YYYY-MM-DD" parts
-                                                    .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
-
-                                                if (versions.length > 0) {
-                                                    if (IS_DEBUG_MODE) {
-                                                        console.info(
-                                                            `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
-                                                            versions.slice(0, 5)
-                                                        )
-                                                        console.info(
-                                                            `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
-                                                        )
-                                                    }
-                                                    return {
-                                                        sdkType,
-                                                        versions: versions,
-                                                        latestVersion: versions[0],
-                                                        releaseDates: {},
-                                                    }
-                                                }
-                                            }
-                                            return null
-                                        })
-
-                                    return changelogPromise
-                                }
-
-                                // Special handling for Android SDK: use CHANGELOG.md instead of GitHub releases
-                                if (sdkType === 'android') {
-                                    const changelogPromise = fetch(
-                                        'https://raw.githubusercontent.com/PostHog/posthog-android/main/CHANGELOG.md'
-                                    )
-                                        .then((r) => {
-                                            if (!r.ok) {
-                                                throw new Error(`Failed to fetch CHANGELOG.md: ${r.status}`)
-                                            }
-                                            return r.text()
-                                        })
-                                        .then((changelogText) => {
-                                            // Android CHANGELOG.md format: "## 3.20.2 - 2025-08-07"
-                                            const versionMatches = changelogText.match(
-                                                /^## (\d+\.\d+\.\d+) - \d{4}-\d{2}-\d{2}$/gm
-                                            )
-
-                                            if (versionMatches) {
-                                                const versions = versionMatches
-                                                    .map((match) =>
-                                                        match.replace(/^## /, '').replace(/ - \d{4}-\d{2}-\d{2}$/, '')
-                                                    ) // Remove "## " and " - YYYY-MM-DD" parts
-                                                    .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
-
-                                                if (versions.length > 0) {
-                                                    if (IS_DEBUG_MODE) {
-                                                        console.info(
-                                                            `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
-                                                            versions.slice(0, 5)
-                                                        )
-                                                        console.info(
-                                                            `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
-                                                        )
-                                                    }
-                                                    return {
-                                                        sdkType,
-                                                        versions: versions,
-                                                        latestVersion: versions[0],
-                                                        releaseDates: {},
-                                                    }
-                                                }
-                                            }
-                                            return null
-                                        })
-
-                                    return changelogPromise
-                                }
-
-                                // Special handling for Go SDK: use CHANGELOG.md instead of GitHub releases
-                                if (sdkType === 'go') {
-                                    const changelogPromise = fetch(
-                                        'https://raw.githubusercontent.com/PostHog/posthog-go/master/CHANGELOG.md'
-                                    )
-                                        .then((r) => {
-                                            if (!r.ok) {
-                                                throw new Error(`Failed to fetch CHANGELOG.md: ${r.status}`)
-                                            }
-                                            return r.text()
-                                        })
-                                        .then((changelogText) => {
-                                            // Go CHANGELOG.md format: "## 1.6.3"
-                                            const versionMatches = changelogText.match(/^## (\d+\.\d+\.\d+)$/gm)
-
-                                            if (versionMatches) {
-                                                const versions = versionMatches
-                                                    .map((match) => match.replace(/^## /, '')) // Remove "## " prefix
-                                                    .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
-
-                                                if (versions.length > 0) {
-                                                    if (IS_DEBUG_MODE) {
-                                                        console.info(
-                                                            `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
-                                                            versions.slice(0, 5)
-                                                        )
-                                                        console.info(
-                                                            `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
-                                                        )
-                                                    }
-                                                    return {
-                                                        sdkType,
-                                                        versions: versions,
-                                                        latestVersion: versions[0],
-                                                        releaseDates: {},
-                                                    }
-                                                }
-                                            }
-                                            return null
-                                        })
-
-                                    return changelogPromise
-                                }
-
-                                // Special handling for Ruby SDK: use CHANGELOG.md instead of GitHub releases
-                                if (sdkType === 'ruby') {
-                                    const changelogPromise = fetch(
-                                        'https://raw.githubusercontent.com/PostHog/posthog-ruby/main/CHANGELOG.md'
-                                    )
-                                        .then((r) => {
-                                            if (!r.ok) {
-                                                throw new Error(`Failed to fetch CHANGELOG.md: ${r.status}`)
-                                            }
-                                            return r.text()
-                                        })
-                                        .then((changelogText) => {
-                                            // Ruby CHANGELOG.md format: ## 3.1.2 (sometimes with dates like ## 3.1.0 - 2025-05-20)
-                                            const versionMatches = changelogText.match(/^## (\d+\.\d+\.\d+)/gm)
-
-                                            if (versionMatches) {
-                                                const versions = versionMatches
-                                                    .map((match) => match.replace(/^## /, '').replace(/ [–-].*$/, '')) // Remove "## " and any date parts
-                                                    .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
-
-                                                if (versions.length > 0) {
-                                                    if (IS_DEBUG_MODE) {
-                                                        console.info(
-                                                            `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
-                                                            versions.slice(0, 5)
-                                                        )
-                                                        console.info(
-                                                            `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
-                                                        )
-                                                    }
-                                                    return {
-                                                        sdkType,
-                                                        versions: versions,
-                                                        latestVersion: versions[0],
-                                                        releaseDates: {},
-                                                    }
-                                                }
-                                            }
-                                            return null
-                                        })
-
-                                    return changelogPromise
-                                }
-
-                                // Special handling for Elixir SDK: use CHANGELOG.md instead of GitHub releases
-                                if (sdkType === 'elixir') {
-                                    const changelogPromise = fetch(
-                                        'https://raw.githubusercontent.com/PostHog/posthog-elixir/master/CHANGELOG.md'
-                                    )
-                                        .then((r) => {
-                                            if (!r.ok) {
-                                                throw new Error(`Failed to fetch CHANGELOG.md: ${r.status}`)
-                                            }
-                                            return r.text()
-                                        })
-                                        .then((changelogText) => {
-                                            // Elixir CHANGELOG.md format: ## 1.1.0 - 2025-07-01
-                                            const versionMatches = changelogText.match(
-                                                /^## (\d+\.\d+\.\d+) - \d{4}-\d{2}-\d{2}$/gm
-                                            )
-
-                                            if (versionMatches) {
-                                                const versions = versionMatches
-                                                    .map((match) =>
-                                                        match.replace(/^## /, '').replace(/ - \d{4}-\d{2}-\d{2}$/, '')
-                                                    ) // Remove "## " and " - YYYY-MM-DD" parts
-                                                    .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
-
-                                                if (versions.length > 0) {
-                                                    if (IS_DEBUG_MODE) {
-                                                        console.info(
-                                                            `[SDK Doctor] ${sdkType} versions found from CHANGELOG.md:`,
-                                                            versions.slice(0, 5)
-                                                        )
-                                                        console.info(
-                                                            `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
-                                                        )
-                                                    }
-                                                    return {
-                                                        sdkType,
-                                                        versions: versions,
-                                                        latestVersion: versions[0],
-                                                        releaseDates: {},
-                                                    }
-                                                }
-                                            }
-                                            return null
-                                        })
-
-                                    return changelogPromise
-                                }
-
-                                // Special handling for PHP SDK: use History.md instead of GitHub releases
-                                if (sdkType === 'php') {
-                                    const changelogPromise = fetch(
-                                        'https://raw.githubusercontent.com/PostHog/posthog-php/master/History.md'
-                                    )
-                                        .then((r) => {
-                                            if (!r.ok) {
-                                                throw new Error(`Failed to fetch History.md: ${r.status}`)
-                                            }
-                                            return r.text()
-                                        })
-                                        .then((changelogText) => {
-                                            // PHP History.md format: "3.6.0 / 2025-04-30"
-                                            const versionMatches = changelogText.match(
-                                                /^(\d+\.\d+\.\d+) \/ \d{4}-\d{2}-\d{2}$/gm
-                                            )
-
-                                            if (versionMatches) {
-                                                const versions = versionMatches
-                                                    .map((match) => match.replace(/ \/ \d{4}-\d{2}-\d{2}$/, '')) // Remove " / YYYY-MM-DD" part
-                                                    .filter((v) => /^\d+\.\d+\.\d+$/.test(v)) // Ensure valid semver format
-
-                                                if (versions.length > 0) {
-                                                    if (IS_DEBUG_MODE) {
-                                                        console.info(
-                                                            `[SDK Doctor] ${sdkType} versions found from History.md:`,
-                                                            versions.slice(0, 5)
-                                                        )
-                                                        console.info(
-                                                            `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
-                                                        )
-                                                    }
-                                                    return {
-                                                        sdkType,
-                                                        versions: versions,
-                                                        latestVersion: versions[0],
-                                                        releaseDates: {},
-                                                    }
-                                                }
-                                            }
-                                            return null
-                                        })
-
-                                    return changelogPromise
-                                }
-
-                                // For other SDKs, use GitHub releases API
-                                const cacheBuster = Date.now()
-                                const tagsPromise = fetch(
-                                    `https://api.github.com/repos/PostHog/${repo}/releases?_=${cacheBuster}`,
-                                    {
-                                        headers: {
-                                            Accept: 'application/vnd.github.v3+json',
-                                        },
-                                    }
-                                )
-                                    .then((r) => {
-                                        // Check for rate limiting
-                                        if (r.status === 403) {
-                                            // console.error(`[SDK Doctor] GitHub API rate limit hit for ${sdkType}`)
-                                            throw new Error('GitHub API rate limit exceeded')
-                                        }
-                                        return r.json()
-                                    })
-                                    .then((releases) => {
-                                        if (releases && Array.isArray(releases) && releases.length > 0) {
-                                            // Extract versions from releases
-                                            const versions = releases
-                                                .map((release: any) => {
-                                                    const tagName = release.tag_name
-                                                    if (!tagName) {
-                                                        return null
-                                                    }
-
-                                                    // For Node.js SDK, only consider tags with the "posthog-node@" prefix
-                                                    if (isNodeSdk) {
-                                                        if (tagName.startsWith('posthog-node@')) {
-                                                            // Remove the "posthog-node@" prefix for comparison
-                                                            const nodeVersion = tagName.replace(/^posthog-node@/, '')
-                                                            return tryParseVersion(nodeVersion) ? nodeVersion : null
-                                                        }
-                                                        return null
-                                                    }
-
-                                                    // Note: Web SDK now uses CHANGELOG.md approach (handled above)
-                                                    // This section only handles non-web SDKs
-
-                                                    // For other SDKs, use the original logic
-                                                    const name = tagName.replace(/^v/, '')
-                                                    return tryParseVersion(name) ? name : null
-                                                })
-                                                .filter(isNotNil)
-
-                                            if (versions.length > 0) {
-                                                if (IS_DEBUG_MODE) {
-                                                    console.info(
-                                                        `[SDK Doctor] ${sdkType} versions found:`,
-                                                        versions.slice(0, 5)
-                                                    )
-                                                    console.info(
-                                                        `[SDK Doctor] ${sdkType} latestVersion: "${versions[0]}"`
-                                                    )
-                                                }
-                                                return {
-                                                    sdkType,
-                                                    versions: versions,
-                                                    latestVersion: versions[0],
-                                                    releaseDates: {},
-                                                }
-                                            }
-                                        }
-                                        return null
-                                    })
-                                    .catch(() => {
-                                        // console.error(`Error fetching latest version for ${sdkType}:`, error)
-                                        return null
-                                    })
-
-                                return tagsPromise
-                            } catch {
-                                // console.error(`Error setting up fetch for ${sdkType}:`, error)
-                                return null
-                            }
-                        })
-
-                    // Wait for all promises to settle and process results
-                    const settled = await Promise.allSettled(promises)
-
-                    // Process successful results
-                    settled.forEach((settlement) => {
-                        if (settlement.status === 'fulfilled' && settlement.value) {
-                            const { sdkType, versions, latestVersion, releaseDates } = settlement.value
-                            result[sdkType as SdkType] = {
-                                versions,
-                                latestVersion,
-                                releaseDates,
-                            }
-                        }
-                    })
-
-                    // Save to cache if we have data
-                    if (Object.keys(result).length > 0) {
-                        if (IS_DEBUG_MODE) {
-                            console.info(
-                                '[SDK Doctor] Final result summary:',
-                                Object.keys(result).map((key) => `${key}: ${result[key as SdkType]?.latestVersion}`)
-                            )
-                        }
-                        setGitHubCache(result)
-                    }
-
+                    // Skip all bulk fetching to avoid GitHub API rate limits
+                    // Individual SDKs will be processed as needed via async per-SDK approach
                     return result
+                },
+            },
+        ],
+
+        // DISABLED: Recent events for initialization detection (demo purposes)
+        recentInitEvents: [
+            [] as EventType[],
+            {
+                loadRecentInitEvents: async () => {
+                    // Disabled for demo - multi-init detection postponed for post-MVP
+                    return [] as EventType[]
                 },
             },
         ],
@@ -1429,11 +1456,8 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                             const existingData = state[key] || {}
 
                             // We'll update the isOutdated value after checking with latest versions
-                            // For now, use the existing function as a fallback
-                            const isOutdated =
-                                existingData.isOutdated !== undefined
-                                    ? existingData.isOutdated
-                                    : checkIfVersionOutdated(lib, libVersion)
+                            // If no existing data, mark as not outdated initially (will be updated by version check)
+                            const isOutdated = existingData.isOutdated !== undefined ? existingData.isOutdated : false
 
                             sdkVersionsMap[key] = {
                                 ...existingData,
@@ -1457,22 +1481,36 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                     // Re-evaluate all versions with the new data
                     const updatedMap = { ...state }
 
-                    // Only process if we have data
-                    if (Object.keys(latestSdkVersions).length > 0) {
-                        Object.entries(updatedMap).forEach(([key, info]) => {
-                            // Use the version directly from the info object instead of trying to parse from key
-                            // This fixes the issue with libraries that have hyphens in their names
-                            const version = info.version
+                    // Skip all time-based detection SDKs - they'll be handled asynchronously in the listener
+                    for (const [key, info] of Object.entries(updatedMap)) {
+                        const version = info.version
+                        const sdkType: SdkType = info.type
 
-                            // Map lib name to SDK type
-                            const sdkType: SdkType = info.type
+                        // Skip time-based detection SDKs - they'll be handled asynchronously in the listener
+                        if (
+                            [
+                                'web',
+                                'python',
+                                'node',
+                                'react-native',
+                                'flutter',
+                                'ios',
+                                'android',
+                                'go',
+                                'ruby',
+                                'php',
+                            ].includes(sdkType)
+                        ) {
+                            continue
+                        }
 
-                            let versionCheckResult
-                            try {
+                        let versionCheckResult
+                        try {
+                            // Use old method for non-Go SDKs (requires latestSdkVersions data)
+                            if (Object.keys(latestSdkVersions).length > 0) {
                                 versionCheckResult = checkVersionAgainstLatest(sdkType, version, latestSdkVersions)
-                            } catch (error) {
-                                console.warn(`[SDK Doctor] Error checking version for ${sdkType} ${version}:`, error)
-                                // Fallback to basic info
+                            } else {
+                                // No data available for non-Go SDKs
                                 versionCheckResult = {
                                     isOutdated: false,
                                     releasesAhead: 0,
@@ -1483,85 +1521,58 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
                                     deviceContext: determineDeviceContext(sdkType),
                                 }
                             }
+                        } catch (error) {
+                            console.warn(`[SDK Doctor] Error checking version for ${sdkType} ${version}:`, error)
+                            // Fallback to basic info
+                            versionCheckResult = {
+                                isOutdated: false,
+                                releasesAhead: 0,
+                                latestVersion: undefined,
+                                releaseDate: undefined,
+                                daysSinceRelease: undefined,
+                                isAgeOutdated: false,
+                                deviceContext: determineDeviceContext(sdkType),
+                            }
+                        }
 
-                            const {
-                                isOutdated,
-                                releasesAhead,
-                                latestVersion,
-                                // NEW properties
-                                releaseDate,
-                                daysSinceRelease,
-                                isAgeOutdated,
-                                deviceContext,
-                                error,
-                            } = versionCheckResult
+                        const {
+                            isOutdated,
+                            releasesAhead,
+                            latestVersion,
+                            // NEW properties
+                            releaseDate,
+                            daysSinceRelease,
+                            isAgeOutdated,
+                            error,
+                        } = versionCheckResult
 
-                            updatedMap[key] = {
-                                ...info,
-                                isOutdated,
-                                releasesAhead,
-                                latestVersion,
-                                // NEW properties
-                                releaseDate,
-                                daysSinceRelease,
-                                isAgeOutdated,
-                                deviceContext,
-                                eventVolume: categorizeEventVolume(info.count),
-                                lastSeenTimestamp: new Date().toISOString(), // Current processing time
-                                error,
-                            }
-                        })
-                    } else {
-                        // If we couldn't get latest versions, fall back to the hardcoded check
-                        Object.entries(updatedMap).forEach(([key, info]) => {
-                            // Get the version directly from info object
-                            const version = info.version
+                        // Get deviceContext, with fallback if not provided
+                        const deviceContext =
+                            'deviceContext' in versionCheckResult
+                                ? versionCheckResult.deviceContext
+                                : determineDeviceContext(sdkType)
 
-                            // Convert type to lib name for the hardcoded check
-                            let libName = 'web'
-                            if (info.type === 'ios') {
-                                libName = 'posthog-ios'
-                            }
-                            if (info.type === 'android') {
-                                libName = 'posthog-android'
-                            }
-                            if (info.type === 'node') {
-                                libName = 'posthog-node'
-                            }
-                            if (info.type === 'python') {
-                                libName = 'posthog-python'
-                            }
-                            if (info.type === 'php') {
-                                libName = 'posthog-php'
-                            }
-                            if (info.type === 'ruby') {
-                                libName = 'posthog-ruby'
-                            }
-                            if (info.type === 'go') {
-                                libName = 'posthog-go'
-                            }
-                            if (info.type === 'flutter') {
-                                libName = 'posthog-flutter'
-                            }
-                            if (info.type === 'react-native') {
-                                libName = 'posthog-react-native'
-                            }
-                            if (info.type === 'dotnet') {
-                                libName = 'posthog-dotnet'
-                            }
-                            if (info.type === 'elixir') {
-                                libName = 'posthog-elixir'
-                            }
-
-                            // console.log(`[SDK Doctor] Fallback check for ${libName} version ${version}`)
-
-                            updatedMap[key] = {
-                                ...info,
-                                isOutdated: checkIfVersionOutdated(libName, version),
-                            }
-                        })
+                        updatedMap[key] = {
+                            ...info,
+                            isOutdated,
+                            releasesAhead,
+                            latestVersion,
+                            // NEW properties
+                            releaseDate,
+                            daysSinceRelease,
+                            isAgeOutdated,
+                            deviceContext,
+                            eventVolume: categorizeEventVolume(info.count),
+                            lastSeenTimestamp: new Date().toISOString(), // Current processing time
+                            error,
+                        }
                     }
 
+                    // For Go SDK, we'll handle async processing in a listener
+                    // For now, just return the state and let the listener handle Go SDK updates
+                    return updatedMap
+                },
+                updateSdkVersionsMap: (_, { updatedMap }) => {
                     return updatedMap
                 },
             },
@@ -1641,13 +1652,1039 @@ export const sidePanelSdkDoctorLogic = kea<sidePanelSdkDoctorLogicType>([
         ],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         loadRecentEventsSuccess: async () => {
             // TODO: Multi-init detection temporarily disabled for post-MVP
             // await updateReleasesCache() - no longer needed
 
             // Fetch the latest versions to compare against for outdated version detection
             actions.loadLatestSdkVersions()
+        },
+        loadLatestSdkVersionsSuccess: async () => {
+            // Handle async processing for all time-based detection SDKs
+            const updatedMap = { ...values.sdkVersionsMap }
+            const timeBasedSdks = [
+                'web',
+                'python',
+                'node',
+                'react-native',
+                'flutter',
+                'ios',
+                'android',
+                'go',
+                'ruby',
+                'php',
+                'elixir',
+                'dotnet',
+            ]
+            let hasTimeBasedSdks = false
+
+            // Check if we have any time-based detection SDKs to process
+            for (const [, info] of Object.entries(updatedMap)) {
+                if (timeBasedSdks.includes(info.type)) {
+                    hasTimeBasedSdks = true
+                    break
+                }
+            }
+
+            if (hasTimeBasedSdks) {
+                // Process time-based detection SDKs asynchronously
+                for (const [key, info] of Object.entries(updatedMap)) {
+                    if (timeBasedSdks.includes(info.type)) {
+                        try {
+                            // DIRECT IMPLEMENTATION FOR GO SDK - bypass the complex pipeline
+                            if (info.type === 'go') {
+                                console.info(`[SDK Doctor] Direct Go SDK processing for version ${info.version}`)
+
+                                // Get SDK data directly
+                                const sdkData = await fetchSdkData('go')
+
+                                if (!sdkData || !sdkData.versions || sdkData.versions.length === 0) {
+                                    console.warn('[SDK Doctor] Go SDK: No version data available')
+                                    updatedMap[key] = {
+                                        ...info,
+                                        isOutdated: false,
+                                        releasesAhead: 0,
+                                        latestVersion: undefined,
+                                        releaseDate: undefined,
+                                        daysSinceRelease: undefined,
+                                        isAgeOutdated: false,
+                                        deviceContext: 'desktop',
+                                        eventVolume: categorizeEventVolume(info.count),
+                                        lastSeenTimestamp: new Date().toISOString(),
+                                        error: 'The Doctor is unavailable. Please try again later.',
+                                    }
+                                    continue
+                                }
+
+                                const latestVersion = sdkData.versions[0]
+                                const versions = sdkData.versions
+                                const releaseDates = sdkData.releaseDates || {}
+
+                                console.info(
+                                    `[SDK Doctor] Go SDK direct check - Latest: ${latestVersion}, Current: ${info.version}`
+                                )
+                                console.info(`[SDK Doctor] Go SDK release dates available:`, Object.keys(releaseDates))
+
+                                // Find the index of the current version
+                                const currentIndex = versions.indexOf(info.version)
+                                const releasesBehind = currentIndex === -1 ? versions.length : currentIndex
+
+                                // Get release date for the current version
+                                let releaseDate: string | undefined
+                                let daysSinceRelease: number | undefined
+                                let isRecentRelease = false
+
+                                if (releaseDates[info.version]) {
+                                    releaseDate = releaseDates[info.version]
+                                    const releaseTimestamp = new Date(releaseDate).getTime()
+                                    const now = Date.now()
+                                    daysSinceRelease = Math.floor((now - releaseTimestamp) / (1000 * 60 * 60 * 24))
+                                    isRecentRelease = daysSinceRelease < 2 // 48 hours
+                                    console.info(
+                                        `[SDK Doctor] Go SDK ${info.version} released on ${releaseDate}, ${daysSinceRelease} days ago, recent: ${isRecentRelease}`
+                                    )
+                                }
+
+                                // Apply Go SDK specific logic (no time-based detection due to infrequent releases)
+                                let isOutdated = false
+                                if (info.version !== latestVersion) {
+                                    if (releasesBehind >= 3) {
+                                        // 3 or more releases behind - outdated
+                                        isOutdated = true
+                                        console.info(
+                                            `[SDK Doctor] Go SDK ${info.version} is ${releasesBehind} releases behind - marking as outdated`
+                                        )
+                                    } else {
+                                        // 1-2 releases behind - close enough (Go SDK exception due to infrequent releases)
+                                        isOutdated = false
+                                        console.info(
+                                            `[SDK Doctor] Go SDK ${info.version} is ${releasesBehind} releases behind - marking as close enough (Go SDK exception)`
+                                        )
+                                    }
+                                }
+
+                                updatedMap[key] = {
+                                    ...info,
+                                    isOutdated,
+                                    releasesAhead: releasesBehind,
+                                    latestVersion,
+                                    releaseDate,
+                                    daysSinceRelease,
+                                    isAgeOutdated: false, // Not used for Go SDK
+                                    deviceContext: 'desktop',
+                                    eventVolume: categorizeEventVolume(info.count),
+                                    lastSeenTimestamp: new Date().toISOString(),
+                                    error: undefined,
+                                }
+
+                                console.info(
+                                    `[SDK Doctor] Go SDK ${info.version} final status - Outdated: ${isOutdated}, Releases behind: ${releasesBehind}`
+                                )
+                            } else if (info.type === 'web') {
+                                // DIRECT IMPLEMENTATION FOR WEB SDK - bypass the complex pipeline
+                                console.info(`[SDK Doctor] Direct Web SDK processing for version ${info.version}`)
+
+                                // Get SDK data directly
+                                const sdkData = await fetchSdkData('web')
+
+                                if (!sdkData || !sdkData.versions || sdkData.versions.length === 0) {
+                                    console.warn('[SDK Doctor] Web SDK: No version data available')
+                                    updatedMap[key] = {
+                                        ...info,
+                                        isOutdated: false,
+                                        releasesAhead: 0,
+                                        latestVersion: undefined,
+                                        releaseDate: undefined,
+                                        daysSinceRelease: undefined,
+                                        isAgeOutdated: false,
+                                        deviceContext: 'desktop',
+                                        eventVolume: categorizeEventVolume(info.count),
+                                        lastSeenTimestamp: new Date().toISOString(),
+                                        error: 'The Doctor is unavailable. Please try again later.',
+                                    }
+                                    continue
+                                }
+
+                                const latestVersion = sdkData.versions[0]
+                                const versions = sdkData.versions
+                                const releaseDates = sdkData.releaseDates || {}
+
+                                console.info(
+                                    `[SDK Doctor] Web SDK direct check - Latest: ${latestVersion}, Current: ${info.version}`
+                                )
+                                console.info(`[SDK Doctor] Web SDK release dates available:`, Object.keys(releaseDates))
+
+                                // Find the index of the current version
+                                const currentIndex = versions.indexOf(info.version)
+                                const releasesBehind = currentIndex === -1 ? versions.length : currentIndex
+
+                                // Get release date for the current version
+                                let releaseDate: string | undefined
+                                let daysSinceRelease: number | undefined
+                                let isRecentRelease = false
+
+                                if (releaseDates[info.version]) {
+                                    releaseDate = releaseDates[info.version]
+                                    const releaseTimestamp = new Date(releaseDate).getTime()
+                                    const now = Date.now()
+                                    daysSinceRelease = Math.floor((now - releaseTimestamp) / (1000 * 60 * 60 * 24))
+                                    isRecentRelease = daysSinceRelease < 2 // 48 hours
+
+                                    console.info(
+                                        `[SDK Doctor] Web SDK ${info.version} released on ${releaseDate}, ${daysSinceRelease} days ago, recent: ${isRecentRelease}`
+                                    )
+                                }
+
+                                // Apply the dual-check logic directly
+                                let isOutdated = false
+                                if (info.version !== latestVersion) {
+                                    if (isRecentRelease) {
+                                        // Recent release (within time threshold) - always "Close enough" regardless of releases behind
+                                        isOutdated = false
+                                        console.info(
+                                            `[SDK Doctor] Web SDK ${info.version} is ${releasesBehind} releases behind but recent (${daysSinceRelease} days old) - marking as close enough`
+                                        )
+                                    } else if (releasesBehind >= 3) {
+                                        // 3 or more releases behind AND not recent - outdated
+                                        isOutdated = true
+                                        console.info(
+                                            `[SDK Doctor] Web SDK ${info.version} is ${releasesBehind} releases behind and ${daysSinceRelease} days old - marking as outdated`
+                                        )
+                                    } else if (releasesBehind >= 2) {
+                                        // 2+ releases behind AND not recent - outdated
+                                        isOutdated = true
+                                        console.info(
+                                            `[SDK Doctor] Web SDK ${info.version} is ${releasesBehind} releases behind and ${daysSinceRelease} days old - marking as outdated`
+                                        )
+                                    } else {
+                                        // 1 release behind - close enough
+                                        isOutdated = false
+                                        console.info(
+                                            `[SDK Doctor] Web SDK ${info.version} is ${releasesBehind} releases behind - marking as close enough`
+                                        )
+                                    }
+                                }
+
+                                updatedMap[key] = {
+                                    ...info,
+                                    isOutdated,
+                                    releasesAhead: releasesBehind,
+                                    latestVersion,
+                                    releaseDate,
+                                    daysSinceRelease,
+                                    isAgeOutdated: false, // Not used for direct implementation
+                                    deviceContext: 'desktop',
+                                    eventVolume: categorizeEventVolume(info.count),
+                                    lastSeenTimestamp: new Date().toISOString(),
+                                    error: undefined,
+                                }
+
+                                console.info(
+                                    `[SDK Doctor] Web SDK ${info.version} final status - Outdated: ${isOutdated}, Releases behind: ${releasesBehind}`
+                                )
+                            } else if (info.type === 'python') {
+                                // DIRECT IMPLEMENTATION FOR PYTHON SDK - bypass the complex pipeline
+                                console.info(`[SDK Doctor] Direct Python SDK processing for version ${info.version}`)
+
+                                // Get SDK data directly
+                                const sdkData = await fetchSdkData('python')
+
+                                if (!sdkData || !sdkData.versions || sdkData.versions.length === 0) {
+                                    console.warn('[SDK Doctor] Python SDK: No version data available')
+                                    updatedMap[key] = {
+                                        ...info,
+                                        isOutdated: false,
+                                        releasesAhead: 0,
+                                        latestVersion: undefined,
+                                        releaseDate: undefined,
+                                        daysSinceRelease: undefined,
+                                        isAgeOutdated: false,
+                                        deviceContext: 'desktop',
+                                        eventVolume: categorizeEventVolume(info.count),
+                                        lastSeenTimestamp: new Date().toISOString(),
+                                        error: 'The Doctor is unavailable. Please try again later.',
+                                    }
+                                    continue
+                                }
+
+                                const latestVersion = sdkData.versions[0]
+                                const versions = sdkData.versions
+                                const releaseDates = sdkData.releaseDates || {}
+
+                                console.info(
+                                    `[SDK Doctor] Python SDK direct check - Latest: ${latestVersion}, Current: ${info.version}`
+                                )
+                                console.info(
+                                    `[SDK Doctor] Python SDK release dates available:`,
+                                    Object.keys(releaseDates)
+                                )
+
+                                // Find the index of the current version
+                                const currentIndex = versions.indexOf(info.version)
+                                const releasesBehind = currentIndex === -1 ? versions.length : currentIndex
+
+                                // Get release date for the current version
+                                let releaseDate: string | undefined
+                                let daysSinceRelease: number | undefined
+                                let isRecentRelease = false
+
+                                if (releaseDates[info.version]) {
+                                    releaseDate = releaseDates[info.version]
+                                    const releaseTimestamp = new Date(releaseDate).getTime()
+                                    const now = Date.now()
+                                    daysSinceRelease = Math.floor((now - releaseTimestamp) / (1000 * 60 * 60 * 24))
+                                    isRecentRelease = daysSinceRelease < 2 // 48 hours
+
+                                    console.info(
+                                        `[SDK Doctor] Python SDK ${info.version} released on ${releaseDate}, ${daysSinceRelease} days ago, recent: ${isRecentRelease}`
+                                    )
+                                }
+
+                                // Apply the dual-check logic directly
+                                let isOutdated = false
+                                if (info.version !== latestVersion) {
+                                    if (isRecentRelease) {
+                                        // Recent release (within time threshold) - always "Close enough" regardless of releases behind
+                                        isOutdated = false
+                                        console.info(
+                                            `[SDK Doctor] Python SDK ${info.version} is ${releasesBehind} releases behind but recent (${daysSinceRelease} days old) - marking as close enough`
+                                        )
+                                    } else if (releasesBehind >= 3) {
+                                        // 3 or more releases behind AND not recent - outdated
+                                        isOutdated = true
+                                        console.info(
+                                            `[SDK Doctor] Python SDK ${info.version} is ${releasesBehind} releases behind and ${daysSinceRelease} days old - marking as outdated`
+                                        )
+                                    } else if (releasesBehind >= 2) {
+                                        // 2+ releases behind AND not recent - outdated
+                                        isOutdated = true
+                                        console.info(
+                                            `[SDK Doctor] Python SDK ${info.version} is ${releasesBehind} releases behind and ${daysSinceRelease} days old - marking as outdated`
+                                        )
+                                    } else {
+                                        // 1 release behind - close enough
+                                        isOutdated = false
+                                        console.info(
+                                            `[SDK Doctor] Python SDK ${info.version} is ${releasesBehind} releases behind - marking as close enough`
+                                        )
+                                    }
+                                }
+
+                                updatedMap[key] = {
+                                    ...info,
+                                    isOutdated,
+                                    releasesAhead: releasesBehind,
+                                    latestVersion,
+                                    releaseDate,
+                                    daysSinceRelease,
+                                    isAgeOutdated: false, // Not used for direct implementation
+                                    deviceContext: 'desktop',
+                                    eventVolume: categorizeEventVolume(info.count),
+                                    lastSeenTimestamp: new Date().toISOString(),
+                                    error: undefined,
+                                }
+
+                                console.info(
+                                    `[SDK Doctor] Python SDK ${info.version} final status - Outdated: ${isOutdated}, Releases behind: ${releasesBehind}`
+                                )
+                            } else if (info.type === 'react-native') {
+                                // DIRECT IMPLEMENTATION FOR REACT NATIVE SDK - bypass the complex pipeline
+                                console.info(
+                                    `[SDK Doctor] Direct React Native SDK processing for version ${info.version}`
+                                )
+
+                                // Get SDK data directly
+                                const sdkData = await fetchSdkData('react-native')
+
+                                if (!sdkData || !sdkData.versions || sdkData.versions.length === 0) {
+                                    console.warn('[SDK Doctor] React Native SDK: No version data available')
+                                    updatedMap[key] = {
+                                        ...info,
+                                        isOutdated: false,
+                                        releasesAhead: 0,
+                                        latestVersion: undefined,
+                                        releaseDate: undefined,
+                                        daysSinceRelease: undefined,
+                                        isAgeOutdated: false,
+                                        deviceContext: 'mobile',
+                                        eventVolume: categorizeEventVolume(info.count),
+                                        lastSeenTimestamp: new Date().toISOString(),
+                                        error: 'The Doctor is unavailable. Please try again later.',
+                                    }
+                                    continue
+                                }
+
+                                const latestVersion = sdkData.versions[0]
+                                const versions = sdkData.versions
+                                const releaseDates = sdkData.releaseDates || {}
+
+                                console.info(
+                                    `[SDK Doctor] React Native SDK direct check - Latest: ${latestVersion}, Current: ${info.version}`
+                                )
+                                console.info(
+                                    `[SDK Doctor] React Native SDK release dates available:`,
+                                    Object.keys(releaseDates)
+                                )
+
+                                // Find the index of the current version
+                                const currentIndex = versions.indexOf(info.version)
+                                const releasesBehind = currentIndex === -1 ? versions.length : currentIndex
+
+                                // Get release date for the current version
+                                let releaseDate: string | undefined
+                                let daysSinceRelease: number | undefined
+                                let isRecentRelease = false
+
+                                if (releaseDates[info.version]) {
+                                    releaseDate = releaseDates[info.version]
+                                    const releaseTimestamp = new Date(releaseDate).getTime()
+                                    const now = Date.now()
+                                    daysSinceRelease = Math.floor((now - releaseTimestamp) / (1000 * 60 * 60 * 24))
+                                    isRecentRelease = daysSinceRelease < 2 // 48 hours
+
+                                    console.info(
+                                        `[SDK Doctor] React Native SDK ${info.version} released on ${releaseDate}, ${daysSinceRelease} days ago, recent: ${isRecentRelease}`
+                                    )
+                                }
+
+                                // Apply the dual-check logic directly
+                                let isOutdated = false
+                                if (info.version !== latestVersion) {
+                                    if (isRecentRelease) {
+                                        // Recent release (within time threshold) - always "Close enough" regardless of releases behind
+                                        isOutdated = false
+                                        console.info(
+                                            `[SDK Doctor] React Native SDK ${info.version} is ${releasesBehind} releases behind but recent (${daysSinceRelease} days old) - marking as close enough`
+                                        )
+                                    } else if (releasesBehind >= 3) {
+                                        // 3 or more releases behind AND not recent - outdated
+                                        isOutdated = true
+                                        console.info(
+                                            `[SDK Doctor] React Native SDK ${info.version} is ${releasesBehind} releases behind and ${daysSinceRelease} days old - marking as outdated`
+                                        )
+                                    } else if (releasesBehind >= 2) {
+                                        // 2+ releases behind AND not recent - outdated
+                                        isOutdated = true
+                                        console.info(
+                                            `[SDK Doctor] React Native SDK ${info.version} is ${releasesBehind} releases behind and ${daysSinceRelease} days old - marking as outdated`
+                                        )
+                                    } else {
+                                        // 1 release behind - close enough
+                                        isOutdated = false
+                                        console.info(
+                                            `[SDK Doctor] React Native SDK ${info.version} is ${releasesBehind} releases behind - marking as close enough`
+                                        )
+                                    }
+                                }
+
+                                updatedMap[key] = {
+                                    ...info,
+                                    isOutdated,
+                                    releasesAhead: releasesBehind,
+                                    latestVersion,
+                                    releaseDate,
+                                    daysSinceRelease,
+                                    isAgeOutdated: false, // Not used for direct implementation
+                                    deviceContext: 'mobile',
+                                    eventVolume: categorizeEventVolume(info.count),
+                                    lastSeenTimestamp: new Date().toISOString(),
+                                    error: undefined,
+                                }
+
+                                console.info(
+                                    `[SDK Doctor] React Native SDK ${info.version} final status - Outdated: ${isOutdated}, Releases behind: ${releasesBehind}`
+                                )
+                            } else if (info.type === 'flutter') {
+                                // DIRECT IMPLEMENTATION FOR FLUTTER SDK - bypass the complex pipeline
+                                console.info(`[SDK Doctor] Direct Flutter SDK processing for version ${info.version}`)
+
+                                // Get SDK data directly
+                                const sdkData = await fetchSdkData('flutter')
+
+                                if (!sdkData || !sdkData.versions || sdkData.versions.length === 0) {
+                                    console.warn('[SDK Doctor] Flutter SDK: No version data available')
+                                    updatedMap[key] = {
+                                        ...info,
+                                        isOutdated: false,
+                                        releasesAhead: 0,
+                                        latestVersion: undefined,
+                                        releaseDate: undefined,
+                                        daysSinceRelease: undefined,
+                                        isAgeOutdated: false,
+                                        deviceContext: 'mobile',
+                                        eventVolume: categorizeEventVolume(info.count),
+                                        lastSeenTimestamp: new Date().toISOString(),
+                                        error: 'The Doctor is unavailable. Please try again later.',
+                                    }
+                                    continue
+                                }
+
+                                const latestVersion = sdkData.versions[0]
+                                const versions = sdkData.versions
+                                const releaseDates = sdkData.releaseDates || {}
+
+                                console.info(
+                                    `[SDK Doctor] Flutter SDK direct check - Latest: ${latestVersion}, Current: ${info.version}`
+                                )
+                                console.info(
+                                    `[SDK Doctor] Flutter SDK release dates available:`,
+                                    Object.keys(releaseDates)
+                                )
+
+                                // Find the index of the current version
+                                const currentIndex = versions.indexOf(info.version)
+                                const releasesBehind = currentIndex === -1 ? versions.length : currentIndex
+
+                                // Get release date for the current version
+                                let releaseDate: string | undefined
+                                let daysSinceRelease: number | undefined
+                                let isRecentRelease = false
+
+                                if (releaseDates[info.version]) {
+                                    releaseDate = releaseDates[info.version]
+                                    const releaseTimestamp = new Date(releaseDate).getTime()
+                                    const now = Date.now()
+                                    daysSinceRelease = Math.floor((now - releaseTimestamp) / (1000 * 60 * 60 * 24))
+                                    isRecentRelease = daysSinceRelease < 2 // 48 hours
+
+                                    console.info(
+                                        `[SDK Doctor] Flutter SDK ${info.version} released on ${releaseDate}, ${daysSinceRelease} days ago, recent: ${isRecentRelease}`
+                                    )
+                                }
+
+                                // Apply the dual-check logic directly
+                                let isOutdated = false
+                                if (info.version !== latestVersion) {
+                                    if (isRecentRelease) {
+                                        // Recent release (within time threshold) - always "Close enough" regardless of releases behind
+                                        isOutdated = false
+                                        console.info(
+                                            `[SDK Doctor] Flutter SDK ${info.version} is ${releasesBehind} releases behind but recent (${daysSinceRelease} days old) - marking as close enough`
+                                        )
+                                    } else if (releasesBehind >= 3) {
+                                        // 3 or more releases behind AND not recent - outdated
+                                        isOutdated = true
+                                        console.info(
+                                            `[SDK Doctor] Flutter SDK ${info.version} is ${releasesBehind} releases behind and ${daysSinceRelease} days old - marking as outdated`
+                                        )
+                                    } else if (releasesBehind >= 2) {
+                                        // 2+ releases behind AND not recent - outdated
+                                        isOutdated = true
+                                        console.info(
+                                            `[SDK Doctor] Flutter SDK ${info.version} is ${releasesBehind} releases behind and ${daysSinceRelease} days old - marking as outdated`
+                                        )
+                                    } else {
+                                        // 1 release behind - close enough
+                                        isOutdated = false
+                                        console.info(
+                                            `[SDK Doctor] Flutter SDK ${info.version} is ${releasesBehind} releases behind - marking as close enough`
+                                        )
+                                    }
+                                }
+
+                                updatedMap[key] = {
+                                    ...info,
+                                    isOutdated,
+                                    releasesAhead: releasesBehind,
+                                    latestVersion,
+                                    releaseDate,
+                                    daysSinceRelease,
+                                    isAgeOutdated: false, // Not used for direct implementation
+                                    deviceContext: 'mobile',
+                                    eventVolume: categorizeEventVolume(info.count),
+                                    lastSeenTimestamp: new Date().toISOString(),
+                                    error: undefined,
+                                }
+
+                                console.info(
+                                    `[SDK Doctor] Flutter SDK ${info.version} final status - Outdated: ${isOutdated}, Releases behind: ${releasesBehind}`
+                                )
+                            } else if (info.type === 'ios') {
+                                // DIRECT IMPLEMENTATION FOR iOS SDK - bypass the complex pipeline
+                                console.info(`[SDK Doctor] Direct iOS SDK processing for version ${info.version}`)
+
+                                // Get SDK data directly
+                                const sdkData = await fetchSdkData('ios')
+
+                                if (!sdkData || !sdkData.versions || sdkData.versions.length === 0) {
+                                    console.warn('[SDK Doctor] iOS SDK: No version data available')
+                                    updatedMap[key] = {
+                                        ...info,
+                                        isOutdated: false,
+                                        releasesAhead: 0,
+                                        latestVersion: undefined,
+                                        releaseDate: undefined,
+                                        daysSinceRelease: undefined,
+                                        isAgeOutdated: false,
+                                        deviceContext: 'mobile',
+                                        eventVolume: categorizeEventVolume(info.count),
+                                        lastSeenTimestamp: new Date().toISOString(),
+                                        error: 'The Doctor is unavailable. Please try again later.',
+                                    }
+                                    continue
+                                }
+
+                                const latestVersion = sdkData.versions[0]
+                                const versions = sdkData.versions
+                                const releaseDates = sdkData.releaseDates || {}
+
+                                console.info(
+                                    `[SDK Doctor] iOS SDK direct check - Latest: ${latestVersion}, Current: ${info.version}`
+                                )
+                                console.info(`[SDK Doctor] iOS SDK release dates available:`, Object.keys(releaseDates))
+
+                                // Find the index of the current version
+                                const currentIndex = versions.indexOf(info.version)
+                                const releasesBehind = currentIndex === -1 ? versions.length : currentIndex
+
+                                // Get release date for the current version
+                                let releaseDate: string | undefined
+                                let daysSinceRelease: number | undefined
+                                let isRecentRelease = false
+
+                                if (releaseDates[info.version]) {
+                                    releaseDate = releaseDates[info.version]
+                                    const releaseTimestamp = new Date(releaseDate).getTime()
+                                    const now = Date.now()
+                                    daysSinceRelease = Math.floor((now - releaseTimestamp) / (1000 * 60 * 60 * 24))
+                                    isRecentRelease = daysSinceRelease < 2 // 48 hours
+
+                                    console.info(
+                                        `[SDK Doctor] iOS SDK ${info.version} released on ${releaseDate}, ${daysSinceRelease} days ago, recent: ${isRecentRelease}`
+                                    )
+                                }
+
+                                // Apply the dual-check logic directly
+                                let isOutdated = false
+                                if (info.version !== latestVersion) {
+                                    if (isRecentRelease) {
+                                        // Recent release (within time threshold) - always "Close enough" regardless of releases behind
+                                        isOutdated = false
+                                        console.info(
+                                            `[SDK Doctor] iOS SDK ${info.version} is ${releasesBehind} releases behind but recent (${daysSinceRelease} days old) - marking as close enough`
+                                        )
+                                    } else if (releasesBehind >= 3) {
+                                        // 3 or more releases behind AND not recent - outdated
+                                        isOutdated = true
+                                        console.info(
+                                            `[SDK Doctor] iOS SDK ${info.version} is ${releasesBehind} releases behind and ${daysSinceRelease} days old - marking as outdated`
+                                        )
+                                    } else if (releasesBehind >= 2) {
+                                        // 2+ releases behind AND not recent - outdated
+                                        isOutdated = true
+                                        console.info(
+                                            `[SDK Doctor] iOS SDK ${info.version} is ${releasesBehind} releases behind and ${daysSinceRelease} days old - marking as outdated`
+                                        )
+                                    } else {
+                                        // 1 release behind - close enough
+                                        isOutdated = false
+                                        console.info(
+                                            `[SDK Doctor] iOS SDK ${info.version} is ${releasesBehind} releases behind - marking as close enough`
+                                        )
+                                    }
+                                }
+
+                                updatedMap[key] = {
+                                    ...info,
+                                    isOutdated,
+                                    releasesAhead: releasesBehind,
+                                    latestVersion,
+                                    releaseDate,
+                                    daysSinceRelease,
+                                    isAgeOutdated: false, // Not used for direct implementation
+                                    deviceContext: 'mobile',
+                                    eventVolume: categorizeEventVolume(info.count),
+                                    lastSeenTimestamp: new Date().toISOString(),
+                                    error: undefined,
+                                }
+
+                                console.info(
+                                    `[SDK Doctor] iOS SDK ${info.version} final status - Outdated: ${isOutdated}, Releases behind: ${releasesBehind}`
+                                )
+                            } else if (info.type === 'android') {
+                                // DIRECT IMPLEMENTATION FOR ANDROID SDK - bypass the complex pipeline
+                                console.info(`[SDK Doctor] Direct Android SDK processing for version ${info.version}`)
+
+                                // Get SDK data directly
+                                const sdkData = await fetchSdkData('android')
+
+                                if (!sdkData || !sdkData.versions || sdkData.versions.length === 0) {
+                                    console.warn('[SDK Doctor] Android SDK: No version data available')
+                                    updatedMap[key] = {
+                                        ...info,
+                                        isOutdated: false,
+                                        releasesAhead: 0,
+                                        latestVersion: undefined,
+                                        releaseDate: undefined,
+                                        daysSinceRelease: undefined,
+                                        isAgeOutdated: false,
+                                        deviceContext: 'mobile',
+                                        eventVolume: categorizeEventVolume(info.count),
+                                        lastSeenTimestamp: new Date().toISOString(),
+                                        error: 'The Doctor is unavailable. Please try again later.',
+                                    }
+                                    continue
+                                }
+
+                                const latestVersion = sdkData.versions[0]
+                                const versions = sdkData.versions
+                                const releaseDates = sdkData.releaseDates || {}
+
+                                console.info(
+                                    `[SDK Doctor] Android SDK direct check - Latest: ${latestVersion}, Current: ${info.version}`
+                                )
+                                console.info(
+                                    `[SDK Doctor] Android SDK release dates available:`,
+                                    Object.keys(releaseDates)
+                                )
+
+                                // Find the index of the current version
+                                const currentIndex = versions.indexOf(info.version)
+                                const releasesBehind = currentIndex === -1 ? versions.length : currentIndex
+
+                                // Get release date for the current version
+                                let releaseDate: string | undefined
+                                let daysSinceRelease: number | undefined
+                                let isRecentRelease = false
+
+                                if (releaseDates[info.version]) {
+                                    releaseDate = releaseDates[info.version]
+                                    const releaseTimestamp = new Date(releaseDate).getTime()
+                                    const now = Date.now()
+                                    daysSinceRelease = Math.floor((now - releaseTimestamp) / (1000 * 60 * 60 * 24))
+                                    isRecentRelease = daysSinceRelease < 2 // 48 hours
+
+                                    console.info(
+                                        `[SDK Doctor] Android SDK ${info.version} released on ${releaseDate}, ${daysSinceRelease} days ago, recent: ${isRecentRelease}`
+                                    )
+                                }
+
+                                // Apply the dual-check logic directly
+                                let isOutdated = false
+                                if (info.version !== latestVersion) {
+                                    if (isRecentRelease) {
+                                        // Recent release (within time threshold) - always "Close enough" regardless of releases behind
+                                        isOutdated = false
+                                        console.info(
+                                            `[SDK Doctor] Android SDK ${info.version} is ${releasesBehind} releases behind but recent (${daysSinceRelease} days old) - marking as close enough`
+                                        )
+                                    } else if (releasesBehind >= 3) {
+                                        // 3 or more releases behind AND not recent - outdated
+                                        isOutdated = true
+                                        console.info(
+                                            `[SDK Doctor] Android SDK ${info.version} is ${releasesBehind} releases behind and ${daysSinceRelease} days old - marking as outdated`
+                                        )
+                                    } else if (releasesBehind >= 2) {
+                                        // 2+ releases behind AND not recent - outdated
+                                        isOutdated = true
+                                        console.info(
+                                            `[SDK Doctor] Android SDK ${info.version} is ${releasesBehind} releases behind and ${daysSinceRelease} days old - marking as outdated`
+                                        )
+                                    } else {
+                                        // 1 release behind - close enough
+                                        isOutdated = false
+                                        console.info(
+                                            `[SDK Doctor] Android SDK ${info.version} is ${releasesBehind} releases behind - marking as close enough`
+                                        )
+                                    }
+                                }
+
+                                updatedMap[key] = {
+                                    ...info,
+                                    isOutdated,
+                                    releasesAhead: releasesBehind,
+                                    latestVersion,
+                                    releaseDate,
+                                    daysSinceRelease,
+                                    isAgeOutdated: false, // Not used for direct implementation
+                                    deviceContext: 'mobile',
+                                    eventVolume: categorizeEventVolume(info.count),
+                                    lastSeenTimestamp: new Date().toISOString(),
+                                    error: undefined,
+                                }
+
+                                console.info(
+                                    `[SDK Doctor] Android SDK ${info.version} final status - Outdated: ${isOutdated}, Releases behind: ${releasesBehind}`
+                                )
+                            } else if (info.type === 'php') {
+                                // DIRECT IMPLEMENTATION FOR PHP SDK - simplified logic
+                                console.info(`[SDK Doctor] Direct PHP SDK processing for version ${info.version}`)
+
+                                // Get PHP SDK data directly
+                                const sdkData = await fetchSdkData('php')
+
+                                if (!sdkData || !sdkData.versions || sdkData.versions.length === 0) {
+                                    console.warn('[SDK Doctor] PHP SDK: No version data available')
+                                    updatedMap[key] = {
+                                        ...info,
+                                        isOutdated: false,
+                                        releasesAhead: 0,
+                                        latestVersion: undefined,
+                                        releaseDate: undefined,
+                                        daysSinceRelease: undefined,
+                                        isAgeOutdated: false,
+                                        deviceContext: 'desktop',
+                                        eventVolume: categorizeEventVolume(info.count),
+                                        lastSeenTimestamp: new Date().toISOString(),
+                                        error: 'The Doctor is unavailable. Please try again later.',
+                                    }
+                                    continue
+                                }
+
+                                const latestVersion = sdkData.versions[0]
+                                const versions = sdkData.versions
+
+                                // Calculate releases behind
+                                const currentIndex = versions.findIndex((v) => v === info.version)
+                                const releasesBehind = currentIndex === -1 ? versions.length : currentIndex
+
+                                // Simplified logic: 0 = current, 1-2 = close enough, 3+ = outdated
+                                let isOutdated = false
+                                if (releasesBehind >= 3) {
+                                    isOutdated = true
+                                    console.info(
+                                        `[SDK Doctor] PHP SDK ${info.version} is ${releasesBehind} releases behind - marking as outdated`
+                                    )
+                                } else {
+                                    console.info(
+                                        `[SDK Doctor] PHP SDK ${info.version} is ${releasesBehind} releases behind - marking as ${releasesBehind === 0 ? 'current' : 'close enough'}`
+                                    )
+                                }
+
+                                updatedMap[key] = {
+                                    ...info,
+                                    isOutdated,
+                                    releasesAhead: releasesBehind,
+                                    latestVersion,
+                                    releaseDate: undefined,
+                                    daysSinceRelease: undefined,
+                                    isAgeOutdated: false,
+                                    deviceContext: 'desktop',
+                                    eventVolume: categorizeEventVolume(info.count),
+                                    lastSeenTimestamp: new Date().toISOString(),
+                                    error: undefined,
+                                }
+
+                                console.info(
+                                    `[SDK Doctor] PHP SDK ${info.version} final status - Outdated: ${isOutdated}, Releases behind: ${releasesBehind}`
+                                )
+                            } else if (info.type === 'ruby') {
+                                // DIRECT IMPLEMENTATION FOR RUBY SDK - simplified logic
+                                console.info(`[SDK Doctor] Direct Ruby SDK processing for version ${info.version}`)
+
+                                // Get Ruby SDK data directly
+                                const sdkData = await fetchSdkData('ruby')
+
+                                if (!sdkData || !sdkData.versions || sdkData.versions.length === 0) {
+                                    console.warn('[SDK Doctor] Ruby SDK: No version data available')
+                                    updatedMap[key] = {
+                                        ...info,
+                                        isOutdated: false,
+                                        releasesAhead: 0,
+                                        latestVersion: undefined,
+                                        releaseDate: undefined,
+                                        daysSinceRelease: undefined,
+                                        isAgeOutdated: false,
+                                        deviceContext: 'desktop',
+                                        eventVolume: categorizeEventVolume(info.count),
+                                        lastSeenTimestamp: new Date().toISOString(),
+                                        error: 'The Doctor is unavailable. Please try again later.',
+                                    }
+                                    continue
+                                }
+
+                                const latestVersion = sdkData.versions[0]
+                                const versions = sdkData.versions
+
+                                // Calculate releases behind
+                                const currentIndex = versions.findIndex((v) => v === info.version)
+                                const releasesBehind = currentIndex === -1 ? versions.length : currentIndex
+
+                                // Simplified logic: 0 = current, 1-2 = close enough, 3+ = outdated
+                                let isOutdated = false
+                                if (releasesBehind >= 3) {
+                                    isOutdated = true
+                                    console.info(
+                                        `[SDK Doctor] Ruby SDK ${info.version} is ${releasesBehind} releases behind - marking as outdated`
+                                    )
+                                } else {
+                                    console.info(
+                                        `[SDK Doctor] Ruby SDK ${info.version} is ${releasesBehind} releases behind - marking as ${releasesBehind === 0 ? 'current' : 'close enough'}`
+                                    )
+                                }
+
+                                updatedMap[key] = {
+                                    ...info,
+                                    isOutdated,
+                                    releasesAhead: releasesBehind,
+                                    latestVersion,
+                                    releaseDate: undefined,
+                                    daysSinceRelease: undefined,
+                                    isAgeOutdated: false,
+                                    deviceContext: 'desktop',
+                                    eventVolume: categorizeEventVolume(info.count),
+                                    lastSeenTimestamp: new Date().toISOString(),
+                                    error: undefined,
+                                }
+
+                                console.info(
+                                    `[SDK Doctor] Ruby SDK ${info.version} final status - Outdated: ${isOutdated}, Releases behind: ${releasesBehind}`
+                                )
+                            } else if (info.type === 'elixir') {
+                                // DIRECT IMPLEMENTATION FOR ELIXIR SDK - simplified logic
+                                console.info(`[SDK Doctor] Direct Elixir SDK processing for version ${info.version}`)
+                                // Get Elixir SDK data directly
+                                const sdkData = await fetchSdkData('elixir')
+                                if (!sdkData || !sdkData.versions || sdkData.versions.length === 0) {
+                                    console.warn('[SDK Doctor] Elixir SDK: No version data available')
+                                    updatedMap[key] = {
+                                        ...info,
+                                        isOutdated: false,
+                                        releasesAhead: 0,
+                                        latestVersion: undefined,
+                                        releaseDate: undefined,
+                                        daysSinceRelease: undefined,
+                                        isAgeOutdated: false,
+                                        deviceContext: 'desktop',
+                                        eventVolume: categorizeEventVolume(info.count),
+                                        lastSeenTimestamp: new Date().toISOString(),
+                                        error: 'The Doctor is unavailable. Please try again later.',
+                                    }
+                                    continue
+                                }
+                                const latestVersion = sdkData.versions[0]
+                                const versions = sdkData.versions
+                                // Calculate releases behind
+                                const currentIndex = versions.findIndex((v) => v === info.version)
+                                const releasesBehind = currentIndex === -1 ? versions.length : currentIndex
+                                // Simplified logic: 0 = current, 1-2 = close enough, 3+ = outdated
+                                let isOutdated = false
+                                if (releasesBehind >= 3) {
+                                    isOutdated = true
+                                    console.info(
+                                        `[SDK Doctor] Elixir SDK ${info.version} is ${releasesBehind} releases behind - marking as outdated`
+                                    )
+                                } else {
+                                    console.info(
+                                        `[SDK Doctor] Elixir SDK ${info.version} is ${releasesBehind} releases behind - marking as ${releasesBehind === 0 ? 'current' : 'close enough'}`
+                                    )
+                                }
+                                updatedMap[key] = {
+                                    ...info,
+                                    isOutdated,
+                                    releasesAhead: releasesBehind,
+                                    latestVersion,
+                                    releaseDate: undefined,
+                                    daysSinceRelease: undefined,
+                                    isAgeOutdated: false,
+                                    deviceContext: 'desktop',
+                                    eventVolume: categorizeEventVolume(info.count),
+                                    lastSeenTimestamp: new Date().toISOString(),
+                                    error: undefined,
+                                }
+                                console.info(
+                                    `[SDK Doctor] Elixir SDK ${info.version} final status - Outdated: ${isOutdated}, Releases behind: ${releasesBehind}`
+                                )
+                            } else if (info.type === 'dotnet') {
+                                // DIRECT IMPLEMENTATION FOR .NET SDK - simplified logic
+                                console.info(`[SDK Doctor] Direct .NET SDK processing for version ${info.version}`)
+                                // Get .NET SDK data directly
+                                const sdkData = await fetchSdkData('dotnet')
+                                if (!sdkData || !sdkData.versions || sdkData.versions.length === 0) {
+                                    console.warn('[SDK Doctor] .NET SDK: No version data available')
+                                    updatedMap[key] = {
+                                        ...info,
+                                        isOutdated: false,
+                                        releasesAhead: 0,
+                                        latestVersion: undefined,
+                                        releaseDate: undefined,
+                                        daysSinceRelease: undefined,
+                                        isAgeOutdated: false,
+                                        deviceContext: 'desktop',
+                                        eventVolume: categorizeEventVolume(info.count),
+                                        lastSeenTimestamp: new Date().toISOString(),
+                                        error: 'The Doctor is unavailable. Please try again later.',
+                                    }
+                                    continue
+                                }
+                                const latestVersion = sdkData.versions[0]
+                                const versions = sdkData.versions
+                                // Calculate releases behind
+                                const currentIndex = versions.findIndex((v) => v === info.version)
+                                const releasesBehind = currentIndex === -1 ? versions.length : currentIndex
+                                // Simplified logic: 0 = current, 1-2 = close enough, 3+ = outdated
+                                let isOutdated = false
+                                if (releasesBehind >= 3) {
+                                    isOutdated = true
+                                    console.info(
+                                        `[SDK Doctor] .NET SDK ${info.version} is ${releasesBehind} releases behind - marking as outdated`
+                                    )
+                                } else {
+                                    console.info(
+                                        `[SDK Doctor] .NET SDK ${info.version} is ${releasesBehind} releases behind - marking as ${releasesBehind === 0 ? 'current' : 'close enough'}`
+                                    )
+                                }
+                                updatedMap[key] = {
+                                    ...info,
+                                    isOutdated,
+                                    releasesAhead: releasesBehind,
+                                    latestVersion,
+                                    releaseDate: undefined,
+                                    daysSinceRelease: undefined,
+                                    isAgeOutdated: false,
+                                    deviceContext: 'desktop',
+                                    eventVolume: categorizeEventVolume(info.count),
+                                    lastSeenTimestamp: new Date().toISOString(),
+                                    error: undefined,
+                                }
+                                console.info(
+                                    `[SDK Doctor] .NET SDK ${info.version} final status - Outdated: ${isOutdated}, Releases behind: ${releasesBehind}`
+                                )
+                            } else {
+                                // Use the existing async check for remaining SDKs
+                                console.info(
+                                    `[SDK Doctor] Using async check for ${info.type} SDK version ${info.version}`
+                                )
+                                const versionCheckResult = await checkVersionAgainstLatestAsync(info.type, info.version)
+                                const {
+                                    isOutdated,
+                                    releasesAhead,
+                                    latestVersion,
+                                    releaseDate,
+                                    daysSinceRelease,
+                                    isAgeOutdated,
+                                    error,
+                                } = versionCheckResult
+
+                                const deviceContext =
+                                    'deviceContext' in versionCheckResult && versionCheckResult.deviceContext
+                                        ? (versionCheckResult.deviceContext as 'mobile' | 'desktop' | 'mixed')
+                                        : determineDeviceContext(info.type)
+
+                                updatedMap[key] = {
+                                    ...info,
+                                    isOutdated,
+                                    releasesAhead,
+                                    latestVersion,
+                                    releaseDate,
+                                    daysSinceRelease,
+                                    isAgeOutdated,
+                                    deviceContext,
+                                    eventVolume: categorizeEventVolume(info.count),
+                                    lastSeenTimestamp: new Date().toISOString(),
+                                    error,
+                                }
+                            }
+                        } catch (error) {
+                            console.warn(`[SDK Doctor] Error processing ${info.type} SDK ${info.version}:`, error)
+                        }
+                    }
+                }
+
+                // Update the state with the processed SDK data
+                actions.updateSdkVersionsMap(updatedMap)
+            }
         },
     })),
 
@@ -1783,56 +2820,60 @@ function determineSamplingStrategy(estimatedEventsPerMinute: number): SamplingSt
     }
 }
 
-// Helper function to check if a version is outdated
-function checkIfVersionOutdated(lib: string, version: string): boolean {
-    // Add debug logs to trace execution
-    // console.log(`[SDK Doctor] Checking if outdated: ${lib} version ${version}`)
+// NEW: Async version comparison function with on-demand SDK data fetching
+async function checkVersionAgainstLatestAsync(
+    type: SdkType,
+    version: string
+): Promise<{
+    isOutdated: boolean
+    releasesAhead?: number
+    latestVersion?: string
+    releaseDate?: string
+    daysSinceRelease?: number
+    isAgeOutdated?: boolean
+    error?: string
+}> {
+    console.info(`[SDK Doctor] checkVersionAgainstLatestAsync called for ${type} version ${version}`)
+    try {
+        // Fetch SDK data on-demand (with caching)
+        const sdkData = await fetchSdkData(type)
+        if (!sdkData) {
+            // SDK not implemented for per-SDK fetching yet, return neutral result
+            return {
+                isOutdated: false,
+                releasesAhead: 0,
+                latestVersion: undefined,
+                releaseDate: undefined,
+                daysSinceRelease: undefined,
+                isAgeOutdated: false,
+            }
+        }
 
-    // This function now serves as a fallback when GitHub API data isn't available
-    // It should match the logic in checkVersionAgainstLatest for consistency
+        // Use the existing logic with the fetched data - use spread to preserve all properties
+        const latestVersionsData = { [type]: { ...sdkData } } as Record<
+            SdkType,
+            { latestVersion: string; versions: string[]; releaseDates?: Record<string, string> }
+        >
 
-    // Parse the version string into components
-    const components = version.split('.')
-    if (components.length < 2) {
-        // console.log(`[SDK Doctor] Cannot determine version: ${version}`)
-        return false // Can't determine
+        // Debug: Verify releaseDates are preserved
+        if (type === 'go' && IS_DEBUG_MODE) {
+            console.info(
+                `[SDK Doctor] checkVersionAgainstLatestAsync - Go releaseDates preserved:`,
+                latestVersionsData[type]?.releaseDates
+                    ? Object.keys(latestVersionsData[type].releaseDates!).slice(0, 3)
+                    : 'undefined'
+            )
+        }
+
+        return checkVersionAgainstLatest(type, version, latestVersionsData)
+    } catch (error) {
+        console.warn(`[SDK Doctor] Error in async version check for ${type}:`, error)
+        return {
+            isOutdated: false,
+            releasesAhead: 0,
+            error: 'Failed to fetch version data',
+        }
     }
-
-    const major = parseInt(components[0])
-    const minor = parseInt(components[1])
-
-    // Debug log for PHP SDK specifically
-    if (lib === 'posthog-php') {
-        // console.log(
-        //     `[SDK Doctor] PHP SDK check: version ${version}, major=${major}, minor=${minor}, isOutdated=${major < 3}`
-        // )
-    }
-
-    // Hardcoded check for Node.js SDK
-    if (lib === 'posthog-node') {
-        // Consider outdated if below 4.17.0
-        return major < 4 || (major === 4 && minor < 17)
-    }
-
-    // Align with the same version requirements used in checkVersionAgainstLatest
-    if (lib === 'web') {
-        // Consider web SDK outdated if below 1.85.0
-        return major < 1 || (major === 1 && minor < 85)
-    } else if (lib === 'posthog-ios') {
-        return major < 1 || (major === 1 && minor < 4)
-    } else if (lib === 'posthog-android') {
-        return major < 1 || (major === 1 && minor < 4)
-    } else if (lib === 'posthog-php') {
-        return major < 3
-    } else if (lib === 'posthog-dotnet') {
-        return major < 1
-    } else if (lib === 'posthog-elixir') {
-        return major < 1
-    }
-
-    // For all other SDKs, apply a generic rule that matches checkVersionAgainstLatest
-    // This is approximate since we don't have the latest version data here
-    return false
 }
 
 // Enhanced version comparison function using semver utilities
@@ -1858,50 +2899,20 @@ function checkVersionAgainstLatest(
     deviceContext?: 'mobile' | 'desktop' | 'mixed'
     error?: string
 } {
-    // Convert type to lib name for consistency
-    let lib = 'web'
-    if (type === 'ios') {
-        lib = 'posthog-ios'
-    }
-    if (type === 'android') {
-        lib = 'posthog-android'
-    }
-    if (type === 'node') {
-        lib = 'posthog-node'
-    }
-    if (type === 'python') {
-        lib = 'posthog-python'
-    }
-    if (type === 'php') {
-        lib = 'posthog-php'
-    }
-    if (type === 'ruby') {
-        lib = 'posthog-ruby'
-    }
-    if (type === 'go') {
-        lib = 'posthog-go'
-    }
-    if (type === 'flutter') {
-        lib = 'posthog-flutter'
-    }
-    if (type === 'react-native') {
-        lib = 'posthog-react-native'
-    }
-    if (type === 'dotnet') {
-        lib = 'posthog-dotnet'
-    }
-    if (type === 'elixir') {
-        lib = 'posthog-elixir'
-    }
-
     // TODO: Node.js now uses CHANGELOG.md data - removed hardcoded version logic
 
-    // If we don't have data for this SDK type or the SDK type is "other", fall back to hardcoded check
+    // If we don't have data for this SDK type or the SDK type is "other", return error state
     if (!latestVersionsData[type] || type === 'other') {
-        // console.log(`[SDK Doctor] Falling back to hardcoded check for ${type} (lib=${lib})`)
-        const isOutdated = checkIfVersionOutdated(lib, version)
-        // console.log(`[SDK Doctor] Hardcoded check result for ${lib} ${version}: isOutdated=${isOutdated}`)
-        return { isOutdated }
+        const errorMessage = `The Doctor is unavailable. Please try again later.`
+        return {
+            isOutdated: false,
+            error: errorMessage,
+            latestVersion: undefined,
+            releaseDate: undefined,
+            daysSinceRelease: undefined,
+            isAgeOutdated: false,
+            deviceContext: determineDeviceContext(type),
+        }
     }
 
     const latestVersion = latestVersionsData[type].latestVersion
@@ -1947,6 +2958,13 @@ function checkVersionAgainstLatest(
         const releaseDates = latestVersionsData[type]?.releaseDates
         const releaseDate = releaseDates?.[version]
 
+        // Debug logging for Go SDK
+        if (type === 'go') {
+            console.info(`[SDK Doctor] Go version lookup: checking version "${version}" in releaseDates`)
+            console.info(`[SDK Doctor] Go releaseDates keys:`, releaseDates ? Object.keys(releaseDates) : 'undefined')
+            console.info(`[SDK Doctor] Go releaseDate found:`, releaseDate || 'NOT FOUND')
+        }
+
         let daysSinceRelease: number | undefined
         let isAgeOutdated = false
 
@@ -1965,10 +2983,12 @@ function checkVersionAgainstLatest(
 
         if (daysSinceRelease !== undefined) {
             isRecentRelease = daysSinceRelease < 2 // 48 hours
-        } else if (['web', 'python', 'node', 'react-native', 'flutter'].includes(type)) {
+        } else if (
+            ['web', 'python', 'node', 'react-native', 'flutter', 'ios', 'android', 'go', 'ruby'].includes(type)
+        ) {
             // For these SDKs, we require GitHub API data for accurate detection
             // Return error state instead of misleading fallbacks
-            const errorMessage = `SDK Doctor is currently unavailable for ${type} SDK. Please try again later.`
+            const errorMessage = `The Doctor is unavailable. Please try again later.`
             console.error(`[SDK Doctor] ${errorMessage} (Missing GitHub release date data for version ${version})`)
 
             return {
@@ -1985,9 +3005,20 @@ function checkVersionAgainstLatest(
             console.info(`[SDK Doctor] No time-based detection available for SDK type: ${type}`)
         }
 
-        // Final logic: 2+ releases behind AND >48h old
-        // This means even 3+ releases behind shows "Close enough" if released recently
-        const isOutdated = releasesBehind >= 2 && !isRecentRelease
+        // Apply SDK-specific logic
+        let isOutdated = false
+        if (['go', 'php', 'ruby', 'elixir', 'dotnet'].includes(type)) {
+            // Go, PHP, Ruby, Elixir, .NET SDK exception: infrequent releases, so 1-2 releases = "Close enough", 3+ = "Outdated"
+            isOutdated = releasesBehind >= 3
+            const statusLabel = releasesBehind === 0 ? 'current' : releasesBehind < 3 ? 'close enough' : 'outdated'
+            console.info(
+                `[SDK Doctor] ${type} SDK ${version} is ${releasesBehind} releases behind - marking as ${statusLabel} (${type} SDK exception)`
+            )
+        } else {
+            // Standard logic: 2+ releases behind AND >48h old
+            // This means even 3+ releases behind shows "Close enough" if released recently
+            isOutdated = releasesBehind >= 2 && !isRecentRelease
+        }
 
         if (IS_DEBUG_MODE) {
             console.info(
@@ -2008,13 +3039,12 @@ function checkVersionAgainstLatest(
             deviceContext,
         }
     } catch {
-        // If we can't parse the versions, fall back to the hardcoded check
-        // console.log(`[SDK Doctor] Error parsing versions, falling back to hardcoded check for ${lib}`)
-
+        // If we can't parse the versions, return error state
+        const errorMessage = `The Doctor is unavailable. Please try again later.`
         return {
-            isOutdated: checkIfVersionOutdated(lib, version),
-            latestVersion,
-            // NEW: Default values for fallback case
+            isOutdated: false,
+            error: errorMessage,
+            latestVersion: undefined,
             releaseDate: undefined,
             daysSinceRelease: undefined,
             isAgeOutdated: false,
