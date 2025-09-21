@@ -208,8 +208,10 @@ class TaskWorkflowSerializer(serializers.ModelSerializer):
         if data.get("is_default", False):
             team = self.context["team"]
             qs = TaskWorkflow.objects.filter(team=team, is_default=True, is_active=True)
-            if self.instance and getattr(self.instance, "id", None):
-                qs = qs.exclude(id=self.instance.id)
+            instance = self.instance
+            # self.instance may be a sequence according to DRF typing; ensure we only access .id on a single instance
+            if isinstance(instance, TaskWorkflow) and getattr(instance, "id", None):
+                qs = qs.exclude(id=instance.id)
             existing_default = qs.exists()
 
             if existing_default:

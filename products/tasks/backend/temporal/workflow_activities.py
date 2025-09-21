@@ -212,14 +212,14 @@ async def should_trigger_agent_workflow_activity(params: dict[str, Any]) -> dict
                     return {
                         "should_trigger": True,
                         "trigger_reason": f"Agent available at {current_stage.key}",
-                        "workflow_name": workflow.name,
+                        "workflow_name": workflow.name if workflow else "",
                         "current_stage_key": current_stage.key,
                     }
 
                 return {
                     "should_trigger": False,
                     "trigger_reason": f"No agent at {current_stage.key}",
-                    "workflow_name": workflow.name,
+                    "workflow_name": workflow.name if workflow else "",
                 }
 
         return await get_task_and_check_trigger()
