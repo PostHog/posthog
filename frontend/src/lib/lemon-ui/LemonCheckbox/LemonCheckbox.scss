@@ -49,9 +49,13 @@
         }
     }
 
-    &.LemonCheckbox--disabled label {
-        color: var(--color-text-secondary);
-        cursor: not-allowed;
+    &.LemonCheckbox--disabled {
+        opacity: var(--opacity-disabled);
+
+        label {
+            color: var(--color-text-secondary);
+            cursor: not-allowed;
+        }
     }
 
     &.LemonCheckbox--full-width {
