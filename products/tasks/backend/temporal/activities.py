@@ -87,7 +87,6 @@ async def ai_agent_work_activity(args: dict) -> dict[str, typing.Any]:
   <tools>
     Local file system (for main implementation work)
     PostHog MCP server (for PostHog operations)
-    GitHub MCP server (for additional repository operations)
   </tools>
 
   <constraints>
@@ -96,7 +95,6 @@ async def ai_agent_work_activity(args: dict) -> dict[str, typing.Any]:
     - Implement structured logging and error handling; never log secrets.
     - Avoid destructive shell commands.
     - ALWAYS create appropriate .gitignore files to exclude build artifacts, dependencies, and temporary files.
-    - NEVER commit node_modules/, site-packages/, __pycache__/, .env files, or other build artifacts.
   </constraints>
 
   <checklist>
@@ -123,7 +121,6 @@ async def ai_agent_work_activity(args: dict) -> dict[str, typing.Any]:
   <workflow>
   - first make a plan and create a todo list
   - execute the todo list one by one
-  - commit changes to the repository regularly
   - test the changes
   </workflow>
 

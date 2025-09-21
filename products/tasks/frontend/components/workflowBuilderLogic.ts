@@ -36,7 +36,9 @@ export const workflowBuilderLogic = kea<workflowBuilderLogicType>([
         removeStage: (stageId: string) => ({ stageId }),
         updateStage: (stageId: string, updates: Partial<WorkflowStage>) => ({ stageId, updates }),
         saveWorkflow: true,
+        deleteWorkflow: true,
         setSavedWorkflow: (workflow: TaskWorkflow) => ({ workflow }),
+        setDeletedWorkflow: true,
         resetBuilder: true,
     }),
 
@@ -158,6 +160,14 @@ export const workflowBuilderLogic = kea<workflowBuilderLogicType>([
                 resetBuilder: () => null,
             },
         ],
+
+        deletedWorkflow: [
+            false,
+            {
+                setDeletedWorkflow: () => true,
+                resetBuilder: () => false,
+            },
+        ],
     })),
 
     selectors({
@@ -255,6 +265,31 @@ export const workflowBuilderLogic = kea<workflowBuilderLogicType>([
                     lemonToast.error('Failed to save workflow. Please try again.')
                 }
 
+                throw error
+            }
+        },
+
+        deleteWorkflow: async () => {
+            if (!props.workflow) {
+                return
+            }
+
+            try {
+                await api.create(`api/projects/@current/workflows/${props.workflow.id}/deactivate/`)
+                actions.setDeletedWorkflow()
+                lemonToast.success(
+                    'Workflow deactivated successfully. Tasks have been migrated to the default workflow.'
+                )
+                tasksLogic.actions.setActiveTab('kanban')
+                tasksLogic.actions.loadAllWorkflows()
+                tasksLogic.actions.loadTasks()
+            } catch (error: any) {
+                console.error('Failed to deactivate workflow:', error)
+                if (error?.response?.status === 400 && error?.response?.data?.error) {
+                    lemonToast.error(error.response.data.error)
+                } else {
+                    lemonToast.error('Failed to deactivate workflow. Please try again.')
+                }
                 throw error
             }
         },

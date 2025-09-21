@@ -113,6 +113,12 @@ export const tasksLogic = kea<tasksLogicType>([
                             current_stage: inputStage.id,
                             position: stageTaskCount,
                         })
+                        .then(() => {
+                            lemonToast.success(`Task assigned to ${targetWorkflow.name}`)
+                            actions.setActiveTab('kanban')
+                            router.actions.push('/tasks')
+                            actions.loadTasks()
+                        })
                         .catch(() => {
                             actions.loadTasks()
                         })
@@ -316,6 +322,24 @@ export const tasksLogic = kea<tasksLogicType>([
 
         // Backlog shows ALL tasks regardless of workflow status
         backlogTasks: [(s) => [s.tasks], (tasks): Task[] => tasks.sort((a, b) => a.position - b.position)],
+
+        // Unassigned tasks sorted by creation time (most recent first)
+        unassignedTasks: [
+            (s) => [s.tasks],
+            (tasks): Task[] =>
+                tasks
+                    .filter((task) => !task.workflow)
+                    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
+        ],
+
+        // Assigned tasks sorted by creation time (most recent first)
+        assignedTasks: [
+            (s) => [s.tasks],
+            (tasks): Task[] =>
+                tasks
+                    .filter((task) => task.workflow)
+                    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
+        ],
         workflowStages: [
             (s) => [s.allWorkflows],
             (allWorkflows): WorkflowStage[] => {
@@ -342,11 +366,9 @@ export const tasksLogic = kea<tasksLogicType>([
                         const stage = allWorkflows
                             .flatMap((w) => w.stages || [])
                             .find((s) => s.id === task.current_stage)
-                        // Consider any non-final stage as "active" (exclude archived stages and common final stage names)
-                        if (stage && !stage.is_archived) {
-                            // Common final stage names that indicate completion
-                            const finalStageKeys = ['done', 'completed', 'closed', 'finished']
-                            return !finalStageKeys.includes(stage.key.toLowerCase())
+                        // Task is active if it's in a stage with an agent assigned
+                        if (stage && !stage.is_archived && stage.agent) {
+                            return true
                         }
                     }
                     return false
@@ -354,6 +376,11 @@ export const tasksLogic = kea<tasksLogicType>([
         ],
     }),
     listeners(({ actions, values, cache }) => ({
+        setActiveTab: ({ tab }) => {
+            if (tab === 'kanban') {
+                actions.loadAllWorkflows()
+            }
+        },
         openTaskDetail: ({ taskId }) => {
             router.actions.push(`/tasks/${taskId}`)
         },
@@ -393,9 +420,6 @@ export const tasksLogic = kea<tasksLogicType>([
                 return
             }
 
-            // Allow moving to agent-only stages - agents will process automatically
-
-            // Update task - simple linear workflow progression
             const updatedTask = {
                 ...moved,
                 workflow: targetWorkflow.id,

@@ -11,6 +11,54 @@ from posthog.temporal.common.logger import get_logger
 logger = get_logger(__name__)
 
 
+@temporalio.activity.defn(name="check_temporal_workflow_permissions")
+async def check_temporal_workflow_permissions_activity(params: dict[str, Any]) -> dict[str, Any]:
+    """Check if tasks feature flag is enabled for this team/user."""
+    try:
+        task_id = params["task_id"]
+        team_id = params["team_id"]
+        user_id = params.get("user_id")
+
+        import posthoganalytics
+        from asgiref.sync import sync_to_async
+
+        from posthog.models.team.team import Team
+        from posthog.models.user import User
+
+        @sync_to_async
+        def check_permissions():
+            try:
+                team = Team.objects.get(id=team_id)
+                user = User.objects.get(id=user_id) if user_id else None
+
+                tasks_enabled = posthoganalytics.feature_enabled(
+                    "tasks",
+                    user.distinct_id if user else f"team_{team_id}",
+                    groups={"organization": str(team.organization.id)},
+                    group_properties={"organization": {"id": str(team.organization.id)}},
+                    only_evaluate_locally=False,
+                    send_feature_flag_events=False,
+                )
+
+                return {
+                    "allowed": tasks_enabled,
+                    "reason": "Feature flag enabled" if tasks_enabled else "Feature flag 'tasks' not enabled",
+                }
+
+            except (Team.DoesNotExist, User.DoesNotExist) as e:
+                logger.exception(f"Failed to validate permissions: {e}")
+                return {"allowed": False, "reason": f"Permission validation failed: {str(e)}"}
+            except Exception as e:
+                logger.exception(f"Error checking permissions: {e}")
+                return {"allowed": False, "reason": f"Permission check error: {str(e)}"}
+
+        return await check_permissions()
+
+    except Exception as e:
+        logger.exception(f"Failed to check permissions for task {task_id}: {e}")
+        return {"allowed": False, "reason": f"Permission check failed: {str(e)}"}
+
+
 @temporalio.activity.defn(name="get_workflow_configuration")
 async def get_workflow_configuration_activity(params: dict[str, Any]) -> dict[str, Any]:
     """Get the workflow configuration for a task."""
@@ -48,7 +96,7 @@ async def get_workflow_configuration_activity(params: dict[str, Any]) -> dict[st
                         task.current_stage = current_stage
                         task.save(update_fields=["current_stage"])
                     else:
-                        logger.error(f"Could not find any stage for task {task_id}")
+                        logger.exception(f"Could not find any stage for task {task_id}")
                         return {
                             "has_workflow": False,
                             "current_stage_key": task.current_stage.key if task.current_stage else "backlog",
@@ -145,7 +193,7 @@ async def move_task_to_stage_activity(params: dict[str, Any]) -> dict[str, Any]:
                 if not current_stage:
                     target_stage = workflow.stages.filter(is_archived=False).order_by("position").first()
                     if not target_stage:
-                        logger.error(f"Could not find any non-archived stage for workflow {workflow.id}")
+                        logger.exception(f"Could not find any non-archived stage for workflow {workflow.id}")
                         return {"success": False, "error": "No stages available in workflow"}
                 else:
                     target_stage = (
@@ -239,7 +287,7 @@ async def trigger_task_processing_activity(params: dict[str, Any]) -> dict[str, 
 
         logger.info(f"Triggering task processing workflow for task {task_id}")
 
-        # Fire-and-forget trigger via our temporal client helper
+        # Feature flag check is handled by execute_task_processing_workflow
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
         execute_task_processing_workflow(task_id=task_id, team_id=team_id, user_id=user_id)
@@ -258,6 +306,36 @@ async def execute_agent_for_transition_activity(params: dict[str, Any]) -> dict[
         team_id = params["team_id"]
         transition_config = params["transition_config"]
         repo_info = params.get("repo_info")
+
+        import posthoganalytics
+        from asgiref.sync import sync_to_async
+
+        from posthog.models.team.team import Team
+
+        @sync_to_async
+        def check_permissions():
+            try:
+                team = Team.objects.get(id=team_id)
+                return posthoganalytics.feature_enabled(
+                    "tasks",
+                    f"team_{team_id}",
+                    groups={"organization": str(team.organization.id)},
+                    group_properties={"organization": {"id": str(team.organization.id)}},
+                    only_evaluate_locally=False,
+                    send_feature_flag_events=False,
+                )
+            except Exception as e:
+                logger.exception(f"Error checking permissions: {e}")
+                return False
+
+        tasks_enabled = await check_permissions()
+        if not tasks_enabled:
+            logger.warning(f"Agent execution blocked for task {task_id} - tasks not enabled for team {team_id}")
+            return {
+                "success": False,
+                "error": "Tasks not enabled for this team",
+                "agent_type": transition_config.get("agent_type", "unknown"),
+            }
 
         agent_type = transition_config.get("agent_type")
 

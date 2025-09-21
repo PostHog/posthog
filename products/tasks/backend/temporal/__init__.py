@@ -5,8 +5,10 @@ from .github_activities import (
     commit_local_changes_activity,
     create_branch_activity,
     create_pr_activity,
+    create_pr_and_update_task_activity,
 )
 from .workflow_activities import (
+    check_temporal_workflow_permissions_activity,
     execute_agent_for_transition_activity,
     get_agent_triggered_transition_activity,
     get_workflow_configuration_activity,
@@ -27,8 +29,10 @@ ACTIVITIES = [
     cleanup_repo_activity,
     create_branch_activity,
     create_pr_activity,
+    create_pr_and_update_task_activity,
     commit_local_changes_activity,
     # workflow activities
+    check_temporal_workflow_permissions_activity,
     execute_agent_for_transition_activity,
     get_agent_triggered_transition_activity,
     get_workflow_configuration_activity,

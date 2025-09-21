@@ -99,7 +99,6 @@ export interface WorkflowStage {
     color: string
     is_manual_only: boolean
     is_archived: boolean
-    fallback_stage?: string
     task_count: number
     agent?: string
     agent_name?: string

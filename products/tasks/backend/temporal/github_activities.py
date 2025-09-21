@@ -161,17 +161,33 @@ async def create_pr_activity(inputs: CreatePRInputs) -> dict[str, Any]:
         )
         repo_name = _repo_basename(repository)
 
-        # Create PR title and body
-        pr_title = f"Fix task: {task.title}"
-        pr_body = f"""
-## Task: {task.title}
+        # Get task details safely in async context
+        def get_task_details():
+            # Ensure related objects are fetched
+            current_stage = task.current_stage
+            stage_key = current_stage.key if current_stage else "backlog"
+            priority = getattr(task, "priority", "N/A")
+            return {
+                "title": task.title,
+                "id": str(task.id),
+                "stage_key": stage_key,
+                "priority": priority,
+                "description": task.description or "No description provided",
+            }
 
-**Task ID:** {task.id}
-**Status:** {task.current_stage.key if task.current_stage else 'backlog'}
-**Priority:** {getattr(task, 'priority', 'N/A')}
+        task_details = await database_sync_to_async(get_task_details)()
+
+        # Create PR title and body
+        pr_title = f"Fix task: {task_details['title']}"
+        pr_body = f"""
+## Task: {task_details['title']}
+
+**Task ID:** {task_details['id']}
+**Status:** {task_details['stage_key']}
+**Priority:** {task_details['priority']}
 
 ### Description
-{task.description or 'No description provided'}
+{task_details['description']}
 
 ---
 *This PR was automatically created by PostHog Task Agent*
@@ -761,3 +777,56 @@ async def get_github_integration_token(team_id: int, task_id: str) -> str:
     except Exception as e:
         logger.exception(f"Error getting GitHub integration token for team {team_id}, task {task_id}: {str(e)}")
         return ""
+
+
+@activity.defn
+async def create_pr_and_update_task_activity(args: dict) -> dict[str, Any]:
+    """Create a PR after agent work is completed and update the task with PR URL."""
+    try:
+        # Extract parameters from args
+        task_id = args["task_id"]
+        team_id = args["team_id"]
+        branch_name = args["branch_name"]
+
+        logger.info(f"Creating PR and updating task {task_id} with branch {branch_name}")
+
+        # Create PR using existing create_pr_activity
+        from .inputs import CreatePRInputs, TaskProcessingInputs
+
+        task_processing_inputs = TaskProcessingInputs(task_id=task_id, team_id=team_id)
+        pr_inputs = CreatePRInputs(task_processing_inputs=task_processing_inputs, branch_name=branch_name)
+
+        pr_result = await create_pr_activity(pr_inputs)
+
+        if pr_result.get("success") and pr_result.get("pr_url"):
+            # Update task with PR URL and branch name
+            from django.apps import apps
+
+            Task = apps.get_model("tasks", "Task")
+
+            def update_task_pr_info():
+                task = Task.objects.get(id=task_id, team_id=team_id)
+                task.github_pr_url = pr_result["pr_url"]
+                task.github_branch = branch_name
+                task.save(update_fields=["github_pr_url", "github_branch"])
+                logger.info(f"Updated task {task_id} with PR URL: {pr_result['pr_url']} and branch: {branch_name}")
+                return task
+
+            await database_sync_to_async(update_task_pr_info)()
+
+            return {
+                "success": True,
+                "pr_url": pr_result["pr_url"],
+                "pr_number": pr_result.get("pr_number"),
+                "pr_id": pr_result.get("pr_id"),
+                "branch_name": branch_name,
+                "message": f"PR created successfully: {pr_result['pr_url']}",
+            }
+        else:
+            error = pr_result.get("error", "Unknown error creating PR")
+            logger.error(f"Failed to create PR for task {task_id}: {error}")
+            return {"success": False, "error": f"Failed to create PR: {error}"}
+
+    except Exception as e:
+        logger.exception(f"Failed to create PR and update task {task_id}: {e}")
+        return {"success": False, "error": str(e)}

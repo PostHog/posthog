@@ -51,13 +51,45 @@ def execute_task_processing_workflow(task_id: str, team_id: int, user_id: Option
         import threading
 
         logger = logging.getLogger(__name__)
-        logger.info(f"Triggering workflow for task {task_id}")
 
         # Always offload to a dedicated thread with its own event loop.
         # This is safer when called from within a Temporal activity (already running an event loop)
         # and from sync Django views. It avoids create_task() being cancelled when the caller loop ends.
         def run_workflow() -> None:
             try:
+                # Check feature flag in the thread where we can make sync Django calls
+                import posthoganalytics
+
+                from posthog.models.team.team import Team
+                from posthog.models.user import User
+
+                try:
+                    team = Team.objects.get(id=team_id)
+                    user = User.objects.get(id=user_id) if user_id else None
+
+                    tasks_enabled = posthoganalytics.feature_enabled(
+                        "tasks",
+                        user.distinct_id if user else f"team_{team_id}",
+                        groups={"organization": str(team.organization.id)},
+                        group_properties={"organization": {"id": str(team.organization.id)}},
+                        only_evaluate_locally=False,
+                        send_feature_flag_events=False,
+                    )
+
+                    if not tasks_enabled:
+                        logger.warning(
+                            f"Task workflow execution blocked for task {task_id} - feature flag 'tasks' not enabled for team {team_id}"
+                        )
+                        return
+
+                except (Team.DoesNotExist, User.DoesNotExist) as e:
+                    logger.exception(f"Failed to validate permissions for task workflow execution: {e}")
+                    return
+                except Exception as e:
+                    logger.exception(f"Error checking feature flag for task workflow: {e}")
+                    return
+
+                logger.info(f"Triggering workflow for task {task_id}")
                 asyncio.run(_execute_task_processing_workflow(task_id, team_id, user_id))
                 logger.info(f"Workflow completed for task {task_id}")
             except Exception as e:

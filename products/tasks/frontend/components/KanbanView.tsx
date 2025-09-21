@@ -32,7 +32,6 @@ import { cn } from 'lib/utils/css-classes'
 import { tasksLogic } from '../tasksLogic'
 import { Task, TaskWorkflow, WorkflowStage } from './../types'
 import { TaskCard } from './TaskCard'
-import { TaskSummariesMaxTool } from './TaskSummariesMaxTool'
 import { WorkflowBuilder } from './WorkflowBuilder'
 import { workflowSettingsLogic } from './workflowSettingsLogic'
 
@@ -193,17 +192,10 @@ export function KanbanView(): JSX.Element {
             <div className="flex justify-between items-center">
                 <div>
                     <h2 className="text-xl font-semibold">Workflows</h2>
-                    <p className="text-muted text-sm mt-1">
-                        Manage task workflows and track progress across different stages
-                    </p>
                 </div>
                 <LemonButton type="primary" icon={<IconPlus />} onClick={() => setShowCreateWorkflow(true)}>
                     New Workflow
                 </LemonButton>
-            </div>
-
-            <div className="relative">
-                <TaskSummariesMaxTool />
             </div>
             <DndContext
                 sensors={sensors}
@@ -350,21 +342,24 @@ export function KanbanView(): JSX.Element {
                                         <span className="text-sm text-muted">({totalTasks} tasks)</span>
                                         <div className="text-muted ml-auto">{isCollapsed ? '▶' : '▼'}</div>
                                     </div>
-                                    <LemonButton
-                                        size="small"
-                                        type="secondary"
-                                        icon={<IconGear />}
-                                        onClick={(e) => {
-                                            e.stopPropagation()
-                                            setEditingWorkflow(workflow)
-                                        }}
-                                        tooltip="Edit workflow"
-                                    />
                                 </div>
 
                                 {/* Workflow Stages */}
                                 {!isCollapsed && (
                                     <div className="px-4 pb-4">
+                                        <div className="flex items-center justify-between py-2">
+                                            <div />
+                                            <LemonButton
+                                                size="small"
+                                                type="secondary"
+                                                icon={<IconGear />}
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
+                                                    setEditingWorkflow(workflow)
+                                                }}
+                                                tooltip="Edit workflow"
+                                            />
+                                        </div>
                                         <div
                                             className="grid gap-4"
                                             style={{

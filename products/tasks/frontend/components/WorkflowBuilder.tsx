@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconPlus, IconX } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { IconPlus, IconTrash, IconX } from '@posthog/icons'
+import { LemonButton, LemonCard, LemonDialog, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { AgentDefinition, TaskWorkflow, WorkflowStage } from '../types'
 import { workflowBuilderLogic } from './workflowBuilderLogic'
@@ -15,8 +15,16 @@ interface WorkflowBuilderProps {
 
 export function WorkflowBuilder({ workflow, onSave, onCancel }: WorkflowBuilderProps): JSX.Element {
     const logic = workflowBuilderLogic({ workflow })
-    const { workflowName, workflowDescription, workflowColor, stages, agents, isValid, savedWorkflow } =
-        useValues(logic)
+    const {
+        workflowName,
+        workflowDescription,
+        workflowColor,
+        stages,
+        agents,
+        isValid,
+        savedWorkflow,
+        deletedWorkflow,
+    } = useValues(logic)
     const {
         setWorkflowName,
         setWorkflowDescription,
@@ -25,13 +33,22 @@ export function WorkflowBuilder({ workflow, onSave, onCancel }: WorkflowBuilderP
         removeStage,
         updateStage,
         saveWorkflow,
+        deleteWorkflow,
     } = useActions(logic)
+
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
     useEffect(() => {
         if (savedWorkflow) {
             onSave(savedWorkflow)
         }
     }, [savedWorkflow, onSave])
+
+    useEffect(() => {
+        if (deletedWorkflow) {
+            onCancel()
+        }
+    }, [deletedWorkflow, onCancel])
 
     return (
         <div className="space-y-6">
@@ -101,14 +118,46 @@ export function WorkflowBuilder({ workflow, onSave, onCancel }: WorkflowBuilderP
             </LemonCard>
 
             {/* Actions */}
-            <div className="flex justify-end gap-2">
-                <LemonButton type="secondary" onClick={onCancel}>
-                    Cancel
-                </LemonButton>
-                <LemonButton type="primary" onClick={() => saveWorkflow()} disabled={!isValid}>
-                    {workflow ? 'Update Workflow' : 'Create Workflow'}
-                </LemonButton>
+            <div className="flex justify-between">
+                {workflow && (
+                    <LemonButton
+                        type="secondary"
+                        status="danger"
+                        icon={<IconTrash />}
+                        onClick={() => setShowDeleteConfirm(true)}
+                    >
+                        Delete Workflow
+                    </LemonButton>
+                )}
+                <div className="flex gap-2 ml-auto">
+                    <LemonButton type="secondary" onClick={onCancel}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton type="primary" onClick={() => saveWorkflow()} disabled={!isValid}>
+                        {workflow ? 'Update Workflow' : 'Create Workflow'}
+                    </LemonButton>
+                </div>
             </div>
+
+            {showDeleteConfirm && (
+                <LemonDialog
+                    title="Delete Workflow?"
+                    description={`Are you sure you want to delete "${workflowName}"? This will deactivate the workflow and migrate all tasks to the backlog.`}
+                    primaryButton={{
+                        children: 'Delete',
+                        status: 'danger',
+                        onClick: () => {
+                            deleteWorkflow()
+                            setShowDeleteConfirm(false)
+                        },
+                    }}
+                    secondaryButton={{
+                        children: 'Cancel',
+                        onClick: () => setShowDeleteConfirm(false),
+                    }}
+                    onClose={() => setShowDeleteConfirm(false)}
+                />
+            )}
         </div>
     )
 }
@@ -124,7 +173,7 @@ interface StageEditorProps {
 }
 
 function StageEditor({ stage, position, agents, onUpdate, onRemove, isLast, isFirst }: StageEditorProps): JSX.Element {
-    const [agent, setAgent] = useState<string>(stage.agent ?? 'no_agent')
+    const [agent, setAgent] = useState<string>(stage.agent || 'no_agent')
 
     return (
         <div className="border border-border rounded-lg p-4">
@@ -179,12 +228,6 @@ function StageEditor({ stage, position, agents, onUpdate, onRemove, isLast, isFi
                     )}
                 </div>
             </div>
-
-            {isFirst && (
-                <div className="mt-3 p-3 bg-bg-light rounded border">
-                    <p className="text-sm text-muted">📥 This is the input stage - new tasks start here.</p>
-                </div>
-            )}
             {isLast && (
                 <div className="mt-3 p-3 bg-bg-light rounded border">
                     <p className="text-sm text-muted">

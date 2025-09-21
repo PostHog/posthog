@@ -23,7 +23,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     required_scopes = ["INTERNAL"]
     scope_object = "INTERNAL"
     queryset = Task.objects.all()
-    # Require the 'tasks' PostHog feature flag for all actions
     posthog_feature_flag = {
         "tasks": [
             "list",
@@ -32,7 +31,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "update",
             "partial_update",
             "destroy",
-            "update_status",
+            "update_stage",
             "update_position",
             "bulk_reorder",
             "progress",
@@ -382,7 +381,7 @@ class TaskWorkflowViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(TaskWorkflowSerializer(workflow, context=self.get_serializer_context()).data)
 
     @action(detail=True, methods=["post"])
-    def deactivate(self, request, pk=None):
+    def deactivate(self, request, pk=None, **kwargs):
         """Safely deactivate a workflow"""
         workflow = self.get_object()
 

@@ -56,7 +56,6 @@ export function TaskTracker(): JSX.Element {
             <div className="space-y-4">
                 <SceneTitleSection
                     name="Tasks"
-                    description="Manage and track development tasks across all PostHog products"
                     resourceType={{
                         type: 'task',
                     }}
