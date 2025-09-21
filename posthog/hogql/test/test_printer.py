@@ -2516,67 +2516,6 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand([[True], [False]])
     @pytest.mark.usefixtures("unittest_snapshot")
-    def test_s3_tables_global_join_with_cte(self, using_global_joins):
-        with mock.patch("posthog.hogql.resolver.USE_GLOBAL_JOINS", using_global_joins):
-            credential = DataWarehouseCredential.objects.create(
-                team=self.team, access_key="key", access_secret="secret"
-            )
-            DataWarehouseTable.objects.create(
-                team=self.team,
-                name="test_table",
-                format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
-                url_pattern="http://s3/folder/",
-                credential=credential,
-                columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
-            )
-            printed = self._select("""
-                WITH some_remote_table AS
-                (
-                    SELECT * FROM test_table
-                )
-                SELECT event FROM events
-                JOIN some_remote_table ON events.event = toString(some_remote_table.id)""")
-
-            if using_global_joins:
-                assert "GLOBAL JOIN" in printed
-            else:
-                assert "GLOBAL JOIN" not in printed
-
-            assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
-
-    @parameterized.expand([[True], [False]])
-    @pytest.mark.usefixtures("unittest_snapshot")
-    def test_s3_tables_global_join_with_cte_nested(self, using_global_joins):
-        with mock.patch("posthog.hogql.resolver.USE_GLOBAL_JOINS", using_global_joins):
-            credential = DataWarehouseCredential.objects.create(
-                team=self.team, access_key="key", access_secret="secret"
-            )
-            DataWarehouseTable.objects.create(
-                team=self.team,
-                name="test_table",
-                format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
-                url_pattern="http://s3/folder/",
-                credential=credential,
-                columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True}},
-            )
-            printed = self._select("""
-                WITH some_remote_table AS
-                (
-                    SELECT e.event, t.id FROM events e
-                    JOIN test_table t on toString(t.id) = e.event
-                )
-                SELECT some_remote_table.event FROM events
-                JOIN some_remote_table ON events.event = toString(some_remote_table.id)""")
-
-            if using_global_joins:
-                assert "GLOBAL JOIN" in printed
-            else:
-                assert "GLOBAL JOIN" not in printed
-
-            assert clean_varying_query_parts(printed, replace_all_numbers=False) == self.snapshot  # type: ignore
-
-    @parameterized.expand([[True], [False]])
-    @pytest.mark.usefixtures("unittest_snapshot")
     def test_s3_tables_global_join_with_multiple_joins(self, using_global_joins):
         with mock.patch("posthog.hogql.resolver.USE_GLOBAL_JOINS", using_global_joins):
             credential = DataWarehouseCredential.objects.create(

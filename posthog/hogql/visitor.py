@@ -205,6 +205,9 @@ class TraversingVisitor(Visitor[None]):
     def visit_select_view_type(self, node: ast.SelectViewType):
         self.visit(node.select_query_type)
 
+    def visit_ctetable_type(self, node: ast.CTETableType):
+        self.visit(node.select_query_type)
+
     def visit_asterisk_type(self, node: ast.AsteriskType):
         self.visit(node.table_type)
 
