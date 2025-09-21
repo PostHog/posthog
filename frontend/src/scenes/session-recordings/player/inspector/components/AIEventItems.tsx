@@ -1,5 +1,7 @@
+import { IconPerson } from '@posthog/icons'
+
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { IconExclamation } from 'lib/lemon-ui/icons'
+import { IconExclamation, IconRobot } from 'lib/lemon-ui/icons'
 import { isObject } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 
@@ -69,7 +71,7 @@ const isHumanMessage = (message: Record<string, any>): boolean => {
 const isAIMessage = (message: Record<string, any>): boolean => {
     return (
         (message.type === 'ai' || message.role === 'assistant' || message.role === 'ai') &&
-        message.content.length &&
+        !!message.content?.length &&
         message.visible !== false
     )
 }
@@ -121,9 +123,9 @@ export function AIEventSummary({ event }: { event: Record<string, any> }): JSX.E
                     )}
                     key={m.id}
                 >
-                    {isAIMessage(m) && <span className="mr-1 text-2xl">🤖</span>}
+                    {isAIMessage(m) && <IconRobot className="mr-1 text-2xl" />}
                     <div className="max-w-2/3 border rounded px-2 py-1 text-wrap text-sm">{m.content}</div>
-                    {isHumanMessage(m) && <span className="ml-1 text-2xl">🧑</span>}
+                    {isHumanMessage(m) && <IconPerson className="ml-1 text-2xl" />}
                 </div>
             ))}
         </div>
