@@ -6,7 +6,7 @@ import { routerPlugin } from 'kea-router'
 import { subscriptionsPlugin } from 'kea-subscriptions'
 import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
-import posthog from 'posthog-js'
+import posthog, { PostHog } from 'posthog-js'
 import { posthogKeaLogger } from 'posthog-js/lib/src/customizations'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -128,7 +128,14 @@ export function initKea({
 
     // To enable logging, run localStorage.setItem("ph-kea-debug", true) in the console
     if (window.JS_KEA_VERBOSE_LOGGING || ('localStorage' in window && window.localStorage.getItem('ph-kea-debug'))) {
-        plugins.push(posthogKeaLogger)
+        plugins.push(
+            posthogKeaLogger({
+                logger: (title, stateEvent) => {
+                    const ph: PostHog | undefined = window.posthog
+                    ph?.sessionRecording?.tryAddCustomEvent('app-state', { title, stateEvent })
+                },
+            })
+        )
     }
 
     if ((window as any).__REDUX_DEVTOOLS_EXTENSION__) {
