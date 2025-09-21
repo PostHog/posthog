@@ -30,7 +30,6 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { NotFound } from 'lib/components/NotFound'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { PageHeader } from 'lib/components/PageHeader'
 import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToNotebookDropdownMenu'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
@@ -65,7 +64,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
+import {
+    ScenePanel,
+    ScenePanelActionsSection,
+    ScenePanelDivider,
+    ScenePanelInfoSection,
+} from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -619,42 +623,8 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                     </Form>
                 ) : (
                     <>
-                        <PageHeader
-                            notebookProps={{
-                                href: urls.featureFlag(id),
-                            }}
-                            buttons={
-                                <>
-                                    <div className="flex items-center gap-2">
-                                        <AccessControlAction
-                                            resourceType={AccessControlResourceType.FeatureFlag}
-                                            minAccessLevel={AccessControlLevel.Editor}
-                                            userAccessLevel={featureFlag.user_access_level}
-                                        >
-                                            <LemonButton
-                                                data-attr="edit-feature-flag"
-                                                type="secondary"
-                                                disabledReason={
-                                                    !featureFlag.can_edit
-                                                        ? "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
-                                                        : featureFlag.deleted
-                                                          ? 'This feature flag has been deleted. Restore it to edit.'
-                                                          : null
-                                                }
-                                                onClick={() => {
-                                                    editFeatureFlag(true)
-                                                }}
-                                            >
-                                                Edit
-                                            </LemonButton>
-                                        </AccessControlAction>
-                                    </div>
-                                </>
-                            }
-                        />
-
                         <ScenePanel>
-                            <ScenePanelMetaInfo>
+                            <ScenePanelInfoSection>
                                 {hasAvailableFeature(AvailableFeature.TAGGING) && (
                                     <SceneTags
                                         onSave={(tags) => {
@@ -670,9 +640,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 )}
 
                                 <SceneFile dataAttrKey={RESOURCE_TYPE} />
-                            </ScenePanelMetaInfo>
+                            </ScenePanelInfoSection>
                             <ScenePanelDivider />
-                            <ScenePanelActions>
+                            <ScenePanelActionsSection>
                                 <ButtonPrimitive
                                     onClick={() => {
                                         router.actions.push(urls.featureFlagDuplicate(featureFlag.id))
@@ -704,8 +674,9 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         Create survey
                                     </ButtonPrimitive>
                                 )}
-
-                                <ScenePanelDivider />
+                            </ScenePanelActionsSection>
+                            <ScenePanelDivider />
+                            <ScenePanelActionsSection>
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.FeatureFlag}
                                     minAccessLevel={AccessControlLevel.Editor}
@@ -740,7 +711,7 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         </ButtonPrimitive>
                                     )}
                                 </AccessControlAction>
-                            </ScenePanelActions>
+                            </ScenePanelActionsSection>
                         </ScenePanel>
                         <SceneContent>
                             {earlyAccessFeature && earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && (
