@@ -21,6 +21,7 @@ __all__ = [
     "QueryAndPlanAlignment",
     "TimeRangeRelevancy",
     "InsightEvaluationAccuracy",
+    "DashboardCreationAccuracy",
     "SemanticSimilarity",
 ]
 
@@ -400,6 +401,75 @@ class InsightEvaluationAccuracy(ScorerWithPartial):
                 "actual_decision": actual_decision,
                 "evaluation_explanation": evaluation_result.get("explanation", ""),
             },
+        )
+
+
+class DashboardCreationAccuracy(LLMClassifier):
+    """Evaluate how well the generated dashboard creation output matches the expected input requirements."""
+
+    async def _run_eval_async(self, output: str, expected: dict | None = None, **kwargs):
+        if not output:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No output provided"})
+        return await super()._run_eval_async(output, expected, **kwargs)
+
+    def _run_eval_sync(self, output: str, expected: dict | None = None, **kwargs):
+        if not output:
+            return Score(name=self._name(), score=0.0, metadata={"reason": "No output provided"})
+        return super()._run_eval_sync(output, expected, **kwargs)
+
+    def __init__(self, **kwargs):
+        super().__init__(
+            name="dashboard_creation_accuracy",
+            prompt_template="""
+You will be given the expected dashboard creation requirements and the actual generated output to evaluate how well the output matches the input requirements.
+
+<evaluation_criteria>
+1. Dashboard Creation Success: The output should indicate successful dashboard creation (success: true, dashboard_id present, no error_message).
+2. Dashboard Name Appropriateness: If a dashboard name is provided, it should be relevant to the requested content.
+3. Insight Requirements Fulfillment: The created insights should match the search_insights_queries from the input:
+   - Number of insights mentioned should match the number of insights in the `search_insights_queries` field.
+   - Each insight should address the corresponding query requirements mentioned in the `search_insights_queries` field.
+   - Insight names and descriptions should be appropriate for the requested content
+   - The dashboard name should be relevant to the `dashboard_name` field.
+   - If an insight was not created it should be mentioned in the output message as such.
+4. Query Alignment: The dashboard should fulfill the `dashboard_name` requirements.
+5. Error Handling: If there are errors, they should be meaningful and not due to basic validation failures.
+6. Make sure to check that the dashboards and insights have the corresponding hyperlinks.
+</evaluation_criteria>
+
+<expected_vs_actual_output>
+Expected dashboard creation requirements:
+<expected_output>
+{{expected}}
+</expected_output>
+
+Actual generated output:
+<actual_output>
+{{output}}
+</actual_output>
+</expected_vs_actual_output>
+
+How would you rate how well the generated output matches the expected output requirements? Choose one:
+- perfect: The output perfectly fulfills all requirements from the expected output.
+- near_perfect: The output fulfills most requirements with at most one minor detail missed.
+- good: The output fulfills the main requirements but has some minor discrepancies.
+- fair: The output partially fulfills the requirements but misses some important aspects.
+- poor: The output has significant gaps in fulfilling the requirements.
+- failed: The output completely fails to meet the requirements or has critical errors.
+
+Be strict about matching the specific insight requirements and dashboard creation success.
+""".strip(),
+            choice_scores={
+                "perfect": 1.0,
+                "near_perfect": 0.9,
+                "good": 0.75,
+                "fair": 0.5,
+                "poor": 0.25,
+                "failed": 0.0,
+            },
+            model="gpt-4.1",
+            max_tokens=1024,
+            **kwargs,
         )
 
 
