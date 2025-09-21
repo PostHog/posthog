@@ -1,7 +1,8 @@
 import { Message } from 'node-rdkafka'
 
+import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
 import { ConcurrentBatchProcessingPipeline } from './concurrent-batch-pipeline'
-import { BatchPipeline, BatchPipelineResultWithContext, Pipeline } from './pipeline-types'
+import { Pipeline } from './pipeline.interface'
 
 export class BufferingBatchPipeline<T = { message: Message }> implements BatchPipeline<T, T> {
     private buffer: BatchPipelineResultWithContext<T> = []

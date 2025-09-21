@@ -1,4 +1,5 @@
-import { BatchPipeline, BatchPipelineResultWithContext, isOkResult, ok } from './pipeline-types'
+import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { isOkResult, ok } from './results'
 import { BatchProcessingStep, SequentialBatchPipeline } from './sequential-batch-pipeline'
 
 export class GatheringBatchPipeline<TInput, TOutput> implements BatchPipeline<TInput, TOutput> {

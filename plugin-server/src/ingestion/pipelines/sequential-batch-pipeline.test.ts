@@ -1,6 +1,7 @@
 import { Message } from 'node-rdkafka'
 
-import { createBatch, createNewBatchPipeline, dlq, drop, ok } from './pipeline-types'
+import { createBatch, createNewBatchPipeline } from './helpers'
+import { dlq, drop, ok } from './results'
 import { SequentialBatchPipeline } from './sequential-batch-pipeline'
 
 describe('SequentialBatchPipeline', () => {

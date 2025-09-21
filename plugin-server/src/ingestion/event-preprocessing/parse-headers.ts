@@ -2,7 +2,8 @@ import { Message } from 'node-rdkafka'
 
 import { parseEventHeaders } from '../../kafka/consumer'
 import { EventHeaders } from '../../types'
-import { SyncProcessingStep, ok } from '../pipelines/pipeline-types'
+import { ok } from '../pipelines/results'
+import { SyncProcessingStep } from '../pipelines/steps'
 
 export function createParseHeadersStep<T extends { message: Pick<Message, 'headers'> }>(): SyncProcessingStep<
     T,

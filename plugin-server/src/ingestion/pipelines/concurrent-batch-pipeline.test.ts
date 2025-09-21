@@ -1,15 +1,9 @@
 import { Message } from 'node-rdkafka'
 
+import { BatchPipelineResultWithContext } from './batch-pipeline.interface'
 import { ConcurrentBatchProcessingPipeline } from './concurrent-batch-pipeline'
-import {
-    BatchPipelineResultWithContext,
-    createNewBatchPipeline,
-    createNewPipeline,
-    dlq,
-    drop,
-    ok,
-    redirect,
-} from './pipeline-types'
+import { createNewBatchPipeline, createNewPipeline } from './helpers'
+import { dlq, drop, ok, redirect } from './results'
 
 describe('ConcurrentBatchProcessingPipeline', () => {
     let message1: Message

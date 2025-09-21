@@ -3,8 +3,10 @@ import { Message } from 'node-rdkafka'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { logDroppedMessage, redirectMessageToTopic, sendMessageToDLQ } from '../../worker/ingestion/pipeline-helpers'
-import { BatchPipelineResultWithContext, createNewBatchPipeline, dlq, drop, ok, redirect } from './pipeline-types'
+import { BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { createNewBatchPipeline } from './helpers'
 import { PipelineConfig, ResultHandlingPipeline } from './result-handling-pipeline'
+import { dlq, drop, ok, redirect } from './results'
 
 // Mock the pipeline helpers
 jest.mock('../../worker/ingestion/pipeline-helpers', () => ({

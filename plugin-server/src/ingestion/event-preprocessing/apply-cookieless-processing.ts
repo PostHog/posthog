@@ -1,5 +1,5 @@
 import { Hub, IncomingEventWithTeam } from '../../types'
-import { PipelineResult, isOkResult, ok } from '../pipelines/pipeline-types'
+import { PipelineResult, isOkResult, ok } from '../pipelines/results'
 
 export function createApplyCookielessProcessingStep<T extends { eventWithTeam: IncomingEventWithTeam }>(hub: Hub) {
     return async function applyCookielessProcessingStep(events: T[]): Promise<PipelineResult<T>[]> {

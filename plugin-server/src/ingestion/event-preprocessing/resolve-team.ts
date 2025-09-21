@@ -3,7 +3,8 @@ import { Message } from 'node-rdkafka'
 import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
 import { EventHeaders, Hub, IncomingEvent, IncomingEventWithTeam } from '../../types'
 import { tokenOrTeamPresentCounter } from '../../worker/ingestion/event-pipeline/metrics'
-import { AsyncProcessingStep, drop, ok } from '../pipelines/pipeline-types'
+import { drop, ok } from '../pipelines/results'
+import { AsyncProcessingStep } from '../pipelines/steps'
 
 async function resolveTeam(
     hub: Pick<Hub, 'teamManager'>,

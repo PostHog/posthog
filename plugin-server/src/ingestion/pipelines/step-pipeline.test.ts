@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { drop, isOkResult, ok } from './pipeline-types'
+import { drop, isOkResult, ok } from './results'
 import { StartPipeline } from './start-pipeline'
 import { StepPipeline } from './step-pipeline'
 

@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { createParseHeadersStep } from '../../../src/ingestion/event-preprocessing/parse-headers'
-import { ok } from '../../../src/ingestion/pipelines/pipeline-types'
+import { ok } from '../../../src/ingestion/pipelines/results'
 import { parseEventHeaders } from '../../../src/kafka/consumer'
 import { EventHeaders } from '../../../src/types'
 

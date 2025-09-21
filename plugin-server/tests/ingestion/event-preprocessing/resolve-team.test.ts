@@ -4,7 +4,7 @@ import { DB } from '~/utils/db/db'
 import { TeamManager } from '~/utils/team-manager'
 
 import { createResolveTeamStep } from '../../../src/ingestion/event-preprocessing/resolve-team'
-import { drop, ok } from '../../../src/ingestion/pipelines/pipeline-types'
+import { drop, ok } from '../../../src/ingestion/pipelines/results'
 import { EventHeaders, Hub, IncomingEvent, Team } from '../../../src/types'
 import { getMetricValues, resetMetrics } from '../../helpers/metrics'
 

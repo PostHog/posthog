@@ -4,7 +4,7 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { Person, Team } from '~/types'
 
-import { PipelineResult, isOkResult, ok } from '../../../ingestion/pipelines/pipeline-types'
+import { PipelineResult, isOkResult, ok } from '../../../ingestion/pipelines/results'
 import { PersonContext } from '../persons/person-context'
 import { PersonEventProcessor } from '../persons/person-event-processor'
 import { PersonMergeService } from '../persons/person-merge-service'

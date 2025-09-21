@@ -3,15 +3,8 @@ import { Message } from 'node-rdkafka'
 import { KafkaProducerWrapper } from '../../kafka/producer'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { logDroppedMessage, redirectMessageToTopic, sendMessageToDLQ } from '../../worker/ingestion/pipeline-helpers'
-import {
-    BatchPipeline,
-    BatchPipelineResultWithContext,
-    PipelineResult,
-    isDlqResult,
-    isDropResult,
-    isOkResult,
-    isRedirectResult,
-} from './pipeline-types'
+import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { PipelineResult, isDlqResult, isDropResult, isOkResult, isRedirectResult } from './results'
 
 export type PipelineConfig = {
     kafkaProducer: KafkaProducerWrapper

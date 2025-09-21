@@ -1,7 +1,8 @@
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
-import { AsyncProcessingStep, Pipeline, PipelineResultWithContext, SyncProcessingStep } from './pipeline-types'
+import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
 import { StepPipeline } from './step-pipeline'
+import { AsyncProcessingStep, SyncProcessingStep } from './steps'
 
 export class StartPipeline<T> implements Pipeline<T, T> {
     async process(input: PipelineResultWithContext<T>): Promise<PipelineResultWithContext<T>> {

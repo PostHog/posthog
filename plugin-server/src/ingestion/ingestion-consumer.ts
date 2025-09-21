@@ -43,7 +43,7 @@ import {
     createResolveTeamStep,
     createValidateEventUuidStep,
 } from './event-preprocessing'
-import { createBatch, createNewBatchPipeline, createNewPipeline } from './pipelines/pipeline-types'
+import { createBatch, createNewBatchPipeline, createNewPipeline } from './pipelines/helpers'
 import { PipelineConfig, ResultHandlingPipeline } from './pipelines/result-handling-pipeline'
 import { MemoryRateLimiter } from './utils/overflow-detector'
 

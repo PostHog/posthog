@@ -1,12 +1,8 @@
 import { instrumentFn } from '../../common/tracing/tracing-utils'
+import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
 import { GatheringBatchPipeline } from './gathering-batch-pipeline'
-import {
-    BatchPipeline,
-    BatchPipelineResultWithContext,
-    Pipeline,
-    PipelineResultWithContext,
-    isOkResult,
-} from './pipeline-types'
+import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
+import { isOkResult } from './results'
 
 export class ConcurrentBatchProcessingPipeline<TInput, TIntermediate, TOutput>
     implements BatchPipeline<TInput, TOutput>

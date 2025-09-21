@@ -1,5 +1,5 @@
 import { createApplyPersonProcessingRestrictionsStep } from '../../../src/ingestion/event-preprocessing/apply-person-processing-restrictions'
-import { ok } from '../../../src/ingestion/pipelines/pipeline-types'
+import { ok } from '../../../src/ingestion/pipelines/results'
 import { IncomingEventWithTeam } from '../../../src/types'
 import { EventIngestionRestrictionManager } from '../../../src/utils/event-ingestion-restriction-manager'
 

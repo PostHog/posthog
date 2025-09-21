@@ -1,7 +1,8 @@
 import { Message } from 'node-rdkafka'
 
+import { BatchPipelineResultWithContext } from './batch-pipeline.interface'
 import { BufferingBatchPipeline } from './buffering-batch-pipeline'
-import { BatchPipelineResultWithContext, dlq, drop, ok, redirect } from './pipeline-types'
+import { dlq, drop, ok, redirect } from './results'
 
 describe('BufferingBatchPipeline', () => {
     let message1: Message

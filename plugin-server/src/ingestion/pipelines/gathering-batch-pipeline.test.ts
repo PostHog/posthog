@@ -1,15 +1,9 @@
 import { Message } from 'node-rdkafka'
 
+import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
 import { GatheringBatchPipeline } from './gathering-batch-pipeline'
-import {
-    BatchPipeline,
-    BatchPipelineResultWithContext,
-    createNewBatchPipeline,
-    dlq,
-    drop,
-    ok,
-    redirect,
-} from './pipeline-types'
+import { createNewBatchPipeline } from './helpers'
+import { dlq, drop, ok, redirect } from './results'
 
 // Mock batch processing pipeline for testing
 class MockBatchProcessingPipeline<T> implements BatchPipeline<T, T> {

@@ -4,7 +4,7 @@ import { DateTime } from 'luxon'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { ONE_HOUR } from '../../../config/constants'
-import { PipelineResult, dlq, ok, redirect } from '../../../ingestion/pipelines/pipeline-types'
+import { PipelineResult, dlq, ok, redirect } from '../../../ingestion/pipelines/results'
 import { InternalPerson, Person } from '../../../types'
 import { logger } from '../../../utils/logger'
 import { uuidFromDistinctId } from '../person-uuid'

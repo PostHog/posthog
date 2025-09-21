@@ -2,7 +2,8 @@ import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
 import { Hub, IncomingEventWithTeam } from '../../types'
 import { UUID } from '../../utils/utils'
 import { captureIngestionWarning } from '../../worker/ingestion/utils'
-import { AsyncProcessingStep, drop, ok } from '../pipelines/pipeline-types'
+import { drop, ok } from '../pipelines/results'
+import { AsyncProcessingStep } from '../pipelines/steps'
 
 async function isEventUuidValid(eventWithTeam: IncomingEventWithTeam, hub: Pick<Hub, 'db'>): Promise<boolean> {
     const { event, team } = eventWithTeam

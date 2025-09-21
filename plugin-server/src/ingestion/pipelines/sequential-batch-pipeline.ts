@@ -1,12 +1,7 @@
 import { instrumentFn } from '../../common/tracing/tracing-utils'
-import {
-    BatchPipeline,
-    BatchPipelineResultWithContext,
-    PipelineResult,
-    PipelineResultOk,
-    PipelineResultWithContext,
-    isOkResult,
-} from './pipeline-types'
+import { BatchPipeline, BatchPipelineResultWithContext } from './batch-pipeline.interface'
+import { PipelineResultWithContext } from './pipeline.interface'
+import { PipelineResult, PipelineResultOk, isOkResult } from './results'
 
 /**
  * Type guard for ResultWithContext that asserts the result is successful

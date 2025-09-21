@@ -28,7 +28,7 @@ import { TeamManager } from '../../utils/team-manager'
 import { UUID7, bufferToUint32ArrayLE, uint32ArrayLEToBuffer } from '../../utils/utils'
 import { compareTimestamps } from '../../worker/ingestion/timestamp-comparison'
 import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../../worker/ingestion/timestamps'
-import { PipelineResult, drop, ok } from '../pipelines/pipeline-types'
+import { PipelineResult, drop, ok } from '../pipelines/results'
 import { RedisHelpers } from './redis-helpers'
 
 /* ---------------------------------------------------------------------

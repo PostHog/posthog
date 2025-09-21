@@ -1,12 +1,7 @@
 import { instrumentFn } from '../../common/tracing/tracing-utils'
-import {
-    AsyncProcessingStep,
-    Pipeline,
-    PipelineResult,
-    PipelineResultWithContext,
-    SyncProcessingStep,
-    isOkResult,
-} from './pipeline-types'
+import { Pipeline, PipelineResultWithContext } from './pipeline.interface'
+import { PipelineResult, isOkResult } from './results'
+import { AsyncProcessingStep, SyncProcessingStep } from './steps'
 
 export class StepPipeline<TInput, TIntermediate, TOutput> implements Pipeline<TInput, TOutput> {
     constructor(

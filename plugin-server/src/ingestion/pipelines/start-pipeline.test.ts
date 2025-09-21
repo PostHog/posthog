@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { dlq, drop, ok, redirect } from './pipeline-types'
+import { dlq, drop, ok, redirect } from './results'
 import { StartPipeline } from './start-pipeline'
 import { StepPipeline } from './step-pipeline'
 

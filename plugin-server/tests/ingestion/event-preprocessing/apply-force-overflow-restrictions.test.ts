@@ -2,7 +2,7 @@ import {
     OverflowConfig,
     createApplyForceOverflowRestrictionsStep,
 } from '../../../src/ingestion/event-preprocessing/apply-force-overflow-restrictions'
-import { ok, redirect } from '../../../src/ingestion/pipelines/pipeline-types'
+import { ok, redirect } from '../../../src/ingestion/pipelines/results'
 import { EventHeaders } from '../../../src/types'
 import { EventIngestionRestrictionManager } from '../../../src/utils/event-ingestion-restriction-manager'
 

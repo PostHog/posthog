@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { createParseKafkaMessageStep } from '../../../src/ingestion/event-preprocessing/parse-kafka-message'
-import { drop, ok } from '../../../src/ingestion/pipelines/pipeline-types'
+import { drop, ok } from '../../../src/ingestion/pipelines/results'
 import { logger } from '../../../src/utils/logger'
 
 // Mock dependencies
