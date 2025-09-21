@@ -202,13 +202,12 @@ export class CyclotronJobQueueDelay {
                     })
                 )
 
-                const result = this.kafkaConsumer?.offsetsStore([
+                this.kafkaConsumer?.offsetsStore([
                     {
                         ...message,
                         offset: message.offset + 1,
                     },
                 ])
-
             } catch (error) {
                 logger.info('🔁', `${this.name} - Error processing message ${message.key}`, {
                     offset: message.offset,
@@ -219,8 +218,6 @@ export class CyclotronJobQueueDelay {
         }
 
         await Promise.all(processingPromises)
-
-        logger.info('🔁', `${this.name} - Consumed full delay batch`, { messageCount: messages.length })
 
         return await this.consumeBatch([])
     }

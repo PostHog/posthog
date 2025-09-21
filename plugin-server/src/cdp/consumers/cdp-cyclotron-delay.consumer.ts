@@ -26,11 +26,7 @@ export class CdpCyclotronDelayConsumer extends CdpConsumerBase {
     }
 
     // eslint-disable-next-line @typescript-eslint/require-await
-    public async processBatch(invocations: CyclotronJobInvocation[]): Promise<{ backgroundTask: Promise<any> }> {
-        logger.info('🔁', `${this.name} - handling batch`, {
-            size: invocations.length,
-        })
-
+    public async processBatch(_invocations: CyclotronJobInvocation[]): Promise<{ backgroundTask: Promise<any> }> {
         return { backgroundTask: Promise.resolve() }
     }
 
