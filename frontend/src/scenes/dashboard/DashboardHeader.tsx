@@ -35,10 +35,10 @@ import { userLogic } from 'scenes/userLogic'
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import {
     ScenePanel,
-    ScenePanelActions,
+    ScenePanelActionsSection,
     ScenePanelCommonActions,
     ScenePanelDivider,
-    ScenePanelMetaInfo,
+    ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -225,7 +225,7 @@ export function DashboardHeader(): JSX.Element | null {
                         }
                     />
                 </ScenePanelCommonActions>
-                <ScenePanelMetaInfo>
+                <ScenePanelInfoSection>
                     <SceneTags
                         onSave={(tags) => {
                             triggerDashboardUpdate({ tags })
@@ -239,10 +239,10 @@ export function DashboardHeader(): JSX.Element | null {
                     <SceneFile dataAttrKey={RESOURCE_TYPE} />
 
                     <SceneActivityIndicator at={dashboard?.created_at} by={dashboard?.created_by} prefix="Created" />
-                </ScenePanelMetaInfo>
+                </ScenePanelInfoSection>
                 <ScenePanelDivider />
 
-                <ScenePanelActions>
+                <ScenePanelActionsSection>
                     {dashboard && <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />}
 
                     {dashboard && canEditDashboard && hasDashboardColors && (
@@ -352,7 +352,7 @@ export function DashboardHeader(): JSX.Element | null {
                             </AccessControlAction>
                         </>
                     )}
-                </ScenePanelActions>
+                </ScenePanelActionsSection>
             </ScenePanel>
 
             <SceneTitleSection

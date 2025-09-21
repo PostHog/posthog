@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { PageHeader } from 'lib/components/PageHeader'
+import { IconDatabaseBolt } from '@posthog/icons'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
@@ -9,6 +10,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DebugSceneQuery } from 'scenes/debug/DebugSceneQuery'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { stringifiedExamples } from '~/queries/examples'
 
 import { debugSceneLogic } from './debugSceneLogic'
@@ -19,9 +23,11 @@ export function DebugScene(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
     return (
-        <div className="QueryScene">
-            <PageHeader
-                buttons={
+        <SceneContent className="QueryScene">
+            <SceneTitleSection
+                name="Debug"
+                resourceType={{ type: 'debug', forceIcon: <IconDatabaseBolt /> }}
+                actions={
                     <>
                         <LemonButton active={!!query2} onClick={() => (query2 ? setQuery2('') : setQuery2(query1))}>
                             Split
@@ -70,6 +76,8 @@ export function DebugScene(): JSX.Element {
                     </>
                 }
             />
+            <SceneDivider />
+
             <div className="flex gap-2">
                 <div className="flex-1 w-1/2">
                     <DebugSceneQuery query={query1} setQuery={setQuery1} queryKey="new-hogql-debug-1" />
@@ -80,7 +88,7 @@ export function DebugScene(): JSX.Element {
                     </div>
                 ) : null}
             </div>
-        </div>
+        </SceneContent>
     )
 }
 

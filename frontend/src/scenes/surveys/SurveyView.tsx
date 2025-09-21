@@ -30,10 +30,10 @@ import { surveysLogic } from 'scenes/surveys/surveysLogic'
 
 import {
     ScenePanel,
-    ScenePanelActions,
+    ScenePanelActionsSection,
     ScenePanelCommonActions,
     ScenePanelDivider,
-    ScenePanelMetaInfo,
+    ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
@@ -174,11 +174,11 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                 />
                             )}
                         </ScenePanelCommonActions>
-                        <ScenePanelMetaInfo>
+                        <ScenePanelInfoSection>
                             <SceneFile dataAttrKey={RESOURCE_TYPE} />
-                        </ScenePanelMetaInfo>
+                        </ScenePanelInfoSection>
                         <ScenePanelDivider />
-                        <ScenePanelActions>
+                        <ScenePanelActionsSection>
                             <ButtonPrimitive
                                 menuItem
                                 variant="danger"
@@ -209,8 +209,9 @@ export function SurveyView({ id }: { id: string }): JSX.Element {
                                 <IconTrash />
                                 Delete survey
                             </ButtonPrimitive>
-                        </ScenePanelActions>
+                        </ScenePanelActionsSection>
                     </ScenePanel>
+
                     <SurveysDisabledBanner />
                     <SceneTitleSection
                         name={survey.name}

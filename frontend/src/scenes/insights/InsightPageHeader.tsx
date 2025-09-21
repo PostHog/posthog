@@ -60,10 +60,10 @@ import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLog
 import { getLastNewFolder } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import {
     ScenePanel,
-    ScenePanelActions,
+    ScenePanelActionsSection,
     ScenePanelCommonActions,
     ScenePanelDivider,
-    ScenePanelMetaInfo,
+    ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -293,7 +293,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             }}
                         />
                     </ScenePanelCommonActions>
-                    <ScenePanelMetaInfo>
+                    <ScenePanelInfoSection>
                         <SceneTags
                             onSave={(tags) => {
                                 setInsightMetadata({ tags })
@@ -311,11 +311,11 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             by={insight.last_modified_by}
                             prefix="Last modified"
                         />
-                    </ScenePanelMetaInfo>
+                    </ScenePanelInfoSection>
 
                     <ScenePanelDivider />
 
-                    <ScenePanelActions>
+                    <ScenePanelActionsSection>
                         {hasDashboardItemId && <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />}
 
                         <SceneAddToNotebookDropdownMenu shortId={insight.short_id} dataAttrKey={RESOURCE_TYPE} />
@@ -563,7 +563,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 </AccessControlAction>
                             </>
                         )}
-                    </ScenePanelActions>
+                    </ScenePanelActionsSection>
                 </>
             </ScenePanel>
 

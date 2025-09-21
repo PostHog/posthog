@@ -17,10 +17,10 @@ import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSett
 
 import {
     ScenePanel,
-    ScenePanelActions,
+    ScenePanelActionsSection,
     ScenePanelCommonActions,
     ScenePanelDivider,
-    ScenePanelMetaInfo,
+    ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
@@ -120,21 +120,21 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                         }}
                     />
                 </ScenePanelCommonActions>
-                <ScenePanelMetaInfo>
+                <ScenePanelInfoSection>
                     <SceneFile dataAttrKey={RESOURCE_TYPE} />
                     <SceneActivityIndicator
                         at={playlist.last_modified_at}
                         by={playlist.last_modified_by}
                         prefix="Last modified"
                     />
-                </ScenePanelMetaInfo>
+                </ScenePanelInfoSection>
                 <ScenePanelDivider />
-                <ScenePanelActions>
+                <ScenePanelActionsSection>
                     <SceneMetalyticsSummaryButton dataAttrKey={RESOURCE_TYPE} />
                     <ButtonPrimitive variant="danger" onClick={() => deletePlaylist()} menuItem>
                         Delete collection
                     </ButtonPrimitive>
-                </ScenePanelActions>
+                </ScenePanelActionsSection>
             </ScenePanel>
 
             <SceneContent className="SessionRecordingPlaylistHeightWrapper">

@@ -1,6 +1,5 @@
 import { IconCode2 } from '@posthog/icons'
 
-import { PageHeader } from 'lib/components/PageHeader'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { SceneExport } from 'scenes/sceneTypes'
 
@@ -14,7 +13,6 @@ import { embeddedAnalyticsLogic } from './embeddedAnalyticsLogic'
 export function EmbeddedAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
     return (
         <>
-            <PageHeader tabbedPage />
             <SceneContent>
                 <SceneTitleSection
                     name="Embedded analytics"

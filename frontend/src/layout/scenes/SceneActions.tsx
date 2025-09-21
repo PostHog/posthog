@@ -8,6 +8,7 @@ import { cn } from 'lib/utils/css-classes'
 import { breadcrumbsLogic } from '../navigation/Breadcrumbs/breadcrumbsLogic'
 import { sceneLayoutLogic } from './sceneLayoutLogic'
 
+// DEPRECATED: Use SceneTitleSection instead
 export function SceneActions({ className }: { className?: string }): JSX.Element | null {
     const { scenePanelOpen, scenePanelIsPresent, scenePanelIsRelative, forceScenePanelClosedWhenRelative } =
         useValues(sceneLayoutLogic)

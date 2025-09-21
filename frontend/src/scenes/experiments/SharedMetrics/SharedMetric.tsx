@@ -10,7 +10,12 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
+import {
+    ScenePanel,
+    ScenePanelActionsSection,
+    ScenePanelDivider,
+    ScenePanelInfoSection,
+} from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -121,7 +126,7 @@ export function SharedMetric(): JSX.Element {
             />
 
             <ScenePanel>
-                <ScenePanelMetaInfo>
+                <ScenePanelInfoSection>
                     <SceneTags
                         onSave={(tags) => {
                             setSharedMetric({
@@ -133,9 +138,9 @@ export function SharedMetric(): JSX.Element {
                         tagsAvailable={allExistingTags}
                         dataAttrKey="shared-metric"
                     />
-                </ScenePanelMetaInfo>
+                </ScenePanelInfoSection>
                 <ScenePanelDivider />
-                <ScenePanelActions>
+                <ScenePanelActionsSection>
                     {action === 'update' && (
                         <ButtonPrimitive
                             variant="danger"
@@ -163,7 +168,7 @@ export function SharedMetric(): JSX.Element {
                             <IconTrash /> Delete
                         </ButtonPrimitive>
                     )}
-                </ScenePanelActions>
+                </ScenePanelActionsSection>
             </ScenePanel>
 
             <SceneTitleSection

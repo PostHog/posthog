@@ -17,7 +17,12 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
+import {
+    ScenePanel,
+    ScenePanelActionsSection,
+    ScenePanelDivider,
+    ScenePanelInfoSection,
+} from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -151,7 +156,7 @@ export function LLMAnalyticsDatasetScene(): JSX.Element {
 
                 {isDataset(dataset) && (
                     <ScenePanel>
-                        <ScenePanelMetaInfo>
+                        <ScenePanelInfoSection>
                             <SceneTextInput
                                 name="name"
                                 defaultValue={datasetForm.name}
@@ -173,9 +178,9 @@ export function LLMAnalyticsDatasetScene(): JSX.Element {
                                 optional
                                 isLoading={datasetLoading}
                             />
-                        </ScenePanelMetaInfo>
+                        </ScenePanelInfoSection>
                         <ScenePanelDivider />
-                        <ScenePanelActions>
+                        <ScenePanelActionsSection>
                             <ScenePanelDivider />
                             <ButtonPrimitive
                                 onClick={() => {
@@ -206,7 +211,7 @@ export function LLMAnalyticsDatasetScene(): JSX.Element {
                                 <IconTrash />
                                 Delete
                             </ButtonPrimitive>
-                        </ScenePanelActions>
+                        </ScenePanelActionsSection>
                     </ScenePanel>
                 )}
 

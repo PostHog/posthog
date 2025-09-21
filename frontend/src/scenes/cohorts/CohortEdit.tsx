@@ -23,7 +23,12 @@ import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
 import { CohortLogicProps, cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { urls } from 'scenes/urls'
 
-import { ScenePanel, ScenePanelActions, ScenePanelDivider, ScenePanelMetaInfo } from '~/layout/scenes/SceneLayout'
+import {
+    ScenePanel,
+    ScenePanelActionsSection,
+    ScenePanelDivider,
+    ScenePanelInfoSection,
+} from '~/layout/scenes/SceneLayout'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -101,13 +106,13 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
             <AddPersonToCohortModal id={id} />
 
             <ScenePanel>
-                <ScenePanelMetaInfo>
+                <ScenePanelInfoSection>
                     <SceneFile dataAttrKey={RESOURCE_TYPE} />
-                </ScenePanelMetaInfo>
+                </ScenePanelInfoSection>
 
                 <ScenePanelDivider />
 
-                <ScenePanelActions>
+                <ScenePanelActionsSection>
                     <SceneAddToNotebookDropdownMenu
                         dataAttrKey={RESOURCE_TYPE}
                         disabledReasons={{
@@ -138,9 +143,9 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                     >
                         <IconCopy /> Duplicate as static cohort
                     </ButtonPrimitive>
-
-                    <ScenePanelDivider />
-
+                </ScenePanelActionsSection>
+                <ScenePanelDivider />
+                <ScenePanelActionsSection>
                     <ButtonPrimitive
                         onClick={() => {
                             deleteCohort()
@@ -152,7 +157,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                         <IconTrash />
                         Delete
                     </ButtonPrimitive>
-                </ScenePanelActions>
+                </ScenePanelActionsSection>
             </ScenePanel>
 
             <Form id="cohort" logic={cohortEditLogic} props={logicProps} formKey="cohort" enableFormOnSubmit>
