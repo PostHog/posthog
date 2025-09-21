@@ -134,11 +134,8 @@ export function initKea({
             const sessionIdHash = hashCodeForString(session_id)
             if (sessionIdHash % 100 < sample_rate * 100) {
                 window.JS_KEA_VERBOSE_LOGGING = true
-            } else {
             }
-        } else {
         }
-    } else {
     }
     // To enable logging, run localStorage.setItem("ph-kea-debug", true) in the console
     if (window.JS_KEA_VERBOSE_LOGGING || ('localStorage' in window && window.localStorage.getItem('ph-kea-debug'))) {
