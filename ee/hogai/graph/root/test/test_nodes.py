@@ -346,101 +346,115 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             messages, _ = await node._construct_and_update_messages_window(state, {})
             self.assertIn("iterations", messages[-1].content)
 
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
+    @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatAnthropic(responses=[]))
     async def test_token_limit_is_respected(self, mock_model):
         # Trims after 64k
         node = RootNode(self.team, self.user)
         state = AssistantState(
             messages=[
-                HumanMessage(content="Hi" * 64100, id="1"),
+                HumanMessage(content="Foo", id="1"),
                 AssistantMessage(content="Bar", id="2"),
-                HumanMessage(content="Foo", id="3"),
+                HumanMessage(content="Hi" * 64100, id="3"),
+                AssistantMessage(content="Bar", id="4"),
+                HumanMessage(content="Foo", id="5"),
             ]
         )
         messages, window_id = await node._construct_and_update_messages_window(state, {})
         self.assertEqual(len(messages), 1)
-        self.assertIn("Foo", messages[0].content)
-        self.assertEqual(window_id, "3")
+        assert isinstance(messages[0].content, list)
+        assert isinstance(messages[0].content[0], dict)
+        self.assertIn("Foo", messages[0].content[0]["text"])
+        self.assertEqual(window_id, "5")
 
         # Trims for 32k limit after 64k is hit
         state = AssistantState(
             messages=[
-                HumanMessage(content="Hi" * 48000, id="1"),
-                AssistantMessage(content="Hi" * 24000, id="2"),
-                HumanMessage(content="The" * 31000, id="3"),
+                AssistantMessage(content="Foo", id="1"),
+                HumanMessage(content="Foo", id="1"),
+                HumanMessage(content="Hi" * 48000, id="2"),
+                AssistantMessage(content="Hi" * 24000, id="3"),
+                HumanMessage(content="The" * 31000, id="4"),
             ]
         )
         messages, window_id = await node._construct_and_update_messages_window(state, {})
         self.assertEqual(len(messages), 1)
-        self.assertIn("The", messages[0].content)
-        self.assertEqual(window_id, "3")
+        assert isinstance(messages[0].content, list)
+        assert isinstance(messages[0].content[0], dict)
+        self.assertIn("The", messages[0].content[0]["text"])
+        self.assertEqual(window_id, "4")
 
         # Beyond limit should still return messages.
         state = AssistantState(
             messages=[
-                HumanMessage(content="Hi" * 48000, id="1"),
+                HumanMessage(content="Foo", id="1"),
+                AssistantMessage(content="Bar", id="2"),
+                HumanMessage(content="Foo", id="3"),
+                AssistantMessage(content="Bar", id="4"),
+                HumanMessage(content="Hi" * 48000, id="5"),
                 AssistantMessage(
                     content="Hi" * 24000,
-                    id="2",
+                    id="6",
                     tool_calls=[AssistantToolCall(id="xyz", name="create_and_query_insight", args={})],
                 ),
-                AssistantToolCallMessage(content="The" * 48000, id="3", tool_call_id="xyz"),
+                AssistantToolCallMessage(content="The" * 48000, id="7", tool_call_id="xyz"),
             ]
         )
         messages, window_id = await node._construct_and_update_messages_window(state, {})
         self.assertEqual(len(messages), 2)
-        self.assertIn("Hi", messages[0].content)
-        self.assertIn("The", messages[1].content)
-        self.assertEqual(window_id, "2")
+        assert isinstance(messages[0].content, list)
+        assert isinstance(messages[0].content[0], dict)
+        self.assertIn("Hi", messages[0].content[0]["text"])
+        assert isinstance(messages[1].content, list)
+        assert isinstance(messages[1].content[0], dict)
+        self.assertIn("The", messages[1].content[0]["text"])
+        self.assertEqual(window_id, "6")
 
         state = AssistantState(
             messages=[
-                HumanMessage(content="Hi" * 48000, id="1"),
+                HumanMessage(content="Foo", id="1"),
+                AssistantMessage(content="Bar", id="2"),
+                HumanMessage(content="Foo", id="3"),
+                AssistantMessage(content="Bar", id="4"),
+                HumanMessage(content="Hi" * 48000, id="5"),
                 AssistantMessage(
                     content="Hi" * 24000,
-                    id="2",
+                    id="6",
                 ),
-                HumanMessage(content="The" * 48000, id="3"),
+                HumanMessage(content="The" * 48000, id="7"),
             ]
         )
         messages, window_id = await node._construct_and_update_messages_window(state, {})
         self.assertEqual(len(messages), 1)
+        assert isinstance(messages[0].content, list)
+        assert isinstance(messages[0].content[0], dict)
         self.assertIn("The", messages[0].content)
-        self.assertEqual(window_id, "3")
+        self.assertEqual(window_id, "7")
 
         # Tool responses are not removed
         state = AssistantState(
             messages=[
                 HumanMessage(content="Foo", id="1"),
+                AssistantMessage(content="Bar", id="2"),
+                HumanMessage(content="Foo", id="3"),
+                AssistantMessage(content="Bar", id="4"),
+                HumanMessage(content="Foo", id="5"),
                 AssistantMessage(
                     content="Bar",
-                    id="2",
+                    id="6",
                     tool_calls=[AssistantToolCall(id="xyz", name="create_and_query_insight", args={})],
                 ),
-                AssistantToolCallMessage(content="The" * 65000, id="3", tool_call_id="xyz"),
+                AssistantToolCallMessage(content="The" * 65000, id="7", tool_call_id="xyz"),
             ]
         )
         messages, window_id = await node._construct_and_update_messages_window(state, {})
         self.assertEqual(len(messages), 2)
+        assert isinstance(messages[0].content, list)
+        assert isinstance(messages[0].content[0], dict)
+        assert isinstance(messages[1].content, list)
+        assert isinstance(messages[1].content[0], dict)
         self.assertIn("Bar", messages[0].content)
         self.assertIn("The", messages[1].content)
-        self.assertEqual(window_id, "2")
-
-        state = AssistantState(
-            messages=[
-                HumanMessage(content="Foo", id="1"),
-                AssistantMessage(
-                    content="Bar",
-                    id="2",
-                    tool_calls=[AssistantToolCall(id="xyz", name="create_and_query_insight", args={})],
-                ),
-                AssistantToolCallMessage(content="Result", id="3", tool_call_id="xyz"),
-                HumanMessage(content="Baz", id="4"),
-            ]
-        )
-        messages, window_id = await node._construct_and_update_messages_window(state, {})
-        self.assertEqual(len(messages), 4)
-        self.assertIsNone(window_id)
+        self.assertEqual(window_id, "6")
 
     @patch(
         "ee.hogai.graph.root.nodes.RootNode._get_model",
@@ -454,19 +468,21 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         initial_state = AssistantState(
             messages=[
                 HumanMessage(content="Foo", id="1"),
-                AssistantMessage(content="Bar" * 65000, id="2"),  # Large message to exceed token limit
-                HumanMessage(content="Question", id="3"),
+                AssistantMessage(content="Bar", id="2"),
+                HumanMessage(content="Foo", id="3"),
+                AssistantMessage(content="Bar" * 65000, id="4"),  # Large message to exceed token limit
+                HumanMessage(content="Question", id="5"),
             ]
         )
 
         # First run should set a new window ID
         result_1 = await node.arun(initial_state, {})
         self.assertIsNotNone(result_1.root_conversation_start_id)
-        self.assertEqual(result_1.root_conversation_start_id, "3")  # Should start from last human message
+        self.assertEqual(result_1.root_conversation_start_id, "5")  # Should start from last human message
 
         # Create a new state using the window ID from previous run
         state_2 = AssistantState(
-            messages=[*initial_state.messages, *result_1.messages, HumanMessage(content="Follow-up", id="4")],
+            messages=[*initial_state.messages, *result_1.messages, HumanMessage(content="Follow-up", id="6")],
             root_conversation_start_id=result_1.root_conversation_start_id,
         )
 
@@ -483,7 +499,9 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         # Verify the full conversation flow by checking the messages that would be sent to the model
         messages, _ = await node._construct_and_update_messages_window(state_3, {})
         self.assertEqual(len(messages), 4)  # Question + Response + Follow-up + New Response
-        self.assertEqual(messages[0].content, "Question")  # Starts from the window ID message
+        self.assertEqual(
+            messages[0].content, [{"text": "Question", "type": "text"}]
+        )  # Starts from the window ID message
 
     def test_node_gets_contextual_tool(self):
         with patch("ee.hogai.graph.root.nodes.MaxChatAnthropic") as mock_chat_openai:

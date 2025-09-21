@@ -14,7 +14,8 @@ class TokenCounterMixin:
         self, messages: list[BaseMessage], *args, tools: Sequence | None = None, **kwargs
     ) -> int:
         chat = ChatOpenAI(model=self.model, api_key="no-key")
-        return chat.get_num_tokens_from_messages(messages, tools)
+        count = chat.get_num_tokens_from_messages(messages, tools)
+        return count
 
 
 class FakeChatOpenAI(TokenCounterMixin, FakeMessagesListChatModel):
