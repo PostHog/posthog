@@ -29,10 +29,15 @@ export function DebugScene(): JSX.Element {
                 resourceType={{ type: 'debug', forceIcon: <IconDatabaseBolt /> }}
                 actions={
                     <>
-                        <LemonButton active={!!query2} onClick={() => (query2 ? setQuery2('') : setQuery2(query1))}>
+                        <LemonButton
+                            size="small"
+                            active={!!query2}
+                            onClick={() => (query2 ? setQuery2('') : setQuery2(query1))}
+                        >
                             Split
                         </LemonButton>
                         <LemonButton
+                            size="small"
                             active={query1 === stringifiedExamples.HogQLRaw}
                             onClick={() => setQuery1(stringifiedExamples.HogQLRaw)}
                         >
@@ -40,6 +45,7 @@ export function DebugScene(): JSX.Element {
                         </LemonButton>
                         {featureFlags[FEATURE_FLAGS.HOG] ? (
                             <LemonButton
+                                size="small"
                                 active={query1 === stringifiedExamples.Hoggonacci}
                                 onClick={() => setQuery1(stringifiedExamples.Hoggonacci)}
                             >
@@ -47,12 +53,14 @@ export function DebugScene(): JSX.Element {
                             </LemonButton>
                         ) : null}
                         <LemonButton
+                            size="small"
                             active={query1 === stringifiedExamples.HogQLTable}
                             onClick={() => setQuery1(stringifiedExamples.HogQLTable)}
                         >
                             SQL Table
                         </LemonButton>
                         <LemonButton
+                            size="small"
                             active={query1 === stringifiedExamples.Events}
                             onClick={() => setQuery1(stringifiedExamples.Events)}
                         >
@@ -60,6 +68,7 @@ export function DebugScene(): JSX.Element {
                         </LemonButton>
                         <LemonLabel>
                             <LemonSelect
+                                size="small"
                                 placeholder="More sample queries"
                                 options={Object.entries(stringifiedExamples)
                                     .filter(([k]) => k !== 'HogQLTable' && k !== 'HogQLRaw')

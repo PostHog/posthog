@@ -279,6 +279,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         name: 'Settings',
         activityScope: ActivityScope.REPLAY,
         defaultDocsPath: '/docs/session-replay',
+        hideProjectNotice: true,
     },
     [Scene.ReplaySingle]: {
         projectBased: true,

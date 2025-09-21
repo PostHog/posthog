@@ -51,7 +51,7 @@ export const ScenePanelCommonActions = ({ children }: { children: React.ReactNod
         <>
             <div
                 className={`
-                    flex flex-col gap-2 min-h-[var(--scene-layout-header-height)] -mx-2 px-2
+                    flex flex-col gap-2 -mx-2 px-2
                 `}
             >
                 {children}

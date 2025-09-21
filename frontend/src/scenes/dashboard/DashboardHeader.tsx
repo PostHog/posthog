@@ -225,6 +225,7 @@ export function DashboardHeader(): JSX.Element | null {
                         }
                     />
                 </ScenePanelCommonActions>
+                <ScenePanelDivider />
                 <ScenePanelInfoSection>
                     <SceneTags
                         onSave={(tags) => {
@@ -328,10 +329,11 @@ export function DashboardHeader(): JSX.Element | null {
                             Save as template
                         </ButtonPrimitive>
                     )}
-
-                    {dashboard && canEditDashboard && (
-                        <>
-                            <ScenePanelDivider />
+                </ScenePanelActionsSection>
+                {dashboard && canEditDashboard && (
+                    <>
+                        <ScenePanelDivider />
+                        <ScenePanelActionsSection>
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.Dashboard}
                                 minAccessLevel={AccessControlLevel.Editor}
@@ -350,9 +352,9 @@ export function DashboardHeader(): JSX.Element | null {
                                     </ButtonPrimitive>
                                 )}
                             </AccessControlAction>
-                        </>
-                    )}
-                </ScenePanelActionsSection>
+                        </ScenePanelActionsSection>
+                    </>
+                )}
             </ScenePanel>
 
             <SceneTitleSection

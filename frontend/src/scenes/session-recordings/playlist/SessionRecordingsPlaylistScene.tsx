@@ -4,7 +4,6 @@ import { useMemo } from 'react'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
-import { PageHeader } from 'lib/components/PageHeader'
 import { SceneCommonButtons } from 'lib/components/Scenes/SceneCommonButtons'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
@@ -90,23 +89,6 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
 
     return (
         <div>
-            <PageHeader
-                buttons={
-                    <div className="flex justify-between items-center gap-2">
-                        <LemonButton
-                            type="primary"
-                            disabledReason={showFilters && !hasChanges ? 'No changes to save' : undefined}
-                            loading={hasChanges && playlistLoading}
-                            onClick={() => {
-                                showFilters ? updatePlaylist() : setShowFilters(!showFilters)
-                            }}
-                        >
-                            {showFilters ? <>Save changes</> : <>Edit</>}
-                        </LemonButton>
-                    </div>
-                }
-            />
-
             <ScenePanel>
                 <ScenePanelCommonActions>
                     <SceneCommonButtons
@@ -153,6 +135,19 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                     canEdit
                     forceEdit={isNewPlaylist}
                     renameDebounceMs={1000}
+                    actions={
+                        <LemonButton
+                            type="primary"
+                            disabledReason={showFilters && !hasChanges ? 'No changes to save' : undefined}
+                            loading={hasChanges && playlistLoading}
+                            onClick={() => {
+                                showFilters ? updatePlaylist() : setShowFilters(!showFilters)
+                            }}
+                            size="small"
+                        >
+                            {showFilters ? <>Save changes</> : <>Edit</>}
+                        </LemonButton>
+                    }
                 />
                 <SceneDivider />
 
