@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { IconBalance, IconCheckCircle, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, Spinner } from '@posthog/lemon-ui'
 
-import { PageHeader } from 'lib/components/PageHeader'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -104,26 +103,6 @@ export function SharedMetric(): JSX.Element {
                     </div>
                 </div>
             )}
-            <PageHeader
-                buttons={
-                    <LemonButton
-                        className="ml-auto"
-                        disabledReason={sharedMetric.name ? undefined : 'You must give your metric a name'}
-                        size="medium"
-                        type="primary"
-                        onClick={() => {
-                            if (['create', 'duplicate'].includes(action)) {
-                                createSharedMetric()
-                                return
-                            }
-
-                            updateSharedMetric()
-                        }}
-                    >
-                        Save
-                    </LemonButton>
-                }
-            />
 
             <ScenePanel>
                 <ScenePanelInfoSection>
@@ -192,6 +171,23 @@ export function SharedMetric(): JSX.Element {
                     path: `${urls.experiments()}?tab=${ExperimentsTabs.SharedMetrics}`,
                     key: ExperimentsTabs.SharedMetrics,
                 }}
+                actions={
+                    <LemonButton
+                        disabledReason={sharedMetric.name ? undefined : 'You must give your metric a name'}
+                        size="small"
+                        type="primary"
+                        onClick={() => {
+                            if (['create', 'duplicate'].includes(action)) {
+                                createSharedMetric()
+                                return
+                            }
+
+                            updateSharedMetric()
+                        }}
+                    >
+                        Save
+                    </LemonButton>
+                }
             />
             <SceneDivider />
 

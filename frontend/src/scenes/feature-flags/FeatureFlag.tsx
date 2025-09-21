@@ -362,13 +362,15 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                         enableFormOnSubmit
                         className="deprecated-space-y-4"
                     >
-                        <SceneTitleSection name={featureFlag.key} resourceType={{ type: 'feature_flag' }} />
-                        <PageHeader
-                            buttons={
-                                <div className="flex items-center gap-2">
+                        <SceneTitleSection
+                            name={featureFlag.key}
+                            resourceType={{ type: 'feature_flag' }}
+                            actions={
+                                <>
                                     <LemonButton
                                         data-attr="cancel-feature-flag"
                                         type="secondary"
+                                        size="small"
                                         onClick={() => {
                                             if (isEditingFlag) {
                                                 editFeatureFlag(false)
@@ -385,12 +387,14 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                         data-attr="save-feature-flag"
                                         htmlType="submit"
                                         form="feature-flag"
+                                        size="small"
                                     >
                                         Save
                                     </LemonButton>
-                                </div>
+                                </>
                             }
                         />
+
                         <SceneContent>
                             {featureFlag.experiment_set && featureFlag.experiment_set.length > 0 && (
                                 <LemonBanner type="warning">
@@ -757,6 +761,17 @@ export function FeatureFlag({ id }: FeatureFlagLogicProps): JSX.Element {
                                 resourceType={{
                                     type: 'feature_flag',
                                 }}
+                                actions={
+                                    <>
+                                        <LemonButton
+                                            type="secondary"
+                                            size="small"
+                                            onClick={() => editFeatureFlag(true)}
+                                        >
+                                            Edit
+                                        </LemonButton>
+                                    </>
+                                }
                             />
                             <SceneDivider />
                             <LemonTabs
