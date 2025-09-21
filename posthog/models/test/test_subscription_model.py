@@ -255,3 +255,20 @@ class TestSubscription(BaseTest):
             interval=1, frequency="monthly", byweekday=["monday"], bysetpos=10
         )
         assert subscription.summary == "sent on a schedule"
+
+    @freeze_time("2022-01-11 09:55:00")
+    def test_set_next_delivery_date_for_hourly(self):
+        subscription = Subscription.objects.create(
+            id=1,
+            team=self.team,
+            title="Daily Subscription",
+            target_type="email",
+            target_value="tests@posthog.com",
+            frequency="hourly",
+            start_date=datetime(2022, 1, 11, 9, 0, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
+            next_delivery_date=datetime(2022, 1, 11, 10, 0, 0, 0).replace(tzinfo=ZoneInfo("UTC")),
+        )
+
+        subscription.set_next_delivery_date(subscription.next_delivery_date)
+
+        assert subscription.next_delivery_date == datetime(2022, 1, 11, 11, 0, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
