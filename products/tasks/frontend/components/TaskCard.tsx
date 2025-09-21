@@ -45,7 +45,6 @@ export function TaskCard({
             className={`p-3 ${draggable ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer'}`}
             hoverEffect={true}
             onClick={handleCardClick}
-            title="Click to open task details in new browser tab"
         >
             <div className="flex justify-between items-start mb-2">
                 <h4 className="font-medium text-sm leading-tight">{task.title}</h4>

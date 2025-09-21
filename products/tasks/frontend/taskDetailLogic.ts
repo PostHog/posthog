@@ -41,9 +41,9 @@ export const taskDetailLogic = kea<taskDetailLogicType>([
         taskId: [() => [(_, props) => props.taskId], (taskId) => taskId],
     }),
 
-    listeners(({ actions, props, values }) => ({
+    listeners(({ actions }) => ({
         updateTask: async ({ taskId, updates }) => {
-            actions.updateTask({ taskId, updates })
+            actions.updateTask(taskId, updates)
         },
     })),
 
