@@ -7,15 +7,16 @@ This module defines:
 - Sensors and schedules for continuous timeseries calculation
 """
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any, Union
+from zoneinfo import ZoneInfo
 
 import dagster
 
 from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQuery, ExperimentRatioMetric
 
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
-from posthog.models.experiment import Experiment, ExperimentDailyResult
+from posthog.models.experiment import Experiment, ExperimentMetricResult
 
 from dags.common import JobOwners
 
@@ -134,20 +135,25 @@ def experiment_timeseries(context: dagster.AssetExecutionContext) -> dict[str, A
             metric=metric_obj,
         )
 
+        # Cumulative calculation: from experiment start to current time
+        query_from_utc = experiment.start_date if experiment.start_date else experiment.created_at
+        query_to_utc = datetime.now(ZoneInfo("UTC"))
+
         query_runner = ExperimentQueryRunner(query=experiment_query, team=experiment.team)
         result = query_runner._calculate()
 
-        computed_at = datetime.now(UTC)
-        today = computed_at.date()
+        completed_at = datetime.now(ZoneInfo("UTC"))
 
-        ExperimentDailyResult.objects.update_or_create(
+        ExperimentMetricResult.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
-            date=today,
+            query_to=query_to_utc,
             defaults={
-                "status": ExperimentDailyResult.Status.COMPLETED,
+                "query_from": query_from_utc,
+                "status": ExperimentMetricResult.Status.COMPLETED,
                 "result": result.model_dump(),
-                "computed_at": computed_at,
+                "query_id": None,
+                "completed_at": completed_at,
                 "error_message": None,
             },
         )
@@ -161,38 +167,38 @@ def experiment_timeseries(context: dagster.AssetExecutionContext) -> dict[str, A
                 "metric_name": metric.get("name", f"Metric {metric_uuid}"),
                 "experiment_name": experiment.name,
                 "metric_definition": str(metric),
-                "computed_at": computed_at.isoformat(),
-                "date": today.isoformat(),
+                "query_from": query_from_utc.isoformat(),
+                "query_to": query_to_utc.isoformat(),
                 "results_status": "success",
             }
         )
-
         return {
             "experiment_id": experiment_id,
             "metric_uuid": metric_uuid,
             "metric_definition": metric,
-            "date": today.isoformat(),
+            "query_from": query_from_utc.isoformat(),
+            "query_to": query_to_utc.isoformat(),
             "result": result.model_dump(),
-            "computed_at": computed_at.isoformat(),
         }
 
     except Exception as e:
-        computed_at = datetime.now(UTC)
-        today = computed_at.date()
+        query_from_utc = experiment.start_date if experiment.start_date else experiment.created_at
+        query_to_utc = datetime.now(ZoneInfo("UTC"))
 
-        ExperimentDailyResult.objects.update_or_create(
+        ExperimentMetricResult.objects.update_or_create(
             experiment_id=experiment_id,
             metric_uuid=metric_uuid,
-            date=today,
+            query_to=query_to_utc,
             defaults={
-                "status": ExperimentDailyResult.Status.FAILED,
+                "query_from": query_from_utc,
+                "status": ExperimentMetricResult.Status.FAILED,
                 "result": None,
-                "computed_at": None,
+                "query_id": None,
+                "completed_at": None,
                 "error_message": str(e),
             },
         )
 
-        # Re-raise the exception for Dagster to handle
         raise dagster.Failure(f"Failed to compute timeseries: {e}")
 
 

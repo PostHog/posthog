@@ -166,7 +166,7 @@ class ExperimentToSavedMetric(models.Model):
         return f"{self.experiment.name} - {self.saved_metric.name} - {self.metadata}"
 
 
-class ExperimentDailyResult(models.Model):
+class ExperimentMetricResult(models.Model):
     class Status(models.TextChoices):
         PENDING = "pending", "Pending"
         COMPLETED = "completed", "Completed"
@@ -174,21 +174,21 @@ class ExperimentDailyResult(models.Model):
 
     experiment = models.ForeignKey("Experiment", on_delete=models.CASCADE)
     metric_uuid = models.CharField(max_length=255)
-    date = models.DateField()
+    query_from = models.DateTimeField()
+    query_to = models.DateTimeField()
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     result = models.JSONField(null=True, blank=True, default=None)
-    computed_at = models.DateTimeField(null=True, blank=True)
+    query_id = models.CharField(max_length=255, null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
     error_message = models.TextField(null=True, blank=True)
-    created_at = models.DateTimeField(default=timezone.now)
+    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        unique_together = ["experiment", "metric_uuid", "date"]
+        unique_together = ["experiment", "metric_uuid", "query_to"]
         indexes = [
-            models.Index(fields=["experiment", "metric_uuid", "date"]),
-            models.Index(fields=["experiment", "metric_uuid"]),
-            models.Index(fields=["status"]),
+            models.Index(fields=["experiment", "metric_uuid", "query_to"]),
         ]
 
     def __str__(self):
-        return f"ExperimentDailyResult({self.experiment_id}, {self.metric_uuid}, {self.date}, {self.status})"
+        return f"ExperimentMetricResult({self.experiment_id}, {self.metric_uuid}, {self.query_from}, {self.status})"

@@ -1,6 +1,7 @@
 from datetime import date, timedelta
 from enum import Enum
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from django.db.models import Case, F, Q, QuerySet, Value, When
 from django.db.models.functions import Now
@@ -20,7 +21,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.experiment import Experiment, ExperimentDailyResult, ExperimentHoldout, ExperimentSavedMetric
+from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentMetricResult, ExperimentSavedMetric
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import model_activity_signal
@@ -708,6 +709,8 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
         if not metric_exists:
             raise ValidationError(f"Metric with UUID {metric_uuid} not found in experiment")
 
+        project_tz = ZoneInfo(experiment.team.timezone) if experiment.team.timezone else ZoneInfo("UTC")
+
         start_date = experiment.start_date.date() if experiment.start_date else experiment.created_at.date()
         end_date = experiment.end_date.date() if experiment.end_date else date.today()
 
@@ -723,37 +726,42 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
         for experiment_date in experiment_dates:
             timeseries[experiment_date.isoformat()] = None
 
-        daily_results = ExperimentDailyResult.objects.filter(
+        metric_results = ExperimentMetricResult.objects.filter(
             experiment_id=experiment.id, metric_uuid=metric_uuid
-        ).order_by("date")
+        ).order_by("query_from")
 
         completed_count = 0
         failed_count = 0
         pending_count = 0
         no_record_count = 0
-        latest_computed_at = None
+        latest_completed_at = None
 
-        daily_results_by_date = {result.date: result for result in daily_results}
+        # Create mapping from query_from to result, deriving the day in project timezone
+        results_by_date = {}
+        for result in metric_results:
+            # Convert UTC query_from to project timezone to determine which day this result belongs to
+            day_in_project_tz = result.query_from.astimezone(project_tz).date()
+            results_by_date[day_in_project_tz] = result
 
         for experiment_date in experiment_dates:
             date_key = experiment_date.isoformat()
 
-            if experiment_date in daily_results_by_date:
-                daily_result = daily_results_by_date[experiment_date]
+            if experiment_date in results_by_date:
+                metric_result = results_by_date[experiment_date]
 
-                if daily_result.status == "completed":
-                    timeseries[date_key] = daily_result.result
+                if metric_result.status == "completed":
+                    timeseries[date_key] = metric_result.result
                     completed_count += 1
-                elif daily_result.status == "failed":
-                    if daily_result.error_message:
-                        errors[date_key] = daily_result.error_message
+                elif metric_result.status == "failed":
+                    if metric_result.error_message:
+                        errors[date_key] = metric_result.error_message
                     failed_count += 1
-                elif daily_result.status == "pending":
+                elif metric_result.status == "pending":
                     pending_count += 1
 
-                if daily_result.computed_at:
-                    if latest_computed_at is None or daily_result.computed_at > latest_computed_at:
-                        latest_computed_at = daily_result.computed_at
+                if metric_result.completed_at:
+                    if latest_completed_at is None or metric_result.completed_at > latest_completed_at:
+                        latest_completed_at = metric_result.completed_at
             else:
                 no_record_count += 1
 
@@ -772,15 +780,15 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
             overall_status = "completed"
         else:
             overall_status = "partial"
-        first_result = daily_results.first()
-        last_result = daily_results.last()
+        first_result = metric_results.first()
+        last_result = metric_results.last()
         response_data = {
             "experiment_id": experiment.id,
             "metric_uuid": metric_uuid,
             "status": overall_status,
             "timeseries": timeseries,
             "errors": errors if errors else None,
-            "computed_at": latest_computed_at.isoformat() if latest_computed_at else None,
+            "computed_at": latest_completed_at.isoformat() if latest_completed_at else None,
             "created_at": first_result.created_at.isoformat() if first_result else experiment.created_at.isoformat(),
             "updated_at": last_result.updated_at.isoformat() if last_result else experiment.updated_at.isoformat(),
         }

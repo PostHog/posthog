@@ -1,6 +1,7 @@
 import traceback
 from datetime import date, datetime, timedelta
 from typing import Union
+from zoneinfo import ZoneInfo
 
 from django.core.management.base import BaseCommand
 from django.utils import timezone
@@ -8,11 +9,11 @@ from django.utils import timezone
 from posthog.schema import ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentQuery, ExperimentRatioMetric
 
 from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
-from posthog.models.experiment import Experiment, ExperimentDailyResult
+from posthog.models.experiment import Experiment, ExperimentMetricResult
 
 
 class Command(BaseCommand):
-    help = "Populate ExperimentDailyResult records for testing experiment timeseries functionality"
+    help = "Populate ExperimentMetricResult records for testing experiment timeseries functionality"
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -50,7 +51,7 @@ class Command(BaseCommand):
 
     def populate_timeseries(self, experiment_id: int, metric_uuid: str, force: bool) -> None:
         """
-        Populate ExperimentDailyResult records for the entire experiment duration using real calculations
+        Populate ExperimentMetricResult records for the entire experiment duration using real calculations
         """
         try:
             experiment = Experiment.objects.get(id=experiment_id, deleted=False)
@@ -73,12 +74,17 @@ class Command(BaseCommand):
         else:
             raise ValueError(f"Unknown metric type: {metric_type}")
 
+        # Determine project timezone for display purposes
+        project_tz = ZoneInfo(experiment.team.timezone) if experiment.team.timezone else ZoneInfo("UTC")
+        utc_tz = ZoneInfo("UTC")
+
         start_date = experiment.start_date.date() if experiment.start_date else experiment.created_at.date()
         end_date = experiment.end_date.date() if experiment.end_date else date.today()
 
         self.stdout.write(f"Populating timeseries for experiment {experiment_id} ({experiment.name})")
         self.stdout.write(f"Metric: {metric.get('name', metric_uuid)}")
         self.stdout.write(f"Date range: {start_date} to {end_date}")
+        self.stdout.write(f"Project timezone: {project_tz}")
 
         experiment_dates = []
         current_date = start_date
@@ -93,20 +99,27 @@ class Command(BaseCommand):
         skipped_count = 0
 
         for experiment_date in experiment_dates:
+            # For backfilling, use 2am UTC (consistent with daily recalculation schedule at "0 2 * * *")
+            # This ensures backfilled data matches what would be calculated by the daily schedule
+            query_to_utc = datetime.combine(experiment_date, datetime.min.time().replace(hour=2), tzinfo=utc_tz)
+
+            # Cumulative calculation: always from experiment start to the query time
+            query_from_utc = experiment.start_date if experiment.start_date else experiment.created_at
+
             if (
                 not force
-                and ExperimentDailyResult.objects.filter(
-                    experiment_id=experiment_id, metric_uuid=metric_uuid, date=experiment_date
+                and ExperimentMetricResult.objects.filter(
+                    experiment_id=experiment_id, metric_uuid=metric_uuid, query_to=query_to_utc
                 ).exists()
             ):
                 skipped_count += 1
                 continue
 
-            self.stdout.write(f"Calculating for {experiment_date}...")
+            self.stdout.write(f"Calculating for {experiment_date} (up to {query_to_utc.strftime('%H:%M %Z')})...")
 
             status = "completed"
             result_data = None
-            computed_at = timezone.now()
+            completed_at = None
             error_message = None
 
             try:
@@ -115,29 +128,32 @@ class Command(BaseCommand):
                     metric=metric_obj,
                 )
 
-                # Calculate results up to end of this specific day
-                end_of_day = datetime.combine(experiment_date, datetime.max.time().replace(microsecond=0))
-                end_of_day = timezone.make_aware(end_of_day, timezone.get_current_timezone())
-
+                # Use query_to_utc as the override end date for the query runner
                 query_runner = ExperimentQueryRunner(
-                    query=experiment_query, team=experiment.team, override_end_date=end_of_day
+                    query=experiment_query, team=experiment.team, override_end_date=query_to_utc
                 )
                 result = query_runner._calculate()
                 result_data = result.model_dump()
 
+                # Record when the calculation actually completed
+                completed_at = timezone.now()
+
             except Exception as e:
                 status = "failed"
                 error_message = str(e)
+                completed_at = None  # Never completed
                 self.stdout.write(self.style.WARNING(f"  Failed: {error_message}"))
 
-            daily_result, created = ExperimentDailyResult.objects.update_or_create(
+            metric_result, created = ExperimentMetricResult.objects.update_or_create(
                 experiment_id=experiment_id,
                 metric_uuid=metric_uuid,
-                date=experiment_date,
+                query_to=query_to_utc,
                 defaults={
+                    "query_from": query_from_utc,
                     "status": status,
                     "result": result_data,
-                    "computed_at": computed_at,
+                    "query_id": None,
+                    "completed_at": completed_at,
                     "error_message": error_message,
                 },
             )
