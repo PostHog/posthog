@@ -127,14 +127,18 @@ export function initKea({
     ]
 
     if (window.APP_STATE_LOGGING_SAMPLE_RATE) {
-        const ph: PostHog | undefined = window.posthog
-        const session_id = ph?.get_session_id()
-        const sample_rate = parseFloat(window.APP_STATE_LOGGING_SAMPLE_RATE)
-        if (session_id) {
-            const sessionIdHash = hashCodeForString(session_id)
-            if (sessionIdHash % 100 < sample_rate * 100) {
-                window.JS_KEA_VERBOSE_LOGGING = true
+        try {
+            const ph: PostHog | undefined = window.posthog
+            const session_id = ph?.get_session_id()
+            const sample_rate = parseFloat(window.APP_STATE_LOGGING_SAMPLE_RATE)
+            if (session_id) {
+                const sessionIdHash = hashCodeForString(session_id)
+                if (sessionIdHash % 100 < sample_rate * 100) {
+                    window.JS_KEA_VERBOSE_LOGGING = true
+                }
             }
+        } catch (e) {
+            window.posthog.captureException(e)
         }
     }
     // To enable logging, run localStorage.setItem("ph-kea-debug", true) in the console
