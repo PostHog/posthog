@@ -179,10 +179,12 @@ export class CyclotronJobQueueDelay {
                 let delayMs = Math.max(0, scheduledTime.getTime() - now)
                 const waitTime = Math.min(delayMs, maxDelayMs)
 
-                logger.info(
-                    '🔁',
-                    `${this.name} - Waiting for ${waitTime}ms before processing ${i + 1}/${messages.length} invocation ${message.key}`
-                )
+                if (waitTime > 5000) {
+                    logger.info(
+                        '🔁',
+                        `${this.name} - Waiting for ${waitTime}ms before processing ${i + 1}/${messages.length} invocation ${message.key}`
+                    )
+                }
 
                 delayMs -= waitTime
 
@@ -207,10 +209,6 @@ export class CyclotronJobQueueDelay {
                     },
                 ])
 
-                logger.info('🔁', `${this.name} - Successfully processed and committed message ${message.key}`, {
-                    offset: message.offset,
-                    result,
-                })
             } catch (error) {
                 logger.info('🔁', `${this.name} - Error processing message ${message.key}`, {
                     offset: message.offset,
