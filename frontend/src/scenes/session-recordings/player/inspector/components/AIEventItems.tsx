@@ -62,6 +62,10 @@ export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.
     )
 }
 
+const isDisplayableAIMessage = (message: Record<string, any>): boolean => {
+    return message.type === 'human' || (message.type === 'ai' && message.content.length && message.visible !== false)
+}
+
 export function AIEventSummary({ event }: { event: Record<string, any> }): JSX.Element | null {
     if (event.properties.$ai_is_error) {
         return (
@@ -71,5 +75,30 @@ export function AIEventSummary({ event }: { event: Record<string, any> }): JSX.E
             </div>
         )
     }
-    return null
+
+    const inputMessages = (
+        (event.properties?.$ai_input_state?.messages as Record<string, any>[] | undefined) ?? []
+    ).filter(isDisplayableAIMessage)
+    const outputMessages = (
+        (event.properties?.$ai_output_state?.messages as Record<string, any>[] | undefined) ?? []
+    ).filter(isDisplayableAIMessage)
+    const messageChain = [...inputMessages, ...outputMessages]
+
+    return (
+        <div className="flex flex-col items-center gap-1 text-muted-alt">
+            {messageChain.map((m) => (
+                <div
+                    className={cn(
+                        'flex flex-row w-full items-center',
+                        m.type === 'human' ? 'justify-end' : 'justify-start'
+                    )}
+                    key={m.id}
+                >
+                    {m.type === 'ai' && <span className="mr-1 text-2xl">🤖</span>}
+                    <div className="max-w-2/3 border rounded px-2 py-1 text-wrap text-sm">{m.content}</div>
+                    {m.type === 'human' && <span className="ml-1 text-2xl">🧑</span>}
+                </div>
+            ))}
+        </div>
+    )
 }
