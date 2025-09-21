@@ -63,12 +63,14 @@ export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.
 }
 
 const isHumanMessage = (message: Record<string, any>): boolean => {
-    return message.type === 'human' || message.role === 'user'
+    return message.type === 'human' || message.role === 'user' || message.role === 'human'
 }
 
 const isAIMessage = (message: Record<string, any>): boolean => {
     return (
-        (message.type === 'ai' || message.role === 'assistant') && message.content.length && message.visible !== false
+        (message.type === 'ai' || message.role === 'assistant' || message.role === 'ai') &&
+        message.content.length &&
+        message.visible !== false
     )
 }
 
@@ -96,7 +98,18 @@ export function AIEventSummary({ event }: { event: Record<string, any> }): JSX.E
         (event.properties?.$ai_output_choices as Record<string, any>[] | undefined) ??
         []
     ).filter(isDisplayableAIMessage)
-    const messageChain = [...inputMessages, ...outputMessages]
+    const seen = new Set<string>()
+    const messageChain: Array<{ id: string; content: string; role: string }> = []
+
+    for (const m of [...inputMessages, ...outputMessages]) {
+        const role = m.role && !m.type ? (m.role === 'user' ? 'human' : 'ai') : m.type
+        const key = `${role}:${m.content}`
+
+        if (!seen.has(key)) {
+            seen.add(key)
+            messageChain.push({ id: m.id, content: m.content, role })
+        }
+    }
 
     return (
         <div className="flex flex-col items-center gap-1 text-muted-alt">

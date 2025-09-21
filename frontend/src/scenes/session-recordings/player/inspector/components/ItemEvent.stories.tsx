@@ -463,3 +463,132 @@ AIGenerationEvent.args = {
         }
     ),
 }
+
+export const AITraceEvent: Story = BasicTemplate.bind({})
+AITraceEvent.args = {
+    item: makeItem(
+        {},
+        { event: '$ai_trace' },
+        {
+            $timestamp: '2025-09-21T14:02:44.168Z',
+            conversation_id: '00000000-0000-0000-0000-000000000009',
+            $ai_span_name: 'LangGraph',
+            assistant_mode: 'assistant',
+            $ai_trace_id: 'trace-0003-0003-0003-000000000003',
+            $os_version: '12',
+            $os: 'Linux',
+            $session_id: '01900000-0000-0000-0000-000000000010',
+            region: 'US',
+            $ai_output_state: {
+                graph_status: null,
+                memory_collection_messages: null,
+                messages: [
+                    {
+                        content:
+                            'sql for how many people clicked button with text containg submit on the url with /upload',
+                        id: 'msg-0001-0001-0001-000000000001',
+                        type: 'human',
+                        ui_context: null,
+                    },
+                    {
+                        content: '',
+                        id: 'msg-0001-0001-0001-000000000002',
+                        meta: null,
+                        tool_calls: [
+                            {
+                                args: {
+                                    instructions:
+                                        "Count the number of distinct users (person_id) who triggered an autocapture event where element_text contains 'submit' and $current_url contains '/upload' (case-insensitive).",
+                                },
+                                id: 'call_ExampleCallId001',
+                                name: 'generate_hogql_query',
+                                type: 'tool_call',
+                            },
+                        ],
+                        type: 'ai',
+                    },
+                    {
+                        content:
+                            "```sql\nSELECT count(DISTINCT person_id)\nFROM events\nWHERE event = '$autocapture'\n  AND lower(properties.element_text) LIKE '%submit%'\n  AND lower(properties.$current_url) LIKE '%/upload%'\n  AND timestamp >= now() - INTERVAL 30 DAY\n```",
+                        id: 'msg-0001-0001-0001-000000000003',
+                        tool_call_id: 'call_ExampleCallId001',
+                        type: 'tool',
+                        ui_payload: {
+                            generate_hogql_query:
+                                "SELECT count(DISTINCT person_id)\nFROM events\nWHERE event = '$autocapture'\n  AND lower(properties.element_text) LIKE '%submit%'\n  AND lower(properties.$current_url) LIKE '%/upload%'\n  AND timestamp >= now() - INTERVAL 30 DAY",
+                        },
+                        visible: false,
+                    },
+                    {
+                        content:
+                            'This query counts the number of distinct users who clicked a button with text containing "submit" on any URL containing "/upload" in the last 30 days. Let me know if you want to adjust the time range or see more details.',
+                        id: 'msg-0001-0001-0001-000000000004',
+                        meta: null,
+                        tool_calls: [],
+                        type: 'ai',
+                    },
+                ],
+                query_generation_retry_count: 0,
+                rag_context: null,
+                root_conversation_start_id: null,
+                root_tool_calls_count: 0,
+                start_id: 'msg-0001-0001-0001-000000000001',
+            },
+            $lib_version: '6.7.4',
+            $groups: {
+                instance: 'https://us.posthog.com',
+                organization: '00000000-0000-0000-0000-org000000004',
+                project: '00000000-0000-0000-0000-proj00000004',
+            },
+            $ai_latency: 11.21250057220459,
+            $python_runtime: 'CPython',
+            is_first_conversation: true,
+            $geoip_disable: true,
+            $lib: 'posthog-python',
+            $ai_span_id: 'span-0003-0003-0003-000000000003',
+            $ai_input_state: {
+                dashboard_name: null,
+                graph_status: null,
+                intermediate_steps: null,
+                memory_collection_messages: null,
+                messages: [
+                    {
+                        content:
+                            'sql for how many people clicked button with text containg submit on the url with /upload',
+                        id: 'msg-0001-0001-0001-000000000001',
+                        type: 'human',
+                        ui_context: null,
+                    },
+                ],
+                notebook_short_id: null,
+                onboarding_question: null,
+                plan: null,
+                query_generation_retry_count: 0,
+                query_planner_intermediate_messages: null,
+                query_planner_previous_response_id: null,
+                rag_context: null,
+                root_conversation_start_id: null,
+                root_tool_call_id: null,
+                root_tool_calls_count: null,
+                root_tool_insight_plan: null,
+                root_tool_insight_type: null,
+                search_insights_queries: null,
+                search_insights_query: null,
+                selected_insight_ids: null,
+                session_summarization_query: null,
+                should_use_current_filters: null,
+                start_id: 'msg-0001-0001-0001-000000000001',
+                summary_title: null,
+            },
+            $python_version: '3.11.11',
+            $ip: '192.168.1.3',
+            $lib_version__major: 6,
+            $lib_version__minor: 7,
+            $lib_version__patch: 4,
+            num_keys_in_properties: 468,
+            $group_1: 'https://us.posthog.com',
+            $group_0: '00000000-0000-0000-0000-org000000004',
+            $group_2: '00000000-0000-0000-0000-proj00000004',
+        }
+    ),
+}
