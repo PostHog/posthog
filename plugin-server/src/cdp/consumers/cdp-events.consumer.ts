@@ -60,7 +60,6 @@ export class CdpEventsConsumer extends CdpConsumerBase {
     protected kafkaConsumer: KafkaConsumer
 
     private hogRateLimiter: HogRateLimiterService
-    private memoryMonitorInterval?: NodeJS.Timeout
 
     constructor(hub: Hub, topic: string = KAFKA_EVENTS_JSON, groupId: string = 'cdp-processed-events-consumer') {
         super(hub)
@@ -76,38 +75,10 @@ export class CdpEventsConsumer extends CdpConsumerBase {
             return { backgroundTask: Promise.resolve(), invocations: [] }
         }
 
-        const memBefore = process.memoryUsage()
-        logger.debug('🔍', 'Memory before processBatch', {
-            rss: Math.round(memBefore.rss / 1024 / 1024),
-            heapUsed: Math.round(memBefore.heapUsed / 1024 / 1024),
-            eventCount: invocationGlobals.length,
-        })
-
         const invocationsToBeQueued = [
             ...(await this.createHogFunctionInvocations(invocationGlobals)),
             ...(await this.createHogFlowInvocations(invocationGlobals)),
         ]
-
-        const memAfter = process.memoryUsage()
-        const memDiff = {
-            rss: Math.round((memAfter.rss - memBefore.rss) / 1024 / 1024),
-            heapUsed: Math.round((memAfter.heapUsed - memBefore.heapUsed) / 1024 / 1024),
-        }
-
-        logger.debug('🔍', 'Memory after creating invocations', {
-            ...memDiff,
-            invocationsCreated: invocationsToBeQueued.length,
-        })
-
-        // Warn if memory usage increased significantly
-        if (memDiff.heapUsed > 100) {
-            // 100MB increase
-            logger.warn('🔍', 'Significant memory increase during processBatch', {
-                ...memDiff,
-                eventCount: invocationGlobals.length,
-                invocationsCreated: invocationsToBeQueued.length,
-            })
-        }
 
         return {
             // This is all IO so we can set them off in the background and start processing the next batch
@@ -135,13 +106,6 @@ export class CdpEventsConsumer extends CdpConsumerBase {
     protected async createHogFunctionInvocations(
         invocationGlobals: HogFunctionInvocationGlobals[]
     ): Promise<CyclotronJobInvocation[]> {
-        const memBefore = process.memoryUsage()
-        logger.debug('🔍', 'Memory before createHogFunctionInvocations', {
-            rss: Math.round(memBefore.rss / 1024 / 1024),
-            heapUsed: Math.round(memBefore.heapUsed / 1024 / 1024),
-            eventCount: invocationGlobals.length,
-        })
-
         // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
         await this.groupsManager.enrichGroups(invocationGlobals)
 
@@ -153,29 +117,13 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
         const possibleInvocations = (
             await Promise.all(
-                invocationGlobals.map(async (globals, index) => {
+                invocationGlobals.map(async (globals) => {
                     const teamHogFunctions = hogFunctionsByTeam[globals.project.id]
 
                     const { invocations, metrics, logs } = await this.hogExecutor.buildHogFunctionInvocations(
                         teamHogFunctions,
                         globals
                     )
-
-                    // Log memory usage for individual event processing
-                    const memAfterEvent = process.memoryUsage()
-                    const memDiff = Math.round((memAfterEvent.heapUsed - memBefore.heapUsed) / 1024 / 1024)
-
-                    if (memDiff > 10) {
-                        // 10MB increase per event
-                        logger.warn('🔍', 'High memory usage for individual event', {
-                            eventIndex: index,
-                            teamId: globals.project.id,
-                            event: globals.event?.event,
-                            memoryIncreaseMB: memDiff,
-                            invocationsCreated: invocations.length,
-                            hogFunctionsCount: teamHogFunctions.length,
-                        })
-                    }
 
                     this.hogFunctionMonitoringService.queueAppMetrics(metrics, 'hog_function')
                     this.hogFunctionMonitoringService.queueLogs(logs, 'hog_function')
@@ -185,27 +133,6 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                 })
             )
         ).flat()
-
-        const memAfter = process.memoryUsage()
-        const memDiff = {
-            rss: Math.round((memAfter.rss - memBefore.rss) / 1024 / 1024),
-            heapUsed: Math.round((memAfter.heapUsed - memBefore.heapUsed) / 1024 / 1024),
-        }
-
-        logger.debug('🔍', 'Memory after createHogFunctionInvocations', {
-            ...memDiff,
-            invocationsCreated: possibleInvocations.length,
-        })
-
-        // Warn if memory usage increased significantly
-        if (memDiff.heapUsed > 50) {
-            // 50MB increase
-            logger.warn('🔍', 'Significant memory increase during createHogFunctionInvocations', {
-                ...memDiff,
-                eventCount: invocationGlobals.length,
-                invocationsCreated: possibleInvocations.length,
-            })
-        }
 
         const states = await instrumentFn('cdpConsumer.handleEachBatch.hogWatcher.getEffectiveStates', async () => {
             return await this.hogWatcher.getEffectiveStates(possibleInvocations.map((x) => x.hogFunction.id))
@@ -465,33 +392,11 @@ export class CdpEventsConsumer extends CdpConsumerBase {
     @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
         const events: HogFunctionInvocationGlobals[] = []
-        const memBefore = process.memoryUsage()
-
-        logger.debug('🔍', 'Memory before parsing batch', {
-            rss: Math.round(memBefore.rss / 1024 / 1024),
-            heapUsed: Math.round(memBefore.heapUsed / 1024 / 1024),
-            heapTotal: Math.round(memBefore.heapTotal / 1024 / 1024),
-            external: Math.round(memBefore.external / 1024 / 1024),
-            messageCount: messages.length,
-        })
 
         await Promise.all(
-            messages.map(async (message, index) => {
+            messages.map(async (message) => {
                 try {
-                    const messageSize = message.value?.length || 0
                     const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
-
-                    // Log large events that might cause memory issues
-                    if (messageSize > 100000) {
-                        // 100KB
-                        logger.warn('🔍', 'Large event detected', {
-                            messageIndex: index,
-                            messageSize: Math.round(messageSize / 1024),
-                            teamId: clickHouseEvent.team_id,
-                            event: clickHouseEvent.event,
-                            uuid: clickHouseEvent.uuid,
-                        })
-                    }
 
                     const [teamHogFunctions, teamHogFlows, team] = await Promise.all([
                         this.hogFunctionManager.getHogFunctionsForTeam(clickHouseEvent.team_id, this.hogTypes),
@@ -503,50 +408,13 @@ export class CdpEventsConsumer extends CdpConsumerBase {
                         return
                     }
 
-                    const event = convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.hub.SITE_URL)
-                    events.push(event)
-
-                    // Log memory usage for events with many properties or large data
-                    const eventPropertiesSize = JSON.stringify(event.event?.properties || {}).length
-                    if (eventPropertiesSize > 50000) {
-                        // 50KB properties
-                        logger.warn('🔍', 'Event with large properties detected', {
-                            messageIndex: index,
-                            propertiesSize: Math.round(eventPropertiesSize / 1024),
-                            teamId: clickHouseEvent.team_id,
-                            event: clickHouseEvent.event,
-                            propertyCount: Object.keys(event.event?.properties || {}).length,
-                        })
-                    }
+                    events.push(convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.hub.SITE_URL))
                 } catch (e) {
                     logger.error('Error parsing message', e)
                     counterParseError.labels({ error: e.message }).inc()
                 }
             })
         )
-
-        const memAfter = process.memoryUsage()
-        const memDiff = {
-            rss: Math.round((memAfter.rss - memBefore.rss) / 1024 / 1024),
-            heapUsed: Math.round((memAfter.heapUsed - memBefore.heapUsed) / 1024 / 1024),
-            heapTotal: Math.round((memAfter.heapTotal - memBefore.heapTotal) / 1024 / 1024),
-            external: Math.round((memAfter.external - memBefore.external) / 1024 / 1024),
-        }
-
-        logger.debug('🔍', 'Memory after parsing batch', {
-            ...memDiff,
-            eventsProcessed: events.length,
-            eventsSkipped: messages.length - events.length,
-        })
-
-        // Warn if memory usage increased significantly
-        if (memDiff.heapUsed > 50) {
-            // 50MB increase
-            logger.warn('🔍', 'Significant memory increase during parsing', {
-                ...memDiff,
-                eventsProcessed: events.length,
-            })
-        }
 
         return events
     }
@@ -555,43 +423,15 @@ export class CdpEventsConsumer extends CdpConsumerBase {
         await super.start()
         // Make sure we are ready to produce to cyclotron first
         await this.cyclotronJobQueue.startAsProducer()
-
-        // Start memory monitoring
-        this.startMemoryMonitoring()
-
         // Start consuming messages
         await this.kafkaConsumer.connect(async (messages) => {
-            const memBefore = process.memoryUsage()
             logger.info('🔁', `${this.name} - handling batch`, {
                 size: messages.length,
-                rss: Math.round(memBefore.rss / 1024 / 1024),
-                heapUsed: Math.round(memBefore.heapUsed / 1024 / 1024),
             })
 
             return await instrumentFn('cdpConsumer.handleEachBatch', async () => {
                 const invocationGlobals = await this._parseKafkaBatch(messages)
                 const { backgroundTask } = await this.processBatch(invocationGlobals)
-
-                const memAfter = process.memoryUsage()
-                const memDiff = {
-                    rss: Math.round((memAfter.rss - memBefore.rss) / 1024 / 1024),
-                    heapUsed: Math.round((memAfter.heapUsed - memBefore.heapUsed) / 1024 / 1024),
-                }
-
-                logger.debug('🔍', 'Memory after batch processing', {
-                    ...memDiff,
-                    eventsProcessed: invocationGlobals.length,
-                })
-
-                // Warn if memory usage increased significantly
-                if (memDiff.heapUsed > 200) {
-                    // 200MB increase
-                    logger.warn('🔍', 'Significant memory increase during batch processing', {
-                        ...memDiff,
-                        eventsProcessed: invocationGlobals.length,
-                        batchSize: messages.length,
-                    })
-                }
 
                 return { backgroundTask }
             })
@@ -600,10 +440,6 @@ export class CdpEventsConsumer extends CdpConsumerBase {
 
     public async stop(): Promise<void> {
         logger.info('💤', 'Stopping consumer...')
-
-        // Stop memory monitoring
-        this.stopMemoryMonitoring()
-
         await this.kafkaConsumer.disconnect()
         logger.info('💤', 'Stopping cyclotron job queue...')
         await this.cyclotronJobQueue.stop()
@@ -635,57 +471,5 @@ export class CdpEventsConsumer extends CdpConsumerBase {
         }
 
         return !template.free
-    }
-
-    private startMemoryMonitoring(): void {
-        // Monitor memory every 30 seconds
-        this.memoryMonitorInterval = setInterval(() => {
-            const mem = process.memoryUsage()
-            const memInfo = {
-                rss: Math.round(mem.rss / 1024 / 1024),
-                heapUsed: Math.round(mem.heapUsed / 1024 / 1024),
-                heapTotal: Math.round(mem.heapTotal / 1024 / 1024),
-                external: Math.round(mem.external / 1024 / 1024),
-                arrayBuffers: Math.round(mem.arrayBuffers / 1024 / 1024),
-            }
-
-            logger.info('🔍', 'Memory monitoring', memInfo)
-
-            // Warn if memory usage is getting high
-            if (memInfo.heapUsed > 1000) {
-                // 1GB
-                logger.warn('🔍', 'High memory usage detected', memInfo)
-            }
-
-            // Force garbage collection if available (for debugging)
-            if (global.gc && memInfo.heapUsed > 500) {
-                // 500MB
-                logger.debug('🔍', 'Triggering garbage collection', memInfo)
-                global.gc()
-
-                const memAfterGC = process.memoryUsage()
-                const memAfterGCInfo = {
-                    rss: Math.round(memAfterGC.rss / 1024 / 1024),
-                    heapUsed: Math.round(memAfterGC.heapUsed / 1024 / 1024),
-                    heapTotal: Math.round(memAfterGC.heapTotal / 1024 / 1024),
-                    external: Math.round(memAfterGC.external / 1024 / 1024),
-                    arrayBuffers: Math.round(memAfterGC.arrayBuffers / 1024 / 1024),
-                }
-
-                const freed = {
-                    rss: memInfo.rss - memAfterGCInfo.rss,
-                    heapUsed: memInfo.heapUsed - memAfterGCInfo.heapUsed,
-                }
-
-                logger.info('🔍', 'Memory after GC', { ...memAfterGCInfo, freed })
-            }
-        }, 30000) // 30 seconds
-    }
-
-    private stopMemoryMonitoring(): void {
-        if (this.memoryMonitorInterval) {
-            clearInterval(this.memoryMonitorInterval)
-            this.memoryMonitorInterval = undefined
-        }
     }
 }
