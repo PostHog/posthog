@@ -23,16 +23,6 @@ def migrate_agent_data_from_transitions_to_stages(apps, schema_editor):
             stage.save(update_fields=["agent"])
 
 
-def reverse_migrate_agent_data(apps, schema_editor):
-    """
-    Reverse migration - not possible since we're deleting WorkflowTransition model.
-    This migration is not reversible.
-    """
-    raise migrations.exceptions.IrreversibleError(
-        "Cannot reverse this migration because WorkflowTransition model will be deleted"
-    )
-
-
 class Migration(migrations.Migration):
     dependencies = [
         ("tasks", "0002_agentdefinition_taskworkflow_workflowstage_and_more"),
@@ -57,7 +47,7 @@ class Migration(migrations.Migration):
         ),
         migrations.RunPython(
             migrate_agent_data_from_transitions_to_stages,
-            reverse_migrate_agent_data,
+            reverse_code=migrations.RunPython.noop,
         ),
         migrations.DeleteModel(
             name="WorkflowTransition",
