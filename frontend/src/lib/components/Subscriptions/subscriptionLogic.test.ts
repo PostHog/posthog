@@ -87,6 +87,14 @@ describe('subscriptionLogic', () => {
             bysetpos: 1,
             byweekday: ['monday'],
         })
+
+        newLogic.actions.setSubscriptionValue('frequency', 'hourly')
+        await expectLogic(newLogic).toFinishListeners()
+        expect(newLogic.values.subscription).toMatchObject({
+            frequency: 'hourly',
+            bysetpos: null,
+            byweekday: null,
+        })
     })
 
     it('sets the type from query params', async () => {
