@@ -1,9 +1,9 @@
 import { Message } from 'node-rdkafka'
 
-import { SequentialBatchProcessingPipeline } from './batch-processing-pipeline'
-import { createBatch, createNewBatchPipeline, dlq, drop, success } from './pipeline-types'
+import { createBatch, createNewBatchPipeline, dlq, drop, ok } from './pipeline-types'
+import { SequentialBatchPipeline } from './sequential-batch-pipeline'
 
-describe('SequentialBatchProcessingPipeline', () => {
+describe('SequentialBatchPipeline', () => {
     describe('basic functionality', () => {
         it('should process batch through pipeline', async () => {
             const messages: Message[] = [
@@ -13,23 +13,23 @@ describe('SequentialBatchProcessingPipeline', () => {
 
             const batch = createBatch(messages)
             const rootPipeline = createNewBatchPipeline()
-            const pipeline = SequentialBatchProcessingPipeline.from((items: any[]) => {
-                return Promise.resolve(items.map((item: any) => success({ processed: item.message.value?.toString() })))
+            const pipeline = SequentialBatchPipeline.from((items: any[]) => {
+                return Promise.resolve(items.map((item: any) => ok({ processed: item.message.value?.toString() })))
             }, rootPipeline)
 
             pipeline.feed(batch)
             const results = await pipeline.next()
 
             expect(results).toEqual([
-                { result: success({ processed: 'test1' }), context: { message: messages[0] } },
-                { result: success({ processed: 'test2' }), context: { message: messages[1] } },
+                { result: ok({ processed: 'test1' }), context: { message: messages[0] } },
+                { result: ok({ processed: 'test2' }), context: { message: messages[1] } },
             ])
         })
 
         it('should handle empty batch', async () => {
             const rootPipeline = createNewBatchPipeline()
-            const pipeline = SequentialBatchProcessingPipeline.from((items: any[]) => {
-                return Promise.resolve(items.map((item: any) => success(item)))
+            const pipeline = SequentialBatchPipeline.from((items: any[]) => {
+                return Promise.resolve(items.map((item: any) => ok(item)))
             }, rootPipeline)
 
             pipeline.feed([])
@@ -49,9 +49,9 @@ describe('SequentialBatchProcessingPipeline', () => {
 
             const batch = createBatch(messages)
             const rootPipeline = createNewBatchPipeline()
-            const pipeline = SequentialBatchProcessingPipeline.from((items: any[]) => {
+            const pipeline = SequentialBatchPipeline.from((items: any[]) => {
                 return Promise.resolve(
-                    items.map((item: any) => success({ count: parseInt(item.message.value?.toString() || '0') * 2 }))
+                    items.map((item: any) => ok({ count: parseInt(item.message.value?.toString() || '0') * 2 }))
                 )
             }, rootPipeline)
 
@@ -59,9 +59,9 @@ describe('SequentialBatchProcessingPipeline', () => {
             const results = await pipeline.next()
 
             expect(results).toEqual([
-                { result: success({ count: 2 }), context: { message: messages[0] } },
-                { result: success({ count: 4 }), context: { message: messages[1] } },
-                { result: success({ count: 6 }), context: { message: messages[2] } },
+                { result: ok({ count: 2 }), context: { message: messages[0] } },
+                { result: ok({ count: 4 }), context: { message: messages[1] } },
+                { result: ok({ count: 6 }), context: { message: messages[2] } },
             ])
         })
 
@@ -75,7 +75,7 @@ describe('SequentialBatchProcessingPipeline', () => {
 
             const batch = createBatch(messages)
             const rootPipeline = createNewBatchPipeline()
-            const firstPipeline = SequentialBatchProcessingPipeline.from((items: any[]) => {
+            const firstPipeline = SequentialBatchPipeline.from((items: any[]) => {
                 return Promise.resolve(
                     items.map((item: any) => {
                         const value = item.message.value?.toString() || ''
@@ -85,24 +85,24 @@ describe('SequentialBatchProcessingPipeline', () => {
                         if (value === 'dlq') {
                             return dlq('dlq item', new Error('test error'))
                         }
-                        return success({ count: parseInt(value) })
+                        return ok({ count: parseInt(value) })
                     })
                 )
             }, rootPipeline)
 
-            const secondPipeline = SequentialBatchProcessingPipeline.from((items: any[]) => {
+            const secondPipeline = SequentialBatchPipeline.from((items: any[]) => {
                 // Should only receive successful items
                 expect(items).toEqual([{ count: 1 }, { count: 3 }])
-                return Promise.resolve(items.map((item: any) => success({ count: item.count * 2 })))
+                return Promise.resolve(items.map((item: any) => ok({ count: item.count * 2 })))
             }, firstPipeline)
 
             secondPipeline.feed(batch)
             const results = await secondPipeline.next()
 
             expect(results).toEqual([
-                { result: success({ count: 2 }), context: { message: messages[0] } },
+                { result: ok({ count: 2 }), context: { message: messages[0] } },
                 { result: drop('dropped item'), context: { message: messages[1] } },
-                { result: success({ count: 6 }), context: { message: messages[2] } },
+                { result: ok({ count: 6 }), context: { message: messages[2] } },
                 { result: dlq('dlq item', new Error('test error')), context: { message: messages[3] } },
             ])
         })
@@ -121,7 +121,7 @@ describe('SequentialBatchProcessingPipeline', () => {
                 async process(input: any) {
                     await new Promise((resolve) => setTimeout(resolve, 1))
                     const count = parseInt(input.result.value.message.value?.toString() || '0')
-                    return { result: success({ count: count * 2 }), context: input.context }
+                    return { result: ok({ count: count * 2 }), context: input.context }
                 },
             }
 
@@ -138,9 +138,9 @@ describe('SequentialBatchProcessingPipeline', () => {
             }
 
             expect(allResults).toEqual([
-                { result: success({ count: 2 }), context: { message: messages[0] } },
-                { result: success({ count: 4 }), context: { message: messages[1] } },
-                { result: success({ count: 6 }), context: { message: messages[2] } },
+                { result: ok({ count: 2 }), context: { message: messages[0] } },
+                { result: ok({ count: 4 }), context: { message: messages[1] } },
+                { result: ok({ count: 6 }), context: { message: messages[2] } },
             ])
         })
 
@@ -156,7 +156,7 @@ describe('SequentialBatchProcessingPipeline', () => {
                 async process(input: any) {
                     const delay = parseInt(input.result.value.message.value?.toString() || '0')
                     await new Promise((resolve) => setTimeout(resolve, delay))
-                    return { result: success({ processed: delay }), context: input.context }
+                    return { result: ok({ processed: delay }), context: input.context }
                 },
             }
 
@@ -173,9 +173,9 @@ describe('SequentialBatchProcessingPipeline', () => {
             }
 
             expect(allResults).toEqual([
-                { result: success({ processed: 30 }), context: { message: messages[0] } },
-                { result: success({ processed: 10 }), context: { message: messages[1] } },
-                { result: success({ processed: 20 }), context: { message: messages[2] } },
+                { result: ok({ processed: 30 }), context: { message: messages[0] } },
+                { result: ok({ processed: 10 }), context: { message: messages[1] } },
+                { result: ok({ processed: 20 }), context: { message: messages[2] } },
             ])
         })
     })
@@ -186,7 +186,7 @@ describe('SequentialBatchProcessingPipeline', () => {
 
             const batch = createBatch(messages)
             const rootPipeline = createNewBatchPipeline()
-            const pipeline = SequentialBatchProcessingPipeline.from(() => {
+            const pipeline = SequentialBatchPipeline.from(() => {
                 return Promise.reject(new Error('Batch step failed'))
             }, rootPipeline)
 

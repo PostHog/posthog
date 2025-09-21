@@ -1,7 +1,7 @@
 import { Message } from 'node-rdkafka'
 
 import { createParseHeadersStep } from '../../../src/ingestion/event-preprocessing/parse-headers'
-import { success } from '../../../src/ingestion/pipelines/pipeline-types'
+import { ok } from '../../../src/ingestion/pipelines/pipeline-types'
 import { parseEventHeaders } from '../../../src/kafka/consumer'
 import { EventHeaders } from '../../../src/types'
 
@@ -35,7 +35,7 @@ describe('createParseHeadersStep', () => {
 
         const result = step(input)
 
-        expect(result).toEqual(success({ ...input, headers: expectedHeaders }))
+        expect(result).toEqual(ok({ ...input, headers: expectedHeaders }))
         expect(mockParseEventHeaders).toHaveBeenCalledWith(input.message.headers)
     })
 
@@ -56,7 +56,7 @@ describe('createParseHeadersStep', () => {
         const result = step(input)
 
         expect(result).toEqual(
-            success({
+            ok({
                 ...input,
                 headers: expectedHeaders,
             })
@@ -76,7 +76,7 @@ describe('createParseHeadersStep', () => {
         }
         const result = step(input)
 
-        expect(result).toEqual(success({ ...input, headers: expectedHeaders }))
+        expect(result).toEqual(ok({ ...input, headers: expectedHeaders }))
         expect(mockParseEventHeaders).toHaveBeenCalledWith(input.message.headers)
     })
 
@@ -92,7 +92,7 @@ describe('createParseHeadersStep', () => {
         }
         const result = step(input)
 
-        expect(result).toEqual(success({ ...input, headers: expectedHeaders }))
+        expect(result).toEqual(ok({ ...input, headers: expectedHeaders }))
         expect(mockParseEventHeaders).toHaveBeenCalledWith(input.message.headers)
     })
 
@@ -116,7 +116,7 @@ describe('createParseHeadersStep', () => {
         }
         const result = step(input)
 
-        expect(result).toEqual(success({ ...input, headers: expectedHeaders }))
+        expect(result).toEqual(ok({ ...input, headers: expectedHeaders }))
         expect(mockParseEventHeaders).toHaveBeenCalledWith(input.message.headers)
     })
 
@@ -140,7 +140,7 @@ describe('createParseHeadersStep', () => {
         }
         const result = step(input)
 
-        expect(result).toEqual(success({ ...input, headers: expectedHeaders }))
+        expect(result).toEqual(ok({ ...input, headers: expectedHeaders }))
         expect(mockParseEventHeaders).toHaveBeenCalledWith(input.message.headers)
     })
 
@@ -164,7 +164,7 @@ describe('createParseHeadersStep', () => {
         }
         const result = step(input)
 
-        expect(result).toEqual(success({ ...input, headers: expectedHeaders }))
+        expect(result).toEqual(ok({ ...input, headers: expectedHeaders }))
         expect(mockParseEventHeaders).toHaveBeenCalledWith(input.message.headers)
     })
 
@@ -188,7 +188,7 @@ describe('createParseHeadersStep', () => {
         }
         const result = step(input)
 
-        expect(result).toEqual(success({ ...input, headers: expectedHeaders }))
+        expect(result).toEqual(ok({ ...input, headers: expectedHeaders }))
         expect(mockParseEventHeaders).toHaveBeenCalledWith(input.message.headers)
     })
 
@@ -214,7 +214,7 @@ describe('createParseHeadersStep', () => {
         }
         const result = step(input)
 
-        expect(result).toEqual(success({ ...input, headers: expectedHeaders }))
+        expect(result).toEqual(ok({ ...input, headers: expectedHeaders }))
         expect(mockParseEventHeaders).toHaveBeenCalledWith(input.message.headers)
     })
 })

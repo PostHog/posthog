@@ -1,7 +1,7 @@
 import { eventDroppedCounter } from '../../main/ingestion-queues/metrics'
 import { EventHeaders } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
-import { SyncProcessingStep, drop, success } from '../pipelines/pipeline-types'
+import { SyncProcessingStep, drop, ok } from '../pipelines/pipeline-types'
 
 function applyDropEventsRestrictions(
     eventIngestionRestrictionManager: EventIngestionRestrictionManager,
@@ -29,6 +29,6 @@ export function createApplyDropRestrictionsStep<T extends { headers: EventHeader
             return drop('Event dropped due to token restrictions')
         }
 
-        return success(input)
+        return ok(input)
     }
 }

@@ -4,13 +4,13 @@ import { KafkaProducerWrapper } from '../../kafka/producer'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { logDroppedMessage, redirectMessageToTopic, sendMessageToDLQ } from '../../worker/ingestion/pipeline-helpers'
 import {
-    BatchProcessingPipeline,
-    BatchProcessingResult,
-    PipelineStepResult,
+    BatchPipeline,
+    BatchPipelineResultWithContext,
+    PipelineResult,
     isDlqResult,
     isDropResult,
+    isOkResult,
     isRedirectResult,
-    isSuccessResult,
 } from './pipeline-types'
 
 export type PipelineConfig = {
@@ -25,11 +25,11 @@ export type PipelineConfig = {
  */
 export class ResultHandlingPipeline<TInput, TOutput> {
     constructor(
-        private pipeline: BatchProcessingPipeline<TInput, TOutput>,
+        private pipeline: BatchPipeline<TInput, TOutput>,
         private config: PipelineConfig
     ) {}
 
-    feed(elements: BatchProcessingResult<TInput>): void {
+    feed(elements: BatchPipelineResultWithContext<TInput>): void {
         this.pipeline.feed(elements)
     }
 
@@ -44,7 +44,7 @@ export class ResultHandlingPipeline<TInput, TOutput> {
         const processedResults: TOutput[] = []
 
         for (const resultWithContext of results) {
-            if (isSuccessResult(resultWithContext.result)) {
+            if (isOkResult(resultWithContext.result)) {
                 const value = resultWithContext.result.value as TOutput
                 processedResults.push(value)
             } else {
@@ -59,7 +59,7 @@ export class ResultHandlingPipeline<TInput, TOutput> {
     }
 
     private async handleNonSuccessResult(
-        result: PipelineStepResult<TOutput>,
+        result: PipelineResult<TOutput>,
         originalMessage: Message,
         stepName: string
     ): Promise<void> {
@@ -87,7 +87,7 @@ export class ResultHandlingPipeline<TInput, TOutput> {
     }
 
     static of<TInput, TOutput>(
-        pipeline: BatchProcessingPipeline<TInput, TOutput>,
+        pipeline: BatchPipeline<TInput, TOutput>,
         config: PipelineConfig
     ): ResultHandlingPipeline<TInput, TOutput> {
         return new ResultHandlingPipeline(pipeline, config)

@@ -1,9 +1,9 @@
 import { Message } from 'node-rdkafka'
 
-import { BatchProcessingResult, dlq, drop, redirect, success } from './pipeline-types'
-import { RootBatchProcessingPipeline } from './root-batch-processing-pipeline'
+import { BufferingBatchPipeline } from './buffering-batch-pipeline'
+import { BatchPipelineResultWithContext, dlq, drop, ok, redirect } from './pipeline-types'
 
-describe('RootBatchProcessingPipeline', () => {
+describe('BufferingBatchPipeline', () => {
     let message1: Message
     let message2: Message
     let message3: Message
@@ -47,22 +47,22 @@ describe('RootBatchProcessingPipeline', () => {
 
     describe('constructor', () => {
         it('should create instance with default type', () => {
-            const pipeline = new RootBatchProcessingPipeline()
-            expect(pipeline).toBeInstanceOf(RootBatchProcessingPipeline)
+            const pipeline = new BufferingBatchPipeline()
+            expect(pipeline).toBeInstanceOf(BufferingBatchPipeline)
         })
 
         it('should create instance with custom type', () => {
-            const pipeline = new RootBatchProcessingPipeline<string>()
-            expect(pipeline).toBeInstanceOf(RootBatchProcessingPipeline)
+            const pipeline = new BufferingBatchPipeline<string>()
+            expect(pipeline).toBeInstanceOf(BufferingBatchPipeline)
         })
     })
 
     describe('feed', () => {
         it('should add elements to buffer', async () => {
-            const pipeline = new RootBatchProcessingPipeline<string>()
-            const batch: BatchProcessingResult<string> = [
-                { result: success('hello'), context: context1 },
-                { result: success('world'), context: context2 },
+            const pipeline = new BufferingBatchPipeline<string>()
+            const batch: BatchPipelineResultWithContext<string> = [
+                { result: ok('hello'), context: context1 },
+                { result: ok('world'), context: context2 },
             ]
 
             pipeline.feed(batch)
@@ -70,49 +70,49 @@ describe('RootBatchProcessingPipeline', () => {
             // Buffer is internal, so we test through next()
             const result = await pipeline.next()
             expect(result).toEqual([
-                { result: success('hello'), context: context1 },
-                { result: success('world'), context: context2 },
+                { result: ok('hello'), context: context1 },
+                { result: ok('world'), context: context2 },
             ])
         })
 
         it('should accumulate multiple feeds', async () => {
-            const pipeline = new RootBatchProcessingPipeline<string>()
-            const batch1: BatchProcessingResult<string> = [{ result: success('hello'), context: context1 }]
-            const batch2: BatchProcessingResult<string> = [{ result: success('world'), context: context2 }]
+            const pipeline = new BufferingBatchPipeline<string>()
+            const batch1: BatchPipelineResultWithContext<string> = [{ result: ok('hello'), context: context1 }]
+            const batch2: BatchPipelineResultWithContext<string> = [{ result: ok('world'), context: context2 }]
 
             pipeline.feed(batch1)
             pipeline.feed(batch2)
 
             const result = await pipeline.next()
             expect(result).toEqual([
-                { result: success('hello'), context: context1 },
-                { result: success('world'), context: context2 },
+                { result: ok('hello'), context: context1 },
+                { result: ok('world'), context: context2 },
             ])
         })
 
         it('should handle empty batch', async () => {
-            const pipeline = new RootBatchProcessingPipeline<string>()
-            const emptyBatch: BatchProcessingResult<string> = []
+            const pipeline = new BufferingBatchPipeline<string>()
+            const emptyBatch: BatchPipelineResultWithContext<string> = []
 
             pipeline.feed(emptyBatch)
 
             const result = await pipeline.next()
-            expect(result).toEqual([])
+            expect(result).toEqual(null)
         })
     })
 
     describe('next', () => {
         it('should return null when buffer is empty', async () => {
-            const pipeline = new RootBatchProcessingPipeline<string>()
+            const pipeline = new BufferingBatchPipeline<string>()
             const result = await pipeline.next()
             expect(result).toBeNull()
         })
 
         it('should return all buffered elements and clear buffer', async () => {
-            const pipeline = new RootBatchProcessingPipeline<string>()
-            const batch: BatchProcessingResult<string> = [
-                { result: success('hello'), context: context1 },
-                { result: success('world'), context: context2 },
+            const pipeline = new BufferingBatchPipeline<string>()
+            const batch: BatchPipelineResultWithContext<string> = [
+                { result: ok('hello'), context: context1 },
+                { result: ok('world'), context: context2 },
             ]
 
             pipeline.feed(batch)
@@ -121,20 +121,20 @@ describe('RootBatchProcessingPipeline', () => {
             const result2 = await pipeline.next()
 
             expect(result1).toEqual([
-                { result: success('hello'), context: context1 },
-                { result: success('world'), context: context2 },
+                { result: ok('hello'), context: context1 },
+                { result: ok('world'), context: context2 },
             ])
             expect(result2).toBeNull()
         })
 
         it('should handle mixed result types', async () => {
-            const pipeline = new RootBatchProcessingPipeline<string>()
+            const pipeline = new BufferingBatchPipeline<string>()
             const dropResult = drop<string>('test drop')
             const dlqResult = dlq<string>('test dlq', new Error('test error'))
             const redirectResult = redirect<string>('test redirect', 'test-topic')
 
-            const batch: BatchProcessingResult<string> = [
-                { result: success('hello'), context: context1 },
+            const batch: BatchPipelineResultWithContext<string> = [
+                { result: ok('hello'), context: context1 },
                 { result: dropResult, context: context2 },
                 { result: dlqResult, context: context3 },
                 { result: redirectResult, context: context1 },
@@ -146,7 +146,7 @@ describe('RootBatchProcessingPipeline', () => {
             const result2 = await pipeline.next()
 
             expect(result).toEqual([
-                { result: success('hello'), context: context1 },
+                { result: ok('hello'), context: context1 },
                 { result: dropResult, context: context2 },
                 { result: dlqResult, context: context3 },
                 { result: redirectResult, context: context1 },
@@ -155,10 +155,10 @@ describe('RootBatchProcessingPipeline', () => {
         })
 
         it('should preserve order of fed elements', async () => {
-            const pipeline = new RootBatchProcessingPipeline<string>()
-            const batch1: BatchProcessingResult<string> = [{ result: success('first'), context: context1 }]
-            const batch2: BatchProcessingResult<string> = [{ result: success('second'), context: context2 }]
-            const batch3: BatchProcessingResult<string> = [{ result: success('third'), context: context3 }]
+            const pipeline = new BufferingBatchPipeline<string>()
+            const batch1: BatchPipelineResultWithContext<string> = [{ result: ok('first'), context: context1 }]
+            const batch2: BatchPipelineResultWithContext<string> = [{ result: ok('second'), context: context2 }]
+            const batch3: BatchPipelineResultWithContext<string> = [{ result: ok('third'), context: context3 }]
 
             pipeline.feed(batch1)
             pipeline.feed(batch2)
@@ -168,19 +168,19 @@ describe('RootBatchProcessingPipeline', () => {
             const result2 = await pipeline.next()
 
             expect(result).toEqual([
-                { result: success('first'), context: context1 },
-                { result: success('second'), context: context2 },
-                { result: success('third'), context: context3 },
+                { result: ok('first'), context: context1 },
+                { result: ok('second'), context: context2 },
+                { result: ok('third'), context: context3 },
             ])
             expect(result2).toBeNull()
         })
 
         it('should handle large number of elements', async () => {
-            const pipeline = new RootBatchProcessingPipeline<string>()
-            const batch: BatchProcessingResult<string> = []
+            const pipeline = new BufferingBatchPipeline<string>()
+            const batch: BatchPipelineResultWithContext<string> = []
 
             for (let i = 0; i < 100; i++) {
-                batch.push({ result: success(`item${i}`), context: context1 })
+                batch.push({ result: ok(`item${i}`), context: context1 })
             }
 
             pipeline.feed(batch)
@@ -189,32 +189,32 @@ describe('RootBatchProcessingPipeline', () => {
             const result2 = await pipeline.next()
 
             expect(result).toHaveLength(100)
-            expect(result![0]).toEqual({ result: success('item0'), context: context1 })
-            expect(result![99]).toEqual({ result: success('item99'), context: context1 })
+            expect(result![0]).toEqual({ result: ok('item0'), context: context1 })
+            expect(result![99]).toEqual({ result: ok('item99'), context: context1 })
             expect(result2).toBeNull()
         })
 
         it('should resume after returning null when more elements are fed', async () => {
-            const pipeline = new RootBatchProcessingPipeline<string>()
+            const pipeline = new BufferingBatchPipeline<string>()
 
             // First round: feed and process
-            const batch1: BatchProcessingResult<string> = [{ result: success('first'), context: context1 }]
+            const batch1: BatchPipelineResultWithContext<string> = [{ result: ok('first'), context: context1 }]
             pipeline.feed(batch1)
 
             const result1 = await pipeline.next()
-            expect(result1).toEqual([{ result: success('first'), context: context1 }])
+            expect(result1).toEqual([{ result: ok('first'), context: context1 }])
 
             // Should return null when buffer is empty
             const result2 = await pipeline.next()
             expect(result2).toBeNull()
 
             // Feed more elements
-            const batch2: BatchProcessingResult<string> = [{ result: success('second'), context: context2 }]
+            const batch2: BatchPipelineResultWithContext<string> = [{ result: ok('second'), context: context2 }]
             pipeline.feed(batch2)
 
             // Should resume processing
             const result3 = await pipeline.next()
-            expect(result3).toEqual([{ result: success('second'), context: context2 }])
+            expect(result3).toEqual([{ result: ok('second'), context: context2 }])
 
             // Should return null again
             const result4 = await pipeline.next()

@@ -1,7 +1,7 @@
 import { ingestionOverflowingMessagesTotal } from '../../main/ingestion-queues/batch-processing/metrics'
 import { EventHeaders } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
-import { SyncProcessingStep, redirect, success } from '../pipelines/pipeline-types'
+import { SyncProcessingStep, ok, redirect } from '../pipelines/pipeline-types'
 
 export type ForceOverflowDecision = {
     shouldRedirect: boolean
@@ -41,12 +41,12 @@ export function createApplyForceOverflowRestrictionsStep<T extends { headers: Ev
         const { headers } = input
 
         if (!overflowConfig.overflowEnabled) {
-            return success(input)
+            return ok(input)
         }
 
         const forceOverflowDecision = applyForceOverflowRestrictions(eventIngestionRestrictionManager, headers)
         if (!forceOverflowDecision.shouldRedirect) {
-            return success(input)
+            return ok(input)
         }
 
         ingestionOverflowingMessagesTotal.inc()

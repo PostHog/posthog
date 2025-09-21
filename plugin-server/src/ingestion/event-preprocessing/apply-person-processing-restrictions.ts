@@ -1,6 +1,6 @@
 import { IncomingEventWithTeam } from '../../types'
 import { EventIngestionRestrictionManager } from '../../utils/event-ingestion-restriction-manager'
-import { SyncProcessingStep, success } from '../pipelines/pipeline-types'
+import { SyncProcessingStep, ok } from '../pipelines/pipeline-types'
 
 function applyPersonProcessingRestrictions(
     eventWithTeam: IncomingEventWithTeam,
@@ -31,6 +31,6 @@ export function createApplyPersonProcessingRestrictionsStep<T extends { eventWit
     return function applyPersonProcessingRestrictionsStep(input) {
         const { eventWithTeam } = input
         applyPersonProcessingRestrictions(eventWithTeam, eventIngestionRestrictionManager)
-        return success(input)
+        return ok(input)
     }
 }

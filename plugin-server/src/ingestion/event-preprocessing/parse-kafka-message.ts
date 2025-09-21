@@ -4,7 +4,7 @@ import { IncomingEvent, PipelineEvent } from '../../types'
 import { normalizeEvent } from '../../utils/event'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
-import { SyncProcessingStep, drop, success } from '../pipelines/pipeline-types'
+import { SyncProcessingStep, drop, ok } from '../pipelines/pipeline-types'
 
 function parseKafkaMessage(message: Message): IncomingEvent | null {
     try {
@@ -32,6 +32,6 @@ export function createParseKafkaMessageStep<T extends { message: Message }>(): S
             return drop('Failed to parse Kafka message')
         }
 
-        return success({ ...input, event: parsedEvent })
+        return ok({ ...input, event: parsedEvent })
     }
 }

@@ -1,28 +1,28 @@
 import { instrumentFn } from '../../common/tracing/tracing-utils'
-import { GatherBatchProcessingPipeline } from './gather-batch-processing-pipeline'
+import { GatheringBatchPipeline } from './gathering-batch-pipeline'
 import {
-    BatchProcessingPipeline,
-    BatchProcessingResult,
-    Processor,
-    ResultWithContext,
-    isSuccessResult,
+    BatchPipeline,
+    BatchPipelineResultWithContext,
+    Pipeline,
+    PipelineResultWithContext,
+    isOkResult,
 } from './pipeline-types'
 
 export class ConcurrentBatchProcessingPipeline<TInput, TIntermediate, TOutput>
-    implements BatchProcessingPipeline<TInput, TOutput>
+    implements BatchPipeline<TInput, TOutput>
 {
-    private promiseQueue: Promise<ResultWithContext<TOutput>>[] = []
+    private promiseQueue: Promise<PipelineResultWithContext<TOutput>>[] = []
 
     constructor(
-        private processor: Processor<TIntermediate, TOutput>,
-        private previousPipeline: BatchProcessingPipeline<TInput, TIntermediate>
+        private processor: Pipeline<TIntermediate, TOutput>,
+        private previousPipeline: BatchPipeline<TInput, TIntermediate>
     ) {}
 
-    feed(elements: BatchProcessingResult<TInput>): void {
+    feed(elements: BatchPipelineResultWithContext<TInput>): void {
         this.previousPipeline.feed(elements)
     }
 
-    async next(): Promise<BatchProcessingResult<TOutput> | null> {
+    async next(): Promise<BatchPipelineResultWithContext<TOutput> | null> {
         const previousResults = await this.previousPipeline.next()
 
         if (previousResults !== null) {
@@ -30,7 +30,7 @@ export class ConcurrentBatchProcessingPipeline<TInput, TIntermediate, TOutput>
 
             previousResults.forEach((resultWithContext) => {
                 const result = resultWithContext.result
-                if (isSuccessResult(result)) {
+                if (isOkResult(result)) {
                     const promise = instrumentFn(processorName, () => this.processor.process(resultWithContext))
                     this.promiseQueue.push(promise)
                 } else {
@@ -53,7 +53,7 @@ export class ConcurrentBatchProcessingPipeline<TInput, TIntermediate, TOutput>
         return [resultWithContext]
     }
 
-    gather(): GatherBatchProcessingPipeline<TInput, TOutput> {
-        return new GatherBatchProcessingPipeline(this)
+    gather(): GatheringBatchPipeline<TInput, TOutput> {
+        return new GatheringBatchPipeline(this)
     }
 }

@@ -28,7 +28,7 @@ import { TeamManager } from '../../utils/team-manager'
 import { UUID7, bufferToUint32ArrayLE, uint32ArrayLEToBuffer } from '../../utils/utils'
 import { compareTimestamps } from '../../worker/ingestion/timestamp-comparison'
 import { toStartOfDayInTimezone, toYearMonthDayInTimezone } from '../../worker/ingestion/timestamps'
-import { PipelineStepResult, drop, success } from '../pipelines/pipeline-types'
+import { PipelineResult, drop, ok } from '../pipelines/pipeline-types'
 import { RedisHelpers } from './redis-helpers'
 
 /* ---------------------------------------------------------------------
@@ -276,7 +276,7 @@ export class CookielessManager {
         return buf
     }
 
-    async doBatch(events: IncomingEventWithTeam[]): Promise<PipelineStepResult<IncomingEventWithTeam>[]> {
+    async doBatch(events: IncomingEventWithTeam[]): Promise<PipelineResult<IncomingEventWithTeam>[]> {
         if (this.config.disabled) {
             // cookieless is globally disabled, don't do any processing just drop all cookieless events
             return this.dropAllCookielessEvents(events, 'cookieless_globally_disabled')
@@ -297,11 +297,11 @@ export class CookielessManager {
         }
     }
 
-    private async doBatchInner(events: IncomingEventWithTeam[]): Promise<PipelineStepResult<IncomingEventWithTeam>[]> {
+    private async doBatchInner(events: IncomingEventWithTeam[]): Promise<PipelineResult<IncomingEventWithTeam>[]> {
         const hashCache: Record<string, Buffer> = {}
 
         // Track results for each input event - initialize all as success, will be overwritten if dropped
-        const results: PipelineStepResult<IncomingEventWithTeam>[] = events.map((event) => success(event))
+        const results: PipelineResult<IncomingEventWithTeam>[] = events.map((event) => ok(event))
 
         // do a first pass just to extract properties and compute the base hash for stateful cookieless events
         const eventsWithStatus: EventWithStatus[] = []
@@ -626,7 +626,7 @@ export class CookielessManager {
 
         // Update results with successfully processed events
         for (const { event, team, message, headers, originalIndex } of eventsWithStatus) {
-            results[originalIndex] = success({ event, team, message, headers })
+            results[originalIndex] = ok({ event, team, message, headers })
         }
 
         return results
@@ -635,7 +635,7 @@ export class CookielessManager {
     dropAllCookielessEvents(
         events: IncomingEventWithTeam[],
         dropCause: string
-    ): PipelineStepResult<IncomingEventWithTeam>[] {
+    ): PipelineResult<IncomingEventWithTeam>[] {
         return events.map((incomingEvent) => {
             if (incomingEvent.event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
                 eventDroppedCounter
@@ -646,7 +646,7 @@ export class CookielessManager {
                     .inc()
                 return drop(dropCause)
             } else {
-                return success(incomingEvent)
+                return ok(incomingEvent)
             }
         })
     }

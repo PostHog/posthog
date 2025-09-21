@@ -1,9 +1,9 @@
 import { Message } from 'node-rdkafka'
 
-import { ProcessingPipeline } from './processing-pipeline'
-import { RootBatchProcessingPipeline } from './root-batch-processing-pipeline'
+import { BufferingBatchPipeline } from './buffering-batch-pipeline'
+import { StartPipeline } from './start-pipeline'
 
-export enum PipelineStepResultType {
+export enum PipelineResultType {
     OK,
     DLQ,
     DROP,
@@ -13,35 +13,31 @@ export enum PipelineStepResultType {
 /**
  * Generic result type for pipeline steps that can succeed, be dropped, or sent to DLQ
  */
-export type PipelineStepResultOk<T> = { type: PipelineStepResultType.OK; value: T }
-export type PipelineStepResultDlq = { type: PipelineStepResultType.DLQ; reason: string; error: unknown }
-export type PipelineStepResultDrop = { type: PipelineStepResultType.DROP; reason: string }
-export type PipelineStepResultRedirect = {
-    type: PipelineStepResultType.REDIRECT
+export type PipelineResultOk<T> = { type: PipelineResultType.OK; value: T }
+export type PipelineResultDlq = { type: PipelineResultType.DLQ; reason: string; error: unknown }
+export type PipelineResultDrop = { type: PipelineResultType.DROP; reason: string }
+export type PipelineResultRedirect = {
+    type: PipelineResultType.REDIRECT
     reason: string
     topic: string
     preserveKey?: boolean
     awaitAck?: boolean
 }
-export type PipelineStepResult<T> =
-    | PipelineStepResultOk<T>
-    | PipelineStepResultDlq
-    | PipelineStepResultDrop
-    | PipelineStepResultRedirect
+export type PipelineResult<T> = PipelineResultOk<T> | PipelineResultDlq | PipelineResultDrop | PipelineResultRedirect
 
 /**
  * Helper functions for creating pipeline step results
  */
-export function success<T>(value: T): PipelineStepResult<T> {
-    return { type: PipelineStepResultType.OK, value }
+export function ok<T>(value: T): PipelineResult<T> {
+    return { type: PipelineResultType.OK, value }
 }
 
-export function dlq<T>(reason: string, error?: any): PipelineStepResult<T> {
-    return { type: PipelineStepResultType.DLQ, reason, error }
+export function dlq<T>(reason: string, error?: any): PipelineResult<T> {
+    return { type: PipelineResultType.DLQ, reason, error }
 }
 
-export function drop<T>(reason: string): PipelineStepResult<T> {
-    return { type: PipelineStepResultType.DROP, reason }
+export function drop<T>(reason: string): PipelineResult<T> {
+    return { type: PipelineResultType.DROP, reason }
 }
 
 export function redirect<T>(
@@ -49,9 +45,9 @@ export function redirect<T>(
     topic: string,
     preserveKey: boolean = true,
     awaitAck: boolean = true
-): PipelineStepResult<T> {
+): PipelineResult<T> {
     return {
-        type: PipelineStepResultType.REDIRECT,
+        type: PipelineResultType.REDIRECT,
         reason,
         topic,
         preserveKey,
@@ -62,92 +58,87 @@ export function redirect<T>(
 /**
  * Type guard functions
  */
-export function isSuccessResult<T>(result: PipelineStepResult<T>): result is PipelineStepResultOk<T> {
-    return result.type === PipelineStepResultType.OK
+export function isOkResult<T>(result: PipelineResult<T>): result is PipelineResultOk<T> {
+    return result.type === PipelineResultType.OK
 }
 
-export function isDlqResult<T>(result: PipelineStepResult<T>): result is PipelineStepResultDlq {
-    return result.type === PipelineStepResultType.DLQ
+export function isDlqResult<T>(result: PipelineResult<T>): result is PipelineResultDlq {
+    return result.type === PipelineResultType.DLQ
 }
 
-export function isDropResult<T>(result: PipelineStepResult<T>): result is PipelineStepResultDrop {
-    return result.type === PipelineStepResultType.DROP
+export function isDropResult<T>(result: PipelineResult<T>): result is PipelineResultDrop {
+    return result.type === PipelineResultType.DROP
 }
 
-export function isRedirectResult<T>(result: PipelineStepResult<T>): result is PipelineStepResultRedirect {
-    return result.type === PipelineStepResultType.REDIRECT
+export function isRedirectResult<T>(result: PipelineResult<T>): result is PipelineResultRedirect {
+    return result.type === PipelineResultType.REDIRECT
 }
 
 /**
  * Processing context that carries message through pipeline transformations
  */
-export interface ProcessingContext {
+export interface PipelineContext {
     message: Message
 }
 
 /**
  * Result with context wrapper that carries both the pipeline result and processing context
  */
-export interface ResultWithContext<T> {
-    result: PipelineStepResult<T>
-    context: ProcessingContext
+export interface PipelineResultWithContext<T> {
+    result: PipelineResult<T>
+    context: PipelineContext
 }
-
-/**
- * Processing result type alias
- */
-export type ProcessingResult<T> = PipelineStepResult<T>
 
 /**
  * Synchronous processing step that takes a value and returns a processing result
  */
-export type SyncProcessingStep<T, U> = (value: T) => ProcessingResult<U>
+export type SyncProcessingStep<T, U> = (value: T) => PipelineResult<U>
 
 /**
  * Asynchronous processing step that takes a value and returns a promise of processing result
  */
-export type AsyncProcessingStep<T, U> = (value: T) => Promise<ProcessingResult<U>>
+export type AsyncProcessingStep<T, U> = (value: T) => Promise<PipelineResult<U>>
 
 /**
  * Batch processing result type
  */
-export type BatchProcessingResult<T> = ResultWithContext<T>[]
+export type BatchPipelineResultWithContext<T> = PipelineResultWithContext<T>[]
 
 /**
  * Interface for single-item processors
  */
-export interface Processor<TInput, TOutput> {
-    process(input: ResultWithContext<TInput>): Promise<ResultWithContext<TOutput>>
+export interface Pipeline<TInput, TOutput> {
+    process(input: PipelineResultWithContext<TInput>): Promise<PipelineResultWithContext<TOutput>>
 }
 
 /**
  * Interface for batch processing pipelines
  */
-export interface BatchProcessingPipeline<TInput, TIntermediate> {
-    feed(elements: BatchProcessingResult<TInput>): void
-    next(): Promise<BatchProcessingResult<TIntermediate> | null>
+export interface BatchPipeline<TInput, TIntermediate> {
+    feed(elements: BatchPipelineResultWithContext<TInput>): void
+    next(): Promise<BatchPipelineResultWithContext<TIntermediate> | null>
 }
 
 /**
  * Helper function to create a new processing pipeline for single items
  */
-export function createNewPipeline<T = { message: Message }>(): ProcessingPipeline<T, T, T> {
-    return ProcessingPipeline.create<T>()
+export function createNewPipeline<T = { message: Message }>(): StartPipeline<T> {
+    return new StartPipeline<T>()
 }
 
 /**
  * Helper function to create a new batch processing pipeline starting with a root pipeline
  */
-export function createNewBatchPipeline<T = { message: Message }>(): RootBatchProcessingPipeline<T> {
-    return new RootBatchProcessingPipeline<T>()
+export function createNewBatchPipeline<T = { message: Message }>(): BufferingBatchPipeline<T> {
+    return new BufferingBatchPipeline<T>()
 }
 
 /**
  * Helper function to create a batch of ResultWithContext from Kafka messages
  */
-export function createBatch(messages: Message[]): BatchProcessingResult<{ message: Message }> {
+export function createBatch(messages: Message[]): BatchPipelineResultWithContext<{ message: Message }> {
     return messages.map((message) => ({
-        result: success({ message }),
+        result: ok({ message }),
         context: { message },
     }))
 }

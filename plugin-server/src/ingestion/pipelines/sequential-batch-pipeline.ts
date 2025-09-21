@@ -1,37 +1,35 @@
 import { instrumentFn } from '../../common/tracing/tracing-utils'
 import {
-    BatchProcessingPipeline,
-    BatchProcessingResult,
-    PipelineStepResult,
-    PipelineStepResultOk,
-    ResultWithContext,
-    isSuccessResult,
+    BatchPipeline,
+    BatchPipelineResultWithContext,
+    PipelineResult,
+    PipelineResultOk,
+    PipelineResultWithContext,
+    isOkResult,
 } from './pipeline-types'
 
 /**
  * Type guard for ResultWithContext that asserts the result is successful
  */
 function isSuccessResultWithContext<T>(
-    resultWithContext: ResultWithContext<T>
-): resultWithContext is ResultWithContext<T> & { result: PipelineStepResultOk<T> } {
-    return isSuccessResult(resultWithContext.result)
+    resultWithContext: PipelineResultWithContext<T>
+): resultWithContext is PipelineResultWithContext<T> & { result: PipelineResultOk<T> } {
+    return isOkResult(resultWithContext.result)
 }
 
-export type BatchProcessingStep<T, U> = (values: T[]) => Promise<PipelineStepResult<U>[]>
+export type BatchProcessingStep<T, U> = (values: T[]) => Promise<PipelineResult<U>[]>
 
-export class SequentialBatchProcessingPipeline<TInput, TIntermediate, TOutput>
-    implements BatchProcessingPipeline<TInput, TOutput>
-{
+export class SequentialBatchPipeline<TInput, TIntermediate, TOutput> implements BatchPipeline<TInput, TOutput> {
     constructor(
         private currentStep: BatchProcessingStep<TIntermediate, TOutput>,
-        private previousPipeline: BatchProcessingPipeline<TInput, TIntermediate>
+        private previousPipeline: BatchPipeline<TInput, TIntermediate>
     ) {}
 
-    feed(elements: BatchProcessingResult<TInput>): void {
+    feed(elements: BatchPipelineResultWithContext<TInput>): void {
         this.previousPipeline.feed(elements)
     }
 
-    async next(): Promise<BatchProcessingResult<TOutput> | null> {
+    async next(): Promise<BatchPipelineResultWithContext<TOutput> | null> {
         const previousResults = await this.previousPipeline.next()
         if (previousResults === null) {
             return null
@@ -44,7 +42,7 @@ export class SequentialBatchProcessingPipeline<TInput, TIntermediate, TOutput>
 
         // Apply current step to successful values
         const stepName = this.currentStep.name || 'anonymousBatchStep'
-        let stepResults: PipelineStepResult<TOutput>[] = []
+        let stepResults: PipelineResult<TOutput>[] = []
         if (successfulValues.length > 0) {
             stepResults = await instrumentFn(stepName, () => this.currentStep(successfulValues))
         }
@@ -52,7 +50,7 @@ export class SequentialBatchProcessingPipeline<TInput, TIntermediate, TOutput>
 
         // Map results back, preserving context and non-successful results
         return previousResults.map((resultWithContext) => {
-            if (isSuccessResult(resultWithContext.result)) {
+            if (isOkResult(resultWithContext.result)) {
                 return {
                     result: stepResults[stepIndex++],
                     context: resultWithContext.context,
@@ -68,9 +66,9 @@ export class SequentialBatchProcessingPipeline<TInput, TIntermediate, TOutput>
 
     static from<TInput, TIntermediate, TOutput>(
         step: BatchProcessingStep<TIntermediate, TOutput>,
-        subPipeline: BatchProcessingPipeline<TInput, TIntermediate>
-    ): SequentialBatchProcessingPipeline<TInput, TIntermediate, TOutput> {
+        subPipeline: BatchPipeline<TInput, TIntermediate>
+    ): SequentialBatchPipeline<TInput, TIntermediate, TOutput> {
         const pipeline = subPipeline
-        return new SequentialBatchProcessingPipeline<TInput, TIntermediate, TOutput>(step, pipeline)
+        return new SequentialBatchPipeline<TInput, TIntermediate, TOutput>(step, pipeline)
     }
 }
