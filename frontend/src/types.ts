@@ -4259,7 +4259,7 @@ export interface SubscriptionType {
     dashboard?: number
     target_type: string
     target_value: string
-    frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
+    frequency: 'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly'
     interval: number
     byweekday: WeekdayType[] | null
     bysetpos: number | null
