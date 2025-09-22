@@ -1,7 +1,8 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 
 import { LemonBanner, Tooltip } from '@posthog/lemon-ui'
 
+import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { humanFriendlyLargeNumber } from 'lib/utils'
 import { currencyFormatter } from 'scenes/billing/billing-utils'
@@ -131,6 +132,8 @@ const CurrencyColumn = ({ record }: { record: unknown }): JSX.Element => {
 const ListOptions = (): JSX.Element => {
     const { selectedIssueIds } = useValues(bulkSelectLogic)
     const { results } = useValues(issuesDataNodeLogic)
+    const { openSupportForm } = useActions(supportLogic)
+    const { orderBy } = useValues(issueQueryOptionsLogic)
 
     return (
         <SceneStickyBar showBorderBottom={false}>
@@ -139,9 +142,25 @@ const ListOptions = (): JSX.Element => {
             ) : (
                 <IssueQueryOptions />
             )}
-            <LemonBanner type="info" action={{ children: 'Send feedback', id: 'revenue-analytics-feedback-button' }}>
-                Revenue sorting is currently experimental. We're keen to hear feedback or any issues you have using it
-            </LemonBanner>
+            {orderBy === 'revenue' && (
+                <LemonBanner
+                    type="warning"
+                    action={{
+                        children: 'Send feedback',
+                        onClick: () =>
+                            openSupportForm({
+                                kind: 'feedback',
+                                target_area: 'error_tracking',
+                                severity_level: 'medium',
+                                isEmailFormOpen: true,
+                            }),
+                        id: 'revenue-analytics-feedback-button',
+                    }}
+                >
+                    Revenue sorting is currently experimental. We're keen to hear feedback or any issues you have using
+                    it
+                </LemonBanner>
+            )}
         </SceneStickyBar>
     )
 }
