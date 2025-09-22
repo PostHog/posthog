@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useEffect } from 'react'
 
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -218,6 +218,16 @@ function SecondStep(): JSX.Element {
             {selectedConnector.caption && (
                 <LemonMarkdown className="text-sm">{selectedConnector.caption}</LemonMarkdown>
             )}
+
+            {selectedConnector.docsUrl && (
+                <div className="inline-block">
+                    <LemonButton to={selectedConnector.docsUrl} type="primary" size="small">
+                        View docs
+                    </LemonButton>
+                </div>
+            )}
+
+            <LemonDivider />
 
             <SourceForm sourceConfig={selectedConnector} />
         </div>

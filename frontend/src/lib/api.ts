@@ -39,6 +39,7 @@ import {
     RecordingsQueryResponse,
     RefreshType,
     SourceConfig,
+    TileFilters,
 } from '~/queries/schema/schema-general'
 import { HogQLQueryString, setLatestVersionsOnQuery } from '~/queries/utils'
 import {
@@ -171,6 +172,7 @@ import { Task, TaskUpsertProps } from 'products/tasks/frontend/types'
 import { MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
+    ErrorTrackingFingerprint,
     ErrorTrackingStackFrame,
     ErrorTrackingStackFrameRecord,
     ErrorTrackingSymbolSet,
@@ -1015,6 +1017,10 @@ export class ApiRequest {
         return this.errorTracking(teamId).addPathComponent('external_references')
     }
 
+    public errorTrackingIssueFingerprints(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('fingerprints')
+    }
+
     public errorTrackingSymbolSets(teamId?: TeamType['id']): ApiRequest {
         return this.errorTracking(teamId).addPathComponent('symbol_sets')
     }
@@ -1573,7 +1579,8 @@ const api = {
             basic?: boolean,
             refresh?: RefreshType,
             filtersOverride?: DashboardFilter | null,
-            variablesOverride?: Record<string, HogQLVariable> | null
+            variablesOverride?: Record<string, HogQLVariable> | null,
+            tileFiltersOverride?: TileFilters | null
         ): Promise<PaginatedResponse<Partial<InsightModel>>> {
             return new ApiRequest()
                 .insights()
@@ -1584,6 +1591,7 @@ const api = {
                         refresh,
                         filters_override: filtersOverride,
                         variables_override: variablesOverride,
+                        tile_filters_override: tileFiltersOverride,
                     })
                 )
                 .get()
@@ -1905,7 +1913,7 @@ const api = {
 
     comments: {
         async create(
-            data: Partial<CommentType>,
+            data: Partial<CommentType> & { mentions?: number[] },
             params: Record<string, any> = {},
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): Promise<CommentType> {
@@ -1914,7 +1922,7 @@ const api = {
 
         async update(
             id: CommentType['id'],
-            data: Partial<CommentType>,
+            data: Partial<CommentType> & { new_mentions?: number[] },
             params: Record<string, any> = {},
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): Promise<CommentType> {
@@ -2858,6 +2866,16 @@ const api = {
             return await new ApiRequest()
                 .errorTrackingIssueSplit(issueId)
                 .create({ data: { fingerprints: fingerprints, exclusive } })
+        },
+
+        fingerprints: {
+            async list(issueId: ErrorTrackingIssue['id']): Promise<CountedPaginatedResponse<ErrorTrackingFingerprint>> {
+                const queryString = { issue_id: issueId }
+                return await new ApiRequest()
+                    .errorTrackingIssueFingerprints()
+                    .withQueryString(toParams(queryString))
+                    .get()
+            },
         },
 
         symbolSets: {
