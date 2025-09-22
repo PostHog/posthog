@@ -174,9 +174,12 @@ class BaseTableType(Type):
                     name=name,
                     expr=field.expr,
                     isolate_scope=field.isolate_scope or False,
-                    nullable=field.nullable,
+                    nullable=(field.nullable if field.nullable is not None else True),
+                    # we penalize the tables with not defined nullable fields
                 )
-            return FieldType(name=name, table_type=self, nullable=field.nullable)
+            return FieldType(
+                name=name, table_type=self, nullable=(field.nullable if field.nullable is not None else True)
+            )
 
         raise QueryError(f"Field not found: {name}")
 
