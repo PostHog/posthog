@@ -181,9 +181,8 @@ export class CyclotronJobQueueDelay {
                     continue
                 }
 
-                const now = new Date().getTime()
                 const scheduledTime = new Date(queueScheduledAt)
-                const delayMs = Math.max(0, scheduledTime.getTime() - now)
+                const delayMs = Math.max(0, scheduledTime.getTime() - new Date().getTime())
                 const waitTime = Math.min(delayMs, maxDelayMs)
 
                 if (waitTime > 5000) {
