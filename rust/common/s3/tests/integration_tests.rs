@@ -1,12 +1,12 @@
 use aws_config::BehaviorVersion;
 use aws_sdk_s3::config::Region;
-use aws_sdk_s3::Client as AwsS3Client;
+use aws_sdk_s3::Client as AwsS3SdkClient;
 use common_s3::{S3Client, S3Error, S3Impl};
 
 const TEST_BUCKET: &str = "test-bucket";
 const S3_ENDPOINT: &str = "http://127.0.0.1:19000"; // MinIO
 
-async fn create_test_s3_client() -> (S3Impl, AwsS3Client) {
+async fn create_test_s3_client() -> (S3Impl, AwsS3SdkClient) {
     let config = aws_config::defaults(BehaviorVersion::latest())
         .endpoint_url(S3_ENDPOINT)
         .region(Region::new("us-east-1"))
@@ -20,12 +20,12 @@ async fn create_test_s3_client() -> (S3Impl, AwsS3Client) {
         .load()
         .await;
 
-    let aws_client = AwsS3Client::new(&config);
+    let aws_client = AwsS3SdkClient::new(&config);
     let s3_impl = S3Impl::new(aws_client.clone());
     (s3_impl, aws_client)
 }
 
-async fn ensure_bucket_exists(client: &AwsS3Client) {
+async fn ensure_bucket_exists(client: &AwsS3SdkClient) {
     // Try to create bucket, ignore if it already exists
     let _ = client.create_bucket().bucket(TEST_BUCKET).send().await;
 }
