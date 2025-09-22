@@ -2,7 +2,7 @@ import re
 import json
 import math
 import asyncio
-from typing import Any, Literal, Optional, TypeVar, cast
+from typing import Literal, Optional, TypeVar, cast
 from uuid import uuid4
 
 from django.conf import settings
@@ -48,11 +48,7 @@ from ee.hogai.graph.query_executor.query_executor import AssistantQueryExecutor,
 from ee.hogai.graph.shared_prompts import CORE_MEMORY_PROMPT
 from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
-from ee.hogai.utils.anthropic import (
-    add_cache_control,
-    get_thinking_from_assistant_message,
-    normalize_ai_anthropic_message,
-)
+from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages, normalize_ai_anthropic_message
 from ee.hogai.utils.helpers import find_last_ui_context, find_start_message, find_start_message_idx
 from ee.hogai.utils.types import (
     AssistantMessageUnion,
@@ -619,46 +615,7 @@ class RootNode(RootNodeUIContextMixin):
             if isinstance(message, AssistantToolCallMessage)
         }
 
-        history: list[BaseMessage] = []
-
-        for message in conversation_window:
-            if isinstance(message, HumanMessage):
-                history.append(LangchainHumanMessage(content=[{"type": "text", "text": message.content}]))
-            elif isinstance(message, AssistantMessage):
-                content = get_thinking_from_assistant_message(message)
-                if message.content:
-                    content.append({"type": "text", "text": message.content})
-
-                # Filter out tool calls without a tool response, so the completion doesn't fail.
-                tool_calls = [
-                    tool for tool in (message.model_dump()["tool_calls"] or []) if tool["id"] in tool_result_messages
-                ]
-
-                if content or tool_calls:
-                    history.append(
-                        LangchainAIMessage(
-                            content=cast(list[str | dict[str, Any]], content),
-                            tool_calls=tool_calls,
-                        )
-                    )
-
-                # Append associated tool call messages.
-                for tool_call in tool_calls:
-                    tool_call_id = tool_call["id"]
-                    result_message = tool_result_messages[tool_call_id]
-                    history.append(
-                        LangchainHumanMessage(
-                            content=[
-                                {"type": "tool_result", "tool_use_id": tool_call_id, "content": result_message.content}
-                            ],
-                        ),
-                    )
-            elif isinstance(message, FailureMessage):
-                history.append(
-                    LangchainHumanMessage(
-                        content=[{"type": "text", "text": message.content or "An unknown failure occurred."}],
-                    )
-                )
+        history: list[BaseMessage] = convert_to_anthropic_messages(conversation_window, tool_result_messages)
 
         # Append a single cache control to the last human message or last tool message
         for i in range(len(history) - 1, -1, -1):
