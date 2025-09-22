@@ -609,9 +609,129 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual(await node._get_billing_info(config), (should_add_billing_tool, expected_prompt))
 
-    # Note: More complex mocking tests for billing tool availability were removed
-    # as they were difficult to maintain. The core billing access logic is tested above
-    # and the routing behavior is tested in the TestRootNodeTools section.
+    async def test_deduplicate_context_messages(self):
+        """Test that context messages are deduplicated based on existing human message content"""
+        node = RootNode(self.team, self.user)
+
+        # Create state with existing human messages
+        state = AssistantState(
+            messages=[
+                HumanMessage(content="Existing message 1"),
+                AssistantMessage(content="Response"),
+                HumanMessage(content="Existing message 2"),
+            ]
+        )
+
+        # Test deduplication - should filter out matching content
+        context_prompts = [
+            "New context message",
+            "Existing message 1",  # This should be filtered out
+            "Another new message",
+            "Existing message 2",  # This should be filtered out
+        ]
+
+        result = node._deduplicate_context_messages(state, context_prompts)
+
+        expected = ["New context message", "Another new message"]
+        self.assertEqual(result, expected)
+
+    async def test_get_context_prompts_with_ui_and_contextual_tools(self):
+        """Test that context prompts are returned for both UI context and contextual tools"""
+        with (
+            patch.object(RootNode, "_get_contextual_tools_prompt") as mock_contextual_tools,
+            patch.object(RootNode, "_format_ui_context") as mock_format_ui,
+            patch.object(RootNode, "_get_ui_context") as mock_get_ui,
+            patch.object(RootNode, "_deduplicate_context_messages") as mock_dedupe,
+        ):
+            # Setup mocks
+            mock_contextual_tools.return_value = "Contextual tools prompt"
+            mock_format_ui.return_value = "UI context prompt"
+            mock_get_ui.return_value = MaxUIContext()
+            mock_dedupe.return_value = ["Contextual tools prompt", "UI context prompt"]
+
+            node = RootNode(self.team, self.user)
+            state = AssistantState(messages=[HumanMessage(content="Test")])
+            config = RunnableConfig(configurable={})
+
+            result = await node._get_context_prompts(state, config)
+
+            # Verify both prompts are included
+            self.assertEqual(result, ["Contextual tools prompt", "UI context prompt"])
+
+            # Verify methods were called
+            mock_contextual_tools.assert_called_once_with(config)
+            mock_get_ui.assert_called_once_with(state)
+            mock_format_ui.assert_called_once_with(MaxUIContext(), config)
+            mock_dedupe.assert_called_once_with(state, ["Contextual tools prompt", "UI context prompt"])
+
+    async def test_get_context_prompts_with_only_contextual_tools(self):
+        """Test that context prompts work when only contextual tools are present"""
+        with (
+            patch.object(RootNode, "_get_contextual_tools_prompt") as mock_contextual_tools,
+            patch.object(RootNode, "_format_ui_context") as mock_format_ui,
+            patch.object(RootNode, "_get_ui_context") as mock_get_ui,
+            patch.object(RootNode, "_deduplicate_context_messages") as mock_dedupe,
+        ):
+            # Setup mocks - only contextual tools, no UI context
+            mock_contextual_tools.return_value = "Contextual tools prompt"
+            mock_format_ui.return_value = None  # No UI context
+            mock_get_ui.return_value = MaxUIContext()
+            mock_dedupe.return_value = ["Contextual tools prompt"]
+
+            node = RootNode(self.team, self.user)
+            state = AssistantState(messages=[HumanMessage(content="Test")])
+            config = RunnableConfig(configurable={})
+
+            result = await node._get_context_prompts(state, config)
+
+            # Should only include contextual tools prompt
+            self.assertEqual(result, ["Contextual tools prompt"])
+            mock_dedupe.assert_called_once_with(state, ["Contextual tools prompt"])
+
+    def test_is_first_turn_true(self):
+        """Test _is_first_turn returns True when last message is the start message"""
+        node = RootNode(self.team, self.user)
+
+        # Create state where the last message is the first human message
+        state = AssistantState(
+            messages=[
+                HumanMessage(content="First message", id="1"),
+            ]
+        )
+
+        result = node._is_first_turn(state)
+        self.assertTrue(result)
+
+    def test_is_first_turn_false_with_conversation(self):
+        """Test _is_first_turn returns False when there's been conversation"""
+        node = RootNode(self.team, self.user)
+
+        # Create state with conversation history
+        state = AssistantState(
+            messages=[
+                HumanMessage(content="First message", id="1"),
+                AssistantMessage(content="Response", id="2"),
+                HumanMessage(content="Second message", id="3"),
+            ]
+        )
+
+        result = node._is_first_turn(state)
+        self.assertFalse(result)
+
+    def test_is_first_turn_false_with_assistant_message_last(self):
+        """Test _is_first_turn returns False when last message is not human"""
+        node = RootNode(self.team, self.user)
+
+        # Create state where last message is assistant message
+        state = AssistantState(
+            messages=[
+                HumanMessage(content="First message", id="1"),
+                AssistantMessage(content="Response", id="2"),
+            ]
+        )
+
+        result = node._is_first_turn(state)
+        self.assertFalse(result)
 
 
 class TestRootNodeTools(BaseTest):
