@@ -105,15 +105,15 @@ export type UpdateViewPayload = Partial<DatabaseSchemaViewTable> & {
 
 function getTabHash(values: multitabEditorLogicType['values']): Record<string, any> {
     const hash: Record<string, any> = {
-        q: values.queryInput,
+        q: values.queryInput || '',
     }
-    if (values.activeTab.view) {
+    if (values.activeTab?.view) {
         hash['view'] = values.activeTab.view.id
     }
-    if (values.activeTab.insight) {
+    if (values.activeTab?.insight) {
         hash['insight'] = values.activeTab.insight.short_id
     }
-    if (values.activeTab.draft) {
+    if (values.activeTab?.draft) {
         hash['draft'] = values.activeTab.draft.id
     }
 
@@ -560,9 +560,6 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             }
         },
         initialize: async () => {
-            if (!values.activeTab) {
-                actions.createTab()
-            }
             actions.setFinishedLoading(false)
         },
         setQueryInput: ({ queryInput }) => {
@@ -1017,14 +1014,10 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     }),
     tabAwareActionToUrl(({ values }) => ({
         setQueryInput: () => {
-            if (values.queryInput) {
-                return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
-            }
+            return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
         },
         createTab: () => {
-            if (values.queryInput) {
-                return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
-            }
+            return [urls.sqlEditor(), undefined, getTabHash(values), { replace: true }]
         },
     })),
     tabAwareUrlToAction(({ actions, values, props }) => ({
@@ -1153,26 +1146,30 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 }
             }
 
-            const waitUntilMonaco = async (): Promise<void> => {
-                return await new Promise((resolve, reject) => {
-                    let intervalCount = 0
-                    const interval = setInterval(() => {
-                        intervalCount++
+            if (props.monaco) {
+                await createQueryTab()
+            } else {
+                const waitUntilMonaco = async (): Promise<void> => {
+                    return await new Promise((resolve, reject) => {
+                        let intervalCount = 0
+                        const interval = setInterval(() => {
+                            intervalCount++
 
-                        if (props.monaco && !tabAdded) {
-                            clearInterval(interval)
-                            resolve()
-                        } else if (intervalCount >= 10_000 / 300) {
-                            clearInterval(interval)
-                            reject()
-                        }
-                    }, 300)
+                            if (props.monaco && !tabAdded) {
+                                clearInterval(interval)
+                                resolve()
+                            } else if (intervalCount >= 10_000 / 300) {
+                                clearInterval(interval)
+                                reject()
+                            }
+                        }, 300)
+                    })
+                }
+
+                await waitUntilMonaco().then(async () => {
+                    await createQueryTab()
                 })
             }
-
-            await waitUntilMonaco().then(async () => {
-                await createQueryTab()
-            })
         },
     })),
     beforeUnmount(({ cache }) => {
