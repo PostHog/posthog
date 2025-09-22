@@ -457,7 +457,6 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     // Messaging
     MAILJET_PUBLIC_KEY: string
     MAILJET_SECRET_KEY: string
-    OBJECT_STORAGE_MESSAGING_ATTACHMENTS_BUCKET: string
 }
 
 export interface Hub extends PluginsServerConfig {

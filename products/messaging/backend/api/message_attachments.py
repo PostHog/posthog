@@ -1,3 +1,5 @@
+import os
+
 from django.conf import settings
 from django.http import JsonResponse
 
@@ -42,20 +44,16 @@ class MessageAttachmentsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if not file:
             return JsonResponse({"error": "Missing file"}, status=400)
 
-        object_path = f"{request.team.id}/{str(uuid7())}"
-        object_storage.write(
-            object_path,
-            file,
-            bucket=settings.OBJECT_STORAGE_MESSAGING_ATTACHMENTS_BUCKET or "posthog-message-attachments-dev",
-        )
+        _, file_extension = os.path.splitext(file.name)
 
-        file_url = object_storage.url(
-            object_path,
-            bucket=settings.OBJECT_STORAGE_MESSAGING_ATTACHMENTS_BUCKET or "posthog-message-attachments-dev",
-        )
+        object_name = f"{str(uuid7())}{file_extension}"
+        object_path = f"{self.team_id}/{object_name}"
+        object_storage.write(object_path, file, bucket=settings.OBJECT_STORAGE_MESSAGING_ATTACHMENTS_BUCKET)
+
+        object_url = f"https://{settings.MESSAGING_ATTACHMENTS_CDN_DOMAIN}/{object_path}"
 
         return Response(
             {
-                "file_url": file_url,
+                "file_url": object_url,
             }
         )

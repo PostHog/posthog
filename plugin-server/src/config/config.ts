@@ -315,7 +315,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         // Messaging
         MAILJET_PUBLIC_KEY: '',
         MAILJET_SECRET_KEY: '',
-        OBJECT_STORAGE_MESSAGING_ATTACHMENTS_BUCKET: '',
     }
 }
 

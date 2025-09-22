@@ -189,7 +189,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             }
 
             values.emailEditorRef?.editor?.registerCallback('image', async (file, done) => {
-                const fileUrl = await api.messaging.uploadAttachment(file)
+                const fileUrl = await api.messaging.uploadAttachment(file.attachments[0])
                 done({ progress: 100, url: fileUrl })
             })
         },
