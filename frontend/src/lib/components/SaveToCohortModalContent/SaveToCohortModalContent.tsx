@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton, LemonInput, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 
 import { ActorsQuery } from '~/queries/schema/schema-general'
@@ -30,7 +31,15 @@ export function SaveToCohortModalContent({ closeModal, query }: SaveToCohortModa
                         <LemonTableLink
                             to={urls.cohort(id)}
                             target="_blank"
-                            title={name ? <>{name}</> : 'Untitled'}
+                            title={
+                                name ? (
+                                    <>
+                                        {name} <IconOpenInNew className="shrink-0" />
+                                    </>
+                                ) : (
+                                    'Untitled'
+                                )
+                            }
                             description={description}
                         />
                     </>
