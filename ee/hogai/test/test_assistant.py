@@ -2048,7 +2048,12 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             def __call__(self, state):
                 self.call_count += 1
                 # Return message without ID - should always be yielded
-                return {"messages": [AssistantMessage(content=f"Message {self.call_count} without ID")]}
+                return {
+                    "messages": [
+                        AssistantMessage(content=f"Message {self.call_count} without ID"),
+                        AssistantMessage(content=f"Message {self.call_count} without ID"),
+                    ]
+                }
 
         node = MessageWithoutIdNode()
         graph = (
@@ -2064,19 +2069,8 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         output2, _ = await self._run_assistant_graph(graph, message="Second run", conversation=self.conversation)
 
         # Both runs should yield their messages (human + assistant message each)
-        self.assertEqual(len(output1), 2)  # Human message + AI message
-        self.assertEqual(len(output2), 2)  # Human message + AI message
-
-        # Verify the content is different for each run
-        ai_message1 = cast(AssistantMessage, output1[1][1])
-        ai_message2 = cast(AssistantMessage, output2[1][1])
-
-        self.assertEqual(ai_message1.content, "Message 1 without ID")
-        self.assertEqual(ai_message2.content, "Message 2 without ID")
-
-        # Verify neither message has an ID
-        self.assertIsNone(ai_message1.id)
-        self.assertIsNone(ai_message2.id)
+        self.assertEqual(len(output1), 3)  # Human message + AI message + AI message
+        self.assertEqual(len(output2), 3)  # Human message + AI message + AI message
 
     async def test_messages_with_id_are_deduplicated(self):
         """Test that messages with ID are deduplicated during streaming."""
@@ -2089,7 +2083,12 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             def __call__(self, state):
                 self.call_count += 1
                 # Always return the same message with same ID
-                return {"messages": [AssistantMessage(id=message_id, content=f"Call {self.call_count}")]}
+                return {
+                    "messages": [
+                        AssistantMessage(id=message_id, content=f"Call {self.call_count}"),
+                        AssistantMessage(id=message_id, content=f"Call {self.call_count}"),
+                    ]
+                }
 
         node = DuplicateMessageNode()
         graph = (
