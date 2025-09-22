@@ -3,10 +3,8 @@
     "tabWidth": 4,
     "semi": false,
     "singleQuote": true,
-    "printWidth": 100,
-    "plugins": [
-        "@trivago/prettier-plugin-sort-imports"
-    ],
+    "printWidth": 120,
+    "plugins": ["@trivago/prettier-plugin-sort-imports"],
     "importOrder": [
         "~/styles$",
         "\\.s?css$",
