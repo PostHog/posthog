@@ -20,6 +20,17 @@ class TestMessageAttachmentsAPI(APIBaseTest):
         self.assertIn("file_url", response.json())
         mock_storage.write.assert_called_once()
 
+        called_args = mock_storage.write.call_args[0]
+        object_path_arg = called_args[0]
+        file_arg = called_args[1]
+
+        self.assertTrue(object_path_arg.startswith(f"{self.team.id}/"))
+        self.assertEqual(file_arg, test_file)
+
+        # Assert object_path ends with a UUID and .txt
+        uuid_txt_pattern = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\.txt$"
+        self.assertRegex(object_path_arg, uuid_txt_pattern)
+
     @patch("posthog.products.messaging.backend.api.message_attachments.object_storage")
     def test_upload_missing_file(self):
         response = self.client.post(
