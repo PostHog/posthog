@@ -99,6 +99,7 @@ from posthog.utils import (
     refresh_requested_by_client,
     relative_date_parse,
     str_to_bool,
+    tile_filters_override_requested_by_client,
     variables_override_requested_by_client,
 )
 
@@ -750,6 +751,11 @@ class InsightSerializer(InsightBasicSerializer):
                     self.context["request"], dashboard, list(self.context["insight_variables"])
                 )
 
+                dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
+                tile_filters_override = tile_filters_override_requested_by_client(
+                    self.context["request"], dashboard_tile
+                )
+
                 if self.context.get("is_shared", False):
                     execution_mode = shared_insights_execution_mode(execution_mode)
 
@@ -761,6 +767,7 @@ class InsightSerializer(InsightBasicSerializer):
                     user=None if self.context["request"].user.is_anonymous else self.context["request"].user,
                     filters_override=filters_override,
                     variables_override=variables_override,
+                    tile_filters_override=tile_filters_override,
                 )
             except ExposedHogQLError as e:
                 raise ValidationError(str(e))
