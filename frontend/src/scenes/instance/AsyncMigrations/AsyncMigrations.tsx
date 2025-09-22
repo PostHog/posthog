@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconDatabase } from '@posthog/icons'
+import { Link } from '@posthog/lemon-ui'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -19,6 +20,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { AsyncMigrationDetails } from './AsyncMigrationDetails'
@@ -265,15 +267,23 @@ export function AsyncMigrations(): JSX.Element {
                 <>
                     <SceneTitleSection
                         name="Async Migrations"
-                        description="Manage async migrations in your instance. <br /> <br /> Read about async migrations on our [dedicated docs page](https://posthog.com/docs/self-host/configure/async-migrations/overview)."
+                        description="Manage async migrations in your instance."
                         markdown
                         resourceType={{
                             type: 'async_migrations',
                             forceIcon: <IconDatabase />,
                         }}
                     />
+                    <p>
+                        Read about async migrations on our{' '}
+                        <Link to="https://posthog.com/docs/self-host/configure/async-migrations/overview">
+                            dedicated docs page
+                        </Link>
+                        .
+                    </p>
+                    <SceneDivider />
 
-                    <LemonTabs activeKey={activeTab} onChange={setActiveTab} tabs={tabs} />
+                    <LemonTabs sceneInset activeKey={activeTab} onChange={setActiveTab} tabs={tabs} />
 
                     {[AsyncMigrationsTab.Management, AsyncMigrationsTab.FutureMigrations].includes(activeTab) ? (
                         <>
@@ -312,14 +322,22 @@ export function AsyncMigrations(): JSX.Element {
                     ) : null}
                 </>
             ) : (
-                <SceneTitleSection
-                    name="Async Migrations"
-                    description="Only users with staff access can manage async migrations. Please contact your instance admin. If you're an admin and don't have access, set <code>is_staff=true</code> for your user on the PostgreSQL <code>posthog_user</code> table."
-                    resourceType={{
-                        type: 'async_migrations',
-                        forceIcon: <IconDatabase />,
-                    }}
-                />
+                <>
+                    <SceneTitleSection
+                        name="Async Migrations"
+                        description="Only users with staff access can manage async migrations. Please contact your instance admin. If you're an admin and don't have access, set <code>is_staff=true</code> for your user on the PostgreSQL <code>posthog_user</code> table."
+                        resourceType={{
+                            type: 'async_migrations',
+                            forceIcon: <IconDatabase />,
+                        }}
+                    />
+                    <p>Only users with staff access can manage async migrations. Please contact your instance admin.</p>
+                    <p>
+                        If you're an admin and don't have access, set <code>is_staff=true</code> for your user on the
+                        PostgreSQL <code>posthog_user</code> table.
+                    </p>
+                    <SceneDivider />
+                </>
             )}
         </SceneContent>
     )
