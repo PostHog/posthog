@@ -91,9 +91,8 @@ function FunnelTooltipContent({
             </table>
             {hasSessionData && (
                 <>
-                    <LemonDivider className="my-2" />
-                    <div className="text-xs text-muted flex items-center gap-1">
-                        <IconHandClick className="text-base" />
+                    <div className="table-subtext table-subtext-click-to-inspect">
+                        <IconHandClick className="mr-1 mb-0.5" />
                         Click to view sessions
                     </div>
                 </>
