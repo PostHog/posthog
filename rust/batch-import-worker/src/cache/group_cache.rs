@@ -1,15 +1,22 @@
 use anyhow::Error;
 use moka::sync::Cache;
 use serde_json::Value;
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
 use std::time::Duration;
+
+/// Represents changes to group properties
+#[derive(Debug, Clone)]
+pub struct GroupChanges {
+    /// Properties to set (new or changed)
+    pub set: HashMap<String, Value>,
+    /// Properties to unset (deleted)
+    pub unset: Vec<String>,
+}
 
 /// Memory-only implementation of GroupCache using moka for tracking group property changes
 #[derive(Clone)]
 pub struct MemoryGroupCache {
-    cache: Cache<String, u64>, // Key -> properties hash
+    cache: Cache<String, HashMap<String, Value>>, // Key -> properties
 }
 
 impl MemoryGroupCache {
@@ -36,23 +43,6 @@ impl MemoryGroupCache {
         let encoded_group_key = urlencoding::encode(group_key);
         format!("group:{team_id}:{encoded_group_type}:{encoded_group_key}")
     }
-
-    /// Create hash of group properties for change detection
-    fn hash_properties(properties: &HashMap<String, Value>) -> u64 {
-        let mut hasher = DefaultHasher::new();
-
-        // Sort keys to ensure consistent hashing regardless of insertion order
-        let mut sorted_properties: Vec<_> = properties.iter().collect();
-        sorted_properties.sort_by_key(|(k, _)| *k);
-
-        for (key, value) in sorted_properties {
-            key.hash(&mut hasher);
-            // Hash the JSON representation to handle complex values consistently
-            value.to_string().hash(&mut hasher);
-        }
-
-        hasher.finish()
-    }
 }
 
 impl std::fmt::Debug for MemoryGroupCache {
@@ -66,16 +56,16 @@ impl std::fmt::Debug for MemoryGroupCache {
 /// Trait for group property change tracking
 pub trait GroupCache: Send + Sync + std::fmt::Debug {
     /// Check if group properties have changed since last seen
-    /// Returns true if this is the first time seeing the group or if properties changed
-    fn has_group_changed(
+    /// Returns Some(GroupChanges) if changes are needed, None if no changes
+    fn get_group_changes(
         &self,
         team_id: i32,
         group_type: &str,
         group_key: &str,
         properties: &HashMap<String, Value>,
-    ) -> Result<bool, Error>;
+    ) -> Option<GroupChanges>;
 
-    /// Mark group properties as seen with current hash
+    /// Mark group properties as seen with current properties
     fn mark_group_seen(
         &self,
         team_id: i32,
@@ -86,19 +76,71 @@ pub trait GroupCache: Send + Sync + std::fmt::Debug {
 }
 
 impl GroupCache for MemoryGroupCache {
-    fn has_group_changed(
+    fn get_group_changes(
         &self,
         team_id: i32,
         group_type: &str,
         group_key: &str,
         properties: &HashMap<String, Value>,
-    ) -> Result<bool, Error> {
+    ) -> Option<GroupChanges> {
         let key = Self::make_key(team_id, group_type, group_key);
-        let new_hash = Self::hash_properties(properties);
 
         match self.cache.get(&key) {
-            Some(existing_hash) => Ok(existing_hash != new_hash),
-            None => Ok(true), // First time seeing this group
+            Some(existing_properties) => {
+                // Group exists in cache
+                if properties.is_empty() {
+                    // If passed properties are empty, ignore it
+                    return None;
+                }
+
+                // Compute differences
+                let mut set = HashMap::new();
+                let mut unset = Vec::new();
+
+                // Find new/changed properties
+                for (key, value) in properties {
+                    match existing_properties.get(key) {
+                        Some(existing_value) => {
+                            if existing_value != value {
+                                set.insert(key.clone(), value.clone());
+                            }
+                        }
+                        None => {
+                            set.insert(key.clone(), value.clone());
+                        }
+                    }
+                }
+
+                // Find deleted properties
+                for key in existing_properties.keys() {
+                    if !properties.contains_key(key) {
+                        unset.push(key.clone());
+                    }
+                }
+
+                // Return changes if there are any
+                if set.is_empty() && unset.is_empty() {
+                    None
+                } else {
+                    Some(GroupChanges { set, unset })
+                }
+            }
+            None => {
+                // Group does not exist in cache
+                if properties.is_empty() {
+                    // If properties are empty, still return empty changes for first time
+                    Some(GroupChanges {
+                        set: HashMap::new(),
+                        unset: Vec::new(),
+                    })
+                } else {
+                    // Return all properties as new
+                    Some(GroupChanges {
+                        set: properties.clone(),
+                        unset: Vec::new(),
+                    })
+                }
+            }
         }
     }
 
@@ -110,8 +152,7 @@ impl GroupCache for MemoryGroupCache {
         properties: &HashMap<String, Value>,
     ) -> Result<(), Error> {
         let key = Self::make_key(team_id, group_type, group_key);
-        let hash = Self::hash_properties(properties);
-        self.cache.insert(key, hash);
+        self.cache.insert(key, properties.clone());
         Ok(())
     }
 }
@@ -143,11 +184,15 @@ mod tests {
         let cache = MemoryGroupCache::new(100, Duration::from_secs(10));
         let properties = create_test_properties();
 
-        // First time should be considered changed
-        let result = cache
-            .has_group_changed(1, "company", "acme-corp", &properties)
-            .unwrap();
-        assert!(result);
+        // First time should return changes with all properties
+        let result = cache.get_group_changes(1, "company", "acme-corp", &properties);
+        assert!(result.is_some());
+        let changes = result.unwrap();
+        assert_eq!(changes.set.len(), 3); // All properties should be new
+        assert_eq!(changes.unset.len(), 0); // No properties to unset
+        assert!(changes.set.contains_key("company_name"));
+        assert!(changes.set.contains_key("industry"));
+        assert!(changes.set.contains_key("size"));
     }
 
     #[test]
@@ -160,11 +205,9 @@ mod tests {
             .mark_group_seen(1, "company", "acme-corp", &properties)
             .unwrap();
 
-        // Same properties should not be considered changed
-        let result = cache
-            .has_group_changed(1, "company", "acme-corp", &properties)
-            .unwrap();
-        assert!(!result);
+        // Same properties should not return changes
+        let result = cache.get_group_changes(1, "company", "acme-corp", &properties);
+        assert!(result.is_none());
     }
 
     #[test]
@@ -178,11 +221,13 @@ mod tests {
             .mark_group_seen(1, "company", "acme-corp", &properties)
             .unwrap();
 
-        // Modified properties should be considered changed
-        let result = cache
-            .has_group_changed(1, "company", "acme-corp", &modified_properties)
-            .unwrap();
-        assert!(result);
+        // Modified properties should return changes
+        let result = cache.get_group_changes(1, "company", "acme-corp", &modified_properties);
+        assert!(result.is_some());
+        let changes = result.unwrap();
+        assert_eq!(changes.set.len(), 1); // Only size changed
+        assert_eq!(changes.unset.len(), 0); // No properties deleted
+        assert_eq!(changes.set.get("size"), Some(&json!(300)));
     }
 
     #[test]
@@ -195,17 +240,15 @@ mod tests {
             .mark_group_seen(1, "company", "acme-corp", &properties)
             .unwrap();
 
-        // Should not be changed for team 1
-        let result1 = cache
-            .has_group_changed(1, "company", "acme-corp", &properties)
-            .unwrap();
-        assert!(!result1);
+        // Should not return changes for team 1
+        let result1 = cache.get_group_changes(1, "company", "acme-corp", &properties);
+        assert!(result1.is_none());
 
-        // Should be changed for team 2 (different team, first time)
-        let result2 = cache
-            .has_group_changed(2, "company", "acme-corp", &properties)
-            .unwrap();
-        assert!(result2);
+        // Should return changes for team 2 (different team, first time)
+        let result2 = cache.get_group_changes(2, "company", "acme-corp", &properties);
+        assert!(result2.is_some());
+        let changes = result2.unwrap();
+        assert_eq!(changes.set.len(), 3); // All properties new for team 2
     }
 
     #[test]
@@ -218,11 +261,11 @@ mod tests {
             .mark_group_seen(1, "company", "acme-corp", &properties)
             .unwrap();
 
-        // Same key but different type should be considered changed (first time)
-        let result = cache
-            .has_group_changed(1, "team", "acme-corp", &properties)
-            .unwrap();
-        assert!(result);
+        // Same key but different type should return changes (first time)
+        let result = cache.get_group_changes(1, "team", "acme-corp", &properties);
+        assert!(result.is_some());
+        let changes = result.unwrap();
+        assert_eq!(changes.set.len(), 3); // All properties new for different type
     }
 
     #[test]
@@ -243,11 +286,9 @@ mod tests {
             .mark_group_seen(1, "company", "test", &props1)
             .unwrap();
 
-        // Same properties in different order should not be considered changed
-        let result = cache
-            .has_group_changed(1, "company", "test", &props2)
-            .unwrap();
-        assert!(!result);
+        // Same properties in different order should not return changes
+        let result = cache.get_group_changes(1, "company", "test", &props2);
+        assert!(result.is_none());
     }
 
     #[test]
@@ -261,17 +302,15 @@ mod tests {
             .mark_group_seen(1, "company", "test", &empty_props)
             .unwrap();
 
-        // Empty properties should not be considered changed
-        let result1 = cache
-            .has_group_changed(1, "company", "test", &empty_props)
-            .unwrap();
-        assert!(!result1);
+        // Empty properties should not return changes (ignored)
+        let result1 = cache.get_group_changes(1, "company", "test", &empty_props);
+        assert!(result1.is_none());
 
-        // Non-empty properties should be considered changed
-        let result2 = cache
-            .has_group_changed(1, "company", "test", &non_empty_props)
-            .unwrap();
-        assert!(result2);
+        // Non-empty properties should return changes
+        let result2 = cache.get_group_changes(1, "company", "test", &non_empty_props);
+        assert!(result2.is_some());
+        let changes = result2.unwrap();
+        assert_eq!(changes.set.len(), 3); // All properties new
     }
 
     #[test]
@@ -284,20 +323,18 @@ mod tests {
             .mark_group_seen(1, "company", "acme-corp", &properties)
             .unwrap();
 
-        // Should not be changed immediately
-        let result1 = cache
-            .has_group_changed(1, "company", "acme-corp", &properties)
-            .unwrap();
-        assert!(!result1);
+        // Should not return changes immediately
+        let result1 = cache.get_group_changes(1, "company", "acme-corp", &properties);
+        assert!(result1.is_none());
 
         // Wait for TTL expiry
         thread::sleep(Duration::from_millis(150));
 
-        // Should be considered changed after expiry (first time again)
-        let result2 = cache
-            .has_group_changed(1, "company", "acme-corp", &properties)
-            .unwrap();
-        assert!(result2);
+        // Should return changes after expiry (first time again)
+        let result2 = cache.get_group_changes(1, "company", "acme-corp", &properties);
+        assert!(result2.is_some());
+        let changes = result2.unwrap();
+        assert_eq!(changes.set.len(), 3); // All properties new again
     }
 
     #[test]
@@ -315,22 +352,20 @@ mod tests {
         ];
 
         for (group_type, group_key) in test_cases {
-            // Should be changed first time
-            let result1 = cache
-                .has_group_changed(1, group_type, group_key, &properties)
-                .unwrap();
-            assert!(result1);
+            // Should return changes first time
+            let result1 = cache.get_group_changes(1, group_type, group_key, &properties);
+            assert!(result1.is_some());
+            let changes1 = result1.unwrap();
+            assert_eq!(changes1.set.len(), 3);
 
             // Mark as seen
             cache
                 .mark_group_seen(1, group_type, group_key, &properties)
                 .unwrap();
 
-            // Should not be changed second time
-            let result2 = cache
-                .has_group_changed(1, group_type, group_key, &properties)
-                .unwrap();
-            assert!(!result2);
+            // Should not return changes second time
+            let result2 = cache.get_group_changes(1, group_type, group_key, &properties);
+            assert!(result2.is_none());
         }
     }
 
@@ -355,10 +390,70 @@ mod tests {
             .mark_group_seen(1, "company", "test", &props1)
             .unwrap();
 
-        // Different array should be considered changed
-        let result = cache
-            .has_group_changed(1, "company", "test", &props2)
+        // Different array should return changes
+        let result = cache.get_group_changes(1, "company", "test", &props2);
+        assert!(result.is_some());
+        let changes = result.unwrap();
+        assert_eq!(changes.set.len(), 1); // Only array changed
+        assert!(changes.set.contains_key("array"));
+    }
+
+    #[test]
+    fn test_group_cache_property_deletion() {
+        let cache = MemoryGroupCache::new(100, Duration::from_secs(10));
+
+        // Create properties with 3 fields
+        let mut props1 = HashMap::new();
+        props1.insert("a".to_string(), json!("value1"));
+        props1.insert("b".to_string(), json!("value2"));
+        props1.insert("c".to_string(), json!("value3"));
+
+        // Create properties with only 2 fields (c deleted)
+        let mut props2 = HashMap::new();
+        props2.insert("a".to_string(), json!("value1"));
+        props2.insert("b".to_string(), json!("value2"));
+
+        // Mark first version as seen
+        cache
+            .mark_group_seen(1, "company", "test", &props1)
             .unwrap();
-        assert!(result);
+
+        // Should return changes with c in unset
+        let result = cache.get_group_changes(1, "company", "test", &props2);
+        assert!(result.is_some());
+        let changes = result.unwrap();
+        assert_eq!(changes.set.len(), 0); // No new/changed properties
+        assert_eq!(changes.unset.len(), 1); // One property deleted
+        assert!(changes.unset.contains(&"c".to_string()));
+    }
+
+    #[test]
+    fn test_group_cache_property_addition_and_deletion() {
+        let cache = MemoryGroupCache::new(100, Duration::from_secs(10));
+
+        // Create properties with 2 fields
+        let mut props1 = HashMap::new();
+        props1.insert("a".to_string(), json!("value1"));
+        props1.insert("b".to_string(), json!("value2"));
+
+        // Create properties with different fields (b deleted, c added, a changed)
+        let mut props2 = HashMap::new();
+        props2.insert("a".to_string(), json!("value1_changed"));
+        props2.insert("c".to_string(), json!("value3"));
+
+        // Mark first version as seen
+        cache
+            .mark_group_seen(1, "company", "test", &props1)
+            .unwrap();
+
+        // Should return changes with both set and unset
+        let result = cache.get_group_changes(1, "company", "test", &props2);
+        assert!(result.is_some());
+        let changes = result.unwrap();
+        assert_eq!(changes.set.len(), 2); // a changed, c added
+        assert_eq!(changes.unset.len(), 1); // b deleted
+        assert_eq!(changes.set.get("a"), Some(&json!("value1_changed")));
+        assert_eq!(changes.set.get("c"), Some(&json!("value3")));
+        assert!(changes.unset.contains(&"b".to_string()));
     }
 }

@@ -9,7 +9,7 @@ use tracing::error;
 use uuid::Uuid;
 
 use super::TransformContext;
-use crate::cache::GroupCache;
+use crate::cache::{group_cache::GroupChanges, GroupCache};
 
 mod identify;
 
@@ -18,7 +18,7 @@ mod identify;
 pub struct ChangedGroup {
     pub group_type: String,
     pub group_key: String,
-    pub group_properties: HashMap<String, Value>,
+    pub changes: GroupChanges,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -125,14 +125,13 @@ fn detect_group_changes(
                 .unwrap_or_default();
 
             // Check if properties have changed
-            let has_changed =
-                group_cache.has_group_changed(team_id, group_type, group_key, &properties)?;
-
-            if has_changed {
+            if let Some(changes) =
+                group_cache.get_group_changes(team_id, group_type, group_key, &properties)
+            {
                 changed_groups.push(ChangedGroup {
                     group_type: group_type.clone(),
                     group_key: group_key.clone(),
-                    group_properties: properties.clone(),
+                    changes,
                 });
 
                 // Mark as seen with current properties
@@ -151,7 +150,7 @@ fn create_group_identify_event(
     distinct_id: String,
     group_type: String,
     group_key: String,
-    group_properties: HashMap<String, Value>,
+    changes: GroupChanges,
     timestamp: chrono::DateTime<chrono::Utc>,
 ) -> Result<InternallyCapturedEvent, Error> {
     let event_uuid = Uuid::now_v7();
@@ -159,10 +158,20 @@ fn create_group_identify_event(
     let mut properties = serde_json::Map::new();
     properties.insert("$group_type".to_string(), Value::String(group_type));
     properties.insert("$group_key".to_string(), Value::String(group_key.clone()));
+
+    // Add properties to set (always include, even if empty)
     properties.insert(
         "$group_set".to_string(),
-        Value::Object(group_properties.into_iter().collect()),
+        Value::Object(changes.set.into_iter().collect()),
     );
+
+    // Add properties to unset (if any)
+    if !changes.unset.is_empty() {
+        properties.insert(
+            "$group_unset".to_string(),
+            Value::Array(changes.unset.into_iter().map(Value::String).collect()),
+        );
+    }
 
     let raw_event = RawEvent {
         event: "$groupidentify".to_string(),
@@ -527,7 +536,7 @@ impl AmplitudeEvent {
                                 distinct_id.clone(),
                                 changed_group.group_type,
                                 changed_group.group_key,
-                                changed_group.group_properties,
+                                changed_group.changes,
                                 timestamp,
                             ) {
                                 Ok(group_event) => {
