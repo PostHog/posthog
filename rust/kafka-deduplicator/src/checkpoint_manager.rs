@@ -1118,7 +1118,6 @@ mod tests {
         let start = std::time::Instant::now();
         let timeout = Duration::from_secs(3);
 
-
         while start.elapsed() < timeout {
             let inflight = manager.is_checkpointing.lock().await.len();
             if inflight == config.max_concurrent_checkpoints {
@@ -1135,8 +1134,15 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
 
-        assert!(hit_expected_cap, "Expected to hit the concurrent checkpoint cap of {}", config.max_concurrent_checkpoints);
-        assert!(!never_above_zero, "Expected to see some checkpointing activity");
+        assert!(
+            hit_expected_cap,
+            "Expected to hit the concurrent checkpoint cap of {}",
+            config.max_concurrent_checkpoints
+        );
+        assert!(
+            !never_above_zero,
+            "Expected to see some checkpointing activity"
+        );
 
         manager.stop().await;
 
