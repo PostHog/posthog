@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use axum::{routing::get, Router};
 use futures::future::ready;
 use health::HealthRegistry;
-use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
+use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use opentelemetry::{KeyValue, Value};
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::trace::{BatchConfig, RandomIdGenerator, Sampler, Tracer};
@@ -57,9 +57,17 @@ pub async fn index() -> &'static str {
 /// Using fewer buckets to reduce cardinality
 fn setup_kafka_deduplicator_metrics() -> PrometheusHandle {
     const BUCKETS: &[f64] = &[0.001, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 100.0, 500.0, 5000.0];
+    // similarity scores are all in the range [0.0, 1.0] so we want
+    // granular bucket ranges for higher fidelity metrics
+    const SIMILARITY_BUCKETS: &[f64] = &[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0];
 
     PrometheusBuilder::new()
         .set_buckets(BUCKETS)
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Suffix("similarity_score".to_string()),
+            SIMILARITY_BUCKETS,
+        )
         .unwrap()
         .install_recorder()
         .unwrap()

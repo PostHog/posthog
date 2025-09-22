@@ -11,15 +11,34 @@ use crate::checkpoint::{
     CHECKPOINT_PARTITION_PREFIX, CHECKPOINT_TOPIC_PREFIX,
 };
 use crate::kafka::types::Partition;
-use crate::metrics_const::{CHECKPOINT_CLEANER_DELETE_ATTEMPTS, CHECKPOINT_CLEANER_DIRS_FOUND};
+use crate::metrics_const::{
+    CHECKPOINT_CLEANER_DELETE_ATTEMPTS, CHECKPOINT_CLEANER_DIRS_FOUND,
+    CHECKPOINT_STORE_NOT_FOUND_COUNTER,
+};
 use crate::store::DeduplicationStore;
 use crate::store_manager::StoreManager;
 
 use anyhow::{Context, Result};
-use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
+use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
+
+pub enum CheckpointStatus {
+    // the partition requesting a checkpoint attempt has acquired
+    // the uniqueness lock and the in-flight count was below the max
+    // so it is safe to proceed with it's attempt
+    Ready,
+    // the partition requesting a checkpoint attempt has checked
+    // the uniqueness lock and found another attempt is flight.
+    // this means it should skip this attempt and let the parent
+    // loop continue to the next partition
+    InProgress,
+    // the partition requesting a checkpoint attempt has checked
+    // the uniqueness lock and found the in-flight count was at the max
+    // so it must wait for another checkpoint attempt to complete
+    Wait,
+}
 
 /// Manages checkpointing and periodic flushing for all deduplication stores
 pub struct CheckpointManager {
@@ -33,6 +52,10 @@ pub struct CheckpointManager {
 
     /// Cancellation token for the flush task
     cancel_token: CancellationToken,
+
+    /// Maintains cap on number of concurrent checkpoint attempts in-flight
+    /// as well as uniqueness of checkpoint attempts for a given partition
+    is_checkpointing: Arc<Mutex<HashSet<Partition>>>,
 
     /// Handle to the checkpoint task loop
     checkpoint_task: Option<JoinHandle<()>>,
@@ -59,6 +82,7 @@ impl CheckpointManager {
             store_manager,
             exporter,
             cancel_token: CancellationToken::new(),
+            is_checkpointing: Arc::new(Mutex::new(HashSet::new())),
             checkpoint_task: None,
             cleanup_task: None,
         }
@@ -86,22 +110,16 @@ impl CheckpointManager {
         let cancel_submit_loop_token = self.cancel_token.child_token();
 
         // loop-local counter for individual worker task logging
-        let mut worker_task_id = 0_u32;
+        let mut worker_task_id = 1_u32;
 
         // loop-local state variables. In the future, we can pass in
         // last-known values for these as recorded in checkpoint metadata
-        let is_checkpointing: Arc<Mutex<HashSet<Partition>>> = Arc::new(Mutex::new(HashSet::new()));
+        let is_checkpointing = self.is_checkpointing.clone();
         let checkpoint_counters: Arc<Mutex<HashMap<Partition, u32>>> =
             Arc::new(Mutex::new(HashMap::new()));
         let checkpoint_health_reporter = health_reporter.clone();
 
         let checkpoint_task_handle = tokio::spawn(async move {
-            // limit parallel checkpoint attempts. This loop
-            // can block when the limit is reached
-            let semaphore = Arc::new(Semaphore::new(
-                submit_loop_config.max_concurrent_checkpoints,
-            ));
-
             let mut interval = tokio::time::interval(submit_loop_config.checkpoint_interval);
             interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -118,139 +136,147 @@ impl CheckpointManager {
                     // the inner loop can block but if we miss a few ticks before
                     // completing the full partition loop, it's OK
                     _ = interval.tick() => {
-                        let stores = store_manager.stores();
-                        let store_count = stores.len();
+                        let candidates: Vec<Partition> = store_manager
+                            .stores()
+                            .iter()
+                            .map(|entry| entry.key().clone())
+                            .collect();
+                        let store_count = candidates.len();
                         if store_count == 0 {
                             debug!("No stores to flush");
                             continue;
                         }
-
                         info!("Checkpoint manager: attempting checkpoint submission for {} stores", store_count);
 
-                        // Snapshot all entries to avoid holding locks
-                        let candidates: Vec<(Partition, DeduplicationStore)> = stores
-                            .iter()
-                            .map(|entry| (entry.key().clone(), entry.value().clone()))
-                            .collect();
-
-                        // Flush, checkpoint, and update metrics for each known store.
-                        // if we block here, we can miss a few ticks it's OK. If upon
-                        // successful receipt this partition's store is no longer owned
-                        // by the StoreManager, the receiver will bail out and continue
-                        for (partition, store) in candidates {
+                        // Attempt to checkpoint each partitions' backing store in
+                        // the candidate list. If the store is no longer owned by
+                        // the StoreManager, or a checkpoint is already in-flight
+                        // for the given partition, we skip it and continue. If the
+                        // gating lock (is_checkpointing) is at max capacity, we block
+                        // at this iteration of 'inner loop until the another attempt
+                        // completes and a new slot opens up
+                        'inner: for partition in candidates {
                             let partition_tag = partition.to_string();
 
-                            // clone the manager lock structures for this worker instance
-                            let worker_is_checkpointing = is_checkpointing.clone();
-                            let worker_checkpoint_counters = checkpoint_counters.clone();
+                            // wait for a slot to become available in the gating loop.
+                            // if the attempt is cleared to proceed, the is_checkpointing
+                            // lock will have atomically registered the partition as in-flight
+                            let mut gate_interval = tokio::time::interval(submit_loop_config.checkpoint_gate_interval);
+                            'gate: loop {
+                                let status = tokio::select! {
+                                    _ = cancel_submit_loop_token.cancelled() => {
+                                        info!(partition = partition_tag, "Checkpoint manager: checkpoint manager shutting down, skipping");
+                                        break 'outer;
+                                    }
 
-                            // acquire semaphore or block here
-                            let ticket: OwnedSemaphorePermit;
-                            tokio::select! {
-                                _ = cancel_submit_loop_token.cancelled() => {
-                                    info!(partition = partition_tag, "Checkpoint manager: submit loop shutting down while awaiting permit");
-                                    break 'outer;
-                                }
-
-                                result = semaphore.clone().acquire_owned() => {
-                                    match result {
-                                        Ok(permit) => ticket = permit,
-                                        Err(e) => {
-                                            error!(partition = partition_tag, "Checkpoint manager: semaphore closed, skipping with error: {}", e);
-                                            continue;
-                                        }
+                                    _ = gate_interval.tick() => {
+                                        Self::get_checkpoint_status(&submit_loop_config, &partition, &is_checkpointing).await
+                                    }
+                                };
+                                match status {
+                                    CheckpointStatus::Ready => {
+                                        debug!(partition = partition_tag, "Checkpoint manager: checkpoint is ready, proceeding");
+                                        break 'gate;
+                                    }
+                                    CheckpointStatus::InProgress => {
+                                        debug!(partition = partition_tag, "Checkpoint manager: checkpoint already in progress, skipping");
+                                        break 'inner;
+                                    }
+                                    CheckpointStatus::Wait => {
+                                        debug!(partition = partition_tag, "Checkpoint manager: max in-flight checkpoints reached, waiting for open slot");
+                                        // continue into next iter of gate loop since we should not proceed
                                     }
                                 }
                             }
 
-                            if Self::checkpoint_in_progress(&partition, &is_checkpointing).await {
-                                debug!(partition = partition_tag, "Checkpoint manager: checkpoint already in progress, skipping");
-                                continue;
-                            }
+                            // clone required manager-owned structures for the next worker instance
+                            // to avoid race conditions - the worker must acquire protected values
+                            // when the thread executes, and mark it's own completion
+                            let worker_is_checkpointing = is_checkpointing.clone();
+                            let worker_checkpoint_counters = checkpoint_counters.clone();
+                            let worker_store_manager = store_manager.clone();
+                            let worker_exporter = exporter.as_ref().map(|e| e.clone());
+                            let worker_cancel_token = cancel_submit_loop_token.child_token();
+                            let worker_full_checkpoint_interval = submit_loop_config.full_upload_interval;
 
-                            // Determine if this should be a full upload or incremental
-                            let mode = Self::get_checkpoint_mode(&partition, &checkpoint_counters, &submit_loop_config).await;
-
-                            // Ensure the store is still associated with this pod and store manager
-                            if store_manager.get(partition.topic(), partition.partition_number()).is_none() {
-                                    // TODO(eli): stat this w/tag
-                                    warn!(
-                                        partition = partition_tag,
-                                        "Checkpoint manager: partition no longer owned by store manager, skipping"
-                                    );
-                                    continue;
-                            }
-
+                            // create worker with unique task ID and partition target helper
                             let target = CheckpointTarget::new(partition.clone(), Path::new(&submit_loop_config.local_checkpoint_dir)).unwrap();
-                            // if the exporter is configured, clone it for the worker thread
-                            let resolved_exporter = exporter.as_ref().map(|e| e.clone());
-
-                            // spin up worker with unique task ID for logging
                             worker_task_id += 1;
                             let worker = CheckpointWorker::new(
                                 worker_task_id,
-                                mode,
                                 target,
-                                store,
-                                resolved_exporter,
+                                worker_exporter,
                             );
-
-                            // clone things that the worker thread will need references to
-                            let cancel_worker_token = cancel_submit_loop_token.child_token();
 
                             // for now, we don't bother to track the handles of spawned workers
                             // because each worker represents one best-effort checkpoint attempt
                             let _result = tokio::spawn(async move {
                                 // best effort to bail if the checkpoint manager shut
                                 // down before the worker thread started executing...
-                                if tokio::time::timeout(std::time::Duration::from_millis(1), cancel_worker_token.cancelled()).await.is_ok() {
-                                    info!(partition = partition_tag, "Checkpoint manager: inner submit loop shutting down, skipping worker execution");
+                                if tokio::time::timeout(Duration::from_millis(1), worker_cancel_token.cancelled()).await.is_ok() {
+                                    info!(partition = partition_tag, "Checkpoint worker thread: inner submit loop shutting down, skipping worker execution");
+                                    {
+                                        let mut is_checkpointing_guard = worker_is_checkpointing.lock().await;
+                                        is_checkpointing_guard.remove(&partition);
+                                    }
                                     return Ok(None);
                                 }
 
-                                // block and execute the checkpoint attempt here
-                                let result = worker.checkpoint_partition().await;
+                                // best efort to bail if the partition is no longer owned by the
+                                // store manager when the worker thread has started executing
+                                let target_store = match worker_store_manager.get(partition.topic(), partition.partition_number()) {
+                                    Some(store) => store,
 
+                                    _ => {
+                                        metrics::counter!(CHECKPOINT_STORE_NOT_FOUND_COUNTER).increment(1);
+                                        warn!(partition = partition_tag, "Checkpoint worker thread: partition no longer owned by store manager, skipping");
+                                        // free the slot up since we're skipping this round and/or shutting down the process
+                                        {
+                                            let mut is_checkpointing_guard = worker_is_checkpointing.lock().await;
+                                            is_checkpointing_guard.remove(&partition);
+                                        }
+                                        return Ok(None);
+                                    }
+                                };
+
+                                // Determine if this should be a full checkpoint or incremental,
+                                // and block while executing the operation
+                                let mode = Self::get_checkpoint_mode(&partition, &worker_checkpoint_counters, worker_full_checkpoint_interval).await;
+                                let result = worker.checkpoint_partition(mode, &target_store).await;
+
+                                // handle releasing locks and reporting outcome
                                 let status = match result {
-                                    Ok(Some(_)) => "success",
+                                    Ok(Some(_)) => {
+                                        // only update the counter for this partition/store if a checkpoint + export was successful
+                                        {
+                                            let mut counter_guard = worker_checkpoint_counters.lock().await;
+                                            let counter_for_partition = *counter_guard.get(&partition).unwrap_or(&0_u32);
+                                            counter_guard.insert(partition.clone(), counter_for_partition + 1);
+                                        }
+                                        "success"
+                                    },
                                     Ok(None) => "skipped",
                                     Err(_) => "error",
                                 };
                                 info!(worker_task_id, partition = partition_tag, result = status,
-                                    "Checkpoint manager: checkpoint attempt completed");
+                                    "Checkpoint worker thread: checkpoint attempt completed");
 
-                                // release the permit so another checkpoint attempt can proceed
-                                drop(ticket);
-
-                                // release the in-flight lock regardless of outcome
+                                // release the in-flight lock regardless of outcome to free the slot
                                 {
                                     let mut is_checkpointing_guard = worker_is_checkpointing.lock().await;
                                     is_checkpointing_guard.remove(&partition);
                                 }
 
-                                // result is observed interally and errors shouldn't bubble up here
-                                // so we only care if the export was successful and we need to
-                                // increment the checkpoint counter
-                                if let Ok(Some(_)) = result {
-                                    // NOTE: could race another checkpoint attempt on same partition between
-                                    //       is_checkpointing release and this call, but we must maintain
-                                    //       lock access ordering. Can revisit this later if its a problem
-                                    {
-                                        let mut counter_guard = worker_checkpoint_counters.lock().await;
-                                        let counter_for_partition = *counter_guard.get(&partition).unwrap_or(&0_u32);
-                                        counter_guard.insert(partition.clone(), counter_for_partition + 1);
-                                    }
-                                }
-
                                 result
                             });
-                        } // end partition loop
+                        } // end 'inner partition loop
 
-                        info!("Completed periodic checkpoint attempt for {} stores", store_count);
-                    }
+                        info!("Checkpoint manager: completed checkpoint attempt loop for {} stores", store_count);
+                    } // end 'outer interval tick loop
                 } // end tokio::select! block
             } // end 'outer loop
 
+            info!("Checkpoint manager: submit loop shutting down");
             checkpoint_health_reporter.store(false, Ordering::SeqCst);
         });
         self.checkpoint_task = Some(checkpoint_task_handle);
@@ -290,24 +316,47 @@ impl CheckpointManager {
 
     /// Stop the checkpoint manager
     pub async fn stop(&mut self) {
-        info!("Stopping checkpoint manager");
+        info!("Checkpoint manager: starting graceful shutdown...");
 
         // Cancel the task
+        info!("Checkpoint manager: cancelling checkpoint manager task token...");
         self.cancel_token.cancel();
 
         // Stop in-flight submissions to the checkpoint workers immediately
+        info!("Checkpoint manager: stopping in-flight checkpoint submissions...");
         if let Some(task) = self.checkpoint_task.take() {
             task.abort();
         }
 
         // Stop local checkpoint directory cleanup task
+        info!("Checkpoint manager: stopping local checkpoint directory cleanup...");
         if let Some(task) = self.cleanup_task.take() {
             task.abort();
         }
 
-        // TODO: await is_checkpointing tasks to complete? just bail at first, see how it goes?
+        let mut fail_interval =
+            tokio::time::interval(self.config.checkpoint_worker_shutdown_timeout);
+        let mut probe_interval = tokio::time::interval(Duration::from_secs(1));
+        loop {
+            tokio::select! {
+                _ = fail_interval.tick() => {
+                    warn!("Checkpoint manager: graceful shutdown - timed out awaiting in-flight checkpoints");
+                    break;
+                }
 
-        info!("Checkpoint manager stopped");
+                _ = probe_interval.tick() => {
+                    let inflight_count = self.is_checkpointing.lock().await.len();
+                    if inflight_count == 0 {
+                        info!("Checkpoint manager: graceful shutdown - in-flight checkpoints completed");
+                        break;
+                    } else {
+                        info!(inflight_count, "Checkpoint manager: graceful shutdown - awaiting in-flight checkpoints...");
+                    }
+                }
+            }
+        }
+
+        info!("Checkpoint manager: graceful shutdown completed");
     }
 
     pub fn export_enabled(&self) -> bool {
@@ -329,13 +378,16 @@ impl CheckpointManager {
             .collect();
 
         for (partition, store) in snapshot {
-            debug!(
-                "Flushing store {}:{}",
-                partition.topic(),
-                partition.partition_number()
+            let worker = CheckpointWorker::new(
+                partition.partition_number() as u32,
+                CheckpointTarget::new(partition, Path::new(&self.config.local_checkpoint_dir))
+                    .unwrap(),
+                None,
             );
-            store.flush()?;
-            store.update_metrics()?;
+
+            worker
+                .checkpoint_partition(CheckpointMode::Full, &store)
+                .await?;
         }
 
         Ok(())
@@ -347,12 +399,12 @@ impl CheckpointManager {
     async fn get_checkpoint_mode(
         partition: &Partition,
         checkpoint_counters: &Arc<Mutex<HashMap<Partition, u32>>>,
-        config: &CheckpointConfig,
+        full_checkpoint_interval: u32,
     ) -> CheckpointMode {
         // Determine if this should be a full upload or incremental
 
         // if config.full_upload_interval is 0, then we should always do full uploads
-        if config.full_upload_interval == 0 {
+        if full_checkpoint_interval == 0 {
             return CheckpointMode::Full;
         }
 
@@ -364,24 +416,30 @@ impl CheckpointManager {
             counter_for_partition = *counter_guard.get(partition).unwrap_or(&0_u32);
         }
 
-        if counter_for_partition % config.full_upload_interval == 0 {
+        if counter_for_partition % full_checkpoint_interval == 0 {
             CheckpointMode::Full
         } else {
             CheckpointMode::Incremental
         }
     }
 
-    async fn checkpoint_in_progress(
+    async fn get_checkpoint_status(
+        config: &CheckpointConfig,
         partition: &Partition,
         is_checkpointing: &Arc<Mutex<HashSet<Partition>>>,
-    ) -> bool {
+    ) -> CheckpointStatus {
         let mut is_checkpointing_guard = is_checkpointing.lock().await;
+
         if is_checkpointing_guard.contains(partition) {
-            return true;
+            return CheckpointStatus::InProgress;
         }
 
-        is_checkpointing_guard.insert(partition.clone());
-        false
+        if is_checkpointing_guard.len() < config.max_concurrent_checkpoints {
+            is_checkpointing_guard.insert(partition.clone());
+            return CheckpointStatus::Ready;
+        }
+
+        CheckpointStatus::Wait
     }
 
     async fn cleanup_local_checkpoints(config: &CheckpointConfig) -> Result<()> {
@@ -566,6 +624,8 @@ impl Drop for CheckpointManager {
             debug!("Checkpoint manager dropped: cleanup task will terminate");
             task.abort();
         }
+
+        // in-flight workers will be interrupted immediately here if they aren't completed
     }
 }
 
@@ -595,10 +655,10 @@ mod tests {
 
     fn create_test_event() -> RawEvent {
         RawEvent {
-            uuid: None,
+            uuid: Some(uuid::Uuid::now_v7()),
             event: "test_event".to_string(),
-            distinct_id: Some(serde_json::Value::String("user1".to_string())),
-            token: Some("test_token".to_string()),
+            distinct_id: Some(serde_json::Value::String(uuid::Uuid::now_v7().to_string())),
+            token: Some(uuid::Uuid::now_v7().to_string()),
             properties: HashMap::new(),
             ..Default::default()
         }
@@ -895,8 +955,8 @@ mod tests {
     async fn test_cleaner_task_retention_time() {
         // Add some test stores
         let store_manager = create_test_store_manager();
-        let store1 = create_test_store("flush_all_with_stores", 0);
-        let store2 = create_test_store("flush_all_with_stores", 1);
+        let store1 = create_test_store("cleaner_task_retention_time", 0);
+        let store2 = create_test_store("cleaner_task_retention_time", 1);
 
         // Add events to the stores
         let event = create_test_event();
@@ -906,11 +966,11 @@ mod tests {
         // add dedup stores to manager
         let stores = store_manager.stores();
         stores.insert(
-            Partition::new("flush_all_with_stores".to_string(), 0),
+            Partition::new("cleaner_task_retention_time".to_string(), 0),
             store1,
         );
         stores.insert(
-            Partition::new("flush_all_with_stores".to_string(), 1),
+            Partition::new("cleaner_task_retention_time".to_string(), 1),
             store2,
         );
 
@@ -960,8 +1020,8 @@ mod tests {
     async fn test_cleaner_task_partition_count() {
         // Add some test stores
         let store_manager = create_test_store_manager();
-        let store1 = create_test_store("flush_all_with_stores", 0);
-        let store2 = create_test_store("flush_all_with_stores", 1);
+        let store1 = create_test_store("cleaner_task_partition_count", 0);
+        let store2 = create_test_store("cleaner_task_partition_count", 1);
 
         // Add events to the stores
         let event = create_test_event();
@@ -971,11 +1031,11 @@ mod tests {
         // add dedup stores to manager
         let stores = store_manager.stores();
         stores.insert(
-            Partition::new("flush_all_with_stores".to_string(), 0),
+            Partition::new("cleaner_task_partition_count".to_string(), 0),
             store1,
         );
         stores.insert(
-            Partition::new("flush_all_with_stores".to_string(), 1),
+            Partition::new("cleaner_task_partition_count".to_string(), 1),
             store2,
         );
 
@@ -1019,5 +1079,60 @@ mod tests {
         let found_files =
             find_local_checkpoint_files(Path::new(&config.local_checkpoint_dir)).unwrap();
         assert!(found_files.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_max_inflight_checkpoints() {
+        // Add some test stores
+        let store_manager = create_test_store_manager();
+        let stores = store_manager.stores();
+
+        for i in 1..=6 {
+            let event = create_test_event();
+            let part = Partition::new("max_inflight_checkpoints".to_string(), i);
+            let store = create_test_store(part.topic(), part.partition_number());
+            store.handle_event_with_raw(&event).unwrap();
+            stores.insert(part, store);
+        }
+
+        let tmp_checkpoint_dir = TempDir::new().unwrap();
+
+        // configure frequent checkpoints and long retention, cleanup interval
+        let config = CheckpointConfig {
+            checkpoint_interval: Duration::from_millis(3),
+            cleanup_interval: Duration::from_secs(120),
+            max_concurrent_checkpoints: 2,
+            local_checkpoint_dir: tmp_checkpoint_dir.path().to_string_lossy().to_string(),
+            ..Default::default()
+        };
+
+        // start the manager and produce some local checkpoint files
+        let mut manager = CheckpointManager::new(config.clone(), store_manager.clone(), None);
+        manager.start();
+
+        tokio::time::sleep(Duration::from_millis(0)).await;
+        let mut hit_expected_cap = false;
+        let mut never_above_zero = true;
+
+        for _ in 0..1000000 {
+            let inflight = manager.is_checkpointing.lock().await.len();
+            if inflight == config.max_concurrent_checkpoints {
+                hit_expected_cap = true;
+            }
+            if inflight > config.max_concurrent_checkpoints {
+                panic!("Inflight count exceeded expected cap, got: {inflight}",);
+            }
+            if inflight == 0 {
+                never_above_zero = false;
+            }
+        }
+        assert!(hit_expected_cap);
+        assert!(!never_above_zero);
+
+        manager.stop().await;
+
+        let found_files =
+            find_local_checkpoint_files(Path::new(&config.local_checkpoint_dir)).unwrap();
+        assert!(!found_files.is_empty());
     }
 }

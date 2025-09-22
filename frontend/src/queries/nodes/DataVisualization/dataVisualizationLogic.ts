@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import mergeObject from 'lodash.merge'
 
@@ -836,26 +836,26 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             })
         },
     })),
-    afterMount(({ actions, props }) => {
-        if (props.query.display) {
+    propsChanged(({ props, actions, values }) => {
+        if (props.query.display && values.visualizationType !== props.query.display) {
             actions.setVisualizationType(props.query.display)
         }
 
         if (props.query.chartSettings) {
             const { xAxis, yAxis } = props.query.chartSettings
 
-            if (xAxis) {
+            if (xAxis && xAxis.column && values.selectedXAxis !== xAxis.column) {
                 actions.updateXSeries(xAxis.column)
             }
 
-            if (yAxis && yAxis.length) {
+            if (yAxis && yAxis.length && values.selectedYAxis === null) {
                 yAxis.forEach((axis) => {
                     actions.addYSeries(axis.column, axis.settings)
                 })
             }
         }
 
-        if (props.query.tableSettings) {
+        if (props.query.tableSettings && values.tabularColumnSettings === null) {
             if (props.query.tableSettings.columns) {
                 props.query.tableSettings.columns.forEach((column) => {
                     actions.addSeries(column.column, column.settings)
@@ -863,7 +863,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             }
         }
 
-        if (props.query.tableSettings?.conditionalFormatting?.length) {
+        if (props.query.tableSettings?.conditionalFormatting?.length && !values.conditionalFormattingRules.length) {
             props.query.tableSettings.conditionalFormatting.forEach((rule) => {
                 actions.addConditionalFormattingRule(rule)
             })

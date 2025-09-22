@@ -1,21 +1,4 @@
-import { OriginProduct, TaskStatus } from './types'
-
-// Status display constants
-export const STATUS_LABELS: Record<TaskStatus, string> = {
-    [TaskStatus.BACKLOG]: 'Backlog',
-    [TaskStatus.TODO]: 'To Do',
-    [TaskStatus.IN_PROGRESS]: 'In Progress',
-    [TaskStatus.TESTING]: 'Testing',
-    [TaskStatus.DONE]: 'Done',
-}
-
-export const STATUS_COLORS: Record<TaskStatus, string> = {
-    [TaskStatus.BACKLOG]: 'bg-stone-100 text-stone-800',
-    [TaskStatus.TODO]: 'bg-blue-100 text-blue-800',
-    [TaskStatus.IN_PROGRESS]: 'bg-amber-100 text-amber-800',
-    [TaskStatus.TESTING]: 'bg-violet-100 text-violet-800',
-    [TaskStatus.DONE]: 'bg-green-100 text-green-800',
-}
+import { OriginProduct } from './types'
 
 // Origin product display constants
 export const ORIGIN_PRODUCT_LABELS: Record<OriginProduct, string> = {

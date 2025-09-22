@@ -3,9 +3,11 @@ from collections.abc import Callable, Coroutine, Sequence
 from typing import Any, cast
 
 import structlog
+from langchain_core.runnables import RunnableConfig
 from langchain_openai import ChatOpenAI
 
 from posthog.schema import (
+    AssistantMessage,
     AssistantToolCallMessage,
     HumanMessage,
     TaskExecutionItem,
@@ -17,14 +19,17 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
+from ee.hogai.graph.insights.nodes import InsightSearchNode
 from ee.hogai.graph.parallel_task_execution.prompts import AGENT_TASK_PROMPT_TEMPLATE
 from ee.hogai.utils.helpers import extract_stream_update
 from ee.hogai.utils.state import is_task_started_update, is_value_update
-from ee.hogai.utils.types.base import (
+from ee.hogai.utils.types import (
     AnyAssistantGeneratedQuery,
     AssistantMessageUnion,
     AssistantState,
     InsightArtifact,
+    PartialAssistantState,
+    TaskArtifact,
     TaskResult,
 )
 
@@ -155,3 +160,83 @@ class WithInsightCreationTaskExecution:
             model="gpt-4.1",
             temperature=0.3,
         )
+
+
+class WithInsightSearchTaskExecution:
+    _team: Team
+    _user: User
+    _reasoning_callback: Callable[[str, str | None], Coroutine[Any, Any, None]]
+    _failed_result: Callable[[TaskExecutionItem], Coroutine[Any, Any, TaskResult]]
+
+    async def _execute_search_insights(self, input_dict: dict) -> TaskResult:
+        """Execute a single task using a single node."""
+
+        task = cast(TaskExecutionItem, input_dict["task"])
+        config = cast(RunnableConfig, input_dict.get("config", RunnableConfig()))
+
+        task_tool_call_id = f"task_{uuid.uuid4().hex[:8]}"
+
+        input_state = AssistantState(
+            root_tool_call_id=task_tool_call_id,
+            search_insights_query=task.prompt,
+        )
+
+        try:
+            result = await InsightSearchNode(self._team, self._user).arun(input_state, config)
+
+            if not result or not result.messages:
+                logger.warning("Task failed: no messages received from node executor", task_id=task.id)
+                return await self._failed_result(task)
+
+            task_result = (
+                result.messages[0].content
+                if result.messages and isinstance(result.messages[0], AssistantMessage)
+                else ""
+            )
+
+            # Extract artifacts from the result
+            extracted_artifacts = self._extract_artifacts_from_result(result, task)
+
+            if len(extracted_artifacts) == 0:
+                logger.warning("Task failed: no artifacts extracted", task_id=task.id)
+                return await self._failed_result(task)
+
+            await self._reasoning_callback(task.id, None)
+
+            return TaskResult(
+                id=task.id,
+                description=task.description,
+                result=task_result,
+                artifacts=extracted_artifacts,
+                status=TaskExecutionStatus.COMPLETED,
+            )
+
+        except Exception as e:
+            capture_exception(e)
+            logger.exception(f"Task failed with exception: {e}", task_id=task.id)
+            return await self._failed_result(task)
+
+    def _extract_artifacts_from_result(
+        self, result: PartialAssistantState, task: TaskExecutionItem
+    ) -> list[TaskArtifact]:
+        """Extract artifacts from node execution results."""
+        artifacts: list[TaskArtifact] = []
+        content = (
+            result.messages[0].content
+            if result.messages and isinstance(result.messages[0], AssistantToolCallMessage)
+            else ""
+        )
+
+        if result.selected_insight_ids:
+            artifacts.extend(
+                [
+                    TaskArtifact(
+                        task_id=task.id,
+                        id=str(insight_id),
+                        content=content,
+                    )
+                    for insight_id in result.selected_insight_ids
+                ]
+            )
+
+        return artifacts

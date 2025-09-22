@@ -49,7 +49,7 @@ from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool import CONTEXTUAL_TOOL_NAME_TO_TOOL
 from ee.hogai.utils.helpers import find_last_ui_context
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
-from ee.hogai.utils.types.base import AssistantNodeName, BaseState, BaseStateWithMessages
+from ee.hogai.utils.types.base import AssistantNodeName, BaseState, BaseStateWithMessages, InsightQuery
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
@@ -89,6 +89,7 @@ RouteName = Literal[
     "insights_search",
     "billing",
     "session_summarization",
+    "create_dashboard",
 ]
 
 
@@ -486,6 +487,7 @@ class RootNode(RootNodeUIContextMixin):
 
         from ee.hogai.tool import (
             create_and_query_insight,
+            create_dashboard,
             get_contextual_tool_class,
             search_documentation,
             search_insights,
@@ -499,6 +501,8 @@ class RootNode(RootNodeUIContextMixin):
         # Check if session summarization is enabled for the user
         if self._has_session_summarization_feature_flag():
             available_tools.append(session_summarization)
+        # Add dashboard creation tool (always available)
+        available_tools.append(create_dashboard)
         if settings.INKEEP_API_KEY:
             available_tools.append(search_documentation)
         tool_names = self._get_contextual_tools(config).keys()
@@ -728,6 +732,16 @@ class RootNodeTools(AssistantNode):
                 summary_title=tool_call.args.get("summary_title"),
                 root_tool_calls_count=tool_call_count + 1,
             )
+        elif tool_call.name == "create_dashboard":
+            raw_queries = tool_call.args["search_insights_queries"]
+            search_insights_queries = [InsightQuery.model_validate(query) for query in raw_queries]
+
+            return PartialAssistantState(
+                root_tool_call_id=tool_call.id,
+                dashboard_name=tool_call.args.get("dashboard_name"),
+                search_insights_queries=search_insights_queries,
+                root_tool_calls_count=tool_call_count + 1,
+            )
         elif ToolClass := get_contextual_tool_class(tool_call.name):
             tool_class = ToolClass(team=self._team, user=self._user, state=state)
             try:
@@ -799,6 +813,8 @@ class RootNodeTools(AssistantNode):
                 tool_call_name = tool_call.name
                 if tool_call_name == "retrieve_billing_information":
                     return "billing"
+                if tool_call_name == "create_dashboard":
+                    return "create_dashboard"
             if state.root_tool_insight_plan:
                 return "insights"
             elif state.search_insights_query:
