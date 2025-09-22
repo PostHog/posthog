@@ -9,12 +9,20 @@ import {
 import { ManualLinkSourceType } from '~/types'
 
 import { NativeSource } from './marketingAnalyticsLogic'
-import { googleAdsCostTile, linkedinAdsCostTile, redditAdsCostTile } from './marketingCostTile'
+import { googleAdsCostTile, linkedinAdsCostTile, metaAdsCostTile, redditAdsCostTile } from './marketingCostTile'
 
-export type NativeMarketingSource = Extract<ExternalDataSourceType, 'GoogleAds' | 'RedditAds' | 'LinkedinAds'>
+export type NativeMarketingSource = Extract<
+    ExternalDataSourceType,
+    'GoogleAds' | 'RedditAds' | 'LinkedinAds' | 'MetaAds'
+>
 export type NonNativeMarketingSource = Extract<ExternalDataSourceType, 'BigQuery'>
 
-export const VALID_NATIVE_MARKETING_SOURCES: NativeMarketingSource[] = ['GoogleAds', 'RedditAds', 'LinkedinAds']
+export const VALID_NATIVE_MARKETING_SOURCES: NativeMarketingSource[] = [
+    'GoogleAds',
+    'RedditAds',
+    'LinkedinAds',
+    'MetaAds',
+]
 
 export const VALID_NON_NATIVE_MARKETING_SOURCES: NonNativeMarketingSource[] = ['BigQuery']
 export const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = [
@@ -35,10 +43,14 @@ export const LINKEDIN_ADS_CAMPAIGN_STATS_TABLE_NAME = 'campaign_stats'
 export const REDDIT_ADS_CAMPAIGN_TABLE_NAME = 'campaigns'
 export const REDDIT_ADS_CAMPAIGN_STATS_TABLE_NAME = 'campaign_report'
 
+export const META_ADS_CAMPAIGN_TABLE_NAME = 'campaigns'
+export const META_ADS_CAMPAIGN_STATS_TABLE_NAME = 'campaign_stats'
+
 export const NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS: Record<NativeMarketingSource, string[]> = {
     GoogleAds: [GOOGLE_ADS_CAMPAIGN_TABLE_NAME, GOOGLE_ADS_CAMPAIGN_STATS_TABLE_NAME],
     LinkedinAds: [LINKEDIN_ADS_CAMPAIGN_TABLE_NAME, LINKEDIN_ADS_CAMPAIGN_STATS_TABLE_NAME],
     RedditAds: [REDDIT_ADS_CAMPAIGN_TABLE_NAME, REDDIT_ADS_CAMPAIGN_STATS_TABLE_NAME],
+    MetaAds: [META_ADS_CAMPAIGN_TABLE_NAME, META_ADS_CAMPAIGN_STATS_TABLE_NAME],
 }
 
 export function MarketingDashboardMapper(source: NativeSource): DataWarehouseNode | null {
@@ -49,6 +61,8 @@ export function MarketingDashboardMapper(source: NativeSource): DataWarehouseNod
             return linkedinAdsCostTile(source)
         case 'RedditAds':
             return redditAdsCostTile(source)
+        case 'MetaAds':
+            return metaAdsCostTile(source)
         default:
             return null
     }

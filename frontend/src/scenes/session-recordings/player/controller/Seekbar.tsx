@@ -88,7 +88,7 @@ export function Seekbar(): JSX.Element {
 
             <div className={clsx('PlayerSeekbar', { 'PlayerSeekbar--scrubbing': isScrubbing })} ref={seekBarRef}>
                 <div
-                    className="PlayerSeekbar__slider"
+                    className="PlayerSeekbar__slider ph-no-rageclick"
                     ref={sliderRef}
                     onMouseDown={handleDown}
                     onTouchStart={handleDown}

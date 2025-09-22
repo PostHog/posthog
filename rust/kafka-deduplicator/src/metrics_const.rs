@@ -30,7 +30,7 @@ pub const TIMESTAMP_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM: &str =
 
 /// Histogram for properties similarity score in timestamp deduplication
 pub const TIMESTAMP_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM: &str =
-    "timestamp_dedup_properties_similarity";
+    "timestamp_dedup_properties_similarity_score";
 
 /// Counter for specific fields that differ in timestamp deduplication
 pub const TIMESTAMP_DEDUP_FIELD_DIFFERENCES_COUNTER: &str =
@@ -53,7 +53,8 @@ pub const UUID_DEDUP_DIFFERENT_FIELDS_HISTOGRAM: &str = "uuid_dedup_different_fi
 pub const UUID_DEDUP_DIFFERENT_PROPERTIES_HISTOGRAM: &str = "uuid_dedup_different_properties";
 
 /// Histogram for properties similarity score in UUID deduplication
-pub const UUID_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM: &str = "uuid_dedup_properties_similarity";
+pub const UUID_DEDUP_PROPERTIES_SIMILARITY_HISTOGRAM: &str =
+    "uuid_dedup_properties_similarity_score";
 
 /// Counter for specific fields that differ in UUID deduplication
 pub const UUID_DEDUP_FIELD_DIFFERENCES_COUNTER: &str = "uuid_dedup_field_differences_total";
