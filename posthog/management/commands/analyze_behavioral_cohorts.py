@@ -62,6 +62,12 @@ class Command(BaseCommand):
             help="Number of parallel workers for processing (default: 10)",
         )
         parser.add_argument(
+            "--conditions-page-size",
+            type=int,
+            default=1000,
+            help="Number of conditions to fetch per activity call (default: 1000, max recommended: 10000)",
+        )
+        parser.add_argument(
             "--use-temporal",
             action="store_true",
             default=True,
@@ -82,6 +88,7 @@ class Command(BaseCommand):
         condition = options.get("condition")
         limit = options.get("limit")
         parallelism = options.get("parallelism", 10)
+        conditions_page_size = options.get("conditions_page_size", 1000)
         use_temporal = options.get("use_temporal", True)
 
         logger.info(
@@ -101,6 +108,7 @@ class Command(BaseCommand):
                 days=days,
                 limit=limit,
                 parallelism=parallelism,
+                conditions_page_size=conditions_page_size,
             )
 
             if result:
@@ -123,17 +131,11 @@ class Command(BaseCommand):
                 )
                 self.stdout.write(f"Total time: {total_time_seconds} seconds")
 
-                # Display sample results
-                if result.get("memberships"):
-                    self.stdout.write("\nSample results (first 5):")
-                    self.stdout.write("team_id,person_id,cohort_id")
-                    for team_id, person_id, cohort_id in result["memberships"][:5]:
-                        self.stdout.write(f"{team_id},{person_id},{cohort_id}")
-
-                    if len(result["memberships"]) > 5:
-                        self.stdout.write(
-                            f"\n... showing first 5 of {result['total_memberships']} total memberships ..."
-                        )
+                # Note: Individual membership data not returned (only counts for performance)
+                self.stdout.write(
+                    f"\nNote: Processed {result['total_memberships']} total memberships (counts only, no individual data returned)"
+                )
+                self.stdout.write("Individual membership data can be written to storage in future versions.")
         else:
             # Legacy sequential processing
             logger.info("Using legacy sequential processing")
@@ -180,6 +182,7 @@ class Command(BaseCommand):
         days: int,
         limit: int | None,
         parallelism: int,
+        conditions_page_size: int,
     ) -> dict[str, Any] | None:
         """Run the Temporal workflow for parallel processing."""
 
@@ -196,6 +199,7 @@ class Command(BaseCommand):
                 days=days,
                 limit=limit,
                 parallelism=parallelism,
+                conditions_page_size=conditions_page_size,
             )
 
             # Generate unique workflow ID

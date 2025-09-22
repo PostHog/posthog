@@ -131,7 +131,7 @@ def KAFKA_SESSION_REPLAY_EVENTS_TABLE_SQL(on_cluster=True):
 
 
 def SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=True, exclude_columns=None):
-    exclude_columns = [] or exclude_columns
+    exclude_columns = exclude_columns or []
 
     target_table = "writable_session_replay_events"
     on_cluster_clause = ON_CLUSTER_CLAUSE(on_cluster)
