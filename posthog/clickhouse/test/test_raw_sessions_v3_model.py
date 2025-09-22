@@ -481,3 +481,64 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
         assert set(result[0]["flag_values"]["$feature/flag_complex"]) == {'["hello",123]', '{"key":"value"}'}
         # deduplicates
         assert result[0]["flag_values"]["$feature/flag_duplicates"] == ["a"]
+
+    def test_lookup_feature_flag(self):
+        distinct_id_1 = create_distinct_id()
+        session_id_1 = create_session_id()
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id_1,
+            properties={
+                "$session_id": session_id_1,
+                "$feature/flag_string": "f1_a",
+            },
+            timestamp="2024-03-08",
+        )
+        _create_event(
+            team=self.team,
+            event="custom event",
+            distinct_id=distinct_id_1,
+            properties={
+                "$session_id": session_id_1,
+                "$feature/flag_string": "f1_b",
+            },
+            timestamp="2024-03-08",
+        )
+
+        distinct_id_2 = create_distinct_id()
+        session_id_2 = create_session_id()
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id_2,
+            properties={
+                "$session_id": session_id_2,
+                "$feature/flag_string": "f1_c",
+            },
+            timestamp="2024-03-08",
+        )
+
+        result = query_with_columns(
+            """
+            select
+                session_id_v7,
+                has(flag_values['$feature/flag_string'], 'f1_a') as has_f1_a,
+                has(flag_values['$feature/flag_string'], 'f1_b') as has_f1_b,
+                has(flag_values['$feature/flag_string'], 'f1_c') as has_f1_c
+            from raw_sessions_v3_v
+            where
+                team_id = %(team_id)s
+            ORDER BY session_id_v7
+                """,
+            {
+                "team_id": self.team.id,
+            },
+        )
+        assert result[0]["has_f1_a"]
+        assert result[0]["has_f1_b"]
+        assert not result[0]["has_f1_c"]
+
+        assert not result[1]["has_f1_a"]
+        assert not result[1]["has_f1_b"]
+        assert result[1]["has_f1_c"]
