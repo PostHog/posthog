@@ -12,9 +12,6 @@ type InsightCreationPayload = {
 }
 
 test('create trends insight via API and snapshot', async ({ page, playwrightSetup }) => {
-    // Set fixed time for consistent snapshots (November 3, 2024 at noon UTC)
-    await page.clock.setFixedTime(new Date('2024-11-03T12:00:00Z'))
-
     // Create workspace with API key
     const workspace = await playwrightSetup.createWorkspace('API Test Org')
 
