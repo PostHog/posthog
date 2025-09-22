@@ -86,9 +86,20 @@ export function VariantTimeseriesChart({ chartData: data }: VariantTimeseriesCha
                                     if (context.length > 0) {
                                         const dataIndex = context[0].dataIndex
                                         const dataPoint = processedData[dataIndex]
-                                        if (dataPoint && dataPoint.number_of_samples) {
-                                            return [`Samples: ${dataPoint.number_of_samples.toLocaleString()}`]
+                                        const lines = []
+
+                                        // Show if data is pending/interpolated
+                                        if (dataPoint && !dataPoint.hasRealData) {
+                                            lines.push('⚠️ Data pending - showing last known value')
                                         }
+
+                                        if (dataPoint && dataPoint.number_of_samples) {
+                                            lines.push(`Samples: ${dataPoint.number_of_samples.toLocaleString()}`)
+                                        }
+                                        if (dataPoint && dataPoint.significant !== undefined) {
+                                            lines.push(`Significant: ${dataPoint.significant ? 'Yes' : 'No'}`)
+                                        }
+                                        return lines
                                     }
                                     return []
                                 },
@@ -112,7 +123,7 @@ export function VariantTimeseriesChart({ chartData: data }: VariantTimeseriesCha
     }, [data])
 
     return (
-        <div className="relative h-[400px]">
+        <div className="relative h-[224px]">
             <canvas ref={canvasRef} />
         </div>
     )

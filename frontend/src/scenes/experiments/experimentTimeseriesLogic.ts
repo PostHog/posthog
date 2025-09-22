@@ -20,6 +20,7 @@ export interface ProcessedTimeseriesDataPoint {
     lower_bound: number | null
     hasRealData: boolean
     number_of_samples?: number
+    significant?: boolean
 }
 
 export interface ChartDataset {
@@ -76,8 +77,8 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                 timeseries: ExperimentMetricTimeseries | null
             ): ((variantKey: string) => ProcessedTimeseriesDataPoint[]) => {
                 return (variantKey: string) => {
-                    // Only show completed timeseries
-                    if (!timeseries?.timeseries || timeseries.status !== 'completed') {
+                    // Show completed and partial timeseries
+                    if (!timeseries?.timeseries || !['completed', 'partial'].includes(timeseries.status)) {
                         return []
                     }
 
@@ -88,10 +89,14 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
 
                     const sortedTimeseriesData = allTimeseriesEntries.sort((a, b) => a.date.localeCompare(b.date))
 
-                    // Extract data for the specific variant
+                    // Extract data for the specific variant with carry-forward for missing data
+                    let lastKnownData: ProcessedTimeseriesDataPoint | null = null
+
                     return sortedTimeseriesData.map((entry) => {
                         const d = entry.data
-                        if (d.variant_results && d.baseline) {
+
+                        // Check if this entry has actual data (not null)
+                        if (d && d.variant_results && d.baseline) {
                             const variant = d.variant_results.find(
                                 (v: ExperimentVariantResultFrequentist | ExperimentVariantResultBayesian) =>
                                     v.key === variantKey
@@ -103,25 +108,39 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                                 const [lower, upper] = interval || [0, 0]
                                 const delta = (lower + upper) / 2
 
-                                return {
+                                const dataPoint = {
                                     date: entry.date,
                                     value: delta,
                                     upper_bound: upper,
                                     lower_bound: lower,
                                     hasRealData: true,
                                     number_of_samples: variant.number_of_samples || 0,
+                                    significant: variant.significant ?? false,
                                 }
+
+                                lastKnownData = dataPoint
+                                return dataPoint
                             }
                         }
 
-                        // No variant data found
+                        // No data for this day - carry forward last known value if available
+                        if (lastKnownData) {
+                            return {
+                                ...lastKnownData,
+                                date: entry.date,
+                                hasRealData: false, // Mark as interpolated
+                            }
+                        }
+
+                        // No previous data to carry forward
                         return {
                             date: entry.date,
                             value: 0,
                             upper_bound: 0,
                             lower_bound: 0,
-                            hasRealData: true,
+                            hasRealData: false,
                             number_of_samples: 0,
+                            significant: false,
                         }
                     })
                 }
@@ -185,39 +204,58 @@ export const experimentTimeseriesLogic = kea<experimentTimeseriesLogicType>([
                     const upperBounds = trimmedData.map((d: ProcessedTimeseriesDataPoint) => d.upper_bound)
                     const lowerBounds = trimmedData.map((d: ProcessedTimeseriesDataPoint) => d.lower_bound)
 
-                    const datasets: ChartDataset[] = [
-                        // Upper bounds
-                        {
-                            label: 'Upper bound',
-                            data: upperBounds,
-                            borderColor: 'rgba(200, 200, 200, 0.8)',
-                            borderWidth: 1,
-                            fill: false,
-                            tension: 0,
-                            pointRadius: 0,
+                    // Create a simple approach: just two datasets with segmented colors
+                    const datasets: ChartDataset[] = []
+
+                    // Upper bounds dataset
+                    datasets.push({
+                        label: '',
+                        data: upperBounds,
+                        borderColor: 'rgba(200, 200, 200, 0.8)',
+                        borderWidth: 1,
+                        fill: false,
+                        tension: 0,
+                        pointRadius: 0,
+                    })
+
+                    // Lower bounds dataset with significance-based fill
+                    datasets.push({
+                        label: '',
+                        data: lowerBounds,
+                        borderColor: 'rgba(200, 200, 200, 0.8)',
+                        borderWidth: 1,
+                        fill: '-1',
+                        backgroundColor: (context: any) => {
+                            if (context.parsed) {
+                                const index = context.dataIndex
+                                return trimmedData[index]?.significant
+                                    ? 'rgba(34, 197, 94, 0.15)'
+                                    : 'rgba(200, 200, 200, 0.15)'
+                            }
+                            return 'rgba(200, 200, 200, 0.15)'
                         },
-                        // Lower bounds with fill
-                        {
-                            label: 'Lower bound',
-                            data: lowerBounds,
-                            borderColor: 'rgba(200, 200, 200, 0.8)',
-                            borderWidth: 1,
-                            fill: '-1',
-                            backgroundColor: 'rgba(200, 200, 200, 0.15)',
-                            tension: 0,
-                            pointRadius: 0,
+                        segment: {
+                            backgroundColor: (ctx: any) => {
+                                const index = ctx.p0DataIndex
+                                return trimmedData[index]?.significant
+                                    ? 'rgba(34, 197, 94, 0.15)'
+                                    : 'rgba(200, 200, 200, 0.15)'
+                            },
                         },
-                        // Main variant data
-                        {
-                            label: variantKey,
-                            data: values,
-                            borderColor: 'rgba(0, 100, 255, 1)',
-                            borderWidth: 2,
-                            fill: false,
-                            tension: 0,
-                            pointRadius: 3,
-                        },
-                    ]
+                        tension: 0,
+                        pointRadius: 0,
+                    })
+
+                    // Main variant data (always on top) with segment styling for interpolated data
+                    datasets.push({
+                        label: variantKey,
+                        data: values,
+                        borderColor: 'rgba(0, 100, 255, 1)',
+                        borderWidth: 2,
+                        fill: false,
+                        tension: 0,
+                        pointRadius: 3,
+                    })
 
                     return {
                         labels,

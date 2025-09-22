@@ -728,7 +728,7 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
 
         metric_results = ExperimentMetricResult.objects.filter(
             experiment_id=experiment.id, metric_uuid=metric_uuid
-        ).order_by("query_from")
+        ).order_by("query_to")
 
         completed_count = 0
         failed_count = 0
@@ -736,11 +736,11 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
         no_record_count = 0
         latest_completed_at = None
 
-        # Create mapping from query_from to result, deriving the day in project timezone
+        # Create mapping from query_to to result, deriving the day in project timezone
         results_by_date = {}
         for result in metric_results:
-            # Convert UTC query_from to project timezone to determine which day this result belongs to
-            day_in_project_tz = result.query_from.astimezone(project_tz).date()
+            # Convert UTC query_to to project timezone to determine which day this result belongs to
+            day_in_project_tz = result.query_to.astimezone(project_tz).date()
             results_by_date[day_in_project_tz] = result
 
         for experiment_date in experiment_dates:
@@ -768,16 +768,16 @@ class EnterpriseExperimentsViewSet(ForbidDestroyModel, TeamAndOrgViewSetMixin, v
         total_experiment_days = len(experiment_dates)
         calculated_days = completed_count + failed_count + pending_count
 
-        if pending_count > 0 or no_record_count > 0:
+        # If we have zero calculated days, it's pending
+        if calculated_days == 0:
             overall_status = "pending"
-        elif calculated_days == 0:
-            overall_status = "pending"
+        # If all calculated days failed, it's failed
         elif completed_count == 0 and failed_count > 0:
             overall_status = "failed"
-        elif completed_count > 0 and failed_count > 0:
-            overall_status = "partial"
+        # If we have all days completed, it's completed
         elif completed_count == total_experiment_days:
             overall_status = "completed"
+        # If we have at least some data (completed or failed), it's partial
         else:
             overall_status = "partial"
         first_result = metric_results.first()
