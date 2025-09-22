@@ -26,6 +26,7 @@ def migrate_replay_retention_period(apps, schema_editor):
                     ["session_recording_retention_period"],
                 )
                 print(f"Migrated {len(teams_to_migrate)} teams")  # noqa: T201
+                teams_to_migrate = []
         except Exception as e:
             # If anything fails for a team, skip it and continue with others
             logger.error("replay_retention_period_migration_failed", team_id=team.id, error=str(e), exc_info=True)
