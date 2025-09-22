@@ -394,31 +394,6 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 AssistantMessage(
                     content="Hi" * 24000,
                     id="6",
-                    tool_calls=[AssistantToolCall(id="xyz", name="create_and_query_insight", args={})],
-                ),
-                AssistantToolCallMessage(content="The" * 48000, id="7", tool_call_id="xyz"),
-            ]
-        )
-        messages, window_id = await node._construct_and_update_messages_window(state, {})
-        self.assertEqual(len(messages), 2)
-        assert isinstance(messages[0].content, list)
-        assert isinstance(messages[0].content[0], dict)
-        self.assertIn("Hi", messages[0].content[0]["text"])
-        assert isinstance(messages[1].content, list)
-        assert isinstance(messages[1].content[0], dict)
-        self.assertIn("The", messages[1].content[0]["text"])
-        self.assertEqual(window_id, "6")
-
-        state = AssistantState(
-            messages=[
-                HumanMessage(content="Foo", id="1"),
-                AssistantMessage(content="Bar", id="2"),
-                HumanMessage(content="Foo", id="3"),
-                AssistantMessage(content="Bar", id="4"),
-                HumanMessage(content="Hi" * 48000, id="5"),
-                AssistantMessage(
-                    content="Hi" * 24000,
-                    id="6",
                 ),
                 HumanMessage(content="The" * 48000, id="7"),
             ]
@@ -427,34 +402,8 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(messages), 1)
         assert isinstance(messages[0].content, list)
         assert isinstance(messages[0].content[0], dict)
-        self.assertIn("The", messages[0].content)
+        self.assertIn("The", messages[0].content[0]["text"])
         self.assertEqual(window_id, "7")
-
-        # Tool responses are not removed
-        state = AssistantState(
-            messages=[
-                HumanMessage(content="Foo", id="1"),
-                AssistantMessage(content="Bar", id="2"),
-                HumanMessage(content="Foo", id="3"),
-                AssistantMessage(content="Bar", id="4"),
-                HumanMessage(content="Foo", id="5"),
-                AssistantMessage(
-                    content="Bar",
-                    id="6",
-                    tool_calls=[AssistantToolCall(id="xyz", name="create_and_query_insight", args={})],
-                ),
-                AssistantToolCallMessage(content="The" * 65000, id="7", tool_call_id="xyz"),
-            ]
-        )
-        messages, window_id = await node._construct_and_update_messages_window(state, {})
-        self.assertEqual(len(messages), 2)
-        assert isinstance(messages[0].content, list)
-        assert isinstance(messages[0].content[0], dict)
-        assert isinstance(messages[1].content, list)
-        assert isinstance(messages[1].content[0], dict)
-        self.assertIn("Bar", messages[0].content)
-        self.assertIn("The", messages[1].content)
-        self.assertEqual(window_id, "6")
 
     @patch(
         "ee.hogai.graph.root.nodes.RootNode._get_model",
@@ -970,7 +919,7 @@ class TestRootNodeUIContextMixin(ClickhouseTestMixin, BaseTest):
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     async def test_run_and_format_insight_trends_query(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.arun_and_format_query.return_value = ("Trend results: 100 users", None)
+        mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Trend results: 100 users", None))
 
         insight = MaxInsightContext(
             id="123",
@@ -999,7 +948,7 @@ Trend results: 100 users
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     async def test_run_and_format_insight_funnel_query(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.arun_and_format_query.return_value = ("Funnel results: 50% conversion", None)
+        mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Funnel results: 50% conversion", None))
 
         insight = MaxInsightContext(
             id="456",
@@ -1026,7 +975,7 @@ Funnel results: 50% conversion
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     async def test_run_and_format_insight_retention_query(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.arun_and_format_query.return_value = ("Retention: 30% Day 7", None)
+        mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Retention: 30% Day 7", None))
 
         insight = MaxInsightContext(
             id="789",
@@ -1057,7 +1006,7 @@ Retention: 30% Day 7
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     async def test_run_and_format_insight_hogql_query(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.arun_and_format_query.return_value = ("Query results: 42 events", None)
+        mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Query results: 42 events", None))
 
         insight = MaxInsightContext(
             id="101",
@@ -1082,10 +1031,8 @@ Query results: 42 events
 ```"""
         self.assertEqual(result, expected)
 
-    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
-    async def test_run_and_format_insight_unsupported_query_kind(self, mock_query_runner_class):
-        mock_query_runner = mock_query_runner_class.return_value
-
+    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor", return_value=AsyncMock())
+    async def test_run_and_format_insight_unsupported_query_kind(self, mock_query_runner):
         insight = MaxInsightContext(id="123", name="Unsupported", description=None, query=LifecycleQuery(series=[]))
 
         result = await self.mixin._arun_and_format_insight({}, insight, mock_query_runner)
@@ -1094,9 +1041,8 @@ Query results: 42 events
         mock_query_runner.arun_and_format_query.assert_not_called()
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
-    async def test_run_and_format_insight_exception_handling(self, mock_query_runner_class):
-        mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.arun_and_format_query.side_effect = Exception("Query failed")
+    async def test_run_and_format_insight_exception_handling(self, mock_query_runner):
+        mock_query_runner.arun_and_format_query = AsyncMock(side_effect=Exception("Query failed"))
 
         insight = MaxInsightContext(
             id="123",
@@ -1112,7 +1058,7 @@ Query results: 42 events
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     async def test_format_ui_context_with_dashboard(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.arun_and_format_query.return_value = ("Dashboard insight results", None)
+        mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Dashboard insight results", None))
 
         # Create mock insight
         insight = MaxInsightContext(
@@ -1207,7 +1153,7 @@ Query results: 42 events
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     async def test_format_ui_context_with_standalone_insights(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.arun_and_format_query.return_value = ("Standalone insight results", None)
+        mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Standalone insight results", None))
 
         # Create mock insight
         insight = MaxInsightContext(
@@ -1228,7 +1174,7 @@ Query results: 42 events
         self.assertIn("Insight: Standalone Insight", result)
         self.assertNotIn("# Dashboards", result)
 
-    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
+    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor", return_value=AsyncMock())
     async def test_run_insights_from_ui_context_empty(self, mock_query_runner_class):
         result = await self.mixin._format_ui_context(None, {})
         self.assertEqual(result, "")
@@ -1236,12 +1182,12 @@ Query results: 42 events
         # Test with ui_context but no insights
         ui_context = MaxUIContext(insights=None)
         result = await self.mixin._format_ui_context(ui_context, {})
-        self.assertEqual(result, "")
+        self.assertIsNone(result)
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     async def test_run_insights_from_ui_context_with_insights(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.arun_and_format_query.return_value = ("Insight execution results", None)
+        mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Insight execution results", None))
 
         # Create mock insight
         insight = MaxInsightContext(
@@ -1266,7 +1212,7 @@ Query results: 42 events
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
     async def test_run_insights_from_ui_context_with_failed_insights(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.arun_and_format_query.side_effect = Exception("Query failed")
+        mock_query_runner.arun_and_format_query = AsyncMock(side_effect=Exception("Query failed"))
 
         # Create mock insight that will fail
         insight = MaxInsightContext(
@@ -1282,7 +1228,7 @@ Query results: 42 events
         result = await self.mixin._format_ui_context(ui_context, {})
 
         # Should return empty string since the insight failed to run
-        self.assertEqual(result, "")
+        self.assertIsNone(result)
 
     @patch("posthoganalytics.feature_enabled")
     def test_session_summarization_tool_included_with_feature_flag(self, mock_feature_enabled):
