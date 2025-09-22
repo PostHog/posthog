@@ -31,10 +31,7 @@ class FakeChatOpenAI(TokenCounterMixin, FakeMessagesListChatModel):
         return result
 
 
-class FakeChatAnthropic(TokenCounterMixin, FakeMessagesListChatModel):
-    # Emulate the token counter since the actual token counter is a HTTP request.
-    model: str = "gpt-4o"
-
+class AnthropicTokenCounterMixin(TokenCounterMixin):
     def get_num_tokens_from_messages(
         self, messages: list[BaseMessage], *args, tools: Sequence | None = None, **kwargs
     ) -> int:
@@ -42,7 +39,14 @@ class FakeChatAnthropic(TokenCounterMixin, FakeMessagesListChatModel):
         return super().get_num_tokens_from_messages(content, tools)
 
 
-class FakeRunnableLambdaWithTokenCounter(TokenCounterMixin, RunnableLambda):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.model = kwargs.get("model", "gpt-4o")
+class FakeChatAnthropic(AnthropicTokenCounterMixin, FakeMessagesListChatModel):
+    # Emulate the token counter since the actual token counter is a HTTP request.
+    model: str = "gpt-4o"
+
+
+class FakeOpenAIRunnableLambdaWithTokenCounter(TokenCounterMixin, RunnableLambda):
+    model: str = "gpt-4o"
+
+
+class FakeAnthropicRunnableLambdaWithTokenCounter(AnthropicTokenCounterMixin, RunnableLambda):
+    model: str = "gpt-4o"
