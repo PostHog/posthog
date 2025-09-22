@@ -1,8 +1,10 @@
+import { useValues } from 'kea'
 import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IconTrending } from '@posthog/icons'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
 import { humanFriendlyNumber } from 'lib/utils'
 
@@ -13,6 +15,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { Experiment, InsightType } from '~/types'
 
+import { experimentLogic } from '../../experimentLogic'
 import { ChartEmptyState } from '../shared/ChartEmptyState'
 import { ChartLoadingState } from '../shared/ChartLoadingState'
 import { MetricHeader } from '../shared/MetricHeader'
@@ -100,6 +103,9 @@ export function MetricRowGroup({
     const tooltipRef = useRef<HTMLDivElement>(null)
     const colors = useChartColors()
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
+
+    const { featureFlags } = useValues(experimentLogic)
+    const timeseriesEnabled = featureFlags[FEATURE_FLAGS.EXPERIMENT_TIMESERIES]
 
     // Calculate total rows for loading/error states
     const totalRows = isLoading || error || !result ? 1 : 1 + (result.variant_results?.length || 0)
@@ -481,7 +487,7 @@ export function MetricRowGroup({
                             isAlternatingRow={isAlternatingRow}
                             isLastRow={isLastRow}
                             isSecondary={isSecondary}
-                            onTimeseriesClick={() => handleTimeseriesClick(variant)}
+                            onTimeseriesClick={timeseriesEnabled ? () => handleTimeseriesClick(variant) : undefined}
                         />
                     </tr>
                 )
