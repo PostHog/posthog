@@ -31,6 +31,9 @@ export interface AdvancedActivityLogFilters {
     scopes?: ActivityScope[]
     activities?: string[]
     detail_filters?: Record<string, DetailFilter>
+    was_impersonated?: boolean
+    is_system?: boolean
+    item_ids?: string[]
 }
 
 export interface DetailField {
@@ -47,6 +50,8 @@ export interface AvailableFilters {
         users: Array<{ label: string; value: string }>
         scopes: Array<{ value: string }>
         activities: Array<{ value: string }>
+        was_impersonated: Array<{ label: string; value: string }>
+        is_system: Array<{ label: string; value: string }>
     }
     detail_fields?: Record<string, ScopeFields>
 }
@@ -69,6 +74,9 @@ export interface ExportedAsset {
             scopes?: string[]
             activities?: string[]
             detail_filters?: Record<string, DetailFilter>
+            was_impersonated?: boolean
+            is_system?: boolean
+            item_ids?: string[]
         }
     }
 }
@@ -79,6 +87,7 @@ const DEFAULT_FILTERS: AdvancedActivityLogFilters = {
     scopes: [],
     activities: [],
     detail_filters: {},
+    item_ids: [],
 }
 
 const DEFAULT_ACTIVE_FILTERS: ActiveDetailFilter[] = []
@@ -177,6 +186,14 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     values.filters.users?.forEach((user) => params.append('users', user))
                     values.filters.scopes?.forEach((scope) => params.append('scopes', scope))
                     values.filters.activities?.forEach((activity) => params.append('activities', activity))
+                    values.filters.item_ids?.forEach((item_id) => params.append('item_ids', item_id))
+
+                    if (values.filters.was_impersonated !== undefined) {
+                        params.append('was_impersonated', values.filters.was_impersonated.toString())
+                    }
+                    if (values.filters.is_system !== undefined) {
+                        params.append('is_system', values.filters.is_system.toString())
+                    }
 
                     if (values.filters.detail_filters && Object.keys(values.filters.detail_filters).length > 0) {
                         params.append('detail_filters', JSON.stringify(values.filters.detail_filters))
@@ -184,6 +201,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
 
                     params.append('page', values.currentPage.toString())
                     params.append('page_size', ADVANCED_ACTIVITY_PAGE_SIZE.toString())
+                    params.append('include_organization_scoped', '1')
 
                     const response = await api.get(`api/projects/@current/advanced_activity_logs/?${params}`)
                     return response
@@ -195,7 +213,9 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
             null as AvailableFilters | null,
             {
                 loadAvailableFilters: async () => {
-                    const response = await api.get(`api/projects/@current/advanced_activity_logs/available_filters/`)
+                    const response = await api.get(
+                        `api/projects/@current/advanced_activity_logs/available_filters/?include_organization_scoped=1`
+                    )
                     return response
                 },
             },
@@ -230,6 +250,9 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                         filters.users?.length ||
                         filters.scopes?.length ||
                         filters.activities?.length ||
+                        filters.item_ids?.length ||
+                        filters.was_impersonated !== undefined ||
+                        filters.is_system !== undefined ||
                         (filters.detail_filters && Object.keys(filters.detail_filters).length > 0)
                 )
             },
@@ -306,6 +329,9 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                     scopes: values.filters.scopes,
                     activities: values.filters.activities,
                     detail_filters: values.filters.detail_filters,
+                    was_impersonated: values.filters.was_impersonated,
+                    is_system: values.filters.is_system,
+                    item_ids: values.filters.item_ids,
                 }
 
                 await api.create(`api/projects/@current/advanced_activity_logs/export/`, {
