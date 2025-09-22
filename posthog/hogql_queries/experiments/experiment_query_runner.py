@@ -128,8 +128,14 @@ class ExperimentQueryRunner(QueryRunner):
         select_fields = [
             ast.Field(chain=["exposures", "variant"]),
             ast.Field(chain=["exposures", "entity_id"]),
-            ast.Field(chain=["exposures", "exposure_event_uuid"]),
-            ast.Field(chain=["exposures", "exposure_session_id"]),
+            ast.Alias(
+                alias="exposure_event_uuid",
+                expr=ast.Call(name="any", args=[ast.Field(chain=["exposures", "exposure_event_uuid"])]),
+            ),
+            ast.Alias(
+                alias="exposure_session_id",
+                expr=ast.Call(name="any", args=[ast.Field(chain=["exposures", "exposure_session_id"])]),
+            ),
             ast.Alias(
                 expr=get_metric_aggregation_expr(self.experiment, self.metric, self.team),
                 alias="value",
@@ -187,8 +193,6 @@ class ExperimentQueryRunner(QueryRunner):
             group_by=[
                 ast.Field(chain=["exposures", "variant"]),
                 ast.Field(chain=["exposures", "entity_id"]),
-                ast.Field(chain=["exposures", "exposure_event_uuid"]),
-                ast.Field(chain=["exposures", "exposure_session_id"]),
             ],
         )
 
