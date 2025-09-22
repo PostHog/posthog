@@ -89,8 +89,7 @@ class SessionSummaryVideoValidator:
             events_to_validate=events_to_validate,
         )
 
-    @staticmethod
-    def generate_video_description_prompt(event: EnrichedKeyActionSerializer) -> str:
+    def _generate_video_description_prompt(self, event: EnrichedKeyActionSerializer) -> str:
         """Generate a prompt for validating a video"""
         template_dir = Path(__file__).parent / "templates" / "video-validation"
         prompt = load_custom_template(
@@ -148,7 +147,7 @@ class SessionSummaryVideoValidator:
                         new_value=None,
                     )
                 # Generate prompt
-                prompt = self.generate_video_description_prompt(event=validated_event)
+                prompt = self._generate_video_description_prompt(event=validated_event)
                 events_to_validate.append((prompt, validated_event))
         if not events_to_validate:
             # No blocking issues detected in the summary, no need to validate
@@ -189,11 +188,7 @@ class SessionSummaryVideoValidator:
         moments_input = [
             moment
             for prompt, event in events_to_validate
-            if (
-                moment := self._prepare_moment_input_from_summary_event(
-                    prompt=prompt, event=event, session_id=self.session_id
-                )
-            )
+            if (moment := self._prepare_moment_input_from_summary_event(prompt=prompt, event=event))
         ]
         with open(f"moments_input_{self.session_id}.json", "w") as f:
             json.dump([asdict(x) for x in moments_input], f, indent=4)
@@ -206,13 +201,10 @@ class SessionSummaryVideoValidator:
             )
         return moments_input
 
-    # TODO: Provide only an intermediate version of summary.
-    # TODO: Use event ids (not event uuids) during description.
-    # TODO: Or maybe use just path and fuck it? The id doesn't go into the description prompt anyway
-    def generate_video_validation_prompt(
+    def _generate_video_validation_prompt(
         self,
-        description_results: dict[str, str],
-        fields_to_update: dict[str, dict[str, str | None]],
+        description_results: list[SessionMomentOutput],
+        fields_to_update: list[_SessionSummaryVideoValidationFieldToUpdate],
     ) -> str:
         """Generate a prompt for validating a video"""
         template_dir = Path(__file__).parent / "templates" / "video-validation"
@@ -220,9 +212,12 @@ class SessionSummaryVideoValidator:
             template_dir,
             "validation-prompt.djt",
             {
+                # TODO: Provide only an intermediate version of summary.
                 "ORIGINAL_SUMMARY": json.dumps(self.summary.data),
-                "VALIDATION_RESULTS": json.dumps(description_results),
-                "FIELDS_TO_UPDATE": yaml.dump(fields_to_update, allow_unicode=True, sort_keys=False),
+                "VALIDATION_RESULTS": json.dumps([asdict(x) for x in description_results]),
+                "FIELDS_TO_UPDATE": yaml.dump(
+                    [asdict(x) for x in fields_to_update], allow_unicode=True, sort_keys=False
+                ),
             },
         )
         return prompt
@@ -233,8 +228,7 @@ class SessionSummaryVideoValidator:
         fields_to_update: list[_SessionSummaryVideoValidationFieldToUpdate],
     ) -> list[dict[str, str]]:
         # Generate prompt for video validation
-        validation_prompt = self.generate_video_validation_prompt(
-            summary=self.summary,
+        validation_prompt = self._generate_video_validation_prompt(
             description_results=description_results,
             fields_to_update=fields_to_update,
         )
@@ -252,9 +246,11 @@ class SessionSummaryVideoValidator:
             system_prompt=None,  # TODO: Add proper system prompt
             trace_id=trace_id,
         )
-        updates_result = load_yaml_from_raw_llm_content(
-            raw_content=updates_raw.choices[0].message.content, final_validation=True
-        )
+        updates_content = updates_raw.choices[0].message.content
+        if not updates_content:
+            # TODO: Define exception
+            raise Exception("define exception")
+        updates_result = load_yaml_from_raw_llm_content(raw_content=updates_content, final_validation=True)
         updates_result = cast(list[dict[str, str]], updates_result)
         with open(f"updates_result_{self.session_id}.json", "w") as f:
             json.dump(updates_result, f, indent=4, sort_keys=False)
@@ -289,7 +285,7 @@ class SessionSummaryVideoValidator:
         events_to_validate: list[tuple[str, EnrichedKeyActionSerializer]],
     ) -> None:
         """Store the updates to the summary in the database, together with the validation results"""
-        events_id_to_uuid = {event.data["event_id"]: event.data["event_uuid"] for event in events_to_validate}
+        events_id_to_uuid = {event.data["event_id"]: event.data["event_uuid"] for _, event in events_to_validate}
         # Prepare data on the video generation results
         validation_confirmation_results = [
             SessionSummaryVisualConfirmationResult.from_session_moment_output(
@@ -301,7 +297,7 @@ class SessionSummaryVideoValidator:
         current_run_metadata = SessionSummaryRunMeta(
             model_used=self.summary_row.run_metadata["model_used"],
             visual_confirmation=True,
-            visual_confirmation_results=[asdict(x) for x in validation_confirmation_results],
+            visual_confirmation_results=validation_confirmation_results,
         )
         # Store the updated summary in the database
         self.summary_row.summary = updated_summary.data
