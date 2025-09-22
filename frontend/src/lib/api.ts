@@ -1457,7 +1457,7 @@ export class ApiRequest {
     }
 
     public messagingAttachments(): ApiRequest {
-        return this.environments().current().addPathComponent('messaging_attachments')
+        return this.environments().current().addPathComponent('messaging_attachments').addPathComponent('upload')
     }
 
     public messagingCategories(): ApiRequest {
@@ -4003,6 +4003,13 @@ const api = {
                     category_key: categoryKey,
                 })
                 .get()
+        },
+        async uploadAttachment(file: File): Promise<string | null> {
+            const formData = new FormData()
+            formData.append('file', file)
+
+            const response = await new ApiRequest().messagingAttachments().create({ data: formData })
+            return response.file_url || null
         },
     },
     oauthApplication: {

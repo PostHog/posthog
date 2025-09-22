@@ -1,9 +1,9 @@
-export const unsubscribeLinkToolCustomJs = `
+export const customAttachmentStorageToolCustomJs = `
 unlayer.registerCallback('image', function (file, done) {
   var data = new FormData();
   data.append('file', file.attachments[0]);
 
-  fetch('/uploads', {
+  fetch('/api/environments/@current/messaging_attachments/', {
     method: 'POST',
     headers: {
       Accept: 'application/json',
