@@ -306,12 +306,17 @@ class BehavioralCohortsWorkflow(PostHogWorkflow):
         workflow_logger = temporalio.workflow.logger
         workflow_logger.info(f"Starting behavioral cohorts workflow with parallelism={inputs.parallelism}")
 
-        # Step 1: Get all unique conditions in pages to avoid message size limits
-        all_conditions = []
+        # Step 1 & 2: Stream process conditions in pages to avoid accumulating large state
+        total_memberships = 0
+        total_conditions_processed = 0
+        total_batches_processed = 0
         offset = 0
         page_size = inputs.conditions_page_size
 
+        workflow_logger.info(f"Processing conditions in pages of {page_size} with parallelism={inputs.parallelism}")
+
         while True:
+            # Fetch one page of conditions
             page_inputs = GetConditionsPageInputs(
                 team_id=inputs.team_id,
                 cohort_id=inputs.cohort_id,
@@ -329,71 +334,57 @@ class BehavioralCohortsWorkflow(PostHogWorkflow):
                 retry_policy=temporalio.common.RetryPolicy(maximum_attempts=3),
             )
 
-            all_conditions.extend(page_result.conditions)
-            workflow_logger.info(
-                f"Fetched page with {len(page_result.conditions)} conditions (total: {len(all_conditions)})"
-            )
-
-            if not page_result.has_more:
+            if not page_result.conditions:
+                if offset == 0:
+                    workflow_logger.warning("No conditions found matching the criteria")
                 break
 
+            workflow_logger.info(f"Processing page with {len(page_result.conditions)} conditions (offset={offset})")
+
+            # Process this page's conditions immediately (don't accumulate in workflow state)
+            actual_parallelism = min(inputs.parallelism, len(page_result.conditions))
+            batches = split_into_batches(page_result.conditions, actual_parallelism)
+
+            # Process batches for this page in parallel
+            batch_tasks = []
+            for batch_num, batch in enumerate(batches, 1):
+                batch_inputs = ProcessConditionBatchInputs(
+                    conditions=batch,
+                    min_matches=inputs.min_matches,
+                    days=inputs.days,
+                    batch_number=batch_num,
+                    total_batches=len(batches),
+                )
+
+                task = temporalio.workflow.execute_activity(
+                    process_condition_batch_activity,
+                    batch_inputs,
+                    start_to_close_timeout=dt.timedelta(minutes=30),
+                    heartbeat_timeout=dt.timedelta(minutes=2),
+                    retry_policy=temporalio.common.RetryPolicy(
+                        maximum_attempts=3,
+                        initial_interval=dt.timedelta(seconds=5),
+                        maximum_interval=dt.timedelta(seconds=30),
+                    ),
+                )
+                batch_tasks.append(task)
+
+            # Wait for this page's batches to complete
+            page_results = await asyncio.gather(*batch_tasks)
+
+            # Aggregate results from this page only
+            for result in page_results:
+                total_memberships += result.memberships_count
+                total_conditions_processed += result.conditions_processed
+                total_batches_processed += 1
+                workflow_logger.info(
+                    f"Page batch {result.batch_number} contributed {result.memberships_count} memberships"
+                )
+
+            # Move to next page
+            if not page_result.has_more:
+                break
             offset += len(page_result.conditions)
-
-        conditions = all_conditions
-
-        if not conditions:
-            workflow_logger.warning("No conditions found matching the criteria")
-            return {
-                "total_memberships": 0,
-                "conditions_processed": 0,
-                "batches_processed": 0,
-            }
-
-        workflow_logger.info(f"Found {len(conditions)} conditions to process")
-
-        # Step 2: Split conditions into batches based on parallelism setting
-        # Ensure we don't create more batches than conditions
-        actual_parallelism = min(inputs.parallelism, len(conditions))
-        batches = split_into_batches(conditions, actual_parallelism)
-
-        workflow_logger.info(f"Split into {len(batches)} batches for parallel processing")
-
-        # Step 3: Process batches in parallel
-        batch_tasks = []
-        for batch_num, batch in enumerate(batches, 1):
-            batch_inputs = ProcessConditionBatchInputs(
-                conditions=batch,
-                min_matches=inputs.min_matches,
-                days=inputs.days,
-                batch_number=batch_num,
-                total_batches=len(batches),
-            )
-
-            # Create activity task with longer timeout for processing
-            task = temporalio.workflow.execute_activity(
-                process_condition_batch_activity,
-                batch_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=30),  # Longer timeout for batch processing
-                heartbeat_timeout=dt.timedelta(minutes=2),
-                retry_policy=temporalio.common.RetryPolicy(
-                    maximum_attempts=3,
-                    initial_interval=dt.timedelta(seconds=5),
-                    maximum_interval=dt.timedelta(seconds=30),
-                ),
-            )
-            batch_tasks.append(task)
-
-        # Wait for all batches to complete
-        results = await asyncio.gather(*batch_tasks)
-
-        # Step 4: Aggregate results
-        total_memberships = 0
-        total_conditions_processed = 0
-
-        for result in results:
-            total_memberships += result.memberships_count
-            total_conditions_processed += result.conditions_processed
-            workflow_logger.info(f"Batch {result.batch_number} contributed {result.memberships_count} memberships")
 
         workflow_logger.info(
             f"Workflow completed: {total_memberships} total memberships from {total_conditions_processed} conditions"
@@ -403,5 +394,5 @@ class BehavioralCohortsWorkflow(PostHogWorkflow):
         return {
             "total_memberships": total_memberships,
             "conditions_processed": total_conditions_processed,
-            "batches_processed": len(batches),
+            "batches_processed": total_batches_processed,
         }
