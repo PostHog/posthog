@@ -217,6 +217,9 @@ export class CyclotronJobQueueDelay {
             }
         }
 
-        return await this.consumeBatch(processingPromises as any)
+        await this.consumeBatch([])
+        return {
+            backgroundTask: Promise.allSettled(processingPromises),
+        }
     }
 }
