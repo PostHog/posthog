@@ -100,7 +100,7 @@ class DeltaSnapshot:
         delta_table_schema = delta_table.schema().to_pyarrow()
 
         new_fields = [
-            deltalake.Field.from_pyarrow(field)
+            deltalake.Field.from_pyarrow(field.with_nullable(True))
             for field in ensure_delta_compatible_arrow_schema(schema)
             if field.name not in delta_table_schema.names
         ]
@@ -113,8 +113,7 @@ class DeltaSnapshot:
         delta_table = self.get_delta_table()
         self.schema.add_pyarrow_record_batch(data)
 
-        if PARTITION_KEY in data.column_names:
-            use_partitioning = True
+        use_partitioning = False
 
         if delta_table is None:
             delta_table = deltalake.DeltaTable.create(
@@ -123,6 +122,8 @@ class DeltaSnapshot:
                 storage_options=self._get_credentials(),
                 partition_by=PARTITION_KEY if use_partitioning else None,
             )
+        else:
+            delta_table = self._evolve_delta_schema(data.schema)
 
         if use_partitioning:
             predicate_ops = [
@@ -145,7 +146,6 @@ class DeltaSnapshot:
             source=data,
             source_alias="source",
             target_alias="target",
-            merge_schema=True,
             predicate=predicate,
             streamed_exec=True,
         ).when_matched_update(
@@ -166,7 +166,6 @@ class DeltaSnapshot:
         # Insert the updated rows
         delta_table.merge(
             source=data,
-            merge_schema=True,
             source_alias="source",
             target_alias="target",
             predicate=f"source._ph_merge_key = target._ph_merge_key AND target._ph_valid_until IS NULL",

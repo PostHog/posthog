@@ -175,7 +175,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         s3_table_func = build_function_call(
             url=self.url_pattern,
             format="Delta"  # Use deltaLake() to get table schema for evolved tables
-            if self.format == "DeltaS3Wrapper"
+            if self.format == self.TableFormat.DeltaS3Wrapper
             else self.format,
             access_key=self.credential.access_key,
             access_secret=self.credential.access_secret,
