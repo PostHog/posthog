@@ -310,7 +310,7 @@ class BehavioralCohortsWorkflow(PostHogWorkflow):
         page_size = inputs.conditions_page_size
 
         # Step 1: Fetch all conditions for this workflow's range
-        all_conditions = []
+        all_conditions: list[dict[str, Any]] = []
         conditions_limit = inputs.limit  # This workflow's assigned range
 
         workflow_logger.info(f"Fetching conditions starting at offset={offset}, limit={conditions_limit}")
@@ -358,7 +358,7 @@ class BehavioralCohortsWorkflow(PostHogWorkflow):
                 "batches_processed": 0,
             }
 
-        workflow_logger.info(f"Processing {len(all_conditions)} conditions with parallelism={inputs.parallelism}")
+        workflow_logger.info(f"Processing {len(all_conditions)} conditions sequentially")
 
         # Step 2: Process all conditions in a single activity (no internal parallelism needed)
         workflow_logger.info(f"Processing {len(all_conditions)} conditions sequentially")
