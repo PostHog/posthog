@@ -329,3 +329,8 @@ Contextual tools that are available to you on this page are:
 IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.
 </system_reminder>
 """.strip()
+
+ROOT_CONVERSATION_SUMMARY_PROMPT = """
+This session continues from a prior conversation that exceeded the context window. A summary of that conversation is provided below:
+{summary}
+""".strip()
