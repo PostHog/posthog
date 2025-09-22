@@ -12,6 +12,7 @@ const mockKafkaConsumer = {
     offsetsStore: jest.fn(),
     disconnect: jest.fn(),
     connect: jest.fn().mockResolvedValue(undefined),
+    heartbeat: jest.fn(),
 }
 
 jest.mock('../../../kafka/consumer', () => ({
@@ -77,6 +78,101 @@ describe('CyclotronJobQueueDelay', () => {
             }, 100)
 
             await expect(delayPromise).rejects.toThrow('Delay cancelled due to consumer shutdown or rebalancing')
+        })
+    })
+
+    describe('message routing logic', () => {
+        let mockProducer: any
+        let delayWithCancellationSpy: jest.SpyInstance
+
+        beforeEach(async () => {
+            await delayQueue.startAsConsumer()
+            await delayQueue.startAsProducer()
+            const { KafkaProducerWrapper } = require('../../../kafka/producer')
+            mockProducer = await KafkaProducerWrapper.create.mock.results[0].value
+
+            // Mock delayWithCancellation to avoid actual delays in tests
+            delayWithCancellationSpy = jest
+                .spyOn(delayQueue as any, 'delayWithCancellation')
+                .mockResolvedValue(undefined)
+        })
+
+        afterEach(() => {
+            delayWithCancellationSpy?.mockRestore()
+        })
+
+        it.each([
+            {
+                description: 'routes to returnTopic when scheduled time has passed',
+                scheduledTime: () => DateTime.now().minus({ minutes: 1 }),
+                expectedTopic: 'cdp_cyclotron_hog',
+            },
+            {
+                description: 'routes to returnTopic when scheduled time equals current time',
+                scheduledTime: () => DateTime.now(),
+                expectedTopic: 'cdp_cyclotron_hog',
+            },
+            {
+                description: 'routes back to delay queue when remaining delay exceeds maxDelayMs',
+                scheduledTime: () => DateTime.now().plus({ hours: 25 }),
+                expectedTopic: 'cdp_cyclotron_delay_10m',
+            },
+            {
+                description: 'routes to returnTopic when remaining delay fits within maxDelayMs',
+                scheduledTime: () => DateTime.now().plus({ minutes: 5 }),
+                expectedTopic: 'cdp_cyclotron_hog',
+            },
+        ])('$description', async ({ scheduledTime, expectedTopic }) => {
+            const returnTopic = 'cdp_cyclotron_hog'
+            const mockMessage = {
+                key: Buffer.from('test-key'),
+                value: Buffer.from('test-value'),
+                offset: 123,
+                size: 100,
+                topic: 'cdp_cyclotron_delay_10m',
+                partition: 0,
+                headers: [
+                    {
+                        returnTopic: Buffer.from(returnTopic),
+                        queueScheduledAt: Buffer.from(scheduledTime().toISO()),
+                    },
+                ],
+            }
+
+            await delayQueue['consumeKafkaBatch']([mockMessage])
+
+            expect(mockProducer.produce).toHaveBeenCalledWith({
+                value: mockMessage.value,
+                key: mockMessage.key,
+                topic: expectedTopic,
+                headers: mockMessage.headers,
+            })
+        })
+
+        it.each([
+            {
+                description: 'missing returnTopic header',
+                headers: [{ queueScheduledAt: Buffer.from(DateTime.now().toISO()) }],
+            },
+            {
+                description: 'missing queueScheduledAt header',
+                headers: [{ returnTopic: Buffer.from('hog_invocations') }],
+            },
+        ])('should handle $description', async ({ headers }) => {
+            const mockMessage = {
+                key: Buffer.from('test-key'),
+                value: Buffer.from('test-value'),
+                offset: 123,
+                size: 100,
+                topic: 'cdp_cyclotron_delay_10m',
+                partition: 0,
+                headers,
+            }
+
+            await delayQueue['consumeKafkaBatch']([mockMessage])
+
+            expect(mockProducer.produce).not.toHaveBeenCalled()
+            expect(mockKafkaConsumer.offsetsStore).toHaveBeenCalledWith([{ ...mockMessage, offset: 124 }])
         })
     })
 
