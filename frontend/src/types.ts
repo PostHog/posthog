@@ -1482,6 +1482,7 @@ export interface CohortType {
     }
     experiment_set?: number[]
     _create_in_folder?: string | null
+    _create_static_person_ids?: string[]
 }
 
 export interface InsightHistory {
@@ -3612,6 +3613,7 @@ export enum ItemMode {
 
 export enum DashboardPlacement {
     Dashboard = 'dashboard', // When on the standard dashboard page
+    CustomerAnalytics = 'customer-analytics', // When embedded on the customer analytics page
     ProjectHomepage = 'project-homepage', // When embedded on the project homepage
     FeatureFlag = 'feature-flag',
     Public = 'public', // When viewing the dashboard publicly

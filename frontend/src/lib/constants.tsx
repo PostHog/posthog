@@ -233,9 +233,11 @@ export const FEATURE_FLAGS = {
     WEB_ANALYTICS_PAGE_REPORTS: 'web-analytics-page-reports', // owner: @lricoy #team-web-analytics
     EMBEDDED_ANALYTICS: 'embedded-analytics', // owner: @sakce #team-clickhouse
     SUPPORT_FORM_IN_ONBOARDING: 'support-form-in-onboarding', // owner: @joshsny #team-growth
-    CRM_ITERATION_ONE: 'crm-iteration-one', // owner: @arthurdedeus #team-crm
-    CRM_USAGE_METRICS: 'crm-usage-metrics', // owner: @arthurdedeus #team-crm
-    TOGGLE_PROPERTY_ARRAYS: 'toggle-property-arrays', // owner: @arthurdedeus #team-crm
+    CRM_ITERATION_ONE: 'crm-iteration-one', // owner: @arthurdedeus #team-customer-analytics
+    CRM_USAGE_METRICS: 'crm-usage-metrics', // owner: @arthurdedeus #team-customer-analytics
+    TOGGLE_PROPERTY_ARRAYS: 'toggle-property-arrays', // owner: @arthurdedeus #team-customer-analytics
+    DWH_JOIN_TABLE_PREVIEW: 'dwh-join-table-preview', // owner: @arthurdedeus #team-customer-analytics
+    CUSTOMER_ANALYTICS: 'customer-analytics', // owner: @arthurdedeus #team-customer-analytics
     RECORDINGS_SIMILAR_RECORDINGS: 'recordings-similar-recordings', // owner: @veryayskiy #team-replay
     RECORDINGS_BLOBBY_V2_REPLAY: 'recordings-blobby-v2-replay', // owner: @pl #team-ingestion
     RECORDINGS_BLOBBY_V2_LTS_REPLAY: 'use-blob-v2-lts', // owner: @pauldambra #team-replay
@@ -304,9 +306,9 @@ export const FEATURE_FLAGS = {
     ADVANCED_ACTIVITY_LOGS: 'advanced-activity-logs', // owner: @yasen-posthog #team-platform-features
     SIMPLIFIED_PRELAUNCH_CHECKLIST: 'simplified-prelaunch-checklist', // owner: @jurajmajerik #team-experiments
     HOW_TO_READ_METRICS_EXPLANATION: 'how-to-read-metrics-explanation', // owner: @jurajmajerik #team-experiments
-    DWH_JOIN_TABLE_PREVIEW: 'dwh-join-table-preview', // owner: @arthurdedeus #team-crm
     DASHBOARD_TILE_OVERRIDES: 'dashboard-tile-overrides', // owner: @gesh #team-product-analytics
     REPLAY_HOVER_UI: 'replay-hover-ui', // owner: @pauldambra #team-replay
+    RECORDINGS_PLAYER_EVENT_PROPERTY_EXPANSION: 'recordings-player-event-property-expansion', // owner: @pauldambra #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

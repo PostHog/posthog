@@ -1,7 +1,9 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
 import React from 'react'
 
+import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
@@ -33,6 +35,7 @@ import { isDataVisualizationNode } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
+    DashboardPlacement,
     DashboardTile,
     ExporterFormat,
     InsightColor,
@@ -63,6 +66,7 @@ interface InsightMetaProps
         | 'moreButtons'
         | 'filtersOverride'
         | 'variablesOverride'
+        | 'placement'
     > {
     tile: DashboardTile<QueryBasedInsightModel>
     insight: QueryBasedInsightModel
@@ -93,6 +97,7 @@ export function InsightMeta({
     showEditingControls = true,
     showDetailsControls = true,
     moreButtons,
+    placement,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, dashboards, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
     const { insightProps } = useValues(insightLogic)
@@ -128,6 +133,37 @@ export function InsightMeta({
     const canAccessTileOverrides = !!featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_OVERRIDES]
 
     const summary = useSummarizeInsight()(insight.query)
+
+    // Feedback buttons for Customer Analytics
+    const feedbackButtons =
+        placement === DashboardPlacement.CustomerAnalytics && featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] ? (
+            <div className="flex gap-0">
+                <LemonButton
+                    size="small"
+                    icon={<IconThumbsUp />}
+                    onClick={() => {
+                        posthog.capture('customer-analytics-insight-liked', {
+                            insight_id: insight.short_id,
+                            insight_name: insight.name,
+                            dashboard_id: dashboardId,
+                        })
+                    }}
+                    tooltip="Like this insight"
+                />
+                <LemonButton
+                    size="small"
+                    icon={<IconThumbsDown />}
+                    onClick={() => {
+                        posthog.capture('customer-analytics-insight-disliked', {
+                            insight_id: insight.short_id,
+                            insight_name: insight.name,
+                            dashboard_id: dashboardId,
+                        })
+                    }}
+                    tooltip="Dislike this insight"
+                />
+            </div>
+        ) : null
 
     // If user can't view the insight, show minimal interface
     if (!canViewInsight) {
@@ -387,6 +423,7 @@ export function InsightMeta({
             moreTooltip={
                 canEditInsight ? 'Rename, duplicate, export, refresh and more…' : 'Duplicate, export, refresh and more…'
             }
+            extraControls={feedbackButtons}
         />
     )
 }

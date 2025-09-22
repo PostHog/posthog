@@ -57,6 +57,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Cohort]: { projectBased: true, name: 'Cohort', defaultDocsPath: '/docs/data/cohorts' },
     [Scene.Cohorts]: { projectBased: true, name: 'Cohorts', defaultDocsPath: '/docs/data/cohorts' },
     [Scene.CustomCss]: { projectBased: true, name: 'Custom CSS' },
+    [Scene.CustomerAnalytics]: { projectBased: true, name: 'Customer analytics' },
     [Scene.Dashboard]: {
         projectBased: true,
         activityScope: ActivityScope.DASHBOARD,
@@ -88,10 +89,32 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.DataWarehouseSource]: {
         projectBased: true,
         name: 'Data warehouse source',
+        defaultDocsPath: '/docs/cdp/sources',
     },
     [Scene.DataWarehouseSourceNew]: {
         projectBased: true,
         name: 'New data warehouse source',
+        defaultDocsPath: async () => {
+            try {
+                // Importing here to avoid problems with importing logics from such a global file like this one
+                const { sourceWizardLogic } = await import('./data-warehouse/new/sourceWizardLogic')
+                const logic = sourceWizardLogic.findMounted()
+
+                if (logic) {
+                    const { selectedConnector } = logic.values
+
+                    // `docsUrl` includes the full URL, we only need the pathname when opening docs in the sidepanel
+                    if (selectedConnector?.docsUrl) {
+                        const parsedUrl = new URL(selectedConnector.docsUrl)
+                        return parsedUrl.pathname
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to get default docs path for new data warehouse source', error)
+            }
+
+            return '/docs/cdp/sources'
+        },
     },
     [Scene.DeadLetterQueue]: { instanceLevel: true },
     [Scene.DebugHog]: { projectBased: true, name: 'Hog Repl' },

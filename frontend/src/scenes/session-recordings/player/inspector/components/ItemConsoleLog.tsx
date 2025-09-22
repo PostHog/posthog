@@ -3,12 +3,17 @@ import clsx from 'clsx'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 
-import { InspectorListItemConsole } from '../playerInspectorLogic'
+import { InspectorListItemAppState, InspectorListItemConsole } from '../playerInspectorLogic'
 
 export interface ItemConsoleLogProps {
     item: InspectorListItemConsole
+}
+
+export interface ItemAppStateProps {
+    item: InspectorListItemAppState
 }
 
 export function ItemConsoleLog({ item }: ItemConsoleLogProps): JSX.Element {
@@ -58,6 +63,32 @@ export function ItemConsoleLogDetail({ item }: ItemConsoleLogProps): JSX.Element
                         </CodeSnippet>
                     </>
                 ) : null}
+            </div>
+        </div>
+    )
+}
+
+export function ItemAppState({ item }: ItemAppStateProps): JSX.Element {
+    return (
+        <div className="w-full font-light" data-attr="item-app-state">
+            <div className="px-2 py-1 text-xs cursor-pointer truncate font-mono flex-1">{item.action}</div>
+        </div>
+    )
+}
+
+export function ItemAppStateDetail({ item }: ItemAppStateProps): JSX.Element {
+    return (
+        <div className="w-full font-light" data-attr="item-app-state">
+            <div className="px-2 py-1 text-xs border-t flex flex-col gap-2">
+                <SimpleKeyValueList
+                    item={{
+                        'prev state': item.stateEvent?.prevState,
+                        'action payload': item.stateEvent?.payload,
+                        'next state': item.stateEvent?.nextState,
+                    }}
+                    header={<strong>{item.action}</strong>}
+                    sortItems={false}
+                />
             </div>
         </div>
     )
