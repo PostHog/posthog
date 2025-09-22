@@ -28,7 +28,7 @@ class BehavioralCohortsWorkflowInputs:
     days: int = 30
     limit: Optional[int] = None
     parallelism: int = 10  # Number of parallel workers
-    conditions_batch_size: int = 5000  # Max conditions to return per activity call
+    conditions_page_size: int = 1000  # Max conditions to return per activity call (configurable for testing)
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -38,6 +38,7 @@ class BehavioralCohortsWorkflowInputs:
             "min_matches": self.min_matches,
             "days": self.days,
             "parallelism": self.parallelism,
+            "conditions_page_size": self.conditions_page_size,
         }
 
 
@@ -307,7 +308,7 @@ class BehavioralCohortsWorkflow(PostHogWorkflow):
         # Step 1: Get all unique conditions in pages to avoid message size limits
         all_conditions = []
         offset = 0
-        page_size = inputs.conditions_batch_size
+        page_size = inputs.conditions_page_size
 
         while True:
             page_inputs = GetConditionsPageInputs(
@@ -402,5 +403,4 @@ class BehavioralCohortsWorkflow(PostHogWorkflow):
             "total_memberships": len(all_memberships),
             "conditions_processed": total_conditions_processed,
             "batches_processed": len(batches),
-            "memberships": all_memberships[:100],  # Return first 100 for display
         }
