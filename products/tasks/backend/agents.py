@@ -1,4 +1,4 @@
-"""Hardcoded agent definitions for the Tasks product."""
+"""Agent definitions for the Tasks product."""
 
 from dataclasses import dataclass
 from typing import Optional
@@ -6,7 +6,7 @@ from typing import Optional
 
 @dataclass
 class Agent:
-    """Represents a hardcoded agent definition."""
+    """Represents an agent definition."""
 
     id: str
     name: str
@@ -26,7 +26,7 @@ class Agent:
             "agent_type": self.agent_type,
             "description": self.description,
             "config": self.config,
-            "is_active": True,  # All hardcoded agents are active
+            "is_active": True,  # All agents are active
         }
 
 
