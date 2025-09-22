@@ -2275,7 +2275,6 @@
       query_kind,
   
       exception_code,
-      errorCodeToName(exception_code) as exception_name,
       exception,
       stack_trace,
   
