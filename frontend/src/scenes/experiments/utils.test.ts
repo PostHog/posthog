@@ -620,6 +620,7 @@ describe('checkFeatureFlagEligibility', () => {
         key: 'test',
         name: 'Test',
         created_at: '2021-01-01',
+        updated_at: '2021-01-01',
         created_by: null,
         is_simple_flag: false,
         is_remote_configuration: false,
