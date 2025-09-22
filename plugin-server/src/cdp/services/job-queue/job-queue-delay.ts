@@ -218,7 +218,7 @@ export class CyclotronJobQueueDelay {
         }
 
         const startTime = new Date().getTime()
-        await Promise.all(processingPromises)
+        await Promise.allSettled(processingPromises)
         logger.info('🔁', `${this.name} - Waited for all promises in ${new Date().getTime() - startTime}ms`)
 
         return await this.consumeBatch([])
