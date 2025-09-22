@@ -13,7 +13,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.constants import MESSAGING_TASK_QUEUE
 from posthog.temporal.common.client import async_connect
-from posthog.temporal.messaging.behavioral_cohorts_workflow import BehavioralCohortsWorkflowInputs
+from posthog.temporal.messaging.behavioral_cohorts_workflow_coordinator import CoordinatorWorkflowInputs
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -59,13 +59,13 @@ class Command(BaseCommand):
             "--parallelism",
             type=int,
             default=10,
-            help="Number of parallel workers for processing (default: 10)",
+            help="Number of parallel child workflows to spawn (default: 10)",
         )
         parser.add_argument(
             "--conditions-page-size",
             type=int,
             default=1000,
-            help="Number of conditions to fetch per activity call (default: 1000, max recommended: 10000)",
+            help="Number of conditions to fetch per page when loading data (default: 1000)",
         )
         parser.add_argument(
             "--use-temporal",
@@ -89,6 +89,7 @@ class Command(BaseCommand):
         limit = options.get("limit")
         parallelism = options.get("parallelism", 10)
         conditions_page_size = options.get("conditions_page_size", 1000)
+        conditions_per_workflow = options.get("conditions_per_workflow", 5000)
         use_temporal = options.get("use_temporal", True)
 
         logger.info(
@@ -109,6 +110,7 @@ class Command(BaseCommand):
                 limit=limit,
                 parallelism=parallelism,
                 conditions_page_size=conditions_page_size,
+                conditions_per_workflow=conditions_per_workflow,
             )
 
             if result:
@@ -127,7 +129,7 @@ class Command(BaseCommand):
                     f"Workflow completed: {result['total_memberships']} memberships from {result['conditions_processed']} conditions"
                 )
                 self.stdout.write(
-                    f"Processed in {result['batches_processed']} parallel batches (parallelism={parallelism})"
+                    f"Processed across {result.get('child_workflows', result.get('batches_processed', 0))} parallel child workflows"
                 )
                 self.stdout.write(f"Total time: {total_time_seconds} seconds")
 
@@ -183,6 +185,7 @@ class Command(BaseCommand):
         limit: int | None,
         parallelism: int,
         conditions_page_size: int,
+        conditions_per_workflow: int,
     ) -> dict[str, Any] | None:
         """Run the Temporal workflow for parallel processing."""
 
@@ -190,8 +193,8 @@ class Command(BaseCommand):
             # Connect to Temporal
             client = await async_connect()
 
-            # Create workflow inputs
-            inputs = BehavioralCohortsWorkflowInputs(
+            # Always use coordinator workflow for true parallelism and to avoid GRPC limits
+            inputs = CoordinatorWorkflowInputs(
                 team_id=team_id,
                 cohort_id=cohort_id,
                 condition=condition,
@@ -199,18 +202,18 @@ class Command(BaseCommand):
                 days=days,
                 limit=limit,
                 parallelism=parallelism,
-                conditions_page_size=conditions_page_size,
+                conditions_per_workflow=conditions_per_workflow,
             )
 
             # Generate unique workflow ID
-            workflow_id = f"behavioral-cohorts-{team_id or 'all'}-{cohort_id or 'all'}-{int(time.time())}"
+            workflow_id = f"behavioral-cohorts-coordinator-{team_id or 'all'}-{cohort_id or 'all'}-{int(time.time())}"
 
-            logger.info(f"Starting Temporal workflow: {workflow_id}")
+            logger.info(f"Starting Temporal coordinator workflow: {workflow_id}")
 
             try:
-                # Execute the workflow
+                # Execute the coordinator workflow
                 result = await client.execute_workflow(
-                    "behavioral-cohorts-analysis",
+                    "behavioral-cohorts-coordinator",
                     inputs,
                     id=workflow_id,
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
