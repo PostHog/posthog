@@ -56,7 +56,7 @@ function convertExperimentResultToFunnelSteps(
     const variants = experiment.parameters?.feature_flag_variants || []
 
     const allResults = [result.baseline, ...(result.variant_results || [])]
-    const numSteps = (result.baseline.step_counts?.length || 0) + 1
+    const numSteps = result.baseline.step_counts?.length || 0
     const funnelSteps: FunnelStepWithNestedBreakdown[] = []
 
     for (let stepIndex = 0; stepIndex < numSteps; stepIndex++) {
@@ -119,7 +119,7 @@ export function ResultDetails({
     isSecondary: boolean
 }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const useExperimentFunnelChart = featureFlags[FEATURE_FLAGS.EXPERIMENTS_FUNNEL_CHART] == 'test'
+    const useExperimentFunnelChart = featureFlags[FEATURE_FLAGS.EXPERIMENTS_FUNNEL_CHART] === 'test'
 
     const columns: LemonTableColumns<ExperimentVariantResult & { key: string }> = [
         {

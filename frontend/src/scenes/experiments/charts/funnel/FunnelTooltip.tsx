@@ -90,12 +90,10 @@ function FunnelTooltipContent({
                 </tbody>
             </table>
             {hasSessionData && (
-                <>
-                    <div className="table-subtext table-subtext-click-to-inspect">
-                        <IconHandClick className="mr-1 mb-0.5" />
-                        Click to view sessions
-                    </div>
-                </>
+                <div className="table-subtext table-subtext-click-to-inspect">
+                    <IconHandClick className="mr-1 mb-0.5" />
+                    Click to view sessions
+                </div>
             )}
         </div>
     )

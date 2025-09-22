@@ -393,11 +393,11 @@ class ExperimentQueryRunner(QueryRunner):
             step_counts_expr = f"tuple({', '.join(step_count_exprs)}) as step_counts"
             select_fields.append(parse_expr(step_counts_expr))
 
-            # Add evenut uuids for each step
+            # For each step in the funnel, get at least 100 pairs of person_id, session_id and event uuid, that have
+            # that step as their last step in the funnel.
+            # For the users that have 0 matching steps in the funnel (-1), we return the event uuid for the exposure event.
             event_uuids_exprs = []
             for i in range(num_steps + 1):
-                # For each step, get at least 100 event uuids matching that step. For the users that have 0 matching steps
-                # in the funnel (-1), we return the event uuid for the exposure event.
                 event_uuids_expr = f"""
                     groupArraySampleIf(100)(
                         if(
