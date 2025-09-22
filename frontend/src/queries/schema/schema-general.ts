@@ -3707,6 +3707,8 @@ export interface MarketingAnalyticsTableQuery
     draftConversionGoal?: ConversionGoalFilter | null
     /** Compare to date range */
     compareFilter?: CompareFilter
+    /** Include conversion goal rows even when they don't match campaign costs table */
+    includeAllConversions?: boolean
 }
 
 export interface MarketingAnalyticsItem extends WebAnalyticsItemBase<number | string> {
