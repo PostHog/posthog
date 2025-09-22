@@ -146,7 +146,7 @@ MARKETING_ANALYTICS_SCHEMA = {
 }
 
 # Valid native marketing sources
-VALID_NATIVE_MARKETING_SOURCES = ["GoogleAds", "LinkedinAds", "RedditAds"]
+VALID_NATIVE_MARKETING_SOURCES = ["GoogleAds", "LinkedinAds", "RedditAds", "MetaAds"]
 
 # Valid non-native marketing sources (managed external sources like BigQuery)
 VALID_NON_NATIVE_MARKETING_SOURCES = ["BigQuery"]
@@ -159,6 +159,7 @@ NEEDED_FIELDS_FOR_NATIVE_MARKETING_ANALYTICS = {
     "GoogleAds": ["campaign", "campaign_stats"],
     "LinkedinAds": ["campaigns", "campaign_stats"],
     "RedditAds": ["campaigns", "campaign_report"],
+    "MetaAds": ["campaigns", "campaign_stats"],
 }
 
 # Table pattern matching for native sources. TODO: find a better way to get the table names from the source.
@@ -177,6 +178,11 @@ TABLE_PATTERNS = {
         "campaign_table_keywords": ["campaigns"],
         "campaign_table_exclusions": ["report"],
         "stats_table_keywords": ["campaign_report"],
+    },
+    "MetaAds": {
+        "campaign_table_keywords": ["campaigns"],
+        "campaign_table_exclusions": ["stats"],
+        "stats_table_keywords": ["campaign_stats"],
     },
 }
 
