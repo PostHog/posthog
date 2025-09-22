@@ -231,13 +231,13 @@ class BigQueryBatchExportInputs(BaseBatchExportInputs):
 
 @dataclass(kw_only=True)
 class DatabricksBatchExportInputs(BaseBatchExportInputs):
-    """Inputs for Databricks export workflow."""
+    """Inputs for Databricks export workflow.
 
-    # server_hostname: str
+    NOTE: we store config related to the Databricks instance in the integration model instead.
+    (including sensitive config such as client ID and client secret)
+    """
+
     http_path: str
-    # TODO - store these in the integration model instead
-    # client_id: str
-    # client_secret: str
     catalog: str
     schema: str
     table_name: str

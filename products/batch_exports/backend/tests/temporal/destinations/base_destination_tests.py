@@ -126,7 +126,7 @@ class BaseDestinationTest(ABC):
         """
         pass
 
-    def create_integration(self, team_id: int) -> Integration | None:
+    async def create_integration(self, team_id: int) -> Integration | None:
         """Create a test integration (for those destinations that require an integration)"""
         return None
 

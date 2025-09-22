@@ -91,16 +91,9 @@ class DatabricksDestinationTest(BaseDestinationTest):
         return json_columns
 
     def get_destination_config(self, team_id: int) -> dict:
-        """Provide test configuration for Databricks destination.
-
-        NOTE: we're using machine-to-machine OAuth here:
-        https://docs.databricks.com/aws/en/dev-tools/python-sql-connector#oauth-machine-to-machine-m2m-authentication
-        """
+        """Provide test configuration for Databricks destination."""
         return {
-            # "server_hostname": os.getenv("DATABRICKS_SERVER_HOSTNAME"),
             "http_path": os.getenv("DATABRICKS_HTTP_PATH"),
-            # "client_id": os.getenv("DATABRICKS_CLIENT_ID"),
-            # "client_secret": os.getenv("DATABRICKS_CLIENT_SECRET"),
             "catalog": os.getenv("DATABRICKS_CATALOG", f"batch_export_tests"),
             # use a hyphen in the schema name to test we handle it correctly
             "schema": os.getenv("DATABRICKS_SCHEMA", f"test_workflow_schema-{team_id}"),
@@ -109,7 +102,11 @@ class DatabricksDestinationTest(BaseDestinationTest):
         }
 
     async def create_integration(self, team_id: int) -> Integration | None:
-        """Create a test integration."""
+        """Create a test integration.
+
+        NOTE: we're using machine-to-machine OAuth here:
+        https://docs.databricks.com/aws/en/dev-tools/python-sql-connector#oauth-machine-to-machine-m2m-authentication
+        """
         integration = await Integration.objects.acreate(
             team_id=team_id,
             kind=Integration.IntegrationKind.DATABRICKS,

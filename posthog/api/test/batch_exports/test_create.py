@@ -9,6 +9,7 @@ from django.test.client import Client as HttpClient
 
 from asgiref.sync import async_to_sync
 from rest_framework import status
+from temporalio.client import ScheduleActionStartWorkflow
 
 from posthog.api.test.batch_exports.conftest import describe_schedule
 from posthog.api.test.batch_exports.fixtures import create_organization
@@ -673,10 +674,7 @@ def test_creating_databricks_batch_export_using_integration(
     destination_data = {
         "type": "Databricks",
         "config": {
-            # "server_hostname": "my-server-hostname",
             "http_path": "my-http-path",
-            # "client_id": "my-client-id",
-            # "client_secret": "my-client-secret",
             "catalog": "my-catalog",
             "schema": "my-schema",
             "table_name": "my-table-name",
@@ -705,7 +703,8 @@ def test_creating_databricks_batch_export_using_integration(
 
     assert len(intervals) == 1
     assert schedule.schedule.spec.intervals[0].every == dt.timedelta(hours=1)
-    # assert schedule.schedule.spec.time_zone_name == timezone
+    assert isinstance(schedule.schedule.action, ScheduleActionStartWorkflow)
+    assert schedule.schedule.action.workflow == "databricks-export"
 
 
 def test_creating_databricks_batch_export_fails_if_feature_flag_is_not_enabled(
@@ -716,10 +715,7 @@ def test_creating_databricks_batch_export_fails_if_feature_flag_is_not_enabled(
     destination_data = {
         "type": "Databricks",
         "config": {
-            # "server_hostname": "my-server-hostname",
             "http_path": "my-http-path",
-            # "client_id": "my-client-id",
-            # "client_secret": "my-client-secret",
             "catalog": "my-catalog",
             "schema": "my-schema",
             "table_name": "my-table-name",
@@ -756,10 +752,7 @@ def test_creating_databricks_batch_export_fails_if_integration_is_missing(
     destination_data = {
         "type": "Databricks",
         "config": {
-            # "server_hostname": "my-server-hostname",
             "http_path": "my-http-path",
-            # "client_id": "my-client-id",
-            # "client_secret": "my-client-secret",
             "catalog": "my-catalog",
             "schema": "my-schema",
             "table_name": "my-table-name",
@@ -811,10 +804,7 @@ def test_creating_databricks_batch_export_fails_if_integration_is_invalid(
     destination_data = {
         "type": "Databricks",
         "config": {
-            # "server_hostname": "my-server-hostname",
             "http_path": "my-http-path",
-            # "client_id": "my-client-id",
-            # "client_secret": "my-client-secret",
             "catalog": "my-catalog",
             "schema": "my-schema",
             "table_name": "my-table-name",

@@ -1805,8 +1805,6 @@ class DatabricksIntegration:
         except KeyError as e:
             raise DatabricksIntegrationError(f"Databricks integration is not valid: {str(e)} missing")
 
-    # TODO - should we perform some kind of validation against the Databricks API to ensure the integration is valid?
-    # (like is done above in integration_from_keys)
     @classmethod
     def integration_from_config(
         cls, team_id: int, server_hostname: str, client_id: str, client_secret: str, created_by: User | None = None
