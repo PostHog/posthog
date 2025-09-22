@@ -55,12 +55,27 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "insight",
     "notebook",
     "session_recording",
+    "revenue_analytics",
 )
 
 # Resource inheritance mapping - child resources inherit access from parent resources
 RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "session_recording_playlist": "session_recording",
 }
+
+
+class UserAccessControlError(Exception):
+    resource: APIScopeObject
+    required_level: AccessControlLevel
+    resource_id: Optional[str]
+
+    def __init__(self, resource: APIScopeObject, required_level: AccessControlLevel, resource_id: Optional[str] = None):
+        super().__init__(
+            f"Access control failure. You don't have `{required_level}` access to the `{resource}` resource."
+        )
+        self.resource = resource
+        self.required_level = required_level
+        self.resource_id = resource_id
 
 
 def get_field_access_control_map(model_class: type[Model]) -> dict[str, tuple[APIScopeObject, AccessControlLevel]]:
@@ -585,6 +600,18 @@ class UserAccessControl:
             return False
 
         return access_level_satisfied_for_resource(comparison_resource, access_level, required_level)
+
+    def assert_access_level_for_resource(self, resource: APIScopeObject, required_level: AccessControlLevel) -> bool:
+        """
+        Stricter version of `check_access_level_for_resource`.
+        Checks for specific object-level access as well as resource-level access.
+        If they don't, raise a `UserAccessControlError`.
+        """
+
+        if not self.check_access_level_for_resource(resource, required_level):
+            raise UserAccessControlError(resource, required_level)
+
+        return True
 
     def has_any_specific_access_for_resource(
         self, resource: APIScopeObject, required_level: AccessControlLevel
