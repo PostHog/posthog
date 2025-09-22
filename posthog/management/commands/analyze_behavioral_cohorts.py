@@ -89,6 +89,8 @@ class Command(BaseCommand):
         limit = options.get("limit")
         parallelism = options.get("parallelism", 10)
         conditions_page_size = options.get("conditions_page_size", 1000)
+        use_coordinator = options.get("use_coordinator", False)
+        conditions_per_workflow = options.get("conditions_per_workflow", 5000)
         use_temporal = options.get("use_temporal", True)
 
         logger.info(
@@ -109,6 +111,8 @@ class Command(BaseCommand):
                 limit=limit,
                 parallelism=parallelism,
                 conditions_page_size=conditions_page_size,
+                use_coordinator=use_coordinator,
+                conditions_per_workflow=conditions_per_workflow,
             )
 
             if result:
