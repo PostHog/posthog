@@ -165,7 +165,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel }: MaxIns
                     // pb-7 below is intentionally specific - it's chosen so that the bottom-most chat's title
                     // is at the same viewport height as the QuestionInput text that appear after going into a thread.
                     // This makes the transition from one view into another just that bit smoother visually.
-                    <div className="@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow">
+                    <div className="@container/max-welcome relative flex flex-col gap-4 px-4 pb-7 grow min-h-[calc(100vh-var(--scene-layout-header-height))]">
                         <div className="flex-1 items-center justify-center flex flex-col gap-3">
                             <Intro />
                             <SidebarQuestionInputWithSuggestions />

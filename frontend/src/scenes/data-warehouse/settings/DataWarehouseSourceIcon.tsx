@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
+import { IconWrench } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
@@ -62,6 +63,10 @@ export const DATA_WAREHOUSE_SOURCE_ICON_MAP: Record<string, string> = {
     PostHog: IconPostHog,
 }
 
+export const DATA_WAREHOUSE_SOURCE_ICON_COMPONENT_MAP: Record<string, JSX.Element> = {
+    System: <IconWrench />,
+}
+
 export function DataWarehouseSourceIcon({
     type,
     size = 'small',
@@ -86,7 +91,13 @@ export function DataWarehouseSourceIcon({
         }
 
         const icon = DATA_WAREHOUSE_SOURCE_ICON_MAP[type]
-        return icon ?? null
+        if (icon) {
+            return icon
+        }
+
+        const component = DATA_WAREHOUSE_SOURCE_ICON_COMPONENT_MAP[type]
+
+        return component ?? null
     }, [availableSources, type])
 
     if (availableSourcesLoading || !availableSources) {
@@ -102,13 +113,17 @@ export function DataWarehouseSourceIcon({
     if (disableTooltip) {
         return (
             <div className="flex gap-4 items-center">
-                <img
-                    src={icon}
-                    alt={type}
-                    height={sizePx}
-                    width={sizePx}
-                    className="object-contain max-w-none rounded"
-                />
+                {typeof icon === 'object' ? (
+                    icon
+                ) : (
+                    <img
+                        src={icon}
+                        alt={type}
+                        height={sizePx}
+                        width={sizePx}
+                        className="object-contain max-w-none rounded"
+                    />
+                )}
             </div>
         )
     }
@@ -125,13 +140,17 @@ export function DataWarehouseSourceIcon({
                 }
             >
                 <Link to={getDataWarehouseSourceUrl(type)}>
-                    <img
-                        src={icon}
-                        alt={type}
-                        height={sizePx}
-                        width={sizePx}
-                        className="object-contain max-w-none rounded"
-                    />
+                    {typeof icon === 'object' ? (
+                        icon
+                    ) : (
+                        <img
+                            src={icon}
+                            alt={type}
+                            height={sizePx}
+                            width={sizePx}
+                            className="object-contain max-w-none rounded"
+                        />
+                    )}
                 </Link>
             </Tooltip>
         </div>

@@ -69,9 +69,6 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
         # Check if conversions column exists in the table schema. The field exists in Meta Ads but
         # if it's not used, it won't be in the response, therefore, won't be saved in the table and the column
         # won't be created in the table.
-        # Check if conversions column exists in the table schema. The field exists in Meta Ads but
-        # if it's not used, it won't be in the response, therefore, won't be saved in the table and the column
-        # won't be created in the table.
         try:
             # Try to check if conversions column exists
             columns = getattr(self.config.stats_table, "columns", None)
