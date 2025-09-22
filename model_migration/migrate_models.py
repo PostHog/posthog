@@ -27,7 +27,7 @@ class LLMInvocationError(Exception):
 
 
 class ModelMigrator:
-    def __init__(self, config_file: str = "migration_config.json"):
+    def __init__(self, config_file: str = "model_migration/migration_config.json"):
         self.root_dir = Path.cwd()
 
         config_path = Path(config_file)
