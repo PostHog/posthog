@@ -346,7 +346,7 @@ return event
         {
             key: 'keepUndefinedUseragent',
             type: 'choice',
-            label: 'Keep events where useragent is undefined?',
+            label: 'Keep events where the useragent is not set?',
             description:
                 'Some events such as server-side events may not have a useragent property, choose if you want to keep these events',
             default: 'Yes',
