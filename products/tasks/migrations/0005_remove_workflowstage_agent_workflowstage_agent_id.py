@@ -12,7 +12,7 @@ class Migration(migrations.Migration):
         # Note: The 'agent' ForeignKey field was added in migration 0003 but may not exist in all databases
         # Try to remove it if it exists
         migrations.RunSQL(
-            sql="ALTER TABLE posthog_workflow_stage DROP COLUMN IF EXISTS agent_id;",
+            sql="",  # No-op since agent field doesn't exist in database
             reverse_sql="",
         ),
         migrations.AddField(

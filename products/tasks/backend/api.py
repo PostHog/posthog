@@ -12,7 +12,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 
 from .agents import get_all_agents
-from .models import AgentDefinition, Task, TaskProgress, TaskWorkflow, WorkflowStage
+from .models import Task, TaskProgress, TaskWorkflow, WorkflowStage
 from .serializers import AgentDefinitionSerializer, TaskSerializer, TaskWorkflowSerializer, WorkflowStageSerializer
 from .temporal.client import execute_task_processing_workflow
 
@@ -431,7 +431,7 @@ class AgentDefinitionViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewS
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     required_scopes = ["INTERNAL"]
     scope_object = "INTERNAL"
-    queryset = AgentDefinition.objects.none()  # Empty queryset since we're using hardcoded agents
+    queryset = None  # No model queryset since we're using hardcoded agents
     posthog_feature_flag = {"tasks": ["list", "retrieve"]}
 
     def list(self, request, *args, **kwargs):

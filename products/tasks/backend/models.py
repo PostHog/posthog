@@ -224,33 +224,7 @@ class WorkflowStage(models.Model):
         return None
 
 
-class AgentDefinition(models.Model):
-    """Defines available agents that can be used in workflow transitions."""
-
-    class AgentType(models.TextChoices):
-        CODE_GENERATION = "code_generation", "Code Generation Agent"
-        TRIAGE = "triage", "Triage Agent"
-        REVIEW = "review", "Review Agent"
-        TESTING = "testing", "Testing Agent"
-
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
-    name = models.CharField(max_length=255, help_text="Human-readable name for this agent")
-    agent_type = models.CharField(max_length=50, choices=AgentType.choices)
-    description = models.TextField(blank=True, help_text="Description of what this agent does")
-    config = models.JSONField(default=dict, help_text="Agent-specific configuration")
-    is_active = models.BooleanField(default=True, help_text="Whether this agent is available for use")
-
-    created_at = models.DateTimeField(default=timezone.now)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = "posthog_agent_definition"
-        unique_together = [("team", "name")]
-        ordering = ["name"]
-
-    def __str__(self):
-        return f"{self.name} ({self.get_agent_type_display()})"
+# AgentDefinition model removed - agents are now hardcoded in agents.py
 
 
 class Task(models.Model):
