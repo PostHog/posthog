@@ -3,6 +3,7 @@ name: Livestream
 on:
     pull_request:
         paths:
+            - '.github/workflows/ci-livestream.yml'
             - 'livestream/**'
 
 jobs:
