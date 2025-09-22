@@ -1819,6 +1819,7 @@ class DatabricksIntegration:
         integration, _ = Integration.objects.update_or_create(
             team_id=team_id,
             kind=Integration.IntegrationKind.DATABRICKS.value,
+            integration_id=server_hostname,  # Use server_hostname as unique identifier
             defaults={
                 "config": config,
                 "sensitive_config": sensitive_config,
