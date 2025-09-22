@@ -183,7 +183,7 @@ export class CyclotronJobQueueDelay {
 
                 const now = new Date().getTime()
                 const scheduledTime = new Date(queueScheduledAt)
-                let delayMs = Math.max(0, scheduledTime.getTime() - now)
+                const delayMs = Math.max(0, scheduledTime.getTime() - now)
                 const waitTime = Math.min(delayMs, maxDelayMs)
 
                 if (waitTime > 5000) {
@@ -193,8 +193,6 @@ export class CyclotronJobQueueDelay {
                     )
                 }
 
-                delayMs -= waitTime
-
                 await this.delayWithCancellation(waitTime)
 
                 processingPromises.push(
@@ -202,7 +200,7 @@ export class CyclotronJobQueueDelay {
                         value: message.value,
                         key: message.key as string,
                         topic:
-                            delayMs === 0
+                            delayMs - waitTime === 0
                                 ? returnTopic
                                 : `cdp_cyclotron_${getDelayQueue(DateTime.fromMillis(scheduledTime.getTime()))}`,
                         headers: message.headers as unknown as Record<string, string>,
