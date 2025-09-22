@@ -71,7 +71,7 @@ export function HogFlowEditorPanel(): JSX.Element | null {
                     {selectedNode && (
                         <span className="flex gap-1 items-center font-medium rounded-md mr-3">
                             <span className="text-lg">{Step?.icon}</span>
-                            <span className="font-semibold">{selectedNode.data.name}</span> step
+                            <span className="font-semibold whitespace-nowrap">{selectedNode.data.name}</span>step
                             <LemonDivider vertical />
                             {validationResult?.valid === false && (
                                 <Tooltip title="Some fields need attention">

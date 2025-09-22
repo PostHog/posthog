@@ -11,6 +11,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { BacklogView } from './components/BacklogView'
 import { GitHubIntegrationSettings } from './components/GitHubIntegrationSettings'
 import { KanbanView } from './components/KanbanView'
+import { TaskControlPanel } from './components/TaskControlPanel'
 import { tasksLogic } from './tasksLogic'
 
 export const scene: SceneExport = {
@@ -29,13 +30,18 @@ export function TaskTracker(): JSX.Element {
 
     const tabs = [
         {
+            key: 'dashboard' as const,
+            label: 'Dashboard',
+            content: <TaskControlPanel />,
+        },
+        {
             key: 'backlog' as const,
-            label: 'Backlog',
+            label: 'All Tasks',
             content: <BacklogView />,
         },
         {
             key: 'kanban' as const,
-            label: 'Kanban Board',
+            label: 'Workflows',
             content: <KanbanView />,
         },
         {
@@ -50,7 +56,6 @@ export function TaskTracker(): JSX.Element {
             <div className="space-y-4">
                 <SceneTitleSection
                     name="Tasks"
-                    description="Manage and track development tasks across all PostHog products"
                     resourceType={{
                         type: 'task',
                     }}

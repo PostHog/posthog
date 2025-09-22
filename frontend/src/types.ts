@@ -305,6 +305,7 @@ export enum AccessControlResourceType {
     Dashboard = 'dashboard',
     Notebook = 'notebook',
     SessionRecording = 'session_recording',
+    RevenueAnalytics = 'revenue_analytics',
 }
 
 interface UserBaseType {
@@ -600,6 +601,8 @@ export interface TeamSurveyConfigType {
 
 export type SessionRecordingMaskingLevel = 'normal' | 'total-privacy' | 'free-love'
 
+export type SessionRecordingRetentionPeriod = 'legacy' | '30d' | '90d' | '1y' | '5y'
+
 export interface SessionRecordingMaskingConfig {
     maskAllInputs?: boolean
     maskTextSelector?: string
@@ -633,6 +636,7 @@ export interface TeamType extends TeamBasicType {
         | undefined
         | null
     session_recording_masking_config: SessionRecordingMaskingConfig | undefined | null
+    session_recording_retention_period: SessionRecordingRetentionPeriod | null
     session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
     survey_config?: TeamSurveyConfigType
     autocapture_exceptions_opt_in: boolean
@@ -1478,6 +1482,7 @@ export interface CohortType {
     }
     experiment_set?: number[]
     _create_in_folder?: string | null
+    _create_static_person_ids?: string[]
 }
 
 export interface InsightHistory {
@@ -3606,6 +3611,7 @@ export enum ItemMode {
 
 export enum DashboardPlacement {
     Dashboard = 'dashboard', // When on the standard dashboard page
+    CustomerAnalytics = 'customer-analytics', // When embedded on the customer analytics page
     ProjectHomepage = 'project-homepage', // When embedded on the project homepage
     FeatureFlag = 'feature-flag',
     Public = 'public', // When viewing the dashboard publicly
@@ -4491,6 +4497,7 @@ export type APIScopeObject =
     | 'project'
     | 'property_definition'
     | 'query'
+    | 'revenue_analytics'
     | 'session_recording'
     | 'session_recording_playlist'
     | 'sharing_configuration'
@@ -5577,6 +5584,27 @@ export enum ConversationType {
     ToolCall = 'tool_call',
     DeepResearch = 'deep_research',
 }
+
+export enum Category {
+    DEEP_RESEARCH = 'deep_research',
+}
+
+export enum DeepResearchType {
+    PLANNING = 'planning',
+    REPORT = 'report',
+}
+
+interface _NotebookBase {
+    notebook_id: string
+    title: string
+}
+
+export interface DeepResearchNotebook extends _NotebookBase {
+    category: Category.DEEP_RESEARCH
+    notebook_type?: DeepResearchType
+}
+
+export type NotebookInfo = DeepResearchNotebook
 
 export interface Conversation {
     id: string
