@@ -86,3 +86,8 @@ pub const CHECKPOINT_CLEANER_DIRS_FOUND: &str = "checkpoint_cleaner_dirs_found";
 
 /// Counter for the number of checkpoint directories deleted
 pub const CHECKPOINT_CLEANER_DELETE_ATTEMPTS: &str = "checkpoint_cleaner_delete_attempts";
+
+/// Counts number of times a StoreManager lookup by partition
+/// finds no associated DeduplicationStore, meaning ownership
+/// has changed across a rebalance or other event asynchronously
+pub const CHECKPOINT_STORE_NOT_FOUND_COUNTER: &str = "checkpoint_store_not_found";
