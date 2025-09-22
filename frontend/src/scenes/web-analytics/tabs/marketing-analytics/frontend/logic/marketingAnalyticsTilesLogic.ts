@@ -70,6 +70,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                     ? MARKETING_ANALYTICS_SCHEMA[tileColumnSelection].isCurrency
                     : false
 
+                const tileColumnSelectionName = tileColumnSelection?.split('_').join(' ')
                 return [
                     {
                         kind: 'query',
@@ -78,7 +79,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                             colSpanClassName: 'md:col-span-2',
                             orderWhenLargeClassName: 'xxl:order-1',
                         },
-                        title: `Marketing ${tileColumnSelection.split('_').join(' ')}`,
+                        title: `Marketing ${tileColumnSelectionName}`,
                         query: {
                             kind: NodeKind.InsightVizNode,
                             embedded: true,
@@ -116,11 +117,11 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                         canOpenInsight: true,
                         canOpenModal: false,
                         docs: {
-                            title: `Marketing ${tileColumnSelection.split('_').join(' ')}`,
+                            title: `Marketing ${tileColumnSelectionName}`,
                             description:
                                 createMarketingDataWarehouseNodes.length > 0
-                                    ? `Track ${tileColumnSelection?.split('_').join(' ') || 'costs'} from your configured marketing data sources.`
-                                    : `Configure marketing data sources in the settings to track ${tileColumnSelection?.split('_').join(' ') || 'costs'} from your ad platforms.`,
+                                    ? `Track ${tileColumnSelectionName || 'costs'} from your configured marketing data sources.`
+                                    : `Configure marketing data sources in the settings to track ${tileColumnSelectionName || 'costs'} from your ad platforms.`,
                         },
                     },
                     campaignCostsBreakdown

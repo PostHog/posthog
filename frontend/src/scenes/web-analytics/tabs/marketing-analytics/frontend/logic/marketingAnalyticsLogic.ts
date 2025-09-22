@@ -329,7 +329,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 validExternalTables: ExternalTable[],
                 baseCurrency: CurrencyCode,
                 validNativeSources: NativeSource[],
-                tileColumnSelection: MarketingAnalyticsColumnsSchemaNames
+                tileColumnSelection: validColumnsForTiles
             ): DataWarehouseNode[] => {
                 const nonNativeNodeList: DataWarehouseNode[] = validExternalTables
                     .map((table) => externalAdsCostTile(table, baseCurrency, tileColumnSelection))
