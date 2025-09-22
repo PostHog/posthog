@@ -169,7 +169,6 @@ class BehavioralCohortsCoordinatorWorkflow(PostHogWorkflow):
                 days=inputs.days,
                 limit=limit,
                 offset=offset,
-                parallelism=2,  # Internal parallelism within each child
                 conditions_page_size=min(1000, limit),  # Don't fetch more than we need
             )
 

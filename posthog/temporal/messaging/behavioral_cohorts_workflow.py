@@ -1,4 +1,3 @@
-import asyncio
 import datetime as dt
 import dataclasses
 from typing import Any, Optional
@@ -28,7 +27,6 @@ class BehavioralCohortsWorkflowInputs:
     days: int = 30
     limit: Optional[int] = None
     offset: Optional[int] = None  # Starting offset for this workflow's range
-    parallelism: int = 10  # Number of parallel workers
     conditions_page_size: int = 1000  # Max conditions to return per activity call (configurable for testing)
 
     @property
@@ -38,7 +36,6 @@ class BehavioralCohortsWorkflowInputs:
             "cohort_id": self.cohort_id,
             "min_matches": self.min_matches,
             "days": self.days,
-            "parallelism": self.parallelism,
             "conditions_page_size": self.conditions_page_size,
             "offset": self.offset,
         }
@@ -306,7 +303,7 @@ class BehavioralCohortsWorkflow(PostHogWorkflow):
     async def run(self, inputs: BehavioralCohortsWorkflowInputs) -> dict[str, Any]:
         """Run the behavioral cohorts analysis workflow with fan-out pattern."""
         workflow_logger = temporalio.workflow.logger
-        workflow_logger.info(f"Starting behavioral cohorts workflow with parallelism={inputs.parallelism}")
+        workflow_logger.info(f"Starting behavioral cohorts child workflow for range starting at offset={inputs.offset}")
 
         # Use provided offset if this is a child workflow
         offset = inputs.offset or 0
@@ -363,52 +360,36 @@ class BehavioralCohortsWorkflow(PostHogWorkflow):
 
         workflow_logger.info(f"Processing {len(all_conditions)} conditions with parallelism={inputs.parallelism}")
 
-        # Step 2: Process all conditions in parallel batches
-        actual_parallelism = min(inputs.parallelism, len(all_conditions))
-        batches = split_into_batches(all_conditions, actual_parallelism)
+        # Step 2: Process all conditions in a single activity (no internal parallelism needed)
+        workflow_logger.info(f"Processing {len(all_conditions)} conditions sequentially")
 
-        batch_tasks = []
-        for batch_num, batch in enumerate(batches, 1):
-            batch_inputs = ProcessConditionBatchInputs(
-                conditions=batch,
-                min_matches=inputs.min_matches,
-                days=inputs.days,
-                batch_number=batch_num,
-                total_batches=len(batches),
-            )
+        batch_inputs = ProcessConditionBatchInputs(
+            conditions=all_conditions,
+            min_matches=inputs.min_matches,
+            days=inputs.days,
+            batch_number=1,
+            total_batches=1,
+        )
 
-            task = temporalio.workflow.execute_activity(
-                process_condition_batch_activity,
-                batch_inputs,
-                start_to_close_timeout=dt.timedelta(minutes=30),
-                heartbeat_timeout=dt.timedelta(minutes=2),
-                retry_policy=temporalio.common.RetryPolicy(
-                    maximum_attempts=3,
-                    initial_interval=dt.timedelta(seconds=5),
-                    maximum_interval=dt.timedelta(seconds=30),
-                ),
-            )
-            batch_tasks.append(task)
-
-        # Wait for all batches to complete
-        results = await asyncio.gather(*batch_tasks)
-
-        # Aggregate results
-        total_memberships = 0
-        total_conditions_processed = 0
-
-        for result in results:
-            total_memberships += result.memberships_count
-            total_conditions_processed += result.conditions_processed
-            workflow_logger.info(f"Batch {result.batch_number} contributed {result.memberships_count} memberships")
+        result = await temporalio.workflow.execute_activity(
+            process_condition_batch_activity,
+            batch_inputs,
+            start_to_close_timeout=dt.timedelta(minutes=30),
+            heartbeat_timeout=dt.timedelta(minutes=2),
+            retry_policy=temporalio.common.RetryPolicy(
+                maximum_attempts=3,
+                initial_interval=dt.timedelta(seconds=5),
+                maximum_interval=dt.timedelta(seconds=30),
+            ),
+        )
 
         workflow_logger.info(
-            f"Workflow completed: {total_memberships} total memberships from {total_conditions_processed} conditions"
+            f"Child workflow completed: {result.memberships_count} memberships from {result.conditions_processed} conditions"
         )
 
         # Return summary statistics
         return {
-            "total_memberships": total_memberships,
-            "conditions_processed": total_conditions_processed,
-            "batches_processed": len(batches),
+            "total_memberships": result.memberships_count,
+            "conditions_processed": result.conditions_processed,
+            "batches_processed": 1,
         }
