@@ -1,6 +1,7 @@
 import { actions, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { ChartDataset as ChartJsDataset } from 'lib/Chart'
 import api from 'lib/api'
 
 import {
@@ -23,14 +24,13 @@ export interface ProcessedTimeseriesDataPoint {
     significant?: boolean
 }
 
-export interface ChartDataset {
+export interface ChartDataset extends Partial<ChartJsDataset<'line'>> {
     label: string
     data: (number | null)[]
     borderColor: string
     borderWidth: number
     borderDash?: number[]
     fill: boolean | string
-    backgroundColor?: string
     tension: number
     pointRadius: number
 }
