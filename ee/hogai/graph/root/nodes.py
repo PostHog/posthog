@@ -462,7 +462,7 @@ class RootNode(RootNodeUIContextMixin):
 
     @database_sync_to_async
     def _get_billing_info(self, config: RunnableConfig) -> tuple[bool, str]:
-        """Get billing information including wheter to include the billing tool and the prompt.
+        """Get billing information including whether to include the billing tool and the prompt.
         Returns:
             Tuple[bool, str]: (should_add_billing_tool, prompt)
         """

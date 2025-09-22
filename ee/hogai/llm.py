@@ -138,7 +138,7 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
     """PostHog-tuned subclass of ChatAnthropic.
 
     This subclass automatically injects project, organization, and user context as the final part of the system prompt.
-    It also makes sure we retry automatically in case of an OpenAI API error.
+    It also makes sure we retry automatically in case of errors.
     """
 
     def generate(
