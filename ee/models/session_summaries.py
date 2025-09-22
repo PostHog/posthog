@@ -48,7 +48,7 @@ class SessionSummaryRunMeta:
 
     model_used: str
     visual_confirmation: bool
-    visual_confirmation_results: dict[str, SessionSummaryVisualConfirmationResult] | None = None
+    visual_confirmation_results: list[SessionSummaryVisualConfirmationResult] | None = None
 
 
 @dataclass(frozen=True)
