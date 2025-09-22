@@ -79,16 +79,19 @@ async def cache_all_accounts_activity() -> dict[str, typing.Any]:
 
     Returns dict with total_accounts count. Reuses existing cache if available."""
     logger = LOGGER.bind()
-    workflow_id = activity.info().workflow_id
+
+    logger.info("Starting cache_all_accounts_activity")
 
     try:
         close_old_connections()
 
         # Exit early if cache exists
+        logger.info("Checking Redis cache")
         cached_count = await get_cached_accounts_count()
         if cached_count is not None:
-            logger.info("Cache exists, skipping Salesforce query", workflow_id=workflow_id, cached_total=cached_count)
+            logger.info("Cache exists, skipping Salesforce query", cached_total=cached_count)
             return {"success": True, "total_accounts": cached_count, "cache_reused": True}
+        logger.info("Cache does not exist, querying Salesforce")
 
         # Query all accounts
         sf_start = time.time()
@@ -106,7 +109,6 @@ async def cache_all_accounts_activity() -> dict[str, typing.Any]:
 
         logger.info(
             "Successfully cached accounts",
-            workflow_id=workflow_id,
             total_count=total_count,
             sf_time=round(sf_time, 2),
             redis_time=round(redis_time, 2),
@@ -115,7 +117,7 @@ async def cache_all_accounts_activity() -> dict[str, typing.Any]:
         return {"success": True, "total_accounts": total_count}
 
     except Exception as e:
-        logger.exception("Failed to cache accounts", workflow_id=workflow_id, error=str(e))
+        logger.exception("Failed to cache accounts", error=str(e))
         raise
 
 
@@ -131,6 +133,11 @@ class SalesforceEnrichmentAsyncWorkflow(PostHogWorkflow):
     @workflow.run
     async def run(self, inputs: SalesforceEnrichmentInputs) -> dict[str, typing.Any]:
         """Run the async Salesforce enrichment workflow with concurrent API calls."""
+
+        logger = LOGGER.bind()
+        logger.info(
+            "Starting Salesforce enrichment workflow", chunk_size=inputs.chunk_size, max_chunks=inputs.max_chunks
+        )
 
         # Cache all accounts in Redis (if not already cached)
         cache_result = await workflow.execute_activity(
