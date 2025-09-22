@@ -11,7 +11,7 @@ from two_factor.utils import default_device
 from posthog.settings.web import AUTHENTICATION_BACKENDS
 
 # Enforce Two-Factor Authentication only on sessions created after this date
-TWO_FACTOR_ENFORCEMENT_FROM_DATE = datetime.datetime(2025, 9, day=22, hour=13)
+TWO_FACTOR_ENFORCEMENT_FROM_DATE = datetime.datetime(2025, 9, day=25, hour=13)
 
 TWO_FACTOR_VERIFIED_SESSION_KEY = "two_factor_verified"
 
