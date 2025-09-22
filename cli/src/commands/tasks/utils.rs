@@ -10,6 +10,7 @@ use crate::utils::auth::Token;
 const PAGE_SIZE: usize = 10;
 const BUFFER_SIZE: usize = 50;
 
+#[allow(clippy::large_enum_variant)]
 enum SelectionChoice {
     Task(Task),
     Next,
