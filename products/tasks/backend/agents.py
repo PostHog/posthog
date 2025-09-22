@@ -1,6 +1,6 @@
 """Agent definitions for the Tasks product."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 
@@ -12,11 +12,7 @@ class Agent:
     name: str
     agent_type: str
     description: str
-    config: dict = None
-
-    def __post_init__(self):
-        if self.config is None:
-            self.config = {}
+    config: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         """Convert agent to dictionary for serialization."""
