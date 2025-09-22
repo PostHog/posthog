@@ -35,6 +35,12 @@ class SessionMomentInput:
     prompt: str
 
 
+@dataclass(frozen=True)
+class SessionMomentOutput(SessionMomentInput):
+    asset_id: int
+    video_description: str
+
+
 class SessionMomentsLLMAnalyzer:
     """Generate videos for Replay session events and analyze them with LLM"""
 
@@ -46,7 +52,7 @@ class SessionMomentsLLMAnalyzer:
         # Allow as an input as the expected success ratio could differ from task to tasks
         self._failed_moments_min_ratio = failed_moments_min_ratio
 
-    async def analyze(self, moments_input: list[SessionMomentInput]) -> dict[str, str]:
+    async def analyze(self, moments_input: list[SessionMomentInput]) -> list[SessionMomentOutput]:
         """Analyze the session moments with LLM and return mapping of moment_id to LLM analysis"""
         # Generate mapping of moments to moment ids
         moment_id_to_moment = {moment.moment_id: moment for moment in moments_input}
@@ -195,7 +201,7 @@ class SessionMomentsLLMAnalyzer:
 
     async def _analyze_moment_videos_with_llm(
         self, moment_id_to_asset_id: dict[str, int], moment_id_to_moment: dict[str, SessionMomentInput]
-    ) -> dict[str, str]:
+    ) -> list[SessionMomentOutput]:
         """Send videos to LLM for validation and get analysis results"""
         tasks = {}
         async with asyncio.TaskGroup() as tg:
@@ -204,7 +210,7 @@ class SessionMomentsLLMAnalyzer:
                 tasks[moment_id] = tg.create_task(
                     self._analyze_single_moment_video_with_llm(asset_id=asset_id, moment_id=moment_id, prompt=prompt)
                 )
-        results = {}
+        results: list[SessionMomentOutput] = []
         for moment_id, task in tasks.items():
             res = task.result()
             if isinstance(res, Exception):
@@ -214,6 +220,15 @@ class SessionMomentsLLMAnalyzer:
                 continue
             if not res:
                 continue
-            results[moment_id] = res
+            moment = moment_id_to_moment[moment_id]
+            output = SessionMomentOutput(
+                moment_id=moment.moment_id,
+                timestamp_s=moment.timestamp_s,
+                duration_s=moment.duration_s,
+                prompt=moment.prompt,
+                asset_id=moment_id_to_asset_id[moment_id],
+                video_description=res,
+            )
+            results.append(output)
         # No additional check for how many moments were analyzed as they can be limited by video size
         return results
