@@ -29,3 +29,23 @@ else:
         table: TablesWithMaterializedColumns, table_column: TableColumn, property_name: PropertyName
     ) -> MaterializedColumn | None:
         return None
+
+
+ADD_COLUMN_SHARDED_EVENTS_SQL = """
+ALTER TABLE sharded_events
+ADD COLUMN IF NOT EXISTS `mat_$ai_trace_id` Nullable(String)
+MATERIALIZED JSONExtract(properties, '$ai_trace_id', 'Nullable(String)')
+"""
+
+ADD_COLUMN_EVENTS_SQL = """
+ALTER TABLE events
+ADD COLUMN IF NOT EXISTS `mat_$ai_trace_id` Nullable(String)
+COMMENT 'column_materializer::properties::$ai_trace_id'
+"""
+
+ADD_INDEX_SHARDED_EVENTS_SQL = """
+ALTER TABLE sharded_events
+ADD INDEX IF NOT EXISTS `bloom_filter_$ai_trace_id` `mat_$ai_trace_id`
+TYPE bloom_filter(0.001)
+GRANULARITY 2
+"""
