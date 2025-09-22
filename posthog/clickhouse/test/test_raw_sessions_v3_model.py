@@ -438,3 +438,46 @@ class TestRawSessionsModel(ClickhouseTestMixin, BaseTest):
         assert result[0]["end_url"] == "/1"
         assert result[0]["urls"] == []
         assert result[0]["entry_utm_source"] == "source1"
+
+    def test_store_all_feature_flag_values(self):
+        distinct_id = create_distinct_id()
+        session_id = create_session_id()
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id=distinct_id,
+            properties={
+                "$session_id": session_id,
+                "$feature/flag_string": "f1_a",
+                "$feature/flag_int": 1,
+                "$feature/flag_complex": ["hello", 123],
+                "$feature/flag_duplicates": "a",
+            },
+            timestamp="2024-03-08",
+        )
+
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id=distinct_id,
+            properties={
+                "$session_id": session_id,
+                "$feature/flag_string": "f1_b",
+                "$feature/flag_int": 2,
+                "$feature/flag_complex": {"key": "value"},
+                "$feature/flag_duplicates": "a",
+            },
+            timestamp="2024-03-08",
+        )
+
+        result = self.select_by_session_id(session_id)
+
+        # contains all values
+        assert set(result[0]["flag_values"]["$feature/flag_string"]) == {"f1_a", "f1_b"}
+        # converts to string
+        assert set(result[0]["flag_values"]["$feature/flag_int"]) == {"1", "2"}
+        # converts to json string
+        assert set(result[0]["flag_values"]["$feature/flag_complex"]) == {'["hello",123]', '{"key":"value"}'}
+        # deduplicates
+        assert result[0]["flag_values"]["$feature/flag_duplicates"] == ["a"]

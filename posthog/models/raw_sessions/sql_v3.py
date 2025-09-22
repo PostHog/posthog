@@ -134,7 +134,10 @@ CREATE TABLE IF NOT EXISTS {table_name}
 
     -- As a performance optimisation, also keep track of the uniq events for all of these combined.
     -- This is a much more efficient way of calculating the bounce rate, as >2 means not a bounce
-    page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID))
+    page_screen_autocapture_uniq_up_to AggregateFunction(uniqUpTo(1), Nullable(UUID)),
+
+    -- Flags - store every seen value for each flag
+    flag_values AggregateFunction(groupUniqArrayMap, Map(String, String))
 ) ENGINE = {engine}
 """
 
@@ -262,7 +265,8 @@ WITH parsed_events AS (
         {PROPERTIES},
         -- attribution properties from non-pageview/screen events should be deprioritized, so make the timestamp +/- 1 year so they sort last
         if (event = '$pageview' OR event = '$screen', timestamp, timestamp + toIntervalYear(1)) as pageview_prio_timestamp_min,
-        if (event = '$pageview' OR event = '$screen', timestamp, timestamp - toIntervalYear(1)) as pageview_prio_timestamp_max
+        if (event = '$pageview' OR event = '$screen', timestamp, timestamp - toIntervalYear(1)) as pageview_prio_timestamp_max,
+        properties_group_feature_flags
     FROM {database}.sharded_events
     WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
     AND {where}
@@ -330,7 +334,10 @@ SELECT
     initializeAggregation('uniqState', if(event='$screen', uuid, NULL)) as screen_uniq,
 
     -- perf
-    initializeAggregation('uniqUpToState(1)', if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to
+    initializeAggregation('uniqUpToState(1)', if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to,
+
+    --flags
+    initializeAggregation('groupUniqArrayMapState', properties_group_feature_flags) as flag_values
 FROM parsed_events
     """.format(
         database=settings.CLICKHOUSE_DATABASE,
@@ -470,7 +477,10 @@ SELECT
     uniqMerge(screen_uniq) as screen_uniq,
 
     -- perf
-    uniqUpToMerge(1)(page_screen_autocapture_uniq_up_to) as page_screen_autocapture_uniq_up_to
+    uniqUpToMerge(1)(page_screen_autocapture_uniq_up_to) as page_screen_autocapture_uniq_up_to,
+
+    -- flags
+    groupUniqArrayMapMerge(flag_values) as flag_values
 FROM {settings.CLICKHOUSE_DATABASE}.{DISTRIBUTED_RAW_SESSIONS_TABLE_V3()}
 GROUP BY session_id_v7, team_id
 """
