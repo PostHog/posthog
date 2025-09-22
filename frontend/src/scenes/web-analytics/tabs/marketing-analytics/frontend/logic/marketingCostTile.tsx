@@ -6,6 +6,7 @@ import {
     COST_MICROS_MULTIPLIER,
     GOOGLE_ADS_CAMPAIGN_STATS_TABLE_NAME,
     LINKEDIN_ADS_CAMPAIGN_STATS_TABLE_NAME,
+    META_ADS_CAMPAIGN_STATS_TABLE_NAME,
     REDDIT_ADS_CAMPAIGN_STATS_TABLE_NAME,
 } from './utils'
 
@@ -70,6 +71,26 @@ export const redditAdsCostTile = (source: NativeSource): DataWarehouseNode | nul
         math_property: 'spend',
         math_property_revenue_currency: { static: CurrencyCode.USD },
         math_multiplier: COST_MICROS_MULTIPLIER,
+    }
+}
+
+export const metaAdsCostTile = (source: NativeSource): DataWarehouseNode | null => {
+    const table = source.tables.find((t) => t.name.split('.').pop() === META_ADS_CAMPAIGN_STATS_TABLE_NAME)
+    if (!table) {
+        return null
+    }
+    return {
+        kind: NodeKind.DataWarehouseNode,
+        id: table.id,
+        name: 'meta',
+        custom_name: `${table.name} cost`,
+        id_field: 'id',
+        distinct_id_field: 'id',
+        timestamp_field: 'date_stop',
+        table_name: table.name,
+        math: PropertyMathType.Sum,
+        math_property: 'spend',
+        math_property_revenue_currency: { static: CurrencyCode.USD },
     }
 }
 
