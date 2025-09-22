@@ -92,10 +92,12 @@ export interface InsightCardProps extends Resizeable {
     className?: string
     style?: React.CSSProperties
     children?: React.ReactNode
+    tile?: DashboardTile<QueryBasedInsightModel>
 }
 
 function InsightCardInternal(
     {
+        tile,
         insight,
         dashboardId,
         ribbonColor,
@@ -221,6 +223,7 @@ function InsightCardInternal(
                 <ErrorBoundary exceptionProps={{ feature: 'insight' }}>
                     <BindLogic logic={insightLogic} props={insightLogicProps}>
                         <InsightMeta
+                            tile={tile}
                             insight={insight}
                             ribbonColor={ribbonColor}
                             dashboardId={dashboardId}
@@ -242,6 +245,7 @@ function InsightCardInternal(
                             moreButtons={moreButtons}
                             filtersOverride={filtersOverride}
                             variablesOverride={variablesOverride}
+                            placement={placement}
                         />
                         <div className="InsightCard__viz">
                             {BlockingEmptyState ? (

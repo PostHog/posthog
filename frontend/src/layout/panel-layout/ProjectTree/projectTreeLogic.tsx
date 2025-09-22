@@ -819,11 +819,17 @@ export const projectTreeLogic = kea<projectTreeLogicType>([
     listeners(({ actions, values, key }) => ({
         setActivePanelIdentifier: () => {
             // clear search term when changing panel
-            actions.clearSearch()
-            actions.setProjectTreeMode('tree')
+            if (values.searchTerm !== '') {
+                actions.clearSearch()
+            }
+            if (values.projectTreeMode !== 'tree') {
+                actions.setProjectTreeMode('tree')
+            }
         },
         resetPanelLayout: () => {
-            actions.setProjectTreeMode('tree')
+            if (values.projectTreeMode !== 'tree') {
+                actions.setProjectTreeMode('tree')
+            }
         },
         loadFolderSuccess: ({ folder }) => {
             if (folder === '') {
