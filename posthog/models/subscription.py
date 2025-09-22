@@ -51,6 +51,7 @@ class Subscription(models.Model):
         WEBHOOK = "webhook"
 
     class SubscriptionFrequency(models.TextChoices):
+        HOURLY = "hourly"
         DAILY = "daily"
         WEEKLY = "weekly"
         MONTHLY = "monthly"
@@ -153,6 +154,7 @@ class Subscription(models.Model):
     def summary(self):
         try:
             human_frequency = {
+                "hourly": "hour",
                 "daily": "day",
                 "weekly": "week",
                 "monthly": "month",

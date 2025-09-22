@@ -340,24 +340,28 @@ export function EditSubscription({
                                         </LemonField>
                                     </>
                                 )}
-                                <span>by</span>
-                                <LemonField name="start_date">
-                                    {({ value, onChange }) => (
-                                        <LemonSelect
-                                            options={timeOptions}
-                                            value={dayjs(value).hour().toString()}
-                                            onChange={(val) => {
-                                                onChange(
-                                                    dayjs()
-                                                        .hour(typeof val === 'string' ? parseInt(val, 10) : 0)
-                                                        .minute(0)
-                                                        .second(0)
-                                                        .toISOString()
-                                                )
-                                            }}
-                                        />
-                                    )}
-                                </LemonField>
+                                {subscription.frequency !== 'hourly' && (
+                                    <>
+                                        <span>by</span>
+                                        <LemonField name="start_date">
+                                            {({ value, onChange }) => (
+                                                <LemonSelect
+                                                    options={timeOptions}
+                                                    value={dayjs(value).hour().toString()}
+                                                    onChange={(val) => {
+                                                        onChange(
+                                                            dayjs()
+                                                                .hour(typeof val === 'string' ? parseInt(val, 10) : 0)
+                                                                .minute(0)
+                                                                .second(0)
+                                                                .toISOString()
+                                                        )
+                                                    }}
+                                                />
+                                            )}
+                                        </LemonField>
+                                    </>
+                                )}
                             </div>
                         </div>
                     </>

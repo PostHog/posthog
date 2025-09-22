@@ -41,12 +41,14 @@ export const targetTypeOptions: LemonSelectOptions<'email' | 'slack'> = [
 
 export const intervalOptions: LemonSelectOptions<number> = range(1, 13).map((x) => ({ value: x, label: x.toString() }))
 
-export const frequencyOptionsSingular: LemonSelectOptions<'daily' | 'weekly' | 'monthly'> = [
+export const frequencyOptionsSingular: LemonSelectOptions<'hourly' | 'daily' | 'weekly' | 'monthly'> = [
+    { value: 'hourly', label: 'hour' },
     { value: 'daily', label: 'day' },
     { value: 'weekly', label: 'week' },
     { value: 'monthly', label: 'month' },
 ]
-export const frequencyOptionsPlural: LemonSelectOptions<'daily' | 'weekly' | 'monthly'> = [
+export const frequencyOptionsPlural: LemonSelectOptions<'hourly' | 'daily' | 'weekly' | 'monthly'> = [
+    { value: 'hourly', label: 'hours' },
     { value: 'daily', label: 'days' },
     { value: 'weekly', label: 'weeks' },
     { value: 'monthly', label: 'months' },
