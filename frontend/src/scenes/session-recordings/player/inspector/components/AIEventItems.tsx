@@ -124,7 +124,9 @@ export function AIEventSummary({ event }: { event: Record<string, any> }): JSX.E
                     key={m.id}
                 >
                     {isAIMessage(m) && <IconRobot className="mr-1 text-2xl" />}
-                    <div className="max-w-2/3 border rounded px-2 py-1 text-wrap text-sm">{m.content}</div>
+                    <div className="max-w-2/3 border rounded px-2 py-1 text-wrap text-sm bg-surface-primary">
+                        {m.content}
+                    </div>
                     {isHumanMessage(m) && <IconPerson className="ml-1 text-2xl" />}
                 </div>
             ))}
