@@ -41,7 +41,7 @@ class BatchExportDestination(UUIDTModel):
         "BigQuery": {"private_key", "private_key_id", "client_email", "token_uri"},
         # Databricks does not have any secret fields, as we use integrations to store credentials
         "Databricks": set(),
-        "HTTP": set("token"),
+        "HTTP": {"token"},
         "NoOp": set(),
     }
 
