@@ -22,7 +22,7 @@ const CustomCrosshairPlugin = function (plugin: Plugin<'line'>): Plugin<'line'> 
     }
     return plugin
 }
-RawChart.register(CustomCrosshairPlugin(CrosshairPlugin))
+RawChart.register(CustomCrosshairPlugin(CrosshairPlugin as Plugin<'line'>))
 RawChart.defaults.animation['duration'] = 0
 
 // Create positioner to put tooltip at cursor position
