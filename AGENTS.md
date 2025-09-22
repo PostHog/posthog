@@ -3,23 +3,23 @@
 ## Commands
 
 - Environment:
-    - Auto-detect flox environment before running terminal commands
-    - If flox is available: ALWAYS use `flox activate -- bash -c "<command>"` pattern
+  - Auto-detect flox environment before running terminal commands
+  - If flox is available, and you run into trouble executing commands, try with `flox activate -- bash -c "<command>"` pattern
     - Never use `flox activate` in interactive sessions (it hangs)
 - Tests:
-    - All tests: `pytest`
-    - Single test: `pytest path/to/test.py::TestClass::test_method`
-    - Frontend: `pnpm --filter=@posthog/frontend test`
-    - Single frontend test: `pnpm --filter=@posthog/frontend jest <test_file>`
+  - All tests: `pytest`
+  - Single test: `pytest path/to/test.py::TestClass::test_method`
+  - Frontend: `pnpm --filter=@posthog/frontend test`
+  - Single frontend test: `pnpm --filter=@posthog/frontend jest <test_file>`
 - Lint:
-    - Python:
-        - `ruff check . --fix` and `ruff format .`
-        - Do not run mypy for type checks. It takes too long.
-    - Frontend: `pnpm --filter=@posthog/frontend format`
-    - TypeScript check: `pnpm --filter=@posthog/frontend typescript:check`
+  - Python:
+    - `ruff check . --fix` and `ruff format .`
+    - Do not run mypy for type checks. It takes too long.
+  - Frontend: `pnpm --filter=@posthog/frontend format`
+  - TypeScript check: `pnpm --filter=@posthog/frontend typescript:check`
 - Build:
-    - Frontend: `pnpm --filter=@posthog/frontend build`
-    - Start dev: `./bin/start`
+  - Frontend: `pnpm --filter=@posthog/frontend build`
+  - Start dev: `./bin/start`
 
 ## Important rules for Code Style
 
@@ -29,7 +29,7 @@
 - CSS: Use tailwind utility classes instead of inline styles
 - Error handling: Prefer explicit error handling with typed errors
 - Naming: Use descriptive names, camelCase for JS/TS, snake_case for Python
-- Comments: should not duplicate the code below, don't tell me "this finds the shortest username" tell me _why_ that is important, if it isn't important don't add a comment, almost never add a comment 
+- Comments: should not duplicate the code below, don't tell me "this finds the shortest username" tell me _why_ that is important, if it isn't important don't add a comment, almost never add a comment
 - Python tests: do not add doc comments
 - jest tests: when writing jest tests, prefer a single top-level describe block in a file
 - any tests: prefer to use parameterized tests, think carefully about what input and output look like so that the tests exercise the system and explain the code to the future traveller
