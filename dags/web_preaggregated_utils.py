@@ -1,4 +1,6 @@
 import os
+import uuid
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from functools import partial
 from typing import Optional
@@ -145,12 +147,18 @@ def clear_all_staging_partitions(
 
 
 def recreate_staging_table(
-    context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, staging_table: str, replace_sql_func
+    context: dagster.AssetExecutionContext,
+    cluster: ClickhouseCluster,
+    staging_table: str,
+    replace_sql_func: Callable[[Optional[str]], str],
 ) -> None:
     """Recreate staging table on all hosts using REPLACE TABLE."""
     context.log.info(f"Recreating staging table {staging_table}")
+    # Generate a single zk_path to ensure consistency across all hosts
+    consistent_zk_path = str(uuid.uuid4())
+    sql_statement = replace_sql_func(zk_path=consistent_zk_path)
     cluster.map_hosts_by_roles(
-        lambda client: client.execute(replace_sql_func()), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
+        lambda client: client.execute(sql_statement), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
     ).result()
 
 
