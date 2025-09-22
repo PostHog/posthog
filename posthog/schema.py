@@ -2406,8 +2406,8 @@ class SessionData(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    distinct_id: str
     event_uuid: str
+    person_id: str
     session_id: str
 
 

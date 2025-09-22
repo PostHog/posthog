@@ -2677,7 +2677,7 @@ export interface LegacyExperimentQueryResponse {
 }
 
 export interface SessionData {
-    distinct_id: string
+    person_id: string
     session_id: string
     event_uuid: string
 }

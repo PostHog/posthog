@@ -23419,17 +23419,17 @@
         "SessionData": {
             "additionalProperties": false,
             "properties": {
-                "distinct_id": {
+                "event_uuid": {
                     "type": "string"
                 },
-                "event_uuid": {
+                "person_id": {
                     "type": "string"
                 },
                 "session_id": {
                     "type": "string"
                 }
             },
-            "required": ["distinct_id", "session_id", "event_uuid"],
+            "required": ["person_id", "session_id", "event_uuid"],
             "type": "object"
         },
         "SessionEventsItem": {

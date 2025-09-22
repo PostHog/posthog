@@ -68,7 +68,10 @@ def get_new_variant_results(sorted_results: list[tuple]) -> list[ExperimentStats
             # Funnel metrics with sampled session IDs
             base_stats["step_counts"] = result[4]
             base_stats["step_sessions"] = [
-                [SessionData(distinct_id=d, session_id=s, event_uuid=e) for d, s, e in step_sessions]
+                [
+                    SessionData(person_id=person_id, session_id=session_id, event_uuid=event_uuid)
+                    for person_id, session_id, event_uuid in step_sessions
+                ]
                 for step_sessions in result[5]
             ]
 

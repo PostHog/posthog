@@ -30,9 +30,9 @@ export function SampledSessionsModal({
     stepName,
     variant,
 }: SampledSessionsModalProps): JSX.Element {
-    const [recordingAvailability, setRecordingAvailability] = useState<
-        Map<string, { hasRecording: boolean; distinct_id?: string }>
-    >(new Map())
+    const [recordingAvailability, setRecordingAvailability] = useState<Map<string, { hasRecording: boolean }>>(
+        new Map()
+    )
     const [loading, setLoading] = useState(false)
 
     // Helper function to get events URL for a session ID
@@ -73,11 +73,10 @@ export function SampledSessionsModal({
                     limit: allSessionIds.length,
                 })
 
-                const availabilityMap = new Map<string, { hasRecording: boolean; distinct_id?: string }>()
+                const availabilityMap = new Map<string, { hasRecording: boolean }>()
                 response.results?.forEach((recording) => {
                     availabilityMap.set(recording.id, {
                         hasRecording: true,
-                        distinct_id: recording.distinct_id,
                     })
                 })
                 // Also add entries for sessions without recordings
@@ -174,7 +173,7 @@ export function SampledSessionsModal({
                         columns={columns}
                         dataSource={sessionData}
                         size="small"
-                        emptyState="No sessions sampled for this step"
+                        emptyState="No sessions for this step"
                         loading={loading}
                     />
                 </div>
