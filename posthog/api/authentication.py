@@ -20,6 +20,7 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_protect
+from django.views.decorators.http import require_http_methods
 
 from axes.exceptions import AxesBackendPermissionDenied
 from axes.handlers.proxy import AxesProxyHandler
@@ -84,8 +85,10 @@ def post_login(sender, user, request: HttpRequest, **kwargs):
         check_and_cache_login_device(user.id, country, short_user_agent)
 
 
+@require_http_methods(["POST"])
 @csrf_protect
 def logout(request):
+    # Django 5 requires logout to be POST for security reasons
     if request.user.is_authenticated:
         request.user.temporary_token = None
         request.user.save()

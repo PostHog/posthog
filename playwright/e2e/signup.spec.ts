@@ -167,7 +167,8 @@ test.describe('Signup', () => {
     })
 
     test('Can fill out all the fields on social login', async ({ page }) => {
-        await page.goto('/logout')
+        // Go to login instead as logout requires POST in Django 5
+        await page.goto('/login')
         await expect(page).toHaveURL(/.*\/login/)
         await page.goto('/organization/confirm-creation?organization_name=&first_name=Test&email=test%40posthog.com')
 
@@ -201,7 +202,8 @@ test.describe('Signup', () => {
             await route.fulfill({ json: response })
         })
 
-        await page.goto('/logout')
+        // Go to login instead as logout requires POST in Django 5
+        await page.goto('/login')
         await expect(page).toHaveURL(/.*\/login/)
 
         // Modify window object before page load

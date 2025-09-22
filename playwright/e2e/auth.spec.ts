@@ -65,7 +65,8 @@ test.describe('Auth', () => {
     })
 
     test('Redirect to appropriate place after login', async ({ page }) => {
-        await page.goto('/logout')
+        // Use the logout button instead of GET request
+        await page.locator('[data-attr=top-menu-item-logout]').click()
         await expect(page).toHaveURL(/\/login/)
 
         await page.goto('/activity/explore')
@@ -82,7 +83,8 @@ test.describe('Auth', () => {
     })
 
     test('Redirect to appropriate place after login with complex URL', async ({ page }) => {
-        await page.goto('/logout')
+        // Use the logout button instead of GET request
+        await page.locator('[data-attr=top-menu-item-logout]').click()
         await expect(page).toHaveURL(/\/login/)
 
         await page.goto('/insights?search=testString')
