@@ -65,8 +65,17 @@ test('password-protected insight sharing', async ({ page, playwrightSetup }) => 
         }
     )
 
+    if (!sharingResponse.ok()) {
+        console.error('Sharing API failed:', {
+            status: sharingResponse.status(),
+            statusText: sharingResponse.statusText(),
+            url: sharingResponse.url(),
+            body: await sharingResponse.text(),
+        })
+    }
     expect(sharingResponse.ok()).toBe(true)
     const sharingData: SharingConfigurationType = await sharingResponse.json()
+
     expect(sharingData.enabled).toBe(true)
     expect(sharingData.password_required).toBe(true)
     expect(sharingData.access_token).toBeTruthy()
@@ -93,6 +102,7 @@ test('password-protected insight sharing', async ({ page, playwrightSetup }) => 
 
     // Navigate to the shared insight URL (without being logged in)
     const sharedUrl = `/shared/${sharingData.access_token}`
+
     await page.goto(sharedUrl)
 
     // Verify the password login page appears

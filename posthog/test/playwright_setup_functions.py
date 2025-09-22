@@ -66,7 +66,12 @@ def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> Playwri
         organization.save()
 
     # Add advanced permissions feature for password-protected sharing
-    organization.available_features = [AvailableFeature.ADVANCED_PERMISSIONS]
+    organization.available_product_features = [
+        {
+            "key": AvailableFeature.ADVANCED_PERMISSIONS,
+            "name": AvailableFeature.ADVANCED_PERMISSIONS,
+        }
+    ]
     organization.save()
 
     # Create personal API key for the user
