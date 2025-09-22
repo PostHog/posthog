@@ -923,3 +923,52 @@ def background_delete_model_task(
     except Exception as e:
         logger.error(f"Error in background deletion for {model_name}, team_id={team_id}: {str(e)}", exc_info=True)
         raise
+
+
+@shared_task(ignore_result=True)
+def refresh_activity_log_fields_cache() -> None:
+    """Refresh fields cache for large organizations every 12 hours"""
+    from django.db.models import Count
+
+    from posthog.api.advanced_activity_logs.field_discovery import AdvancedActivityLogFieldDiscovery, DetailFieldsResult
+    from posthog.api.advanced_activity_logs.fields_cache import cache_fields
+    from posthog.api.advanced_activity_logs.queries import SMALL_ORG_THRESHOLD
+    from posthog.exceptions_capture import capture_exception
+    from posthog.models import Organization
+
+    logger.info("[refresh_activity_log_fields_cache] running task")
+
+    large_orgs = Organization.objects.annotate(activity_count=Count("activitylog")).filter(
+        activity_count__gt=SMALL_ORG_THRESHOLD
+    )
+
+    org_count = len(large_orgs)
+    logger.info(f"[refresh_activity_log_fields_cache] processing {org_count} large organizations")
+
+    for org in large_orgs:
+        try:
+            discovery = AdvancedActivityLogFieldDiscovery(org.id)
+
+            result: DetailFieldsResult = {}
+
+            top_level_fields = discovery._get_top_level_fields()
+            discovery._merge_fields_into_result(result, top_level_fields)
+
+            nested_fields = discovery._compute_nested_fields_realtime()
+            discovery._merge_fields_into_result(result, nested_fields)
+
+            changes_fields = discovery._get_changes_fields()
+            discovery._merge_fields_into_result(result, changes_fields)
+
+            record_count = discovery._get_org_record_count()
+            cache_fields(str(org.id), result, record_count)
+
+        except Exception as e:
+            logger.exception(
+                "Failed to refresh activity log fields cache for org",
+                org_id=org.id,
+                error=e,
+            )
+            capture_exception(e)
+
+    logger.info(f"[refresh_activity_log_fields_cache] completed for {org_count} organizations")

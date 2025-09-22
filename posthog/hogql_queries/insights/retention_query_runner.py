@@ -66,7 +66,18 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         modifiers: Optional[HogQLQueryModifiers] = None,
         limit_context: Optional[LimitContext] = None,
     ):
-        super().__init__(query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context)
+        super().__init__(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            # retention queries require higher row limit as breakdowns + big date ranges can push past 50k rows
+            limit_context=(
+                LimitContext.RETENTION
+                if not limit_context or limit_context in (LimitContext.QUERY_ASYNC, LimitContext.QUERY)
+                else limit_context
+            ),
+        )
 
         self.start_event = self.query.retentionFilter.targetEntity or DEFAULT_ENTITY
         self.return_event = self.query.retentionFilter.returningEntity or DEFAULT_ENTITY
@@ -611,7 +622,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                         start_event_matching_interval,
                         intervals_from_base
 
-                    LIMIT 10000
+                    LIMIT 100000
                     """,
                     {"actor_query": actor_query},
                     timings=self.timings,
@@ -631,7 +642,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                         ORDER BY start_event_matching_interval,
                                  intervals_from_base
 
-                        LIMIT 10000
+                        LIMIT 100000
                     """,
                     {"actor_query": actor_query},
                     timings=self.timings,
@@ -733,7 +744,7 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 else get_breakdown_limit_for_context(self.limit_context)
             )
             # Sort by count descending, then by breakdown value ascending for stability
-            sorted_breakdowns = sorted(breakdown_totals.items(), key=lambda item: (-item[1], item[0]), reverse=False)
+            sorted_breakdowns = sorted(breakdown_totals.items(), key=lambda item: (-item[1], item[0]))
             other_values = {item[0] for item in sorted_breakdowns[breakdown_limit:]}
 
             # Step 3: Aggregate results, grouping less frequent breakdowns into 'Other'

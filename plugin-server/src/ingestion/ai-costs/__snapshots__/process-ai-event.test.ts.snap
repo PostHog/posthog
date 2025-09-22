@@ -8,6 +8,14 @@ exports[`processAiEvent() smoke test every model processes claude-2 1`] = `
 }
 `;
 
+exports[`processAiEvent() smoke test every model processes claude-sonnet-4 1`] = `
+{
+  "$ai_input_cost_usd": 0.0003,
+  "$ai_output_cost_usd": 0.00075,
+  "$ai_total_cost_usd": 0.00105,
+}
+`;
+
 exports[`processAiEvent() smoke test every model processes gemini-2.0-flash-001 1`] = `
 {
   "$ai_input_cost_usd": 0.00001,

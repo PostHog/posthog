@@ -17,6 +17,7 @@ from ee.hogai.session_summaries.session_group.patterns import (
 from ee.hogai.session_summaries.session_group.summary_notebooks import (
     SummaryNotebookIntermediateState,
     _create_recording_widget_content,
+    _create_task_block,
     create_notebook_from_summary_content,
     format_extracted_patterns_status,
     format_single_sessions_status,
@@ -114,7 +115,7 @@ class TestNotebookCreation(APIBaseTest):
 
         # Generate content first
         content = generate_notebook_content_from_summary(
-            summary_data, session_ids, self.team.name, self.team.id, "test summary"
+            summary_data, session_ids, self.team.name, self.team.id, summary_title="test summary"
         )
         notebook = await create_notebook_from_summary_content(self.user, self.team, content, "test summary")
 
@@ -145,7 +146,7 @@ class TestNotebookCreation(APIBaseTest):
         session_ids: list[str] = ["session_1", "session_2"]
 
         content: dict[str, Any] = generate_notebook_content_from_summary(
-            summary_data, session_ids, self.team.name, self.team.id, "test summary"
+            summary_data, session_ids, self.team.name, self.team.id, summary_title="test summary"
         )
 
         # Check basic structure
@@ -167,7 +168,7 @@ class TestNotebookCreation(APIBaseTest):
         empty_summary = EnrichedSessionGroupSummaryPatternsList(patterns=[])
 
         content: dict[str, Any] = generate_notebook_content_from_summary(
-            empty_summary, session_ids, self.team.name, self.team.id, "test summary"
+            empty_summary, session_ids, self.team.name, self.team.id, summary_title="test summary"
         )
 
         # Should still create valid content
@@ -214,7 +215,7 @@ class TestNotebookCreation(APIBaseTest):
         summary_data.patterns[0].events.append(segment_context_2)
 
         content: dict[str, Any] = generate_notebook_content_from_summary(
-            summary_data, session_ids, self.team.name, self.team.id, "test summary"
+            summary_data, session_ids, self.team.name, self.team.id, summary_title="test summary"
         )
 
         # Should contain both examples
@@ -328,7 +329,7 @@ class TestNotebookCreation(APIBaseTest):
 
         summary_data = EnrichedSessionGroupSummaryPatternsList(patterns=[pattern])
         content: dict[str, Any] = generate_notebook_content_from_summary(
-            summary_data, ["test_session"], self.team.name, self.team.id, "test summary"
+            summary_data, ["test_session"], self.team.name, self.team.id, summary_title="test summary"
         )
 
         # Find the outcome section in the content
@@ -418,7 +419,7 @@ class TestNotebookCreation(APIBaseTest):
 
         summary_data = EnrichedSessionGroupSummaryPatternsList(patterns=[pattern])
         content: dict[str, Any] = generate_notebook_content_from_summary(
-            summary_data, ["test_session_id"], self.team.name, self.team.id, "test summary"
+            summary_data, ["test_session_id"], self.team.name, self.team.id, summary_title="test summary"
         )
 
         # Convert content to JSON string to search for the replay link
@@ -470,7 +471,7 @@ class TestNotebookCreation(APIBaseTest):
 
             pattern.events = [segment_context_case]
             content = generate_notebook_content_from_summary(
-                summary_data, ["test_session_id"], self.team.name, self.team.id, "test summary"
+                summary_data, ["test_session_id"], self.team.name, self.team.id, summary_title="test summary"
             )
             content_text = json.dumps(content)
 
@@ -690,7 +691,7 @@ class TestNotebookCreation(APIBaseTest):
         session_ids = ["session_1", "session_2"]
 
         content = generate_notebook_content_from_summary(
-            summary_data, session_ids, self.team.name, self.team.id, "test summary"
+            summary_data, session_ids, self.team.name, self.team.id, summary_title="test summary"
         )
 
         content_text = json.dumps(content)
@@ -712,7 +713,7 @@ class TestNotebookCreation(APIBaseTest):
         session_ids = ["session_1"]
 
         content = generate_notebook_content_from_summary(
-            summary_data, session_ids, self.team.name, self.team.id, "test summary"
+            summary_data, session_ids, self.team.name, self.team.id, summary_title="test summary"
         )
 
         content_text = json.dumps(content)
@@ -731,6 +732,29 @@ class TestNotebookCreation(APIBaseTest):
                 break
 
         assert examples_found, "Examples heading not found or not marked as collapsed"
+
+    def test_create_task_block(self) -> None:
+        """Ensure _create_task_block produces a valid ph-task-create node with example lines when events exist."""
+        test_event = self.create_test_event()
+        segment_context = self.create_segment_context(test_event)
+        pattern_stats = self.create_pattern_stats()
+        test_pattern = self.create_test_pattern(segment_context, pattern_stats)
+
+        task_node = _create_task_block(test_pattern)
+
+        assert task_node is not None
+        assert task_node["type"] == "ph-task-create"
+        attrs = task_node["attrs"]
+        assert attrs["title"] == test_pattern.pattern_name
+        assert isinstance(attrs["description"], str) and len(attrs["description"]) > 0
+        # Should contain some of the example context fields
+        assert "Example:" in attrs["description"]
+        assert "Segment:" in attrs["description"]
+        assert "What confirmed:" in attrs["description"]
+        assert "Where:" in attrs["description"]
+        assert "When:" in attrs["description"]
+        # Severity should be title-cased
+        assert attrs["severity"] in ["Critical", "High", "Medium", "Low"]
 
 
 class TestTaskListUtilities(APIBaseTest):

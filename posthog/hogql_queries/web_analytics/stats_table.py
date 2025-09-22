@@ -39,7 +39,9 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
 
     def __init__(self, *args, use_v2_tables: bool = True, **kwargs):
         super().__init__(*args, **kwargs)
-        self.use_v2_tables = use_v2_tables
+        # Determine table version from team property, fallback to parameter for compatibility
+        team_version = getattr(self.team, "web_analytics_pre_aggregated_tables_version", None)
+        self.use_v2_tables = team_version == "v2" if team_version is not None else use_v2_tables
         self.used_preaggregated_tables = False
         self.paginator = HogQLHasMorePaginator.from_limit_context(
             limit_context=LimitContext.QUERY,

@@ -130,6 +130,26 @@ Properties.parameters = {
     },
 }
 
+export const NumericalProperties: StoryFn<typeof TaxonomicFilter> = (args) => {
+    return (
+        <div className="w-fit border rounded p-2 bg-surface-primary">
+            <TaxonomicFilter {...args} />
+        </div>
+    )
+}
+NumericalProperties.args = {
+    taxonomicFilterLogicKey: 'properties',
+    taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties],
+    showNumericalPropsOnly: true,
+}
+NumericalProperties.parameters = {
+    docs: {
+        description: {
+            story: 'TaxonomicFilter showing numerical properties only includes a small icon to indicate.',
+        },
+    },
+}
+
 /**
  * This story demonstrates the automatic columnar layout that's triggered when there are more than 4 group types.
  * The layout switches from horizontal tabs to a vertical/columnar layout to better organize the many categories.

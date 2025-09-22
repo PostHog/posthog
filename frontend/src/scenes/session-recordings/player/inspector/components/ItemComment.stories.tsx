@@ -63,6 +63,10 @@ function makeCommentItem(
             created_at: now().toISOString(),
             scope: 'recording',
             content: '🪓😍🪓😍🪓😍🪓😍',
+            rich_content: {
+                type: 'doc',
+                content: [{ type: 'paragraph', content: [{ type: 'text', text: '🪓😍🪓😍🪓😍🪓😍' }] }],
+            },
             item_context: {},
             created_by: {
                 id: 1,

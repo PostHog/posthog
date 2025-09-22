@@ -207,46 +207,6 @@ describe('IngestionConsumer', () => {
             expect(mockProducerObserver.getProducedKafkaMessages()).toHaveLength(0)
         })
 
-        it('should merge existing kafka_consumer_breadcrumbs in message header with new ones', async () => {
-            const event = createEvent()
-            const messages = createKafkaMessages([event])
-
-            const existingBreadcrumb = {
-                topic: 'previous-topic',
-                offset: 123,
-                partition: 0,
-                processed_at: '2024-01-01T00:00:00.000Z',
-                consumer_id: 'previous-consumer',
-            }
-            messages[0].headers?.push({
-                'kafka-consumer-breadcrumbs': Buffer.from(JSON.stringify([existingBreadcrumb])),
-            })
-            await ingester.handleKafkaBatch(messages)
-
-            const producedMessages =
-                mockProducerObserver.getProducedKafkaMessagesForTopic('clickhouse_events_json_test')
-            expect(producedMessages.length).toBe(1)
-
-            const headers = producedMessages[0].headers || {}
-            const breadcrumbHeader = headers['kafka-consumer-breadcrumbs']
-
-            expect(breadcrumbHeader).toBeDefined()
-
-            const parsedBreadcrumbs = parseJSON(breadcrumbHeader.toString())
-            expect(Array.isArray(parsedBreadcrumbs)).toBe(true)
-            expect(parsedBreadcrumbs.length).toBe(2)
-
-            expect(parsedBreadcrumbs[0]).toMatchObject(existingBreadcrumb)
-
-            expect(parsedBreadcrumbs[1]).toMatchObject({
-                topic: 'test',
-                offset: expect.any(Number),
-                partition: expect.any(Number),
-                processed_at: fixedTime.toISO()!,
-                consumer_id: ingester['groupId'],
-            })
-        })
-
         it('should not blend person properties from 2 different cookieless users', async () => {
             const events = [
                 createCookielessEvent({

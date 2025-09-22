@@ -45,6 +45,7 @@ export function DashboardItems(): JSX.Element {
         duplicateTile,
         refreshDashboardItem,
         moveToDashboard,
+        setTileOverride,
     } = useActions(dashboardLogic)
     const { duplicateInsight, renameInsight } = useActions(insightsModel)
     const { push } = useActions(router)
@@ -160,6 +161,7 @@ export function DashboardItems(): JSX.Element {
                                     refreshEnabled={!itemsLoading}
                                     rename={() => renameInsight(insight)}
                                     duplicate={() => duplicateInsight(insight)}
+                                    setOverride={() => setTileOverride(tile)}
                                     showDetailsControls={
                                         placement != DashboardPlacement.Export &&
                                         !getCurrentExporterData()?.hideExtraDetails

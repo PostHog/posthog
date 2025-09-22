@@ -8,7 +8,6 @@ import { LemonInput, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { cn } from 'lib/utils/css-classes'
@@ -27,7 +26,6 @@ export function PropertyDefinitionsTable(): JSX.Element {
         useValues(propertyDefinitionsTableLogic)
     const { loadPropertyDefinitions, setFilters, setPropertyType } = useActions(propertyDefinitionsTableLogic)
     const { hasTagging } = useValues(organizationLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const columns: LemonTableColumns<PropertyDefinition> = [
         {
@@ -88,7 +86,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
                 }}
             />
             <SceneDivider />
-            <LemonBanner className={cn(!newSceneLayout && 'mb-4')} type="info">
+            <LemonBanner type="info">
                 Looking for {filters.type === 'person' ? 'person ' : ''}property usage statistics?{' '}
                 <Link
                     to={urls.insightNewHogQL({
@@ -104,7 +102,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
                     Query with SQL
                 </Link>
             </LemonBanner>
-            <div className={cn('flex gap-2 flex-wrap', !newSceneLayout && 'mb-4')}>
+            <div className={cn('flex gap-2 flex-wrap')}>
                 <LemonInput
                     type="search"
                     placeholder="Search for properties"

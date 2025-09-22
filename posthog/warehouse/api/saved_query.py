@@ -265,28 +265,27 @@ class DataWarehouseSavedQuerySerializer(serializers.ModelSerializer):
 
             # Only update columns and status if the query has changed
             if "query" in validated_data:
-                if not soft_update:
-                    try:
-                        # The columns will be inferred from the query
-                        client_types = self.context["request"].data.get("types", [])
-                        if len(client_types) == 0:
-                            view.columns = view.get_columns()
-                        else:
-                            columns = {
-                                str(item[0]): {
-                                    "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
-                                    "clickhouse": item[1],
-                                    "valid": True,
-                                }
-                                for item in client_types
+                try:
+                    # The columns will be inferred from the query
+                    client_types = self.context["request"].data.get("types", [])
+                    if len(client_types) == 0:
+                        view.columns = view.get_columns()
+                    else:
+                        columns = {
+                            str(item[0]): {
+                                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
+                                "clickhouse": item[1],
+                                "valid": True,
                             }
-                            view.columns = columns
+                            for item in client_types
+                        }
+                        view.columns = columns
 
-                        view.external_tables = view.s3_tables
-                    except RecursionError:
-                        raise serializers.ValidationError("Model contains a cycle")
-                    except Exception:
-                        raise serializers.ValidationError("Failed to retrieve types for view")
+                    view.external_tables = view.s3_tables
+                except RecursionError:
+                    raise serializers.ValidationError("Model contains a cycle")
+                except Exception:
+                    raise serializers.ValidationError("Failed to retrieve types for view")
 
                 view.status = DataWarehouseSavedQuery.Status.MODIFIED
                 view.save()

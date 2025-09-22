@@ -90,7 +90,7 @@ class InsightsAssistant(BaseAssistant):
 
     @property
     def THINKING_NODES(self) -> set[MaxNodeName]:
-        return {
+        return self.VISUALIZATION_NODES.keys() | {
             AssistantNodeName.QUERY_PLANNER,
             TaxonomyNodeName.LOOP_NODE,
         }

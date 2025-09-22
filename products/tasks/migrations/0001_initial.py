@@ -43,6 +43,7 @@ class Migration(migrations.Migration):
                             ("eval_clusters", "Eval Clusters"),
                             ("user_created", "User Created"),
                             ("support_queue", "Support Queue"),
+                            ("session_summaries", "Session Summaries"),
                         ],
                         max_length=20,
                     ),

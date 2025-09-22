@@ -1,5 +1,6 @@
 import { Meta, StoryFn, StoryObj } from '@storybook/react'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { capitalizeFirstLetter } from 'lib/utils'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -148,24 +149,20 @@ export const WithAccessControl = (): JSX.Element => {
 
     return (
         <div className="flex gap-4 items-center">
-            <LemonSelect
-                options={options}
-                placeholder="Enabled (editor ≥ viewer)"
-                accessControl={{
-                    resourceType: AccessControlResourceType.Dashboard,
-                    minAccessLevel: AccessControlLevel.Viewer,
-                    userAccessLevel: AccessControlLevel.Editor,
-                }}
-            />
-            <LemonSelect
-                options={options}
-                placeholder="Disabled (viewer < editor)"
-                accessControl={{
-                    resourceType: AccessControlResourceType.Dashboard,
-                    minAccessLevel: AccessControlLevel.Editor,
-                    userAccessLevel: AccessControlLevel.Viewer,
-                }}
-            />
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Dashboard}
+                minAccessLevel={AccessControlLevel.Viewer}
+                userAccessLevel={AccessControlLevel.Editor}
+            >
+                <LemonSelect options={options} placeholder="Enabled (editor ≥ viewer)" />
+            </AccessControlAction>
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Dashboard}
+                minAccessLevel={AccessControlLevel.Editor}
+                userAccessLevel={AccessControlLevel.Viewer}
+            >
+                <LemonSelect options={options} placeholder="Disabled (viewer < editor)" />
+            </AccessControlAction>
         </div>
     )
 }

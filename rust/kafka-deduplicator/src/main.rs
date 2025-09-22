@@ -157,6 +157,7 @@ async fn main() -> Result<()> {
 
     // Create and run the service
     let service = KafkaDeduplicatorService::new(config, liveness)
+        .await
         .with_context(|| "Failed to create Kafka Deduplicator service. Check your Kafka connection and RocksDB configuration.".to_string())?;
 
     // Run the service (this blocks until shutdown)

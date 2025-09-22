@@ -9,9 +9,9 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { ErrorTrackingCorrelatedIssue } from '~/queries/schema/schema-general'
 
-import { BulkActions } from '../../../../components/IssueActions/BulkActions'
+import { IssueActions } from '../../../../components/IssueActions/IssueActions'
 import { IssueListTitleColumn, IssueListTitleHeader } from '../../../../components/TableColumns'
-import { errorTrackingBulkSelectLogic } from '../../../../errorTrackingBulkSelectLogic'
+import { bulkSelectLogic } from '../../../../logics/bulkSelectLogic'
 import { errorTrackingImpactListLogic } from './errorTrackingImpactListLogic'
 
 export const scene: SceneExport = {
@@ -112,12 +112,12 @@ const Table = (): JSX.Element => {
 }
 
 export const Options = (): JSX.Element => {
-    const { selectedIssueIds } = useValues(errorTrackingBulkSelectLogic)
+    const { selectedIssueIds } = useValues(bulkSelectLogic)
     const { issues } = useValues(errorTrackingImpactListLogic)
 
     return (
         <div className="sticky top-[var(--breadcrumbs-height-compact)] z-20 py-2 bg-primary">
-            {selectedIssueIds.length > 0 ? <BulkActions issues={issues} selectedIds={selectedIssueIds} /> : <Reload />}
+            {selectedIssueIds.length > 0 ? <IssueActions issues={issues} selectedIds={selectedIssueIds} /> : <Reload />}
         </div>
     )
 }

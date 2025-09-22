@@ -71,7 +71,7 @@ const calculateInputCost = (event: PluginEvent, cost: ModelRow) => {
     if (!event.properties) {
         return '0'
     }
-    if (event.properties['$ai_provider'] && event.properties['$ai_provider'].toLowerCase() === 'openai') {
+    if (matchProvider(event, 'openai')) {
         const cacheReadTokens = event.properties['$ai_cache_read_input_tokens'] || 0
         const inputTokens = event.properties['$ai_input_tokens'] || 0
         const regularTokens = bigDecimal.subtract(inputTokens, cacheReadTokens)
@@ -84,7 +84,7 @@ const calculateInputCost = (event: PluginEvent, cost: ModelRow) => {
 
         const regularCost = bigDecimal.multiply(cost.cost.prompt_token, regularTokens)
         return bigDecimal.add(cacheReadCost, regularCost)
-    } else if (event.properties['$ai_provider'] && event.properties['$ai_provider'].toLowerCase() === 'anthropic') {
+    } else if (matchProvider(event, 'anthropic')) {
         const cacheReadTokens = event.properties['$ai_cache_read_input_tokens'] || 0
         const cacheWriteTokens = event.properties['$ai_cache_creation_input_tokens'] || 0
         const inputTokens = event.properties['$ai_input_tokens'] || 0
@@ -103,7 +103,7 @@ const calculateInputCost = (event: PluginEvent, cost: ModelRow) => {
         const totalCacheCost = bigDecimal.add(writeCost, cacheReadCost)
         const uncachedCost = bigDecimal.multiply(cost.cost.prompt_token, inputTokens)
         return bigDecimal.add(totalCacheCost, uncachedCost)
-    } else if (event.properties['$ai_provider'] && event.properties['$ai_provider'].toLowerCase() === 'gemini') {
+    } else if (matchProvider(event, 'gemini')) {
         const cacheReadTokens = event.properties['$ai_cache_read_input_tokens'] || 0
         const inputTokens = event.properties['$ai_input_tokens'] || 0
         const regularTokens = bigDecimal.subtract(inputTokens, cacheReadTokens)
@@ -278,4 +278,15 @@ const getNewModelName = (properties: Properties): string => {
 
 const mustAddReasoningCost = (model: string): boolean => {
     return REASONING_COST_MODELS.some((candidate) => candidate.test(model.toLowerCase()))
+}
+
+const matchProvider = (event: PluginEvent, provider: string): boolean => {
+    if (!event.properties) {
+        return false
+    }
+    const { $ai_provider: eventProvider, $ai_model: eventModel } = event.properties
+    const normalizedProvider = provider.toLowerCase()
+    return (
+        eventProvider?.toLowerCase() === normalizedProvider || eventModel?.toLowerCase().startsWith(normalizedProvider)
+    )
 }

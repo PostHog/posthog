@@ -22,6 +22,7 @@ import structlog
 from django_prometheus.middleware import Metrics
 from loginas.utils import is_impersonated_session, restore_original_login
 from rest_framework import status
+from social_core.exceptions import AuthFailed
 from statshog.defaults.django import statsd
 
 from posthog.api.decide import get_decide
@@ -710,3 +711,34 @@ class AdminCSPMiddleware:
             response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
 
         return response
+
+
+class SocialAuthExceptionMiddleware:
+    """
+    Middleware to handle custom social auth exceptions.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        return self.get_response(request)
+
+    def process_exception(self, request: HttpRequest, exception: Exception) -> HttpResponse | None:
+        # Only handle exceptions on OAuth callback URLs
+        if not request.path.startswith("/complete/"):
+            return None
+
+        if isinstance(exception, AuthFailed) and len(exception.args) >= 1:
+            error = exception.args[0]
+            if error in (
+                "saml_sso_enforced",
+                "google_sso_enforced",
+                "github_sso_enforced",
+                "gitlab_sso_enforced",
+                "sso_enforced",
+            ):
+                return redirect(f"/login?error_code={error}")
+
+        # Handle other exceptions with existing middleware
+        return None

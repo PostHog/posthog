@@ -2,8 +2,6 @@ import { useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 
@@ -22,12 +20,9 @@ const Functions = ({ action }: { action: ActionType }): JSX.Element => {
     const { hasCohortFilters, actionChanged, showCohortDisablesFunctionsWarning } = useValues(
         actionEditLogic({ id: action?.id, action })
     )
-    const { featureFlags } = useValues(featureFlagLogic)
-    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
-
     return (
         <SceneSection
-            className={cn(!newSceneLayout && '@container my-4 deprecated-space-y-2')}
+            className={cn('@container my-4 deprecated-space-y-2')}
             title="Connected destinations"
             description="Actions can be used as filters for destinations such as Slack or Webhook delivery"
         >

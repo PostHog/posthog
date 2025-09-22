@@ -92,6 +92,12 @@ pub struct Config {
     #[envconfig(default = "300")] // 5 minutes in seconds
     pub checkpoint_interval_secs: u64,
 
+    #[envconfig(default = "72")] // 72 hours
+    pub max_checkpoint_retention_hours: u32,
+
+    #[envconfig(default = "3")]
+    pub max_concurrent_checkpoints: usize,
+
     #[envconfig(default = "./checkpoints")]
     pub local_checkpoint_dir: String,
 
@@ -100,7 +106,9 @@ pub struct Config {
     #[envconfig(default = "deduplication-checkpoints")]
     pub s3_key_prefix: String,
 
-    #[envconfig(default = "10")]
+    // how often to perform a full checkpoint vs. incremental
+    // if 0, then we will always do full uploads
+    #[envconfig(default = "0")]
     pub full_upload_interval: u32,
 
     #[envconfig(default = "us-east-1")]
@@ -204,11 +212,6 @@ impl Config {
         Duration::from_secs(self.flush_interval_secs)
     }
 
-    /// Get cleanup interval as Duration
-    pub fn cleanup_interval(&self) -> Duration {
-        Duration::from_secs(self.cleanup_interval_secs)
-    }
-
     /// Get producer send timeout as Duration
     pub fn producer_send_timeout(&self) -> Duration {
         Duration::from_millis(self.kafka_producer_send_timeout_ms as u64)
@@ -255,6 +258,11 @@ impl Config {
     /// Get checkpoint interval as Duration
     pub fn checkpoint_interval(&self) -> Duration {
         Duration::from_secs(self.checkpoint_interval_secs)
+    }
+
+    /// Get cleanup interval as Duration
+    pub fn cleanup_interval(&self) -> Duration {
+        Duration::from_secs(self.cleanup_interval_secs)
     }
 
     /// Get S3 timeout as Duration

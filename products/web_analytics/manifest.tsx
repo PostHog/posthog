@@ -26,7 +26,7 @@ export const manifest: ProductManifest = {
     treeItemsMetadata: [
         {
             path: 'Marketing settings',
-            category: 'Definitions',
+            category: 'Unreleased',
             iconType: 'marketing_settings' as FileSystemIconType,
             href: urls.marketingAnalytics(),
             flag: FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,

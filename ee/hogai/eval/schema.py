@@ -179,8 +179,9 @@ class TeamEvaluationSnapshot(BaseModel):
 
 class DatasetInput(BaseModel):
     team_id: int
-    input: dict[str, Any]
-    expected: dict[str, Any]
+    trace_id: str | None = Field(default=None)
+    input: dict[str, Any] = Field(default_factory=dict)
+    expected: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -199,12 +200,26 @@ class EvalsDockerImageConfig(BaseModel):
     team_snapshots: list[TeamEvaluationSnapshot]
     """
     Raw snapshots for all projects.
+
+    """
+    experiment_id: str
+    """
+    ID of the experiment.
     """
     experiment_name: str
     """
     Name of the experiment.
     """
-    dataset: list[DatasetInput]
+
+    dataset_id: str
+    """
+    ID of the dataset.
+    """
+    dataset_name: str
+    """
+    Name of the dataset.
+    """
+    dataset_inputs: list[DatasetInput]
     """
     Parsed dataset.
     """

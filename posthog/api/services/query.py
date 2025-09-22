@@ -190,6 +190,7 @@ def process_query_model(
         if variables_override:
             query_runner.apply_variable_overrides(variables_override)
         query_runner.is_query_service = is_query_service
+
         result = query_runner.run(
             execution_mode=execution_mode,
             user=user,

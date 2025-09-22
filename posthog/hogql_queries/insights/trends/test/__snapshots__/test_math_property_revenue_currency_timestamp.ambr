@@ -1,0 +1,59 @@
+# serializer version: 1
+# name: TestDataWarehouseTimestampHandling.test_string_and_date32_fields
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2023-01-05 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT sum(if(equals(e.currency_code, 'USD'), toDecimal64(e.revenue_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', e.currency_code, toDate(coalesce(toString(e.timestamp_str), '1970-01-01')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(e.revenue_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', e.currency_code, toDate(coalesce(toString(e.timestamp_str), '1970-01-01')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(coalesce(toString(e.timestamp_str), '1970-01-01')), toDecimal64(0, 10)))))) AS total,
+               toStartOfDay(parseDateTime64BestEffortOrNull(e.timestamp_str, 6, 'UTC')) AS day_start
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.trends.datawarehouse.timestamp_handling/posthog_test_string_timestamp_table/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `currency_code` String, `timestamp_str` Nullable(String), `revenue_amount` Float64') AS e
+        WHERE and(ifNull(greaterOrEquals(parseDateTime64BestEffortOrNull(e.timestamp_str, 6, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(parseDateTime64BestEffortOrNull(e.timestamp_str, 6, 'UTC'), assumeNotNull(toDateTime('2023-01-05 23:59:59', 'UTC'))), 0))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
+  '''
+# ---
+# name: TestDataWarehouseTimestampHandling.test_string_and_date32_fields.1
+  '''
+  SELECT arrayMap(number -> plus(toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toIntervalDay(number)), range(0, plus(coalesce(dateDiff('day', toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1)), toStartOfInterval(assumeNotNull(toDateTime('2023-01-05 23:59:59', 'UTC')), toIntervalDay(1)))), 1))) AS date,
+         arrayMap(_match_date -> arraySum(arraySlice(groupArray(ifNull(count, 0)), indexOf(groupArray(day_start) AS _days_for_count, _match_date) AS _index, plus(minus(arrayLastIndex(x -> ifNull(equals(x, _match_date), isNull(x)
+                                                                                                                                                                                                   and isNull(_match_date)), _days_for_count), _index), 1))), date) AS total
+  FROM
+    (SELECT sum(total) AS count,
+            day_start AS day_start
+     FROM
+       (SELECT sum(if(equals(e.currency_code, 'USD'), toDecimal64(e.revenue_amount, 10), if(dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', e.currency_code, toDate(coalesce(toString(e.timestamp_date32), '1970-01-01')), toDecimal64(0, 10)) = 0, toDecimal64(0, 10), multiplyDecimal(divideDecimal(toDecimal64(e.revenue_amount, 10), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', e.currency_code, toDate(coalesce(toString(e.timestamp_date32), '1970-01-01')), toDecimal64(0, 10))), dictGetOrDefault(`posthog_test`.`exchange_rate_dict`, 'rate', 'USD', toDate(coalesce(toString(e.timestamp_date32), '1970-01-01')), toDecimal64(0, 10)))))) AS total,
+               toStartOfDay(toDateTime(e.timestamp_date32, 'UTC')) AS day_start
+        FROM s3('http://host.docker.internal:19000/posthog/test_storage_bucket-posthog.trends.datawarehouse.timestamp_handling/posthog_test_date32_timestamp_table/*.csv', 'object_storage_root_user', 'object_storage_root_password', 'CSVWithNames', '`id` String, `currency_code` String, `revenue_amount` Float64, `timestamp_date32` Date32') AS e
+        WHERE and(ifNull(greaterOrEquals(toDateTime(e.timestamp_date32, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-01-01 00:00:00', 'UTC')), toIntervalDay(1))), 0), ifNull(lessOrEquals(toDateTime(e.timestamp_date32, 'UTC'), assumeNotNull(toDateTime('2023-01-05 23:59:59', 'UTC'))), 0))
+        GROUP BY day_start)
+     GROUP BY day_start
+     ORDER BY day_start ASC)
+  ORDER BY arraySum(total) DESC
+  LIMIT 50000 SETTINGS readonly=2,
+                       max_execution_time=60,
+                       allow_experimental_object_type=1,
+                       format_csv_allow_double_quotes=0,
+                       max_ast_elements=4000000,
+                       max_expanded_ast_elements=4000000,
+                       max_bytes_before_external_group_by=0,
+                       transform_null_in=1,
+                       optimize_min_equality_disjunction_chain_length=4294967295,
+                       allow_experimental_join_condition=1
+  '''
+# ---

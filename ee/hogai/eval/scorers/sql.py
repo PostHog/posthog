@@ -1,3 +1,5 @@
+from typing import Any
+
 from asgiref.sync import sync_to_async
 from autoevals.llm import LLMClassifier
 from braintrust import Score
@@ -33,10 +35,10 @@ class SQLSyntaxCorrectness(Scorer):
     def _name(self):
         return "sql_syntax_correctness"
 
-    async def _run_eval_async(self, output: str | None, team: Team | None = None, **kwargs):
+    async def _run_eval_async(self, output: str | None, expected: Any = None, team: Team | None = None, **kwargs):
         return await sync_to_async(self._evaluate)(output, team)
 
-    def _run_eval_sync(self, output: str | None, team: Team | None = None, **kwargs):
+    def _run_eval_sync(self, output: str | None, expected: Any = None, team: Team | None = None, **kwargs):
         return self._evaluate(output, team)
 
     def _evaluate(self, output: str | None, team: Team | None = None) -> Score:

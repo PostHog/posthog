@@ -8,9 +8,9 @@ from ee.hogai.graph.deep_research.notebook.nodes import DeepResearchNotebookPlan
 from ee.hogai.graph.deep_research.onboarding.nodes import DeepResearchOnboardingNode
 from ee.hogai.graph.deep_research.planner.nodes import DeepResearchPlannerNode, DeepResearchPlannerToolsNode
 from ee.hogai.graph.deep_research.report.nodes import DeepResearchReportNode
-from ee.hogai.graph.deep_research.task_executor.nodes import TaskExecutorNode
+from ee.hogai.graph.deep_research.task_executor.nodes import DeepResearchTaskExecutorNode
 from ee.hogai.graph.deep_research.types import DeepResearchNodeName, DeepResearchState
-from ee.hogai.graph.graph import BaseAssistantGraph, InsightsAssistantGraph
+from ee.hogai.graph.graph import BaseAssistantGraph
 
 
 class DeepResearchAssistantGraph(BaseAssistantGraph[DeepResearchState]):
@@ -68,8 +68,7 @@ class DeepResearchAssistantGraph(BaseAssistantGraph[DeepResearchState]):
         """
         Add the core task executor node that handles task execution.
         """
-        compiled_insights_subgraph = InsightsAssistantGraph(self._team, self._user).compile_full_graph()
-        executor_node = TaskExecutorNode(self._team, self._user, compiled_insights_subgraph)
+        executor_node = DeepResearchTaskExecutorNode(self._team, self._user)
         self.add_node(DeepResearchNodeName.TASK_EXECUTOR, executor_node)
         self.add_edge(DeepResearchNodeName.TASK_EXECUTOR, next_node)
         return self

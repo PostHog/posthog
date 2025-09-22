@@ -22,6 +22,7 @@ from posthog.schema import (
     IntervalType,
     LifecycleFilter,
     LifecycleQuery,
+    MrrOrGross,
     PathsFilter,
     PathsQuery,
     PathType,
@@ -34,6 +35,8 @@ from posthog.schema import (
     RetentionPeriod,
     RetentionQuery,
     RetentionType,
+    RevenueAnalyticsEventItem,
+    RevenueAnalyticsGoal,
     TrendsFilter,
     TrendsQuery,
 )
@@ -921,3 +924,21 @@ class HedgeboxMatrix(Matrix):
             )
         except IntegrityError:
             pass  # This can happen if demo data generation is re-run for the same project
+
+        # Configure Revenue analytics events
+        team.revenue_analytics_config.goals = [
+            RevenueAnalyticsGoal(
+                due_date=f"{dt.datetime.now().year}-12-31",
+                goal=1000,
+                mrr_or_gross=MrrOrGross.GROSS,
+                name=f"{dt.datetime.now().year} Q4",
+            )
+        ]
+        team.revenue_analytics_config.events = [
+            RevenueAnalyticsEventItem(
+                eventName=EVENT_PAID_BILL,
+                revenueProperty="amount_usd",
+                productProperty="plan",
+            )
+        ]
+        team.revenue_analytics_config.save()

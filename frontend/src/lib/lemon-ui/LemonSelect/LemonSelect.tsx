@@ -5,8 +5,6 @@ import { IconX } from '@posthog/icons'
 
 import { LemonDropdownProps } from 'lib/lemon-ui/LemonDropdown'
 
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
-
 import { LemonButton, LemonButtonProps } from '../LemonButton'
 import {
     LemonMenu,
@@ -83,12 +81,6 @@ export interface LemonSelectPropsBase<T>
     menu?: Pick<LemonMenuProps, 'className' | 'closeParentPopoverOnClickInside'>
     visible?: LemonDropdownProps['visible']
     startVisible?: LemonDropdownProps['startVisible']
-    /** Access control props for automatic permission checking */
-    accessControl?: {
-        resourceType: AccessControlResourceType
-        minAccessLevel: AccessControlLevel
-        userAccessLevel?: AccessControlLevel
-    }
 }
 
 export interface LemonSelectPropsClearable<T> extends LemonSelectPropsBase<T> {
@@ -127,7 +119,6 @@ export function LemonSelect<T extends string | number | boolean | null>({
     renderButtonContent,
     visible,
     startVisible,
-    accessControl,
     ...buttonProps
 }: LemonSelectProps<T>): JSX.Element {
     const [items, allLeafOptions] = useMemo(
@@ -180,7 +171,6 @@ export function LemonSelect<T extends string | number | boolean | null>({
                         : undefined
                 }
                 tooltip={activeLeaf?.tooltip}
-                accessControl={accessControl}
                 {...buttonProps}
             >
                 <span className="flex flex-1">

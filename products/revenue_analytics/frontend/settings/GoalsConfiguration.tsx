@@ -4,8 +4,8 @@ import { useCallback, useState } from 'react'
 import { IconPlus, IconTrash } from '@posthog/icons'
 import { LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
@@ -17,6 +17,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { CurrencyCode, RevenueAnalyticsGoal } from '~/queries/schema/schema-general'
+import { AccessControlResourceType } from '~/types'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
@@ -102,14 +103,17 @@ function ActionsColumn({
     if (mode === 'edit') {
         return (
             <div className="my-2 flex gap-2 justify-end">
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    onClick={onSave}
-                    disabledReason={!canSave ? 'All fields are required' : undefined}
-                >
-                    Save
-                </LemonButton>
+                <AccessControlAction resourceType={AccessControlResourceType.RevenueAnalytics} minAccessLevel="editor">
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        onClick={onSave}
+                        disabledReason={!canSave ? 'All fields are required' : undefined}
+                    >
+                        Save
+                    </LemonButton>
+                </AccessControlAction>
+
                 <LemonButton type="secondary" size="small" onClick={onCancel}>
                     Cancel
                 </LemonButton>
@@ -119,22 +123,27 @@ function ActionsColumn({
 
     return (
         <div className="my-2 flex gap-2 justify-end">
-            <LemonButton
-                type="secondary"
-                size="small"
-                onClick={onEdit}
-                disabledReason={!canEdit ? 'Finish editing current goal first' : undefined}
-            >
-                Edit
-            </LemonButton>
-            <LemonButton
-                type="secondary"
-                size="small"
-                icon={<IconTrash />}
-                onClick={onDelete}
-                tooltip="Delete goal"
-                disabledReason={!canEdit ? 'Finish editing current goal first' : undefined}
-            />
+            <AccessControlAction resourceType={AccessControlResourceType.RevenueAnalytics} minAccessLevel="editor">
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={onEdit}
+                    disabledReason={!canEdit ? 'Finish editing current goal first' : undefined}
+                >
+                    Edit
+                </LemonButton>
+            </AccessControlAction>
+
+            <AccessControlAction resourceType={AccessControlResourceType.RevenueAnalytics} minAccessLevel="editor">
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    icon={<IconTrash />}
+                    onClick={onDelete}
+                    tooltip="Delete goal"
+                    disabledReason={!canEdit ? 'Finish editing current goal first' : undefined}
+                />
+            </AccessControlAction>
         </div>
     )
 }
@@ -164,7 +173,6 @@ export function GoalsConfiguration(): JSX.Element {
     const [isAdding, setIsAdding] = useState(() => inStorybook() || inStorybookTestRunner())
     const [editingIndex, setEditingIndex] = useState<number | null>(null)
     const [temporaryGoal, setTemporaryGoal] = useState<RevenueAnalyticsGoal>(EMPTY_GOAL)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     const handleAddGoal = (): void => {
         if (temporaryGoal.name && temporaryGoal.due_date && temporaryGoal.goal) {
             addGoal(temporaryGoal)
@@ -346,39 +354,29 @@ export function GoalsConfiguration(): JSX.Element {
 
     return (
         <SceneSection
-            hideTitleAndDescription={!newSceneLayout}
-            className={cn(!newSceneLayout && 'gap-y-0')}
             title="Goals"
             description="Set revenue targets for specific dates to track your progress. You can track goals based on your monthly/quarterly/yearly targets. These can be displayed either on your MRR/ARR or gross revenue charts on the revenue analytics dashboard!"
         >
-            {!newSceneLayout && (
-                <>
-                    <h3 className="mb-2">Goals</h3>
-                    <p className="mb-4">
-                        Set revenue targets for specific dates to track your progress. You can track goals based on your
-                        monthly/quarterly/yearly targets. These can be displayed either on your MRR/ARR or gross revenue
-                        charts on the revenue analytics dashboard, you choose!
-                    </p>
-                </>
-            )}
-
-            <div className={cn('flex flex-col items-end w-full', !newSceneLayout && 'mb-1')}>
-                <LemonButton
-                    type="primary"
-                    icon={<IconPlus />}
-                    size="small"
-                    onClick={() => setIsAdding(true)}
-                    disabledReason={
-                        isAdding
-                            ? 'Finish adding current goal first'
-                            : editingIndex !== null
-                              ? 'Finish editing current goal first'
-                              : undefined
-                    }
-                >
-                    Add Goal
-                </LemonButton>
+            <div className={cn('flex flex-col items-end w-full')}>
+                <AccessControlAction resourceType={AccessControlResourceType.RevenueAnalytics} minAccessLevel="editor">
+                    <LemonButton
+                        type="primary"
+                        icon={<IconPlus />}
+                        size="small"
+                        onClick={() => setIsAdding(true)}
+                        disabledReason={
+                            isAdding
+                                ? 'Finish adding current goal first'
+                                : editingIndex !== null
+                                  ? 'Finish editing current goal first'
+                                  : undefined
+                        }
+                    >
+                        Add Goal
+                    </LemonButton>
+                </AccessControlAction>
             </div>
+
             <LemonTable<RevenueAnalyticsGoal>
                 columns={columns}
                 dataSource={dataSource}

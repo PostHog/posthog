@@ -1,6 +1,7 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, BuiltLogic, LogicWrapper, useValues } from 'kea'
 import { useState } from 'react'
 
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { getCurrencySymbol } from 'lib/utils/geography/currency'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -18,28 +19,33 @@ import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
 import { RevenueAnalyticsLineGraph, TileProps, TileWrapper, extractLabelAndDatasets } from './shared'
 
 let uniqueNode = 0
+
 export function RevenueAnalyticsMetricsNode(props: {
     query: RevenueAnalyticsMetricsQuery
     cachedResults?: AnyResponseType
     context: QueryContext
+    attachTo?: LogicWrapper | BuiltLogic
 }): JSX.Element | null {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [key] = useState(() => `RevenueAnalyticsMetrics.${uniqueNode++}`)
 
+    const dataNodeLogicProps = {
+        query: props.query,
+        key,
+        cachedResults: props.cachedResults,
+        loadPriority,
+        onData,
+        dataNodeCollectionId: dataNodeCollectionId ?? key,
+    }
+
+    useAttachedLogic(insightLogic(props.context.insightProps ?? {}), props.attachTo)
+    useAttachedLogic(insightVizDataLogic(props.context.insightProps ?? {}), props.attachTo)
+    useAttachedLogic(dataNodeLogic(dataNodeLogicProps), props.attachTo)
+
     return (
         <BindLogic logic={insightLogic} props={props.context.insightProps ?? {}}>
             <BindLogic logic={insightVizDataLogic} props={props.context.insightProps ?? {}}>
-                <BindLogic
-                    logic={dataNodeLogic}
-                    props={{
-                        query: props.query,
-                        key,
-                        cachedResults: props.cachedResults,
-                        loadPriority,
-                        onData,
-                        dataNodeCollectionId: dataNodeCollectionId ?? key,
-                    }}
-                >
+                <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                     <SubscriptionCountTile context={props.context} />
                     <CustomerCountTile context={props.context} />
                     <ARPUTile context={props.context} />

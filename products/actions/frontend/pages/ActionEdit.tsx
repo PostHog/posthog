@@ -5,21 +5,16 @@ import { useEffect } from 'react'
 
 import { IconInfo, IconPlus, IconRewindPlay, IconTrash } from '@posthog/icons'
 
-import { EditableField } from 'lib/components/EditableField/EditableField'
 import { NotFound } from 'lib/components/NotFound'
-import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { IconPlayCircle } from 'lib/lemon-ui/icons'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ProductIntentContext } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
@@ -65,26 +60,11 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
     }, [loadedAction, action, setAction])
     const { tags } = useValues(tagsModel)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
 
     // Handle 404 when loading is done and action is missing
     if (id && !actionLoading && !loadedAction) {
         return <NotFound object="action" />
     }
-
-    const deleteButton = (): JSX.Element => (
-        <LemonButton
-            data-attr="delete-action-bottom"
-            status="danger"
-            type="secondary"
-            onClick={() => {
-                deleteAction()
-            }}
-        >
-            Delete
-        </LemonButton>
-    )
 
     const cancelButton = (): JSX.Element => (
         <LemonButton
@@ -101,7 +81,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
     )
 
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             <Form
                 logic={actionEditLogic}
                 props={logicProps}
@@ -110,141 +90,27 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                 className="flex flex-col gap-y-4"
             >
                 <PageHeader
-                    caption={
-                        <>
-                            {!newSceneLayout && (
-                                <>
-                                    <LemonField name="description">
-                                        {({ value, onChange }) => (
-                                            <EditableField
-                                                multiline
-                                                name="description"
-                                                markdown
-                                                value={value || ''}
-                                                placeholder="Description (optional)"
-                                                onChange={
-                                                    !id
-                                                        ? onChange
-                                                        : undefined /* When creating a new action, change value on type */
-                                                }
-                                                onSave={(value) => {
-                                                    onChange(value)
-                                                    submitAction()
-                                                    /* When clicking 'Set' on an `EditableField`, always save the form */
-                                                }}
-                                                mode={
-                                                    !id
-                                                        ? 'edit'
-                                                        : undefined /* When creating a new action, maintain edit mode */
-                                                }
-                                                data-attr="action-description"
-                                                className="action-description"
-                                                compactButtons
-                                                maxLength={600} // No limit on backend model, but enforce shortish description
-                                            />
-                                        )}
-                                    </LemonField>
-                                    <LemonField name="tags" className="mt-2">
-                                        {({ value, onChange }) => (
-                                            <ObjectTags
-                                                tags={value ?? []}
-                                                onChange={(tags) => onChange(tags)}
-                                                className="action-tags"
-                                                saving={actionLoading}
-                                                tagsAvailable={tags.filter((tag) => !action.tags?.includes(tag))}
-                                            />
-                                        )}
-                                    </LemonField>
-                                </>
-                            )}
-                        </>
-                    }
                     buttons={
                         <>
-                            {!newSceneLayout && id && (
-                                <LemonButton
-                                    type="secondary"
-                                    to={urls.replay(ReplayTabs.Home, {
-                                        filter_group: {
-                                            type: FilterLogicalOperator.And,
-                                            values: [
-                                                {
-                                                    type: FilterLogicalOperator.And,
-                                                    values: [
-                                                        {
-                                                            id: id,
-                                                            type: 'actions',
-                                                            order: 0,
-                                                            name: action.name,
-                                                        },
-                                                    ],
-                                                },
-                                            ],
-                                        },
-                                    })}
-                                    onClick={() => {
-                                        addProductIntentForCrossSell({
-                                            from: ProductKey.ACTIONS,
-                                            to: ProductKey.SESSION_REPLAY,
-                                            intent_context: ProductIntentContext.ACTION_VIEW_RECORDINGS,
-                                        })
-                                    }}
-                                    sideIcon={<IconPlayCircle />}
-                                    data-attr="action-view-recordings"
-                                >
-                                    View recordings
-                                </LemonButton>
-                            )}
-                            {/* Existing action */}
-                            {!newSceneLayout && (
-                                <>
-                                    {id && deleteButton()}
-                                    {!id && cancelButton()}
-                                </>
-                            )}
-                            {/* New action */}
-                            {newSceneLayout && <>{!id && cancelButton()}</>}
-                            {/* Existing action */}
-                            {!newSceneLayout && (actionChanged || !id) ? (
-                                <LemonButton
-                                    data-attr="save-action-button"
-                                    type="primary"
-                                    htmlType="submit"
-                                    loading={actionLoading}
-                                    onClick={() => {
-                                        if (id) {
-                                            submitAction()
-                                        } else {
-                                            setActionValue('_create_in_folder', 'Unfiled/Insights')
-                                            submitAction()
-                                        }
-                                    }}
-                                    disabledReason={!actionChanged && !id ? 'No changes to save' : undefined}
-                                >
-                                    Save
-                                </LemonButton>
-                            ) : null}
-                            {/* New action */}
-                            {newSceneLayout ? (
-                                <LemonButton
-                                    data-attr="save-action-button"
-                                    type="primary"
-                                    htmlType="submit"
-                                    loading={actionLoading}
-                                    onClick={(e) => {
-                                        e.preventDefault()
-                                        if (id) {
-                                            submitAction()
-                                        } else {
-                                            setActionValue('_create_in_folder', 'Unfiled/Insights')
-                                            submitAction()
-                                        }
-                                    }}
-                                    disabledReason={!actionChanged ? 'No changes to save' : undefined}
-                                >
-                                    {actionChanged ? 'Save' : 'No changes'}
-                                </LemonButton>
-                            ) : null}
+                            {!id && cancelButton()}
+                            <LemonButton
+                                data-attr="save-action-button"
+                                type="primary"
+                                htmlType="submit"
+                                loading={actionLoading}
+                                onClick={(e) => {
+                                    e.preventDefault()
+                                    if (id) {
+                                        submitAction()
+                                    } else {
+                                        setActionValue('_create_in_folder', 'Unfiled/Insights')
+                                        submitAction()
+                                    }
+                                }}
+                                disabledReason={!actionChanged ? 'No changes to save' : undefined}
+                            >
+                                {actionChanged ? 'Save' : 'No changes'}
+                            </LemonButton>
                         </>
                     }
                 />

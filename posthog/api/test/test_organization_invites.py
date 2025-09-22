@@ -508,9 +508,33 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         self.organization_membership.save()
         invite = OrganizationInvite.objects.create(organization=self.organization)
         response = self.client.delete(f"/api/organizations/@current/invites/{invite.id}")
-        self.assertEqual(response.content, b"")  # Empty response
+        # Members should not be able to delete invites
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertIn("Your organization access level is insufficient", response.json()["detail"])
+        # Invite should still exist
+        self.assertTrue(OrganizationInvite.objects.filter(id=invite.id).exists())
+
+    def test_delete_organization_invite_if_admin(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        invite = OrganizationInvite.objects.create(organization=self.organization)
+        response = self.client.delete(f"/api/organizations/@current/invites/{invite.id}")
+        # Admins should be able to delete invites
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(OrganizationInvite.objects.exists())
+        self.assertEqual(response.content, b"")  # Empty response
+        # Invite should be deleted
+        self.assertFalse(OrganizationInvite.objects.filter(id=invite.id).exists())
+
+    def test_delete_organization_invite_if_owner(self):
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
+        invite = OrganizationInvite.objects.create(organization=self.organization)
+        response = self.client.delete(f"/api/organizations/@current/invites/{invite.id}")
+        # Owners should be able to delete invites
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.content, b"")  # Empty response
+        # Invite should be deleted
+        self.assertFalse(OrganizationInvite.objects.filter(id=invite.id).exists())
 
     # Combine pending invites
 

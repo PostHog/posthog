@@ -40,8 +40,8 @@ pub enum CookielessManagerError {
     #[error("Invalid identify count: {0}")]
     InvalidIdentifyCount(String),
 
-    #[error("Redis error: {0}")]
-    RedisError(String),
+    #[error("Redis error(key={0}): {1}")]
+    RedisError(String, String),
 }
 
 /// Configuration for the CookielessManager
@@ -301,7 +301,7 @@ impl CookielessManager {
         let redis_key = get_redis_identifies_key(hash, team_id);
 
         // Try to get the count from Redis
-        match self.redis_client.get(redis_key).await {
+        match self.redis_client.get(redis_key.clone()).await {
             Ok(count_str) => {
                 // Parse the count string to a u64
                 count_str
@@ -314,7 +314,7 @@ impl CookielessManager {
             }
             Err(e) => {
                 // If there's a Redis error, propagate it
-                Err(CookielessManagerError::RedisError(e.to_string()))
+                Err(CookielessManagerError::RedisError(redis_key, e.to_string()))
             }
         }
     }
@@ -1087,5 +1087,38 @@ mod tests {
 
         // Check that we got a distinct ID
         assert!(result.starts_with(COOKIELESS_DISTINCT_ID_PREFIX));
+    }
+
+    #[tokio::test]
+    async fn test_includes_key_in_redis_error() {
+        // Create a mock Redis client
+        let mut mock_redis = MockRedisClient::new();
+        let hash = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
+        let team_id = 1;
+        let redis_key = get_redis_identifies_key(&hash, team_id);
+
+        // Set up the mock to return an error
+        mock_redis = mock_redis.get_ret(
+            &redis_key,
+            Err(common_redis::CustomRedisError::Other(
+                "Some Redis error".to_string(),
+            )),
+        );
+        let redis_client = Arc::new(mock_redis);
+
+        // Create a CookielessManager
+        let config = CookielessConfig::default();
+        let manager = CookielessManager::new(config, redis_client);
+
+        // Get the error
+        let result = manager
+            .get_identify_count(&hash, team_id)
+            .await
+            .unwrap_err();
+
+        // Check that the error string includes the Redis key and the error message
+        let error_str = result.to_string();
+        assert!(error_str.contains(&redis_key));
+        assert!(error_str.contains("Some Redis error"));
     }
 }

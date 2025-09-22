@@ -17,7 +17,7 @@ import { Annotations } from 'scenes/annotations'
 import { NewAnnotationButton } from 'scenes/annotations/AnnotationModal'
 import { AdvancedActivityLogsList } from 'scenes/audit-logs/AdvancedActivityLogsList'
 import { Comments } from 'scenes/data-management/comments/Comments'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
+import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { MarketingAnalyticsSettings } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/components/settings/MarketingAnalyticsSettings'
 
@@ -185,18 +185,9 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
     }),
     selectors({
         breadcrumbs: [
-            (s) => [s.tab, s.featureFlags],
-            (tab, featureFlags): Breadcrumb[] => {
+            (s) => [s.tab],
+            (tab): Breadcrumb[] => {
                 return [
-                    ...(!featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
-                        ? [
-                              {
-                                  key: Scene.DataManagement,
-                                  name: `Data management`,
-                                  path: urls.eventDefinitions(),
-                              },
-                          ]
-                        : []),
                     {
                         key: tab,
                         name: capitalizeFirstLetter(tab),

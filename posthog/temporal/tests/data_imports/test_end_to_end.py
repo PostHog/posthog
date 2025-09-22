@@ -242,6 +242,8 @@ async def _run(
         assert run is not None
         assert run.status == ExternalDataJob.Status.COMPLETED
         assert run.finished_at is not None
+        assert run.storage_delta_mib is not None
+        assert run.storage_delta_mib != 0
 
         mock_trigger_compaction_job.assert_called()
         mock_get_data_import_finished_metric.assert_called_with(

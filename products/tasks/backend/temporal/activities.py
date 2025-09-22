@@ -8,181 +8,9 @@ from temporalio import activity
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.logger import get_logger
 
-from .inputs import TaskProcessingInputs
+from .github_activities import get_github_integration_token
 
 logger = get_logger(__name__)
-
-
-async def get_github_integration_token(team_id: int, task_id: str) -> str:
-    """Get GitHub access token from PostHog's GitHub integration."""
-    try:
-        from django.apps import apps
-
-        from posthog.models.integration import GitHubIntegration, Integration
-
-        Task = apps.get_model("tasks", "Task")
-
-        # Get the task to access the specific GitHub integration
-        task = await database_sync_to_async(Task.objects.select_related("github_integration").get)(
-            id=task_id, team_id=team_id
-        )
-
-        # Get the specific GitHub integration configured for this task
-        if task.github_integration:
-            integration = task.github_integration
-        else:
-            # Fallback to team's first GitHub integration
-            integration = await database_sync_to_async(
-                lambda: Integration.objects.filter(team_id=team_id, kind="github").first()
-            )()
-
-        if not integration:
-            logger.warning(f"No GitHub integration found for team {team_id}")
-            return ""
-
-        github_integration = GitHubIntegration(integration)
-
-        # Check if token needs refresh
-        if github_integration.access_token_expired():
-            await database_sync_to_async(github_integration.refresh_access_token)()
-
-        return github_integration.integration.access_token or ""
-
-    except Exception as e:
-        logger.exception(f"Error getting GitHub integration token for team {team_id}, task {task_id}: {str(e)}")
-        return ""
-
-
-@activity.defn
-async def process_task_moved_to_todo_activity(inputs: TaskProcessingInputs) -> str:
-    """
-    Background processing activity when a task is moved to TODO status.
-    This is where you can add any background work you want to happen when
-    a card moves to the todo column. Examples:
-    - Send notifications
-    - Update external systems
-    - Generate reports
-    - Process dependencies
-    - Log analytics events
-    """
-    bind_contextvars(
-        task_id=inputs.task_id,
-        team_id=inputs.team_id,
-        status_change=f"{inputs.previous_status} -> {inputs.new_status}",
-    )
-
-    logger.info(f"Starting background processing for issue {inputs.task_id}")
-
-    try:
-        # Import Issue model inside the activity to avoid Django apps loading issues
-        from django.apps import apps
-
-        Task = apps.get_model("tasks", "Task")
-
-        # Get the task from the database
-        task = await database_sync_to_async(Task.objects.get)(id=inputs.task_id, team_id=inputs.team_id)
-
-        # Verify the task is still in todo status
-        if task.status != "todo":
-            logger.warning(f"Task {inputs.task_id} is no longer in todo status, skipping processing")
-            return f"Task status changed, skipping processing"
-
-        # TODO: Add your actual background processing logic here
-        # Examples:
-
-        # 1. Send a notification
-        logger.info(f"Task '{task.title}' moved to TODO - sending notifications...")
-
-        # 2. Update external systems
-        logger.info(f"Updating external tracking systems for task {inputs.task_id}...")
-
-        # 3. Log analytics event
-        logger.info(f"Logging analytics event for todo transition...")
-
-        # 4. Process any automated tasks
-        logger.info(f"Running automated processing for task type: {task.origin_product}")
-
-        # For now, just log the successful processing
-        logger.info(f"Successfully processed task {inputs.task_id} moved to TODO")
-
-        return f"Successfully processed task {inputs.task_id} background tasks"
-
-    except Exception as e:
-        if "DoesNotExist" in str(type(e)):
-            logger.exception(f"Task {inputs.task_id} not found in team {inputs.team_id}")
-        else:
-            logger.exception(f"Error processing task {inputs.task_id}: {str(e)}")
-        raise
-
-
-@activity.defn
-async def update_issue_status_activity(args: dict) -> str:
-    """Update the status of an issue."""
-    task_id = args["task_id"]
-    team_id = args["team_id"]
-    new_status = args["new_status"]
-
-    bind_contextvars(
-        task_id=task_id,
-        team_id=team_id,
-        new_status=new_status,
-    )
-
-    logger.info(f"Updating task {task_id} status to {new_status}")
-
-    try:
-        from django.apps import apps
-
-        Task = apps.get_model("tasks", "Task")
-
-        # Update the task status
-        def update_status():
-            task = Task.objects.get(id=task_id, team_id=team_id)
-            task.status = new_status
-            task.save()
-            return task
-
-        await database_sync_to_async(update_status)()
-
-        logger.info(f"Successfully updated task {task_id} status to {new_status}")
-        return f"Task {task_id} status updated to {new_status}"
-
-    except Exception as e:
-        if "DoesNotExist" in str(type(e)):
-            logger.exception(f"Task {task_id} not found in team {team_id}")
-        else:
-            logger.exception(f"Error updating task {task_id} status: {str(e)}")
-        raise
-
-
-@activity.defn
-async def get_task_details_activity(args: dict) -> dict[str, typing.Any]:
-    """Get task details from the database."""
-    task_id = args["task_id"]
-    team_id = args["team_id"]
-    bind_contextvars(task_id=task_id, team_id=team_id)
-
-    try:
-        from django.apps import apps
-
-        Task = apps.get_model("tasks", "Task")
-
-        task = await database_sync_to_async(Task.objects.get)(id=task_id, team_id=team_id)
-
-        return {
-            "id": str(task.id),
-            "title": task.title,
-            "description": task.description,
-            "status": task.status,
-            "origin_product": task.origin_product,
-        }
-
-    except Exception as e:
-        if "DoesNotExist" in str(type(e)):
-            logger.exception(f"Task {task_id} not found in team {team_id}")
-        else:
-            logger.exception(f"Error getting task {task_id} details: {str(e)}")
-        raise
 
 
 @activity.defn
@@ -259,7 +87,6 @@ async def ai_agent_work_activity(args: dict) -> dict[str, typing.Any]:
   <tools>
     Local file system (for main implementation work)
     PostHog MCP server (for PostHog operations)
-    GitHub MCP server (for additional repository operations)
   </tools>
 
   <constraints>
@@ -268,7 +95,6 @@ async def ai_agent_work_activity(args: dict) -> dict[str, typing.Any]:
     - Implement structured logging and error handling; never log secrets.
     - Avoid destructive shell commands.
     - ALWAYS create appropriate .gitignore files to exclude build artifacts, dependencies, and temporary files.
-    - NEVER commit node_modules/, site-packages/, __pycache__/, .env files, or other build artifacts.
   </constraints>
 
   <checklist>
@@ -295,7 +121,6 @@ async def ai_agent_work_activity(args: dict) -> dict[str, typing.Any]:
   <workflow>
   - first make a plan and create a todo list
   - execute the todo list one by one
-  - commit changes to the repository regularly
   - test the changes
   </workflow>
 
@@ -698,47 +523,4 @@ async def _execute_claude_code_sdk(
 
     except Exception as e:
         logger.exception(f"Error executing Claude Code SDK: {str(e)}")
-        raise
-
-
-@activity.defn
-async def update_issue_github_info_activity(args: dict) -> str:
-    """Update issue with GitHub branch and PR information."""
-    task_id = args["task_id"]
-    team_id = args["team_id"]
-    branch_name = args["branch_name"]
-    pr_url = args.get("pr_url")
-
-    bind_contextvars(
-        task_id=task_id,
-        team_id=team_id,
-        branch_name=branch_name,
-        pr_url=pr_url,
-    )
-
-    logger.info(f"Updating task {task_id} with GitHub info")
-
-    try:
-        from django.apps import apps
-
-        Task = apps.get_model("tasks", "Task")
-
-        def update_github_info():
-            task = Task.objects.get(id=task_id, team_id=team_id)
-            task.github_branch = branch_name
-            if pr_url:
-                task.github_pr_url = pr_url
-            task.save()
-            return task
-
-        await database_sync_to_async(update_github_info)()
-
-        logger.info(f"Successfully updated task {task_id} with GitHub info")
-        return f"Task {task_id} updated with branch: {branch_name}" + (f", PR: {pr_url}" if pr_url else "")
-
-    except Exception as e:
-        if "DoesNotExist" in str(type(e)):
-            logger.exception(f"Task {task_id} not found in team {team_id}")
-        else:
-            logger.exception(f"Error updating task {task_id} GitHub info: {str(e)}")
         raise

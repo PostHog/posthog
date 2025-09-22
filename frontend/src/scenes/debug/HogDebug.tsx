@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, BuiltLogic, LogicWrapper, useValues } from 'kea'
 import type { IDisposable } from 'monaco-editor'
 import { useEffect, useRef, useState } from 'react'
 
@@ -7,6 +7,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
@@ -110,9 +111,10 @@ interface HogDebugProps {
     setQuery: (query: HogQuery) => void
     debug?: boolean
     modifiers?: HogQLQueryModifiers
+    attachTo?: LogicWrapper | BuiltLogic
 }
 
-export function HogDebug({ query, setQuery, queryKey, debug, modifiers }: HogDebugProps): JSX.Element {
+export function HogDebug({ query, setQuery, queryKey, debug, modifiers, attachTo }: HogDebugProps): JSX.Element {
     const dataNodeLogicProps: DataNodeLogicProps = {
         query,
         key: queryKey,
@@ -120,6 +122,7 @@ export function HogDebug({ query, setQuery, queryKey, debug, modifiers }: HogDeb
         modifiers,
     }
     const { dataLoading, response: _response } = useValues(dataNodeLogic(dataNodeLogicProps))
+    useAttachedLogic(dataNodeLogic(dataNodeLogicProps), attachTo)
     const response = _response as HogQueryResponse | null
     const [tab, setTab] = useState('results' as 'results' | 'bytecode' | 'coloredBytecode' | 'stdout')
 

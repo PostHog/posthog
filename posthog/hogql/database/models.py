@@ -273,6 +273,7 @@ class FunctionCallTable(Table):
     """
 
     name: str
+    requires_args: bool = True
     min_args: Optional[int] = None
     max_args: Optional[int] = None
 

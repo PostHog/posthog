@@ -72,6 +72,7 @@ export function loadPostHogJS(): void {
             __preview_flags_v2: true,
             __add_tracing_headers: ['eu.posthog.com', 'us.posthog.com'],
             __preview_lazy_load_replay: true,
+            __preview_disable_xhr_credentials: true,
         })
 
         posthog.onFeatureFlags((_flags, _variants, context) => {

@@ -293,13 +293,26 @@ class OrganizationInviteViewSet(
     ordering = "-created_at"
 
     def dangerously_get_permissions(self):
-        if self.action in ["create", "destroy"]:
+        if self.action in ["create", "bulk"]:
             write_permissions = [
                 permission()
                 for permission in [permissions.IsAuthenticated, OrganizationMemberPermissions, UserCanInvitePermission]
             ]
-
             return write_permissions
+
+        if self.action == "destroy":
+            # Only admins and owners can delete invites
+            from posthog.permissions import OrganizationAdminWritePermissions
+
+            delete_permissions = [
+                permission()
+                for permission in [
+                    permissions.IsAuthenticated,
+                    OrganizationMemberPermissions,
+                    OrganizationAdminWritePermissions,
+                ]
+            ]
+            return delete_permissions
 
         raise NotImplementedError()
 

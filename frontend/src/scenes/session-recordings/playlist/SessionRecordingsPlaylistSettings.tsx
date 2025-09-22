@@ -5,7 +5,6 @@ import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner
 
 import { getAccessControlDisabledReason } from 'lib/components/AccessControlAction'
 import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu/LemonMenu'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { SettingsBar, SettingsMenu } from 'scenes/session-recordings/components/PanelSettings'
 import { savedSessionRecordingPlaylistsLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 
@@ -263,7 +262,6 @@ export function SessionRecordingsPlaylistTopSettings({
 
     const accessControlDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SessionRecording,
-        getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
         AccessControlLevel.Editor
     )
 

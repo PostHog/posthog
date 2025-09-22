@@ -10,7 +10,7 @@ import { LemonModal, LemonModalProps } from 'lib/lemon-ui/LemonModal'
 import { LemonDialogFormPropsType, lemonDialogLogic } from './lemonDialogLogic'
 
 export type LemonFormDialogProps = LemonDialogFormPropsType &
-    Omit<LemonDialogProps, 'primaryButton' | 'secondaryButton' | 'tertiaryButton'> & {
+    Omit<LemonDialogProps, 'primaryButton' | 'secondaryButton'> & {
         initialValues: Record<string, any>
         onSubmit: (values: Record<string, any>) => void | Promise<void>
         shouldAwaitSubmit?: boolean
@@ -58,6 +58,7 @@ export function LemonDialog({
             ? null
             : {
                   children: 'Okay',
+                  disabledReason: shouldAwaitSubmit && isLoading ? 'Please wait...' : undefined,
               })
     if (primaryButton) {
         primaryButton.type = primaryButton.type || 'primary'
@@ -67,10 +68,13 @@ export function LemonDialog({
         if (!button) {
             return null
         }
+
+        const { preventClosing, ...buttonProps } = button
+
         return (
             <LemonButton
                 type="secondary"
-                {...button}
+                {...buttonProps}
                 loading={button === primaryButton && shouldAwaitSubmit ? isLoading : undefined}
                 // eslint-disable-next-line @typescript-eslint/no-misused-promises
                 onClick={async (e) => {
@@ -87,7 +91,10 @@ export function LemonDialog({
                     } else {
                         button.onClick?.(e)
                     }
-                    setIsOpen(false)
+
+                    if (!preventClosing) {
+                        setIsOpen(false)
+                    }
                 }}
             />
         )

@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod custom;
 pub mod go;
+pub mod hermes;
 pub mod js;
 pub mod node;
 pub mod python;

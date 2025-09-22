@@ -54,7 +54,20 @@ test.describe('Password Reset', () => {
         await page.goto('/reset/e2e_test_user/e2e_test_token')
         await page.fill('[data-attr="password"]', VALID_PASSWORD)
         await page.fill('[data-attr="password-confirm"]', VALID_PASSWORD)
+
+        // Intercept the password reset complete request to check response
+        const responsePromise = page.waitForResponse(
+            (response) => response.url().includes('/api/reset/e2e_test_user') && response.request().method() === 'POST'
+        )
+
         await page.click('button[type=submit]')
+
+        const response = await responsePromise
+        expect(response.status()).toBe(200)
+        const responseBody = await response.json()
+        expect(responseBody.success).toBe(true)
+        expect(responseBody.email).toBe('test@posthog.com')
+
         await expect(page.locator('.Toastify__toast--success')).toBeVisible()
         await expect(page).not.toHaveURL('/reset/e2e_test_user/e2e_test_token')
     })

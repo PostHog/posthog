@@ -302,7 +302,7 @@ class TestMyNotifications(APIBaseTest, QueryMatchingTest):
                 user=user, defaults={"last_viewed_activity_date": f"2023-0{i}-17T04:36:50Z"}
             )
 
-            with self.assertNumQueries(FuzzyInt(42, 42)):
+            with self.assertNumQueries(FuzzyInt(43, 43)):
                 self.client.get(f"/api/projects/{self.team.id}/my_notifications")
 
     def test_microsecond_precision_mismatch(self):

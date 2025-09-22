@@ -10,6 +10,7 @@ from posthog.hogql.parser import parse_expr, parse_select
 
 from posthog.hogql_queries.insights.funnels.base import JOIN_ALGOS, FunnelBase
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.queries.breakdown_props import get_breakdown_cohort_name
 from posthog.utils import DATERANGE_MAP
 
 
@@ -130,6 +131,13 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
 
         breakdown_attribution_string = f"{self.context.breakdownAttributionType}{f'_{self.context.funnelsFilter.breakdownAttributionValue}' if self.context.breakdownAttributionType == BreakdownAttributionType.STEP else ''}"
 
+        # Collect optional steps from series (1-indexed)
+        optional_steps = ",".join(
+            str(i + 1)
+            for i, series in enumerate(self.context.query.series)
+            if getattr(series, "optionalInFunnel", False)
+        )
+
         prop_arg = "prop"
         if self._query_has_array_breakdown() and self.context.breakdownAttributionType in (
             BreakdownAttributionType.FIRST_TOUCH,
@@ -154,6 +162,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                     '{breakdown_attribution_string}',
                     '{self.context.funnelsFilter.funnelOrderType}',
                     {prop_arg},
+                    [{optional_steps}],
                     {self.udf_event_array_filter()}
                 )) as af_tuple,
                 af_tuple.1 as step_reached,
@@ -161,6 +170,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                 af_tuple.2 as breakdown,
                 af_tuple.3 as timings,
                 {self.matched_event_arrays_selects()}
+                af_tuple.5 as steps_bitfield,
                 aggregation_target
             FROM {{inner_event_query}}
             GROUP BY aggregation_target
@@ -174,6 +184,8 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         max_steps = self.context.max_steps
         funnelsFilter = self.context.funnelsFilter
 
+        inner_select = self._inner_aggregation_query()
+
         if funnelsFilter.funnelOrderType == StepOrderValue.UNORDERED:
             for exclusion in funnelsFilter.exclusions or []:
                 if exclusion.funnelFromStep != 0 or exclusion.funnelToStep != max_steps - 1:
@@ -184,10 +196,8 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             ):
                 raise ValidationError("Only the first step can be used for breakdown attribution in unordered funnels")
 
-        inner_select = self._inner_aggregation_query()
-
         step_results = ",".join(
-            [f"countIf(ifNull(equals(step_reached, {i}), 0)) AS step_{i+1}" for i in range(self.context.max_steps)]
+            [f"countIf(bitAnd(steps_bitfield, {1 << i}) != 0) AS step_{i+1}" for i in range(self.context.max_steps)]
         )
         step_results2 = ",".join([f"sum(step_{i+1}) AS step_{i+1}" for i in range(self.context.max_steps)])
 
@@ -373,3 +383,50 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             where=where,
             settings=HogQLQuerySettings(join_algorithm=JOIN_ALGOS),
         )
+
+    def _format_single_funnel(self, results, with_breakdown=False):
+        max_steps = self.context.max_steps
+
+        # Format of this is [step order, person count (that reached that step), array of person uuids]
+        steps = []
+        total_people = 0
+
+        breakdown_value = results[-1]
+
+        for index, step in enumerate(reversed(self.context.query.series)):
+            step_index = max_steps - 1 - index
+
+            if results and len(results) > 0:
+                total_people = results[step_index]
+
+            serialized_result = self._serialize_step(
+                step, total_people, step_index, [], self.context.query.samplingFactor
+            )  # persons not needed on initial return
+
+            if step_index > 0:
+                serialized_result.update(
+                    {
+                        "average_conversion_time": results[step_index + max_steps - 1],
+                        "median_conversion_time": results[step_index + max_steps * 2 - 2],
+                    }
+                )
+            else:
+                serialized_result.update({"average_conversion_time": None, "median_conversion_time": None})
+
+            if with_breakdown:
+                # breakdown will return a display ready value
+                # breakdown_value will return the underlying id if different from display ready value (ex: cohort id)
+                serialized_result.update(
+                    {
+                        "breakdown": (
+                            get_breakdown_cohort_name(breakdown_value)
+                            if self.context.breakdownFilter.breakdown_type == "cohort"
+                            else breakdown_value
+                        ),
+                        "breakdown_value": breakdown_value,
+                    }
+                )
+
+            steps.append(serialized_result)
+
+        return steps[::-1]  # reverse

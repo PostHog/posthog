@@ -100,7 +100,7 @@ tracing = "0.1.40"
 tracing-opentelemetry = "0.23.0"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 url = "2.5.0"
-uuid = { version = "1.6.1", features = ["v7", "serde"] }
+uuid = { version = "1.6.1", features = ["v4", "v7", "serde"] }
 neon = "1"
 quick_cache = "0.6.9"
 ahash = "0.8.11"

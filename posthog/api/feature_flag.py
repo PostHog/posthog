@@ -174,6 +174,7 @@ class FeatureFlagSerializer(
         help_text="Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments'.",
     )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    _should_create_usage_dashboard = serializers.BooleanField(required=False, write_only=True, default=True)
 
     class Meta:
         model = FeatureFlag
@@ -208,6 +209,7 @@ class FeatureFlagSerializer(
             "status",
             "evaluation_runtime",
             "_create_in_folder",
+            "_should_create_usage_dashboard",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
@@ -526,6 +528,7 @@ class FeatureFlagSerializer(
             "creation_context", "feature_flags"
         )  # default to "feature_flags" if an alternative value is not provided
 
+        should_create_usage_dashboard = validated_data.pop("_should_create_usage_dashboard")
         self._update_filters(validated_data)
         encrypt_flag_payloads(validated_data)
 
@@ -547,7 +550,8 @@ class FeatureFlagSerializer(
 
         self._attempt_set_tags(tags, instance)
 
-        _create_usage_dashboard(instance, request.user)
+        if should_create_usage_dashboard:
+            _create_usage_dashboard(instance, request.user)
 
         if analytics_dashboards is not None:
             for dashboard in analytics_dashboards:

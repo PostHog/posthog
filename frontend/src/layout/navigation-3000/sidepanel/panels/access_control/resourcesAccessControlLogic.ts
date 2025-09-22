@@ -204,10 +204,11 @@ export const resourcesAccessControlLogic = kea<resourcesAccessControlLogicType>(
             () => [],
             (): AccessControlType['resource'][] => {
                 return [
-                    AccessControlResourceType.FeatureFlag,
                     AccessControlResourceType.Dashboard,
+                    AccessControlResourceType.FeatureFlag,
                     AccessControlResourceType.Insight,
                     AccessControlResourceType.Notebook,
+                    AccessControlResourceType.RevenueAnalytics,
                     AccessControlResourceType.SessionRecording,
                 ]
             },

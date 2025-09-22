@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useState } from 'react'
 
 import { IconBookmark, IconFilter, IconPlusSmall, IconShare, IconTrash } from '@posthog/icons'
@@ -47,11 +48,13 @@ export function DataTableSavedFilters({ uniqueKey, query, setQuery }: DataTableS
     }
 
     const handleShareFilter = (filter: DataTableSavedFilter): void => {
-        // Apply the filter first to ensure URL is updated with correct parameters
+        // Apply the filter first to ensure URL is updated with correct parameters and saved_filter_id
         applySavedFilter(filter)
 
-        // Use the current URL which already contains all filter parameters
-        const url = window.location.href
+        const baseUrl = window.location.origin + router.values.location.pathname
+        const params = new URLSearchParams(window.location.search)
+        params.set('saved_filter_id', filter.id)
+        const url = `${baseUrl}?${params.toString()}${window.location.hash}`
 
         navigator.clipboard.writeText(url).then(() => {
             lemonToast.success('Filter link copied to clipboard!')

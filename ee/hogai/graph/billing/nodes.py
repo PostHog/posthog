@@ -11,6 +11,8 @@ from posthog.clickhouse.client import sync_execute
 from ee.hogai.graph.base import AssistantNode
 from ee.hogai.graph.billing.prompts import BILLING_CONTEXT_PROMPT
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import AssistantNodeName
+from ee.hogai.utils.types.composed import MaxNodeName
 
 # sync with frontend/src/scenes/billing/constants.ts
 USAGE_TYPES = [
@@ -32,6 +34,10 @@ USAGE_TYPES = [
 
 class BillingNode(AssistantNode):
     _teams_map: dict[int, str] = {}
+
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.BILLING
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         billing_context = self._get_billing_context(config)

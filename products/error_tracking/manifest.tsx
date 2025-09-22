@@ -10,23 +10,24 @@ export const manifest: ProductManifest = {
     name: 'Error tracking',
     scenes: {
         ErrorTracking: {
-            import: () => import('./frontend/ErrorTrackingScene'),
+            import: () => import('./frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
             projectBased: true,
             name: 'Error tracking',
             defaultDocsPath: '/docs/error-tracking',
         },
         ErrorTrackingIssue: {
-            import: () => import('./frontend/ErrorTrackingIssueScene'),
+            import: () => import('./frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
             projectBased: true,
             name: 'Error tracking issue',
         },
         ErrorTrackingIssueFingerprints: {
-            import: () => import('./frontend/ErrorTrackingIssueFingerprintsScene'),
+            import: () =>
+                import('./frontend/scenes/ErrorTrackingFingerprintsScene/ErrorTrackingIssueFingerprintsScene'),
             projectBased: true,
             name: 'Error tracking issue fingerprints',
         },
         ErrorTrackingConfiguration: {
-            import: () => import('./frontend/configuration/ErrorTrackingConfigurationScene'),
+            import: () => import('./frontend/scenes/ErrorTrackingConfigurationScene/ErrorTrackingConfigurationScene'),
             projectBased: true,
             name: 'Error tracking configuration',
         },

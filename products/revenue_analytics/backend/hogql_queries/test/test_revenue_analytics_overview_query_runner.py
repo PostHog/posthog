@@ -25,6 +25,7 @@ from posthog.schema import (
 from posthog.models.utils import uuid7
 from posthog.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME as STRIPE_CHARGE_RESOURCE_NAME,
+    CUSTOMER_RESOURCE_NAME as STRIPE_CUSTOMER_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME as STRIPE_PRODUCT_RESOURCE_NAME,
 )
@@ -37,6 +38,7 @@ from products.revenue_analytics.backend.hogql_queries.revenue_analytics_overview
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
     REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT,
     STRIPE_CHARGE_COLUMNS,
+    STRIPE_CUSTOMER_COLUMNS,
     STRIPE_INVOICE_COLUMNS,
     STRIPE_PRODUCT_COLUMNS,
 )
@@ -44,6 +46,7 @@ from products.revenue_analytics.backend.hogql_queries.test.data.structure import
 INVOICE_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.overview_query_runner.stripe_invoices"
 PRODUCT_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.overview_query_runner.stripe_products"
 CHARGES_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.overview_query_runner.stripe_charges"
+CUSTOMERS_TEST_BUCKET = "test_storage_bucket-posthog.revenue_analytics.overview_query_runner.stripe_customers"
 
 
 @snapshot_clickhouse_queries
@@ -120,6 +123,19 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             )
         )
 
+        self.customers_csv_path = Path(__file__).parent / "data" / "stripe_customers.csv"
+        self.customers_table, _, _, self.customers_csv_df, self.customers_cleanup_filesystem = (
+            create_data_warehouse_table_from_csv(
+                self.customers_csv_path,
+                "stripe_customer",
+                STRIPE_CUSTOMER_COLUMNS,
+                CUSTOMERS_TEST_BUCKET,
+                self.team,
+                source=self.source,
+                credential=self.credential,
+            )
+        )
+
         # Besides the default creations above, also create the external data schemas
         # because this is required by the `RevenueAnalyticsBaseView` to find the right tables
         self.invoices_schema = ExternalDataSchema.objects.create(
@@ -149,6 +165,15 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
             last_synced_at="2024-01-01",
         )
 
+        self.customers_schema = ExternalDataSchema.objects.create(
+            team=self.team,
+            name=STRIPE_CUSTOMER_RESOURCE_NAME,
+            source=self.source,
+            table=self.customers_table,
+            should_sync=True,
+            last_synced_at="2024-01-01",
+        )
+
         self.team.base_currency = CurrencyCode.GBP.value
         self.team.revenue_analytics_config.events = [REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT]
         self.team.revenue_analytics_config.save()
@@ -158,6 +183,7 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.invoices_cleanup_filesystem()
         self.products_cleanup_filesystem()
         self.charges_cleanup_filesystem()
+        self.customers_cleanup_filesystem()
         super().tearDown()
 
     def _run_revenue_analytics_overview_query(
@@ -190,6 +216,7 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.invoices_table.delete()
         self.products_table.delete()
         self.charges_table.delete()
+        self.customers_table.delete()
         results = self._run_revenue_analytics_overview_query().results
 
         self.assertEqual(
@@ -232,6 +259,7 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_with_property_filter(self):
+        # Product join, usually simple
         results = self._run_revenue_analytics_overview_query(
             properties=[
                 RevenueAnalyticsPropertyFilter(
@@ -249,6 +277,30 @@ class TestRevenueAnalyticsOverviewQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=1),
                 RevenueAnalyticsOverviewItem(
                     key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("9.74731")
+                ),
+            ],
+        )
+
+        # Customer join, more complicated because it shares fields such as `timestamp`
+        results = self._run_revenue_analytics_overview_query(
+            properties=[
+                RevenueAnalyticsPropertyFilter(
+                    key="revenue_analytics_customer.country",
+                    operator=PropertyOperator.EXACT,
+                    value=["US"],
+                )
+            ]
+        ).results
+
+        self.assertEqual(
+            results,
+            [
+                RevenueAnalyticsOverviewItem(
+                    key=RevenueAnalyticsOverviewItemKey.REVENUE, value=Decimal("75.5885777469")
+                ),
+                RevenueAnalyticsOverviewItem(key=RevenueAnalyticsOverviewItemKey.PAYING_CUSTOMER_COUNT, value=2),
+                RevenueAnalyticsOverviewItem(
+                    key=RevenueAnalyticsOverviewItemKey.AVG_REVENUE_PER_CUSTOMER, value=Decimal("37.7942888734")
                 ),
             ],
         )

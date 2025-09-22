@@ -197,6 +197,25 @@ class ErrorTrackingIssueSerializer(serializers.ModelSerializer):
         return updated_instance
 
 
+class ErrorTrackingFingerprintSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ErrorTrackingIssueFingerprintV2
+        fields = ["fingerprint", "issue_id"]
+
+
+class ErrorTrackingFingerprintViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ReadOnlyModelViewSet):
+    scope_object = "error_tracking"
+    queryset = ErrorTrackingIssueFingerprintV2.objects.all()
+    serializer_class = ErrorTrackingFingerprintSerializer
+
+    def safely_get_queryset(self, queryset):
+        params = self.request.GET.dict()
+        queryset = queryset.filter(team_id=self.team.id)
+        if params.get("issue_id"):
+            queryset = queryset.filter(issue_id=params["issue_id"])
+        return queryset
+
+
 class ErrorTrackingIssueViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
     queryset = ErrorTrackingIssue.objects.with_first_seen().all()

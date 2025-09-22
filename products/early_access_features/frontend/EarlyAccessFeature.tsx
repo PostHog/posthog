@@ -7,13 +7,11 @@ import { IconFlag, IconQuestion, IconTrash, IconX } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
-    LemonDivider,
     LemonInput,
     LemonMenu,
     LemonSelect,
     LemonSkeleton,
     LemonTag,
-    LemonTextArea,
     Link,
 } from '@posthog/lemon-ui'
 
@@ -23,7 +21,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
 import { SceneSelect } from 'lib/components/Scenes/SceneSelect'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -90,8 +87,6 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
         showGAPromotionConfirmation,
     } = useActions(earlyAccessFeatureLogic)
 
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
-
     const isNewEarlyAccessFeature = id === 'new' || id === undefined
 
     // Determine if Save/Cancel buttons should be visible
@@ -128,7 +123,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
 
     return (
         <Form id="early-access-feature" formKey="earlyAccessFeature" logic={earlyAccessFeatureLogic}>
-            <SceneContent forceNewSpacing>
+            <SceneContent>
                 <PageHeader
                     buttons={
                         !earlyAccessFeatureLoading ? (
@@ -174,57 +169,6 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                 </>
                             ) : (
                                 <>
-                                    {!newSceneLayout && (
-                                        <LemonButton
-                                            data-attr="delete-feature"
-                                            status="danger"
-                                            type="secondary"
-                                            onClick={() => {
-                                                LemonDialog.open({
-                                                    title: 'Permanently delete feature?',
-                                                    description:
-                                                        'Doing so will remove any opt in conditions from the feature flag.',
-                                                    primaryButton: {
-                                                        children: 'Delete',
-                                                        type: 'primary',
-                                                        status: 'danger',
-                                                        'data-attr': 'confirm-delete-feature',
-                                                        onClick: () => {
-                                                            // conditional above ensures earlyAccessFeature is not NewEarlyAccessFeature
-                                                            deleteEarlyAccessFeature(
-                                                                (earlyAccessFeature as EarlyAccessFeatureType)?.id
-                                                            )
-                                                        },
-                                                    },
-                                                    secondaryButton: {
-                                                        children: 'Close',
-                                                        type: 'secondary',
-                                                    },
-                                                })
-                                            }}
-                                        >
-                                            Delete
-                                        </LemonButton>
-                                    )}
-                                    {!newSceneLayout && earlyAccessFeature.stage == EarlyAccessFeatureStage.Beta && (
-                                        <LemonButton
-                                            data-attr="archive-feature"
-                                            type="secondary"
-                                            onClick={() => updateStage(EarlyAccessFeatureStage.Archived)}
-                                        >
-                                            Archive
-                                        </LemonButton>
-                                    )}
-                                    {!newSceneLayout &&
-                                        earlyAccessFeature.stage == EarlyAccessFeatureStage.Archived && (
-                                            <LemonButton
-                                                data-attr="reactive-feature"
-                                                type="secondary"
-                                                onClick={() => updateStage(EarlyAccessFeatureStage.Beta)}
-                                            >
-                                                Reactivate beta
-                                            </LemonButton>
-                                        )}
                                     {earlyAccessFeature.stage == EarlyAccessFeatureStage.Draft && (
                                         <LemonMenu
                                             items={[
@@ -262,7 +206,6 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                             </LemonButton>
                                         </LemonMenu>
                                     )}
-                                    {!newSceneLayout && <LemonDivider vertical />}
                                     {earlyAccessFeature.stage != EarlyAccessFeatureStage.GeneralAvailability && (
                                         <LemonButton
                                             type="secondary"
@@ -369,12 +312,6 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                     </ScenePanelActions>
                 </ScenePanel>
 
-                {!newSceneLayout && isNewEarlyAccessFeature && (
-                    <LemonField name="name" label="Name" className="max-w-prose">
-                        <LemonInput data-attr="feature-name" />
-                    </LemonField>
-                )}
-
                 {earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && !isEditingFeature && (
                     <LemonBanner type="info">
                         The{' '}
@@ -471,30 +408,6 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                     </div>
                 ) : null}
 
-                {!newSceneLayout && (
-                    <div className="flex-1 min-w-[20rem] max-w-prose">
-                        {isEditingFeature || isNewEarlyAccessFeature ? (
-                            <LemonField name="description" label="Description" showOptional>
-                                <LemonTextArea
-                                    className="ph-ignore-input"
-                                    placeholder="Help your users understand the feature"
-                                />
-                            </LemonField>
-                        ) : (
-                            <div>
-                                <b>Description</b>
-                                <div>
-                                    {earlyAccessFeature.description ? (
-                                        earlyAccessFeature.description
-                                    ) : (
-                                        <span className="text-secondary">No description</span>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-                )}
-
                 {isEditingFeature || isNewEarlyAccessFeature ? (
                     <div className="max-w-prose">
                         <LemonField name="documentation_url" label="Documentation URL" showOptional>
@@ -518,7 +431,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
 
                 {destinationFilters && (
                     <>
-                        {newSceneLayout ? <SceneDivider /> : <LemonDivider className="my-4" />}
+                        <SceneDivider />
                         <SceneSection
                             title="Notifications"
                             description="Get notified when people opt in or out of your feature."
@@ -533,7 +446,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                 )}
                 {!isEditingFeature && !isNewEarlyAccessFeature && 'id' in earlyAccessFeature && (
                     <>
-                        {newSceneLayout ? <SceneDivider /> : <LemonDivider className="my-4" />}
+                        <SceneDivider />
                         <SceneSection
                             title="Users"
                             description={
@@ -618,14 +531,13 @@ function featureFlagRecordingEnrollmentFilter(
 export function PersonList({ earlyAccessFeature }: PersonListProps): JSX.Element {
     const { activeTab, optedInCount, optedOutCount, featureEnrollmentKey } = useValues(earlyAccessFeatureLogic)
     const { setActiveTab } = useActions(earlyAccessFeatureLogic)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     return (
         <>
             <LemonTabs
                 activeKey={activeTab}
                 onChange={(newKey) => setActiveTab(newKey)}
-                sceneInset={newSceneLayout}
+                sceneInset
                 tabs={[
                     {
                         key: EarlyAccessFeatureTabs.OptedIn,

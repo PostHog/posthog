@@ -62,6 +62,11 @@ export const TOOL_DEFINITIONS: Omit<
         product: null,
         flag: 'max-session-summarization',
     },
+    create_dashboard: {
+        name: 'Create dashboards',
+        description: 'Create dashboards with insights based on your requirements',
+        product: null,
+    },
     search_docs: {
         name: 'Search docs',
         description: 'Search docs for answers regarding PostHog',
@@ -128,6 +133,11 @@ export const TOOL_DEFINITIONS: Omit<
     create_survey: {
         name: 'Create surveys',
         description: 'Create surveys in seconds',
+        product: Scene.Surveys,
+    },
+    analyze_survey_responses: {
+        name: 'Analyze survey responses',
+        description: 'Analyze survey responses to extract themes and actionable insights',
         product: Scene.Surveys,
     },
     create_message_template: {

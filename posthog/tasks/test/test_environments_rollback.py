@@ -297,7 +297,7 @@ class TestEnvironmentsRollbackTask(TransactionTestCase):
         mock_posthog_client = MagicMock()
         mock_get_client.return_value = mock_posthog_client
 
-        project = Project.objects.create(id=100, organization=self.organization, name="Main Project")
+        project = Project.objects.create(id=1001, organization=self.organization, name="Main Project")
         production_env = Team.objects.create(
             id=project.id, organization=self.organization, name="Production", project_id=project.id
         )

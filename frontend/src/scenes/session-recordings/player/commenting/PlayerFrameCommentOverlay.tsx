@@ -8,9 +8,11 @@ import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/se
 
 import { playerCommentOverlayLogic } from './playerFrameCommentOverlayLogic'
 
-const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
+/**
+ * Only exported individually so we can easily put it in a story file
+ */
+export const PlayerCommentModal = (): JSX.Element => {
     const {
-        isCommenting,
         sessionPlayerData: { sessionRecordingId },
         logicProps,
     } = useValues(sessionRecordingPlayerLogic)
@@ -21,7 +23,7 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
     const { recordingComment, isRecordingCommentSubmitting } = useValues(theBuiltOverlayLogic)
     const { submitRecordingComment, resetRecordingComment } = useActions(theBuiltOverlayLogic)
 
-    return isCommenting ? (
+    return (
         <div className="absolute bottom-4 left-4 z-20 w-90">
             <div className="flex flex-col bg-primary border border-border rounded p-2 shadow-lg">
                 <Form
@@ -51,6 +53,7 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
                                 placeholder="Comment on this recording?"
                                 data-attr="create-recording-comment-input"
                                 maxLength={400}
+                                onPressCmdEnter={submitRecordingComment}
                             />
                         </LemonField>
                     </div>
@@ -79,10 +82,11 @@ const PlayerFrameCommentOverlayContent = (): JSX.Element | null => {
                 </Form>
             </div>
         </div>
-    ) : null
+    )
 }
 
 export function PlayerFrameCommentOverlay(): JSX.Element | null {
     const { isCommenting } = useValues(sessionRecordingPlayerLogic)
-    return isCommenting ? <PlayerFrameCommentOverlayContent /> : null
+
+    return isCommenting ? <PlayerCommentModal /> : null
 }

@@ -18,9 +18,12 @@ import { DefinitionLogicProps, definitionLogic } from 'scenes/data-management/de
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
 import { getFilterLabel, isCoreFilter } from '~/taxonomy/helpers'
 import { AvailableFeature } from '~/types'
+
+import { getEventDefinitionIcon, getPropertyDefinitionIcon } from '../events/DefinitionHeader'
 
 export const scene: SceneExport<DefinitionLogicProps> = {
     component: DefinitionEdit,
@@ -73,6 +76,29 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                 }
             />
 
+            <SceneTitleSection
+                name={getFilterLabel(editDefinition.name, TaxonomicFilterGroupType.Events) || ''}
+                resourceType={{
+                    type: isProperty ? 'property definition' : 'event definition',
+                    forceIcon: isProperty
+                        ? getPropertyDefinitionIcon(editDefinition)
+                        : getEventDefinitionIcon(editDefinition),
+                }}
+                forceBackTo={
+                    isProperty
+                        ? {
+                              path: urls.propertyDefinitions(),
+                              name: 'Property definitions',
+                              key: 'properties',
+                          }
+                        : {
+                              path: urls.eventDefinitions(),
+                              name: 'Event definitions',
+                              key: 'events',
+                          }
+                }
+            />
+
             {definitionLoading ? (
                 <div className="deprecated-space-y-4 mt-4">
                     <LemonSkeleton className="h-10 w-1/3" />
@@ -81,12 +107,9 @@ export function DefinitionEdit(props: DefinitionLogicProps): JSX.Element {
                 </div>
             ) : (
                 <div className="my-4 deprecated-space-y-4">
-                    <div>
-                        <h1>Editing "{getFilterLabel(editDefinition.name, TaxonomicFilterGroupType.Events) || ''}"</h1>
-                        <div className="flex flex-wrap items-center gap-2 text-secondary">
-                            <div>{isProperty ? 'Property' : 'Event'} name:</div>
-                            <LemonTag className="font-mono">{editDefinition.name}</LemonTag>
-                        </div>
+                    <div className="flex flex-wrap items-center gap-2 text-secondary">
+                        <div>{isProperty ? 'Property' : 'Event'} name:</div>
+                        <LemonTag className="font-mono">{editDefinition.name}</LemonTag>
                     </div>
                     {hasTaxonomyFeatures ? (
                         <>

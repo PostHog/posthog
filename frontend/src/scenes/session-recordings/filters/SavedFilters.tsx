@@ -4,9 +4,9 @@ import { combineUrl } from 'kea-router'
 import { IconShare, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTable, LemonTableColumn, LemonTableColumns } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
 
 import {
@@ -100,25 +100,24 @@ export function SavedFilters({
             width: 40,
             render: function Render(_, playlist) {
                 return (
-                    <LemonButton
-                        status="danger"
-                        onClick={() => {
-                            deletePlaylist(playlist)
-                            if (savedFilters.results?.length === 1) {
-                                setActiveFilterTab('filters')
-                            }
-                        }}
-                        title="Delete saved filter"
-                        tooltip="Delete saved filter"
-                        icon={<IconTrash />}
-                        size="small"
-                        accessControl={{
-                            resourceType: AccessControlResourceType.SessionRecording,
-                            minAccessLevel: AccessControlLevel.Editor,
-                            userAccessLevel:
-                                getAppContext()?.resource_access_control?.[AccessControlResourceType.SessionRecording],
-                        }}
-                    />
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.SessionRecording}
+                        minAccessLevel={AccessControlLevel.Editor}
+                    >
+                        <LemonButton
+                            status="danger"
+                            onClick={() => {
+                                deletePlaylist(playlist)
+                                if (savedFilters.results?.length === 1) {
+                                    setActiveFilterTab('filters')
+                                }
+                            }}
+                            title="Delete saved filter"
+                            tooltip="Delete saved filter"
+                            icon={<IconTrash />}
+                            size="small"
+                        />
+                    </AccessControlAction>
                 )
             },
         },

@@ -172,7 +172,7 @@ You must fix the exception and try again.
 """.strip()
 
 REACT_HELP_REQUEST_PROMPT = """
-The agent has requested help from the user:
+The agent has requested help:
 {request}
 """.strip()
 

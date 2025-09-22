@@ -5,8 +5,45 @@ from functools import partial
 
 import pytest
 
-from braintrust import EvalAsync, Metadata, init_logger
+from braintrust import EvalAsync, EvalCase, Metadata, init_logger
 from braintrust.framework import EvalData, EvalScorer, EvalTask, Input, Output
+
+from posthog.models.utils import uuid7
+
+from ee.hogai.eval.schema import DatasetInput
+
+
+async def _filter_data(data: EvalData[Input, Output], case_filter: str | None = None):
+    # Resolve async data
+    if asyncio.iscoroutine(data):
+        # Async iterator
+        if hasattr(data, "__aiter__"):
+            data = [case async for case in data]
+        # asyncio.iscoroutine may return True for sync generators
+        elif hasattr(data, "__iter__"):
+            data = list(data)
+        # Regular awaitable
+        else:
+            data = await data
+    cases = []
+    for case in data:  # type: ignore
+        if not isinstance(case, EvalCase):
+            cases.append(case)
+            continue
+
+        # Reset trace IDs for DatasetInput, so we use distinct IDs instead
+        if os.getenv("EVAL_MODE") == "offline" and isinstance(case.input, DatasetInput):
+            # Mutating the input in place is intentional here. Just avoiding copying the whole object.
+            case.input.trace_id = str(uuid7())
+
+        # Filter by --case <eval_case_name_part> pytest flag
+        if case_filter:
+            if case_filter in str(case.input):
+                cases.append(case)
+        else:
+            cases.append(case)
+
+    return cases
 
 
 async def BaseMaxEval(
@@ -19,17 +56,15 @@ async def BaseMaxEval(
     is_public: bool = False,
     no_send_logs: bool = True,
 ):
-    # We need to specify a separate project for each MaxEval() suite for comparison to baseline to work
-    # That's the way Braintrust folks recommended - Braintrust projects are much more lightweight than PostHog ones
-    project_name = f"max-ai-{experiment_name}"
-    init_logger(project_name)
+    if is_public and not no_send_logs:
+        # We need to specify a separate project for each MaxEval() suite for comparison to baseline to work
+        # That's the way Braintrust folks recommended - Braintrust projects are much more lightweight than PostHog ones
+        project_name = f"max-ai-{experiment_name}"
+        init_logger(project_name)
+    else:
+        project_name = experiment_name
 
-    # Filter by --case <eval_case_name_part> pytest flag
     case_filter = pytestconfig.option.eval
-    if case_filter:
-        if asyncio.iscoroutine(data):
-            data = await data
-        data = [case for case in data if case_filter in str(case.input)]  # type: ignore
 
     timeout = 60 * 8  # 8 minutes
     if os.getenv("EVAL_MODE") == "offline":
@@ -37,7 +72,7 @@ async def BaseMaxEval(
 
     result = await EvalAsync(
         project_name,
-        data=data,
+        data=await _filter_data(data, case_filter=case_filter),
         task=task,
         scores=scores,
         timeout=timeout,

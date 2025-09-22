@@ -328,7 +328,7 @@ class SessionRecordingPlaylistViewSet(
 
         # For collections, create a minimal query with only session_ids
         if playlist.type == SessionRecordingPlaylist.PlaylistType.COLLECTION:
-            query = RecordingsQuery(session_ids=playlist_items, date_from=None, date_to=None)
+            query = RecordingsQuery(session_ids=playlist_items, date_from="-1y", date_to=None)
         else:
             data_dict = query_as_params_to_dict(request.GET.dict())
             query = RecordingsQuery.model_validate(data_dict)

@@ -1464,16 +1464,6 @@ class TestEmailVerificationAPI(APIBaseTest):
 
         # assert events were captured
         mock_capture.assert_any_call(
-            event="user logged in",
-            distinct_id=self.user.distinct_id,
-            properties={"social_provider": ""},
-            groups={
-                "instance": ANY,
-                "organization": str(self.team.organization_id),
-                "project": str(self.team.uuid),
-            },
-        )
-        mock_capture.assert_any_call(
             event="user verified email",
             distinct_id=self.user.distinct_id,
             properties={"$set": ANY},
@@ -1486,7 +1476,7 @@ class TestEmailVerificationAPI(APIBaseTest):
                 "organization": str(self.team.organization_id),
             },
         )
-        self.assertEqual(mock_capture.call_count, 3)
+        self.assertEqual(mock_capture.call_count, 2)
 
     def test_cant_verify_if_email_is_not_configured(self):
         set_instance_setting("EMAIL_HOST", "")
@@ -1590,7 +1580,7 @@ class TestEmailVerificationAPI(APIBaseTest):
             },
         )
 
-    def test_email_verification_logs_in_user(self):
+    def test_email_verification_does_not_log_in_user(self):
         token = email_verification_token_generator.make_token(self.user)
 
         self.client.logout()
@@ -1601,7 +1591,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         # NOTE: Posting sets the session user id but doesn't log in the test client hence we just check the session id
         self.client.post(f"/api/users/verify_email/", {"uuid": self.user.uuid, "token": token})
         session_user_id = self.client.session.get("_auth_user_id")
-        assert session_user_id == str(self.user.id)
+        assert session_user_id is None
 
     def test_email_verification_logs_in_correctuser(self):
         other_token = email_verification_token_generator.make_token(self.other_user)
@@ -1611,7 +1601,8 @@ class TestEmailVerificationAPI(APIBaseTest):
         # NOTE: The user id in path should basically be ignored
         self.client.post(f"/api/users/verify_email/", {"uuid": self.other_user.uuid, "token": other_token})
         session_user_id = self.client.session.get("_auth_user_id")
-        assert session_user_id == str(self.other_user.id)
+        # user should still be logged out
+        assert session_user_id is None
 
     def test_email_verification_does_not_apply_to_current_logged_in_user(self):
         other_token = email_verification_token_generator.make_token(self.other_user)
@@ -1621,7 +1612,7 @@ class TestEmailVerificationAPI(APIBaseTest):
         self.user.refresh_from_db()
         self.other_user.refresh_from_db()
         # Should now be logged in as other user
-        assert self.client.session.get("_auth_user_id") == str(self.other_user.id)
+        assert self.client.session.get("_auth_user_id") is None
         assert not self.user.is_email_verified
         assert self.other_user.is_email_verified
 

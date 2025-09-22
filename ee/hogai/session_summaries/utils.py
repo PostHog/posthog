@@ -139,11 +139,6 @@ def unpack_full_event_id(full_event_id: str | None, session_id: str | None = Non
     return unpacked_session_id, event_uuid
 
 
-def strip_raw_llm_content(raw_content: str) -> str:
-    """Strip the first and the last line of the content to load the YAML data only into JSON"""
-    return raw_content.strip("```yaml\n").strip("```").strip()  # noqa: B005
-
-
 def estimate_tokens_from_strings(strings: list[str], model: str) -> int:
     """Estimate the token count for a list of strings."""
     if not strings:

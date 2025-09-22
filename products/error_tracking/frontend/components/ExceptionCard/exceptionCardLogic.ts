@@ -3,7 +3,7 @@ import { actions, kea, path, reducers } from 'kea'
 import type { exceptionCardLogicType } from './exceptionCardLogicType'
 
 export const exceptionCardLogic = kea<exceptionCardLogicType>([
-    path(() => ['scenes', 'error-tracking', 'exceptionCardLogic']),
+    path(() => ['products', 'error_tracking', 'components', 'ExceptionCard', 'exceptionCardLogic']),
 
     actions({
         setShowJSONProperties: (showJSON: boolean) => ({ showJSON }),

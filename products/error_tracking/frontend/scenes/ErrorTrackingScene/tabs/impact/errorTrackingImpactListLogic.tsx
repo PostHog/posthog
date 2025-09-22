@@ -6,16 +6,24 @@ import api from 'lib/api'
 
 import { ErrorTrackingCorrelatedIssue } from '~/queries/schema/schema-general'
 
-import { errorTrackingBulkSelectLogic } from 'products/error_tracking/frontend/errorTrackingBulkSelectLogic'
+import { bulkSelectLogic } from 'products/error_tracking/frontend/logics/bulkSelectLogic'
 import { errorTrackingIssueCorrelationQuery } from 'products/error_tracking/frontend/queries'
 
 import type { errorTrackingImpactListLogicType } from './errorTrackingImpactListLogicType'
 
 export const errorTrackingImpactListLogic = kea<errorTrackingImpactListLogicType>([
-    path(['products', 'error_tracking', 'tabs', 'impact', 'errorTrackingImpactListLogic']),
+    path([
+        'products',
+        'error_tracking',
+        'scenes',
+        'ErrorTrackingScene',
+        'tabs',
+        'impact',
+        'errorTrackingImpactListLogic',
+    ]),
 
     connect(() => ({
-        actions: [errorTrackingBulkSelectLogic, ['setSelectedIssueIds']],
+        actions: [bulkSelectLogic, ['setSelectedIssueIds']],
     })),
 
     actions({

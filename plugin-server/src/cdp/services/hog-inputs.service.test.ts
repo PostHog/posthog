@@ -35,6 +35,15 @@ describe('Hog Inputs', () => {
             },
         })
 
+        await insertIntegration(hub.postgres, team.id, {
+            id: 2,
+            kind: 'oauth',
+            config: { team: 'foobar', access_token: 'token' },
+            sensitive_config: {
+                not_encrypted: 'not-encrypted',
+            },
+        })
+
         hogInputsService = new HogInputsService(hub)
     })
 
@@ -156,6 +165,43 @@ describe('Hog Inputs', () => {
             expect(inputs.oauth).toMatchInlineSnapshot(`
                 {
                   "access_token": "$$_access_token_placeholder_1",
+                  "access_token_raw": "token",
+                  "not_encrypted": "not-encrypted",
+                  "team": "foobar",
+                }
+            `)
+        })
+
+        it('access token should be replaced with placeholder', async () => {
+            hogFunction = createHogFunction({
+                id: 'hog-function-1',
+                team_id: team.id,
+                name: 'Hog Function 1',
+                enabled: true,
+                type: 'destination',
+                inputs: {
+                    hog_templated: {
+                        value: 'event: "{event.event}"',
+                        templating: 'hog',
+                        bytecode: await compileHog('return f\'event: "{event.event}"\''),
+                    },
+                    liquid_templated: {
+                        value: 'event: "{{ event.event }}"',
+                        templating: 'liquid',
+                    },
+                    auth: { value: 2 },
+                },
+                inputs_schema: [
+                    { key: 'hog_templated', type: 'string', required: true },
+                    { key: 'auth', type: 'integration', required: true },
+                ],
+            })
+
+            const inputs = await hogInputsService.buildInputs(hogFunction, globals)
+
+            expect(inputs.auth).toMatchInlineSnapshot(`
+                {
+                  "access_token": "$$_access_token_placeholder_2",
                   "access_token_raw": "token",
                   "not_encrypted": "not-encrypted",
                   "team": "foobar",

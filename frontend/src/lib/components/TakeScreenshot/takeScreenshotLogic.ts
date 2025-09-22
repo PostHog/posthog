@@ -1,4 +1,3 @@
-import { toBlob } from 'html-to-image'
 import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 import posthog from 'posthog-js'
 
@@ -43,7 +42,6 @@ export const takeScreenshotLogic = kea<takeScreenshotLogicType>([
     actions({
         setIsOpen: (isOpen: boolean) => ({ isOpen }),
         setImageFile: (imageFile: File | null) => ({ imageFile }),
-        setHtml: (html: HTMLElement | null) => ({ html }),
         setMode: (mode: 'draw' | 'text' | 'moveText') => ({ mode }),
         setDrawings: (drawings: DrawingItem[]) => ({ drawings }),
         setTexts: (texts: TextItem[]) => ({ texts }),
@@ -74,12 +72,6 @@ export const takeScreenshotLogic = kea<takeScreenshotLogicType>([
             false,
             {
                 setIsLoading: (_, { isLoading }) => isLoading,
-            },
-        ],
-        html: [
-            null as HTMLElement | null,
-            {
-                setHtml: (_, { html }) => html,
             },
         ],
         imageFile: [
@@ -174,23 +166,6 @@ export const takeScreenshotLogic = kea<takeScreenshotLogicType>([
         ],
     }),
     listeners(({ actions, props }) => ({
-        setHtml: async ({ html }) => {
-            if (html === null) {
-                return
-            }
-            actions.setIsLoading(true)
-            actions.setIsOpen(true)
-            const blob = await toBlob(html)
-            if (blob) {
-                actions.setBlob(blob)
-            } else {
-                lemonToast.error('Failed to generate image blob.')
-                actions.setIsLoading(false)
-                posthog.capture('screenshot_failed', {
-                    screenshot_key: props.screenshotKey,
-                })
-            }
-        },
         setBlob: async ({ blob }) => {
             if (!blob) {
                 lemonToast.error('Cannot take screenshot. Please try again.')

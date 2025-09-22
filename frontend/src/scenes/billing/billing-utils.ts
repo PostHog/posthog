@@ -493,9 +493,20 @@ export function calculateBillingPeriodMarkers(
 
 const sumSeries = (values: number[]): number => values.reduce((sum, v) => sum + v, 0)
 
-// Keep up to N decimals without trailing zeros
-export const formatWithDecimals = (value: number, decimals?: number): string =>
-    typeof decimals === 'number' ? String(Number(value.toFixed(decimals))) : String(value)
+/**
+ * Keep up to N decimals without trailing zeros.
+ * Falls back to 10 decimals for very small numbers if not specified.
+ */
+export const formatWithDecimals = (value: number, decimals?: number): string => {
+    const needsFixedFormat = typeof decimals === 'number' || (Math.abs(value) < 1e-6 && value !== 0)
+
+    return needsFixedFormat
+        ? value
+              .toFixed(decimals ?? 10)
+              .replace(/0+$/, '')
+              .replace(/\.$/, '')
+        : String(value)
+}
 
 /**
  * Build CSV from the billing usage and spend data:

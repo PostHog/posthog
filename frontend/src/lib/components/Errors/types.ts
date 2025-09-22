@@ -72,6 +72,11 @@ export interface ErrorTrackingStackFrame {
     resolve_failure: string | null
 }
 
+export interface ErrorTrackingFingerprint {
+    fingerprint: string
+    issue_id: string
+}
+
 export interface ErrorTrackingSymbolSet {
     id: string
     ref: string

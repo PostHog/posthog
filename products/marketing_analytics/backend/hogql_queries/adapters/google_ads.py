@@ -54,6 +54,11 @@ class GoogleAdsAdapter(MarketingSourceAdapter[GoogleAdsConfig]):
         sum = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "metrics_clicks"])])
         return ast.Call(name="toFloat", args=[sum])
 
+    def _get_reported_conversion_field(self) -> ast.Expr:
+        stats_table_name = self.config.stats_table.name
+        sum = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "metrics_conversions"])])
+        return ast.Call(name="toFloat", args=[sum])
+
     def _get_cost_field(self) -> ast.Expr:
         stats_table_name = self.config.stats_table.name
         sum = ast.Call(name="SUM", args=[ast.Field(chain=[stats_table_name, "metrics_cost_micros"])])

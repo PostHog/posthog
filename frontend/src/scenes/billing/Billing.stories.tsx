@@ -120,6 +120,12 @@ export const BillingPurchaseCreditsModal = (): JSX.Element => {
                 email: 'test@posthog.com',
                 cc_last_four: '1234',
                 cc_brand: 'Visa',
+                credit_brackets: [
+                    { discount: 0.1, annual_credit_from_inclusive: 3333, annual_credit_to_exclusive: 25000 },
+                    { discount: 0.2, annual_credit_from_inclusive: 25000, annual_credit_to_exclusive: 80000 },
+                    { discount: 0.25, annual_credit_from_inclusive: 80000, annual_credit_to_exclusive: 153847 },
+                    { discount: 0.35, annual_credit_from_inclusive: 153847, annual_credit_to_exclusive: null },
+                ],
             },
         },
     })

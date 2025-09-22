@@ -62,14 +62,7 @@ describe('Event Pipeline integration test', () => {
             hub.groupRepository,
             hub.clickhouseGroupRepository
         )
-        const runner = new EventPipelineRunner(
-            hub,
-            event,
-            undefined,
-            undefined,
-            personsStoreForBatch,
-            groupStoreForBatch
-        )
+        const runner = new EventPipelineRunner(hub, event, undefined, personsStoreForBatch, groupStoreForBatch)
         const result = await runner.runEventPipeline(event, team)
         const postIngestionEvent = convertToPostIngestionEvent(result.args[0])
         return Promise.all([processWebhooksStep(postIngestionEvent, actionMatcher, hookCannon)])

@@ -30,7 +30,7 @@ export type Assignee = UserAssignee | RoleAssignee | null
 export interface RolesFuse extends Fuse<RoleType> {}
 
 export const assigneeSelectLogic = kea<assigneeSelectLogicType>([
-    path(['scenes', 'error-tracking', 'assigneeSelectLogic']),
+    path(['products', 'error_tracking', 'components', 'Assignee', 'assigneeSelectLogic']),
     props({} as ErrorTrackingAssigneeSelectProps),
 
     connect(() => ({

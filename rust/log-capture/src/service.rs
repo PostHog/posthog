@@ -1,5 +1,5 @@
-use crate::log_record::LogRow;
-use crate::{auth::authenticate_request, clickhouse::ClickHouseWriter, config::Config};
+use crate::log_record::KafkaLogRow;
+use crate::{auth::authenticate_request, config::Config};
 use opentelemetry_proto::tonic::collector::logs::v1::{
     logs_service_server::LogsService, ExportLogsServiceRequest, ExportLogsServiceResponse,
 };
@@ -8,21 +8,22 @@ use opentelemetry_proto::tonic::collector::trace::v1::{
     ExportTraceServiceRequest, ExportTraceServiceResponse,
 };
 
+use crate::kafka::KafkaSink;
+
 use tonic::{Request, Response, Status};
-use tracing::error;
+use tracing::{debug, error};
 
 #[derive(Clone)]
 pub struct Service {
     config: Config,
-    clickhouse_writer: ClickHouseWriter,
+    sink: KafkaSink,
 }
 
 impl Service {
-    pub async fn new(config: Config) -> Result<Self, anyhow::Error> {
-        let clickhouse_writer = ClickHouseWriter::new(&config).await?;
+    pub async fn new(config: Config, kafka_sink: KafkaSink) -> Result<Self, anyhow::Error> {
         Ok(Self {
             config,
-            clickhouse_writer,
+            sink: kafka_sink,
         })
     }
 }
@@ -52,25 +53,11 @@ impl LogsService for Service {
         };
 
         let export_request = request.into_inner();
-
-        let mut insert = match self
-            .clickhouse_writer
-            .client
-            .insert(&self.config.clickhouse_table)
-        {
-            Ok(insert) => insert,
-            Err(e) => {
-                error!("Failed to create ClickHouse insert: {e}");
-                return Err(Status::internal(format!(
-                    "Failed to create ClickHouse insert: {e}"
-                )));
-            }
-        };
+        let mut rows: Vec<KafkaLogRow> = Vec::new();
         for resource_logs in export_request.resource_logs {
-            // Convert resource to string for storing in ClickHouse
             for scope_logs in resource_logs.scope_logs {
                 for log_record in scope_logs.log_records {
-                    let row = match LogRow::new(
+                    let row = match KafkaLogRow::new(
                         team_id,
                         log_record,
                         resource_logs.resource.clone(),
@@ -82,16 +69,15 @@ impl LogsService for Service {
                             continue;
                         }
                     };
-
-                    if let Err(e) = insert.write(&row).await {
-                        error!("Failed to insert log into ClickHouse: {e}");
-                        // Continue processing other logs even if one fails
-                    }
+                    rows.push(row);
                 }
             }
         }
-        if let Err(e) = insert.end().await {
-            error!("Failed to end ClickHouse insert: {e}");
+
+        if let Err(e) = self.sink.write(team_id, rows).await {
+            error!("Failed to send logs to Kafka: {}", e);
+        } else {
+            debug!("Successfully sent logs to Kafka");
         }
 
         // A successful OTLP export expects an ExportLogsServiceResponse.
