@@ -1,4 +1,5 @@
 import { arrayMove } from '@dnd-kit/sortable'
+import equal from 'fast-deep-equal'
 import {
     BuiltLogic,
     actions,
@@ -19,12 +20,12 @@ import { useEffect, useState } from 'react'
 
 import { commandBarLogic } from 'lib/components/CommandBar/commandBarLogic'
 import { BarStatus } from 'lib/components/CommandBar/types'
-import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { TeamMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getRelativeNextPath, identifierToHuman } from 'lib/utils'
-import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
+import { getAppContext, getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { addProjectIdIfMissing, removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { withForwardedSearchParams } from 'lib/utils/sceneLogicUtils'
 import {
@@ -376,6 +377,12 @@ export const sceneLogic = kea<sceneLogicType>([
                 reloadBrowserDueToImportError: () => new Date().valueOf(),
             },
         ],
+        lastSetScenePayload: [
+            {} as Record<string, any>,
+            {
+                setScene: (_, { sceneId, sceneKey, tabId, params }) => ({ sceneId, sceneKey, tabId, params }),
+            },
+        ],
     }),
     selectors({
         activeTab: [
@@ -391,10 +398,10 @@ export const sceneLogic = kea<sceneLogicType>([
         sceneId: [(s) => [s.activeTab], (activeTab) => activeTab?.sceneId],
         sceneKey: [(s) => [s.activeTab], (activeTab) => activeTab?.sceneKey],
         sceneConfig: [
-            (s) => [s.sceneId, s.featureFlags],
-            (sceneId: Scene, featureFlags): SceneConfig | null => {
+            (s) => [s.sceneId],
+            (sceneId: Scene): SceneConfig | null => {
                 const config = sceneConfigurations[sceneId] || null
-                if (sceneId === Scene.SQLEditor && featureFlags[FEATURE_FLAGS.SCENE_TABS]) {
+                if (sceneId === Scene.SQLEditor) {
                     return { ...config, layout: 'app-raw' }
                 }
                 return config
@@ -407,7 +414,7 @@ export const sceneLogic = kea<sceneLogicType>([
         activeSceneId: [
             (s) => [s.sceneId, teamLogic.selectors.isCurrentTeamUnavailable],
             (sceneId, isCurrentTeamUnavailable) => {
-                const effectiveResourceAccessControl = window.POSTHOG_APP_CONTEXT?.effective_resource_access_control
+                const effectiveResourceAccessControl = getAppContext()?.effective_resource_access_control
 
                 // Get the access control resource type for the current scene
                 const sceneAccessControlResource = sceneId ? sceneToAccessControlResourceType[sceneId as Scene] : null
@@ -642,8 +649,24 @@ export const sceneLogic = kea<sceneLogicType>([
                 router.actions.replace(pathname.replace(/(\/+)$/, ''), search, hash)
             }
         },
-        setScene: ({ tabId, sceneId, exportedScene, params, scrollToTop }, _, __, previousState) => {
-            posthog.capture('$pageview')
+        setScene: ({ tabId, sceneKey, sceneId, exportedScene, params, scrollToTop }, _, __, previousState) => {
+            const {
+                sceneId: lastSceneId,
+                sceneKey: lastSceneKey,
+                tabId: lastTabId,
+                params: lastParams,
+            } = selectors.lastSetScenePayload(previousState)
+
+            // Do not trigger a new pageview event when only the hashParams change
+            if (
+                lastSceneId !== sceneId ||
+                lastSceneKey !== sceneKey ||
+                lastTabId !== tabId ||
+                !equal(lastParams.params, params.params) ||
+                JSON.stringify(lastParams.searchParams) !== JSON.stringify(params.searchParams) // `equal` crashes here
+            ) {
+                posthog.capture('$pageview')
+            }
 
             // if we clicked on a link, scroll to top
             const previousScene = selectors.sceneId(previousState)
@@ -1009,11 +1032,7 @@ export const sceneLogic = kea<sceneLogicType>([
     })),
     afterMount(({ actions, cache, values }) => {
         cache.onKeyDown = (event: KeyboardEvent) => {
-            if (
-                values.featureFlags[FEATURE_FLAGS.SCENE_TABS] &&
-                (event.ctrlKey || event.metaKey) &&
-                event.key === 'b'
-            ) {
+            if ((event.ctrlKey || event.metaKey) && event.key === 'b') {
                 event.preventDefault()
                 event.stopPropagation()
                 if (event.shiftKey) {

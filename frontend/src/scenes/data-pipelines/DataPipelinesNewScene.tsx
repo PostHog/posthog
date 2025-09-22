@@ -74,7 +74,7 @@ export function DataPipelinesNewScene(): JSX.Element {
     const humanizedKind = humanizeHogFunctionType(kind)
 
     return (
-        <SceneContent forceNewSpacing>
+        <SceneContent>
             <SceneTitleSection
                 name={`New ${humanizedKind}`}
                 resourceType={{

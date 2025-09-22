@@ -15,7 +15,7 @@ from temporalio import activity
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.logger import get_logger
 
-from .inputs import CommitChangesInputs, CreatePRInputs, TaskProcessingInputs
+from .inputs import CreatePRInputs, TaskProcessingInputs
 
 logger = get_logger(__name__)
 
@@ -121,12 +121,6 @@ async def create_branch_activity(inputs: TaskProcessingInputs) -> dict[str, Any]
         if result.get("success"):
             logger.info(f"Successfully created branch {branch_name}")
 
-            # Update issue with branch information
-            from django.apps import apps
-
-            Task = apps.get_model("tasks", "Task")
-            await database_sync_to_async(Task.objects.filter(id=inputs.task_id).update)(github_branch=branch_name)
-
             return {
                 "success": True,
                 "branch_name": branch_name,
@@ -167,17 +161,33 @@ async def create_pr_activity(inputs: CreatePRInputs) -> dict[str, Any]:
         )
         repo_name = _repo_basename(repository)
 
-        # Create PR title and body
-        pr_title = f"Fix task: {task.title}"
-        pr_body = f"""
-## Task: {task.title}
+        # Get task details safely in async context
+        def get_task_details():
+            # Ensure related objects are fetched
+            current_stage = task.current_stage
+            stage_key = current_stage.key if current_stage else "backlog"
+            priority = getattr(task, "priority", "N/A")
+            return {
+                "title": task.title,
+                "id": str(task.id),
+                "stage_key": stage_key,
+                "priority": priority,
+                "description": task.description or "No description provided",
+            }
 
-**Task ID:** {task.id}
-**Status:** {task.status}
-**Priority:** {getattr(task, 'priority', 'N/A')}
+        task_details = await database_sync_to_async(get_task_details)()
+
+        # Create PR title and body
+        pr_title = f"Fix task: {task_details['title']}"
+        pr_body = f"""
+## Task: {task_details['title']}
+
+**Task ID:** {task_details['id']}
+**Status:** {task_details['stage_key']}
+**Priority:** {task_details['priority']}
 
 ### Description
-{task.description or 'No description provided'}
+{task_details['description']}
 
 ---
 *This PR was automatically created by PostHog Task Agent*
@@ -196,14 +206,6 @@ async def create_pr_activity(inputs: CreatePRInputs) -> dict[str, Any]:
         if result.get("success"):
             logger.info(f"Successfully created PR #{result['pr_number']}")
 
-            # Update issue with PR information
-            from django.apps import apps
-
-            Task = apps.get_model("tasks", "Task")
-            await database_sync_to_async(Task.objects.filter(id=issue_inputs.task_id).update)(
-                github_pr_url=result.get("pr_url")
-            )
-
             return {
                 "success": True,
                 "pr_number": result.get("pr_number"),
@@ -219,110 +221,6 @@ async def create_pr_activity(inputs: CreatePRInputs) -> dict[str, Any]:
     except Exception as e:
         logger.exception(f"Error creating PR: {str(e)}")
         return {"success": False, "error": f"Failed to create PR: {str(e)}"}
-
-
-@activity.defn
-async def commit_changes_activity(inputs: CommitChangesInputs) -> dict[str, Any]:
-    """
-    Commit file changes.
-
-    Args:
-        inputs: CommitChangesInputs containing issue processing inputs, branch name, and file changes
-
-    Returns:
-        Dict with commit results
-    """
-    issue_inputs = inputs.task_processing_inputs
-    branch_name = inputs.branch_name
-    file_changes = inputs.file_changes
-
-    bind_contextvars(task_id=issue_inputs.task_id, team_id=issue_inputs.team_id, activity="commit_changes_activity")
-
-    logger.info(f"Committing changes for issue {issue_inputs.task_id}")
-
-    try:
-        task, github_integration, repository = await get_github_integration_for_task(
-            issue_inputs.task_id, issue_inputs.team_id
-        )
-        repo_name = _repo_basename(repository)
-
-        committed_files = []
-
-        # Process each file change
-        for file_change in file_changes:
-            file_path = file_change.get("path")
-            content = file_change.get("content")
-            message = file_change.get("message", f"Update {file_path} for issue #{issue_inputs.task_id}")
-
-            if not file_path or content is None:
-                logger.warning(f"Skipping invalid file change: {file_change}")
-                continue
-
-            # Update/create the file
-            result = await database_sync_to_async(github_integration.update_file)(
-                repository=repo_name, file_path=file_path, content=content, commit_message=message, branch=branch_name
-            )
-
-            if result.get("success"):
-                committed_files.append(
-                    {
-                        "path": file_path,
-                        "commit_sha": result.get("commit_sha"),
-                        "file_sha": result.get("file_sha"),
-                        "html_url": result.get("html_url"),
-                    }
-                )
-                logger.info(f"Successfully committed file {file_path}")
-            else:
-                logger.error(f"Failed to commit file {file_path}: {result.get('error')}")
-                return {
-                    "success": False,
-                    "error": f"Failed to commit file {file_path}: {result.get('error')}",
-                    "committed_files": committed_files,
-                }
-
-        return {"success": True, "committed_files": committed_files, "total_files": len(committed_files)}
-
-    except Exception as e:
-        logger.exception(f"Error committing changes: {str(e)}")
-        return {"success": False, "error": f"Failed to commit changes: {str(e)}"}
-
-
-@activity.defn
-async def validate_github_integration_activity(inputs: TaskProcessingInputs) -> dict[str, Any]:
-    """
-    Validate GitHub integration and repository access.
-
-    Returns:
-        Dict with validation results and repository information
-    """
-    bind_contextvars(task_id=inputs.task_id, team_id=inputs.team_id, activity="validate_github_integration")
-
-    logger.info(f"Validating GitHub integration for team {inputs.team_id}")
-
-    try:
-        task, github_integration, repository = await get_github_integration_for_task(inputs.task_id, inputs.team_id)
-
-        # Get repositories available to this integration
-        repositories = await database_sync_to_async(github_integration.list_repositories)()
-        if not repositories:
-            return {"success": False, "error": "No repositories available in GitHub integration"}
-
-        logger.info(f"GitHub integration validated successfully. Available repositories: {len(repositories)}")
-
-        return {
-            "success": True,
-            "repositories": repositories,
-            "integration": {
-                "display_name": github_integration.integration.display_name,
-                "organization": github_integration.organization(),
-                "installation_id": github_integration.integration.integration_id,
-            },
-        }
-
-    except Exception as e:
-        logger.exception(f"Error validating GitHub integration: {str(e)}")
-        return {"success": False, "error": f"Validation failed: {str(e)}"}
 
 
 @activity.defn
@@ -477,12 +375,6 @@ async def clone_repo_and_create_branch_activity(inputs: TaskProcessingInputs) ->
                 }
 
             logger.info(f"Successfully pushed new branch {branch_name} to GitHub")
-
-        # Update issue with branch name
-        from django.apps import apps
-
-        Task = apps.get_model("tasks", "Task")
-        await database_sync_to_async(Task.objects.filter(id=inputs.task_id).update)(github_branch=branch_name)
 
         logger.info(f"Successfully cloned repo and prepared branch {branch_name} for issue {inputs.task_id}")
 
@@ -787,7 +679,7 @@ async def commit_local_changes_activity(args: dict) -> dict[str, Any]:
                         logger.info(f"Commit message: {commit_message}")
 
                         result = await database_sync_to_async(github_integration.update_file)(
-                            repository=repository,
+                            repository=_repo_basename(repository),
                             file_path=file_path,
                             content=content,
                             commit_message=commit_message,
@@ -845,3 +737,96 @@ async def commit_local_changes_activity(args: dict) -> dict[str, Any]:
     except Exception as e:
         logger.exception(f"Error committing local changes: {str(e)}")
         return {"success": False, "error": f"Failed to commit local changes: {str(e)}"}
+
+
+async def get_github_integration_token(team_id: int, task_id: str) -> str:
+    """Get GitHub access token from PostHog's GitHub integration."""
+    try:
+        from django.apps import apps
+
+        from posthog.models.integration import GitHubIntegration, Integration
+
+        Task = apps.get_model("tasks", "Task")
+
+        # Get the task to access the specific GitHub integration
+        task = await database_sync_to_async(Task.objects.select_related("github_integration").get)(
+            id=task_id, team_id=team_id
+        )
+
+        # Get the specific GitHub integration configured for this task
+        if task.github_integration:
+            integration = task.github_integration
+        else:
+            # Fallback to team's first GitHub integration
+            integration = await database_sync_to_async(
+                lambda: Integration.objects.filter(team_id=team_id, kind="github").first()
+            )()
+
+        if not integration:
+            logger.warning(f"No GitHub integration found for team {team_id}")
+            return ""
+
+        github_integration = GitHubIntegration(integration)
+
+        # Check if token needs refresh
+        if github_integration.access_token_expired():
+            await database_sync_to_async(github_integration.refresh_access_token)()
+
+        return github_integration.integration.access_token or ""
+
+    except Exception as e:
+        logger.exception(f"Error getting GitHub integration token for team {team_id}, task {task_id}: {str(e)}")
+        return ""
+
+
+@activity.defn
+async def create_pr_and_update_task_activity(args: dict) -> dict[str, Any]:
+    """Create a PR after agent work is completed and update the task with PR URL."""
+    try:
+        # Extract parameters from args
+        task_id = args["task_id"]
+        team_id = args["team_id"]
+        branch_name = args["branch_name"]
+
+        logger.info(f"Creating PR and updating task {task_id} with branch {branch_name}")
+
+        # Create PR using existing create_pr_activity
+        from .inputs import CreatePRInputs, TaskProcessingInputs
+
+        task_processing_inputs = TaskProcessingInputs(task_id=task_id, team_id=team_id)
+        pr_inputs = CreatePRInputs(task_processing_inputs=task_processing_inputs, branch_name=branch_name)
+
+        pr_result = await create_pr_activity(pr_inputs)
+
+        if pr_result.get("success") and pr_result.get("pr_url"):
+            # Update task with PR URL and branch name
+            from django.apps import apps
+
+            Task = apps.get_model("tasks", "Task")
+
+            def update_task_pr_info():
+                task = Task.objects.get(id=task_id, team_id=team_id)
+                task.github_pr_url = pr_result["pr_url"]
+                task.github_branch = branch_name
+                task.save(update_fields=["github_pr_url", "github_branch"])
+                logger.info(f"Updated task {task_id} with PR URL: {pr_result['pr_url']} and branch: {branch_name}")
+                return task
+
+            await database_sync_to_async(update_task_pr_info)()
+
+            return {
+                "success": True,
+                "pr_url": pr_result["pr_url"],
+                "pr_number": pr_result.get("pr_number"),
+                "pr_id": pr_result.get("pr_id"),
+                "branch_name": branch_name,
+                "message": f"PR created successfully: {pr_result['pr_url']}",
+            }
+        else:
+            error = pr_result.get("error", "Unknown error creating PR")
+            logger.error(f"Failed to create PR for task {task_id}: {error}")
+            return {"success": False, "error": f"Failed to create PR: {error}"}
+
+    except Exception as e:
+        logger.exception(f"Failed to create PR and update task {task_id}: {e}")
+        return {"success": False, "error": str(e)}

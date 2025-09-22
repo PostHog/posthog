@@ -7,13 +7,13 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { FeatureFlagKey } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { objectsEqual } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import {
-    AvailableFeature,
     HogFunctionSubTemplateIdType,
     HogFunctionTemplateType,
     HogFunctionTemplateWithSubTemplateType,
@@ -112,10 +112,17 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             (s) => [
                 s.rawTemplates,
                 s.user,
+                s.featureFlags,
                 (_, p: HogFunctionTemplateListLogicProps) => p.manualTemplates ?? [],
                 (_, p: HogFunctionTemplateListLogicProps) => p.subTemplateIds ?? [],
             ],
-            (rawTemplates, user, manualTemplates, subTemplateIds): HogFunctionTemplateWithSubTemplateType[] => {
+            (
+                rawTemplates,
+                user,
+                featureFlags,
+                manualTemplates,
+                subTemplateIds
+            ): HogFunctionTemplateWithSubTemplateType[] => {
                 let templates: HogFunctionTemplateWithSubTemplateType[] = []
 
                 if (!subTemplateIds?.length) {
@@ -141,6 +148,7 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
                 }
                 return templates
                     .filter((x) => shouldShowHogFunctionTemplate(x, user))
+                    .filter((x) => !x.flag || !!featureFlags[x.flag as FeatureFlagKey])
                     .sort((a, b) => (a.name || '').localeCompare(b.name || ''))
             },
         ],
@@ -182,20 +190,16 @@ export const hogFunctionTemplateListLogic = kea<hogFunctionTemplateListLogicType
             },
         ],
 
-        canEnableHogFunction: [
-            (s) => [s.hasAvailableFeature],
-            (hasAvailableFeature): ((template: HogFunctionTemplateType) => boolean) => {
-                return (template: HogFunctionTemplateType) => {
-                    return template?.free || hasAvailableFeature(AvailableFeature.DATA_PIPELINES)
-                }
-            },
-        ],
-
         urlForTemplate: [
             () => [(_, props) => props],
-            ({ configurationOverrides }): ((template: HogFunctionTemplateWithSubTemplateType) => string) => {
+            ({ configurationOverrides }): ((template: HogFunctionTemplateWithSubTemplateType) => string | null) => {
                 return (template: HogFunctionTemplateWithSubTemplateType) => {
                     if (template.status === 'coming_soon') {
+                        // "Coming soon" sources don't have docs yet
+                        if (template.type === 'source') {
+                            return null
+                        }
+
                         return `https://posthog.com/docs/cdp/${template.type}s/${template.id}`
                     }
 

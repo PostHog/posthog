@@ -17,6 +17,15 @@ jest.mock('./providers', () => {
             },
             'gpt-4o-mini': { model: 'gpt-4o-mini', cost: { prompt_token: 0.5, completion_token: 0.5 } },
             'claude-2': { model: 'claude-2', cost: { prompt_token: 0.6, completion_token: 0.6 } },
+            'claude-sonnet-4': {
+                model: 'claude-sonnet-4',
+                cost: {
+                    prompt_token: 0.000003,
+                    completion_token: 0.000015,
+                    cache_read_token: 3e-7,
+                    cache_write_token: 0.00000375,
+                },
+            },
             'gemini-2.5-pro-preview': {
                 model: 'gemini-2.5-pro-preview',
                 cost: { prompt_token: 0.00000125, completion_token: 0.00001, cache_read_token: 3.1e-7 },
@@ -275,6 +284,48 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(10, 2)
             expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(5, 2)
             expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(15, 2)
+        })
+    })
+
+    describe('gateway provider handling', () => {
+        it('handles Anthropic models through gateway provider with cache tokens', () => {
+            // Simulate the exact user scenario
+            event.properties!.$ai_provider = 'gateway'
+            event.properties!.$ai_model = 'anthropic/claude-sonnet-4'
+            event.properties!.$ai_input_tokens = 3815
+            event.properties!.$ai_output_tokens = 460
+            event.properties!.$ai_cache_creation_input_tokens = 84329
+
+            const result = processAiEvent(event)
+
+            // Should use claude-sonnet-4 costs from manual providers
+            expect(result.properties!.$ai_model_cost_used).toBe('claude-sonnet-4')
+
+            // Cache creation: 84329 * 0.000003 * 1.25 = 0.31623375
+            // Regular input: 3815 * 0.000003 = 0.011445
+            // Total input: 0.31623375 + 0.011445 = 0.32767875
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(0.327679, 5)
+
+            // Output: 460 * 0.000015 = 0.0069
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(0.0069, 4)
+
+            // Total: 0.327679 + 0.0069 = 0.334579
+            expect(result.properties!.$ai_total_cost_usd).toBeCloseTo(0.334579, 5)
+        })
+
+        it('handles OpenAI models through gateway provider', () => {
+            event.properties!.$ai_provider = 'gateway'
+            event.properties!.$ai_model = 'openai/gpt-4'
+            event.properties!.$ai_input_tokens = 100
+            event.properties!.$ai_output_tokens = 50
+            event.properties!.$ai_cache_read_input_tokens = 40
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_model_cost_used).toBe('gpt-4')
+            // Should calculate OpenAI cache costs correctly
+            expect(result.properties!.$ai_input_cost_usd).toBeCloseTo(16, 2) // (40*0.2*0.5) + (60*0.2) = 4 + 12 = 16
+            expect(result.properties!.$ai_output_cost_usd).toBeCloseTo(10, 2) // 50 * 0.2 = 10
         })
     })
 

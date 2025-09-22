@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = "==3.11.*"
 
 [[package]]
@@ -1274,6 +1274,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/65/19/d9d922913b86e9df48bfd4f959f3b215cd16c9fd563b4d0b1b6b31d3703b/datamodel_code_generator-0.28.5.tar.gz", hash = "sha256:20e8b817d301d2d0bb15f436e81c97b25ad1c2ef922c99249c2444141ae15a6a", size = 444237, upload-time = "2025-03-24T17:36:33.471Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/1e/af/fdb43505db1accf89c4551eacedd3bc756b7bf57b190b87c29c75fee2555/datamodel_code_generator-0.28.5-py3-none-any.whl", hash = "sha256:f899c1da5af04b5d5b6e3edbd718c1bf3a00fc4b2fe8210cef609d93a9983e9e", size = 117290, upload-time = "2025-03-24T17:36:31.73Z" },
+]
+
+[[package]]
+name = "debugpy"
+version = "1.8.16"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/ca/d4/722d0bcc7986172ac2ef3c979ad56a1030e3afd44ced136d45f8142b1f4a/debugpy-1.8.16.tar.gz", hash = "sha256:31e69a1feb1cf6b51efbed3f6c9b0ef03bc46ff050679c4be7ea6d2e23540870", size = 1643809, upload-time = "2025-08-06T18:00:02.647Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/63/d6/ad70ba8b49b23fa286fb21081cf732232cc19374af362051da9c7537ae52/debugpy-1.8.16-cp311-cp311-macosx_14_0_universal2.whl", hash = "sha256:67371b28b79a6a12bcc027d94a06158f2fde223e35b5c4e0783b6f9d3b39274a", size = 2184063, upload-time = "2025-08-06T18:00:11.885Z" },
+    { url = "https://files.pythonhosted.org/packages/aa/49/7b03e88dea9759a4c7910143f87f92beb494daaae25560184ff4ae883f9e/debugpy-1.8.16-cp311-cp311-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:b2abae6dd02523bec2dee16bd6b0781cccb53fd4995e5c71cc659b5f45581898", size = 3134837, upload-time = "2025-08-06T18:00:13.782Z" },
+    { url = "https://files.pythonhosted.org/packages/5d/52/b348930316921de7565fbe37a487d15409041713004f3d74d03eb077dbd4/debugpy-1.8.16-cp311-cp311-win32.whl", hash = "sha256:f8340a3ac2ed4f5da59e064aa92e39edd52729a88fbde7bbaa54e08249a04493", size = 5159142, upload-time = "2025-08-06T18:00:15.391Z" },
+    { url = "https://files.pythonhosted.org/packages/d8/ef/9aa9549ce1e10cea696d980292e71672a91ee4a6a691ce5f8629e8f48c49/debugpy-1.8.16-cp311-cp311-win_amd64.whl", hash = "sha256:70f5fcd6d4d0c150a878d2aa37391c52de788c3dc680b97bdb5e529cb80df87a", size = 5183117, upload-time = "2025-08-06T18:00:17.251Z" },
+    { url = "https://files.pythonhosted.org/packages/52/57/ecc9ae29fa5b2d90107cd1d9bf8ed19aacb74b2264d986ae9d44fe9bdf87/debugpy-1.8.16-py2.py3-none-any.whl", hash = "sha256:19c9521962475b87da6f673514f7fd610328757ec993bf7ec0d8c96f9a325f9e", size = 5287700, upload-time = "2025-08-06T18:00:42.333Z" },
 ]
 
 [[package]]
@@ -4210,6 +4223,7 @@ dev = [
     { name = "braintrust-langchain" },
     { name = "dagster-dg-cli" },
     { name = "datamodel-code-generator" },
+    { name = "debugpy" },
     { name = "deepdiff" },
     { name = "django-linear-migrations" },
     { name = "django-stubs" },
@@ -4369,7 +4383,7 @@ requires-dist = [
     { name = "phonenumberslite", specifier = "==8.13.6" },
     { name = "pillow", specifier = "==10.2.0" },
     { name = "playwright", specifier = ">=1.54.0" },
-    { name = "posthoganalytics", specifier = ">=6.3.1" },
+    { name = "posthoganalytics", specifier = ">=6.7.4" },
     { name = "psutil", specifier = "==6.0.0" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
     { name = "psycopg2-binary", specifier = "==2.9.7" },
@@ -4439,6 +4453,7 @@ dev = [
     { name = "braintrust-langchain", specifier = "==0.0.4" },
     { name = "dagster-dg-cli", specifier = ">=1.10.18" },
     { name = "datamodel-code-generator", specifier = "==0.28.5" },
+    { name = "debugpy", specifier = ">=1.8.0" },
     { name = "deepdiff", specifier = ">=8.5.0" },
     { name = "django-linear-migrations", specifier = "==2.16.*" },
     { name = "django-stubs", specifier = "~=5.1.3" },
@@ -4475,7 +4490,7 @@ dev = [
     { name = "ruff", specifier = "~=0.8.1" },
     { name = "sqlalchemy", specifier = "==2.0.38" },
     { name = "stpyv8", marker = "(platform_machine != 'aarch64' and platform_machine != 'arm64') or sys_platform != 'linux'", specifier = "==13.1.201.22" },
-    { name = "syrupy", specifier = "~=4.6.0" },
+    { name = "syrupy", specifier = "~=4.9.1" },
     { name = "tach", specifier = "~=0.20.0" },
     { name = "types-aioboto3", extras = ["s3"], specifier = ">=14.3.0" },
     { name = "types-boto3", extras = ["essential"], specifier = "==1.37.6" },
@@ -4495,7 +4510,7 @@ dev = [
 
 [[package]]
 name = "posthoganalytics"
-version = "6.3.1"
+version = "6.7.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -4505,9 +4520,9 @@ dependencies = [
     { name = "six" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/90/c7/445cbfb04857b70dd622851edf6dd3cb16840600670932c4f17db6359150/posthoganalytics-6.3.1.tar.gz", hash = "sha256:30ca703d6089bc6ac6e65d7d752a0c028fa2cddad3bbc053f22a527b65de5bd8", size = 98353, upload-time = "2025-07-23T09:52:24.802Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ad/3e/8a6896a2e998a0e82f0eae74e1dfaf958a80117cb4ddf5653af5e4abb74d/posthoganalytics-6.7.4.tar.gz", hash = "sha256:fe63d288c76b983ff9a5c849d1ea2dafbb1bdd9e1140929008589315747cfd03", size = 118715, upload-time = "2025-09-05T15:29:24.959Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f9/7a/8299c8be23cbe1951ea901c4ed8bc2b36f1c02403d69eab6418672399f3e/posthoganalytics-6.3.1-py3-none-any.whl", hash = "sha256:5505f076abe2f8836df6584d5245182cd0cdf13a5ac2ed45c1d3f5614cbb38a6", size = 116503, upload-time = "2025-07-23T09:52:23.776Z" },
+    { url = "https://files.pythonhosted.org/packages/40/af/1088ecedc1191ea0435d7e430c911338f9524255e5ae7a58d8cae9c88dcb/posthoganalytics-6.7.4-py3-none-any.whl", hash = "sha256:ecba38780c263282df2cd1f3b5f14d822cbab7779b66a0d1cf58ce6525614c98", size = 137701, upload-time = "2025-09-05T15:29:23.75Z" },
 ]
 
 [[package]]
@@ -6010,14 +6025,14 @@ wheels = [
 
 [[package]]
 name = "syrupy"
-version = "4.6.4"
+version = "4.9.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pytest" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c8/e8/4ca6e2ace3a42d9547a4c08c51304fffe28e3dc4b823291e7446e7a97123/syrupy-4.6.4.tar.gz", hash = "sha256:a6facc6a45f1cff598adacb030d9573ed62863521755abd5c5d6d665f848d6cc", size = 47490, upload-time = "2024-08-21T01:54:22.082Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/8c/f8/022d8704a3314f3e96dbd6bbd16ebe119ce30e35f41aabfa92345652fceb/syrupy-4.9.1.tar.gz", hash = "sha256:b7d0fcadad80a7d2f6c4c71917918e8ebe2483e8c703dfc8d49cdbb01081f9a4", size = 52492, upload-time = "2025-03-24T01:36:37.225Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/5d/01/623a57cb18e97b5b6570bc09d5750d8c04713f4d2ec11f0341e2786c6cc3/syrupy-4.6.4-py3-none-any.whl", hash = "sha256:5a0e47b187d32b58555b0de6d25bc7bb875e7d60c7a41bd2721f5d44975dcf85", size = 47436, upload-time = "2024-08-21T01:54:20.548Z" },
+    { url = "https://files.pythonhosted.org/packages/ec/9d/aef9ec5fd5a4ee2f6a96032c4eda5888c5c7cec65cef6b28c4fc37671d88/syrupy-4.9.1-py3-none-any.whl", hash = "sha256:b94cc12ed0e5e75b448255430af642516842a2374a46936dd2650cfb6dd20eda", size = 52214, upload-time = "2025-03-24T01:36:35.278Z" },
 ]
 
 [[package]]
