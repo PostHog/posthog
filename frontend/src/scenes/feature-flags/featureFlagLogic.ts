@@ -687,11 +687,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     // Remove sourceId from URL
                     router.actions.replace(router.values.location.pathname)
 
-                    return {
+                    const duplicatedFlag = {
                         ...NEW_FLAG,
                         ...flagToKeep,
                         key: '',
                     } as FeatureFlagType
+
+                    return variantKeyToIndexFeatureFlagPayloads(duplicatedFlag)
                 }
 
                 if (props.id && props.id !== 'new' && props.id !== 'link') {
