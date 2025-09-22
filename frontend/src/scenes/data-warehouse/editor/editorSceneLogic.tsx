@@ -126,7 +126,7 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
         panelExplicitlyClosed: [
             false,
             {
-                [panelLayoutLogic.actions.closePanel]: () => true,
+                [panelLayoutLogic.actionTypes.closePanel]: () => true,
             },
         ],
     })),
