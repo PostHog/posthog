@@ -105,7 +105,7 @@ export type UpdateViewPayload = Partial<DatabaseSchemaViewTable> & {
 
 function getTabHash(values: multitabEditorLogicType['values']): Record<string, any> {
     const hash: Record<string, any> = {
-        q: values.queryInput || '',
+        q: values.queryInput ?? '',
     }
     if (values.activeTab?.view) {
         hash['view'] = values.activeTab.view.id
@@ -157,7 +157,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         ],
     })),
     actions(() => ({
-        setQueryInput: (queryInput: string) => ({ queryInput }),
+        setQueryInput: (queryInput: string | null) => ({ queryInput }),
         runQuery: (queryOverride?: string, switchTab?: boolean) => ({
             queryOverride,
             switchTab,
@@ -271,7 +271,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             },
         ],
         queryInput: [
-            '',
+            null as string | null,
             {
                 setQueryInput: (_, { queryInput }) => queryInput,
             },
@@ -401,7 +401,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 if (currentTab.insight.query?.kind === NodeKind.DataVisualizationNode) {
                     const query = (currentTab.insight.query as DataVisualizationNode).source.query
                     if (values.queryInput !== query) {
-                        shareUrl.searchParams.set('open_query', values.queryInput)
+                        shareUrl.searchParams.set('open_query', values.queryInput ?? '')
                     }
                 }
 
@@ -412,14 +412,14 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 shareUrl.searchParams.set('open_view', currentTab.view.id)
 
                 if (values.queryInput != currentTab.view.query.query) {
-                    shareUrl.searchParams.set('open_query', values.queryInput)
+                    shareUrl.searchParams.set('open_query', values.queryInput ?? '')
                 }
 
                 void copyToClipboard(shareUrl.toString(), 'share link')
             } else {
                 const currentUrl = new URL(window.location.href)
                 const shareUrl = new URL(currentUrl.origin + currentUrl.pathname)
-                shareUrl.searchParams.set('open_query', values.queryInput)
+                shareUrl.searchParams.set('open_query', values.queryInput ?? '')
 
                 void copyToClipboard(shareUrl.toString(), 'share link')
             }
@@ -481,12 +481,16 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             if (props.monaco && values.activeTab) {
                 const existingModel = props.monaco.editor.getModel(values.activeTab.uri)
                 if (!existingModel) {
-                    const newModel = props.monaco.editor.createModel(values.queryInput, 'hogQL', values.activeTab.uri)
+                    const newModel = props.monaco.editor.createModel(
+                        values.queryInput ?? '',
+                        'hogQL',
+                        values.activeTab.uri
+                    )
                     initModel(
                         newModel,
                         codeEditorLogic({
                             key: `hogql-editor-${props.tabId}`,
-                            query: values.queryInput,
+                            query: values.queryInput ?? '',
                             language: 'hogQL',
                         })
                     )
@@ -593,7 +597,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             actions.updateTab({ ...tabToUpdate, name: draft.name, draft: draft })
         },
         runQuery: ({ queryOverride, switchTab }) => {
-            const query = queryOverride || values.queryInput
+            const query = (queryOverride || values.queryInput) ?? ''
 
             const newSource = {
                 ...values.sourceQuery.source,
@@ -658,7 +662,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
 
             const queryToSave = {
                 ...query,
-                query: values.queryInput,
+                query: values.queryInput ?? '',
             }
 
             const logic = dataNodeLogic({
@@ -965,7 +969,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
         showLegacyFilters: [
             (s) => [s.queryInput],
             (queryInput) => {
-                return queryInput.indexOf('{filters}') !== -1 || queryInput.indexOf('{filters.') !== -1
+                return queryInput && (queryInput.indexOf('{filters}') !== -1 || queryInput.indexOf('{filters.') !== -1)
             },
         ],
         dataLogicKey: [(_, p) => [p.tabId], (tabId) => `data-warehouse-editor-data-node-${tabId}`],
@@ -1037,7 +1041,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
             let tabAdded = false
 
             const createQueryTab = async (): Promise<void> => {
-                if (searchParams.open_draft || (hashParams.draft && !values.queryInput)) {
+                if (searchParams.open_draft || (hashParams.draft && values.queryInput === null)) {
                     const draftId = searchParams.open_draft || hashParams.draft
                     const draft = values.drafts.find((draft) => {
                         return (draft.id = draftId)
@@ -1065,7 +1069,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                         }
                     }
                     return
-                } else if (searchParams.open_view || (hashParams.view && !values.queryInput)) {
+                } else if (searchParams.open_view || (hashParams.view && values.queryInput === null)) {
                     // Open view
                     const viewId = searchParams.open_view || hashParams.view
 
@@ -1084,7 +1088,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     actions.editView(queryToOpen, view)
                     tabAdded = true
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
-                } else if (searchParams.open_insight || (hashParams.insight && !values.queryInput)) {
+                } else if (searchParams.open_insight || (hashParams.insight && values.queryInput === null)) {
                     const shortId = searchParams.open_insight || hashParams.insight
                     if (shortId === 'new') {
                         // Add new blank tab
@@ -1139,7 +1143,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     // Open query string
                     actions.createTab(searchParams.open_query)
                     tabAdded = true
-                } else if (hashParams.q && !values.queryInput) {
+                } else if (hashParams.q && values.queryInput === null) {
                     // only when opening the tab
                     actions.createTab(hashParams.q)
                     tabAdded = true
