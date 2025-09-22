@@ -553,11 +553,11 @@
                       (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                               e.`$group_0` AS aggregation_target,
                               if(equals(e.event, 'sign up'), 1, 0) AS step_0,
-                              if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
+                              if(equals(step_0, 1), timestamp, NULL) AS latest_0,
                               if(equals(e.event, 'play movie'), 1, 0) AS step_1,
-                              if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
+                              if(equals(step_1, 1), timestamp, NULL) AS latest_1,
                               if(equals(e.event, 'buy'), 1, 0) AS step_2,
-                              if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2,
+                              if(equals(step_2, 1), timestamp, NULL) AS latest_2,
                               ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
                               prop_basic AS prop,
                               argMinIf(prop, timestamp, isNotNull(prop)) OVER (PARTITION BY aggregation_target) AS prop_vals
@@ -570,7 +570,7 @@
                           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1), equals(step_2, 1))))))
               WHERE ifNull(equals(step_0, 1), 0)
               UNION ALL SELECT aggregation_target AS aggregation_target,
                                timestamp AS timestamp,
@@ -617,11 +617,11 @@
                       (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                               e.`$group_0` AS aggregation_target,
                               if(equals(e.event, 'play movie'), 1, 0) AS step_0,
-                              if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
+                              if(equals(step_0, 1), timestamp, NULL) AS latest_0,
                               if(equals(e.event, 'buy'), 1, 0) AS step_1,
-                              if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
+                              if(equals(step_1, 1), timestamp, NULL) AS latest_1,
                               if(equals(e.event, 'sign up'), 1, 0) AS step_2,
-                              if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2,
+                              if(equals(step_2, 1), timestamp, NULL) AS latest_2,
                               ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
                               prop_basic AS prop,
                               argMinIf(prop, timestamp, isNotNull(prop)) OVER (PARTITION BY aggregation_target) AS prop_vals
@@ -634,7 +634,7 @@
                           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1), equals(step_2, 1))))))
               WHERE ifNull(equals(step_0, 1), 0)
               UNION ALL SELECT aggregation_target AS aggregation_target,
                                timestamp AS timestamp,
@@ -681,11 +681,11 @@
                       (SELECT toTimeZone(e.timestamp, 'UTC') AS timestamp,
                               e.`$group_0` AS aggregation_target,
                               if(equals(e.event, 'buy'), 1, 0) AS step_0,
-                              if(ifNull(equals(step_0, 1), 0), timestamp, NULL) AS latest_0,
+                              if(equals(step_0, 1), timestamp, NULL) AS latest_0,
                               if(equals(e.event, 'sign up'), 1, 0) AS step_1,
-                              if(ifNull(equals(step_1, 1), 0), timestamp, NULL) AS latest_1,
+                              if(equals(step_1, 1), timestamp, NULL) AS latest_1,
                               if(equals(e.event, 'play movie'), 1, 0) AS step_2,
-                              if(ifNull(equals(step_2, 1), 0), timestamp, NULL) AS latest_2,
+                              if(equals(step_2, 1), timestamp, NULL) AS latest_2,
                               ifNull(toString(e__group_0.properties___industry), '') AS prop_basic,
                               prop_basic AS prop,
                               argMinIf(prop, timestamp, isNotNull(prop)) OVER (PARTITION BY aggregation_target) AS prop_vals
@@ -698,7 +698,7 @@
                           WHERE and(equals(groups.team_id, 99999), equals(index, 0))
                           GROUP BY groups.group_type_index,
                                    groups.group_key) AS e__group_0 ON equals(e.`$group_0`, e__group_0.key)
-                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(ifNull(equals(step_0, 1), 0), ifNull(equals(step_1, 1), 0), ifNull(equals(step_2, 1), 0))))))
+                       WHERE and(equals(e.team_id, 99999), and(and(greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-01 00:00:00.000000', 6, 'UTC')), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), toDateTime64('2020-01-08 23:59:59.999999', 6, 'UTC'))), in(e.event, tuple('buy', 'play movie', 'sign up')), and(notEquals(aggregation_target, ''), isNotNull(aggregation_target))), or(equals(step_0, 1), equals(step_1, 1), equals(step_2, 1))))))
               WHERE ifNull(equals(step_0, 1), 0)))
         GROUP BY aggregation_target,
                  steps,
