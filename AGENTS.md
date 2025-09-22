@@ -12,7 +12,9 @@
     - Frontend: `pnpm --filter=@posthog/frontend test`
     - Single frontend test: `pnpm --filter=@posthog/frontend jest <test_file>`
 - Lint:
-    - Python: `ruff .`
+    - Python:
+        - `ruff check . --fix` and `ruff format .`
+        - Do not run mypy for type checks. It takes too long.
     - Frontend: `pnpm --filter=@posthog/frontend format`
     - TypeScript check: `pnpm --filter=@posthog/frontend typescript:check`
 - Build:
