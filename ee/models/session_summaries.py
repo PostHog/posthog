@@ -11,6 +11,7 @@ from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, UUIDModel
 
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
+from ee.hogai.videos.session_moments import SessionMomentOutput
 
 
 @dataclass(frozen=True)
@@ -19,11 +20,35 @@ class ExtraSummaryContext:
 
 
 @dataclass(frozen=True)
+class SessionSummaryVisualConfirmationResult:
+    event_id: str  # Hex id of the event
+    event_uuid: str  # Full uuid of the event
+    asset_id: int  # Id of the generated video asset
+    timestamp_s: int  # Timestamp of starting point in the video
+    duration_s: int  # Duration of the video in seconds
+    video_description: str  # What LLM found in the video
+
+    @classmethod
+    def from_session_moment_output(
+        cls, session_moment_output: SessionMomentOutput, event_uuid: str
+    ) -> "SessionSummaryVisualConfirmationResult":
+        return cls(
+            event_id=session_moment_output.moment_id,
+            event_uuid=event_uuid,
+            asset_id=session_moment_output.asset_id,
+            timestamp_s=session_moment_output.timestamp_s,
+            duration_s=session_moment_output.duration_s,
+            video_description=session_moment_output.video_description,
+        )
+
+
+@dataclass(frozen=True)
 class SessionSummaryRunMeta:
     """Metadata about the run of the summary generation"""
 
     model_used: str
     visual_confirmation: bool
+    visual_confirmation_results: dict[str, SessionSummaryVisualConfirmationResult] | None = None
 
 
 @dataclass(frozen=True)
