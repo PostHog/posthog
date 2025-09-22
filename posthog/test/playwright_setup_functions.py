@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from posthog.schema import PlaywrightWorkspaceSetupData, PlaywrightWorkspaceSetupResult
 
+from posthog.constants import AvailableFeature
 from posthog.management.commands.generate_demo_data import Command as GenerateDemoDataCommand
 from posthog.models import PersonalAPIKey, User
 from posthog.models.personal_api_key import hash_key_value
@@ -63,6 +64,10 @@ def create_organization_with_team(data: PlaywrightWorkspaceSetupData) -> Playwri
     if org_name != "Hedgebox Inc.":
         organization.name = org_name
         organization.save()
+
+    # Add advanced permissions feature for password-protected sharing
+    organization.available_features = [AvailableFeature.ADVANCED_PERMISSIONS]
+    organization.save()
 
     # Create personal API key for the user
     api_key_value = f"phx_test_api_key_for_playwright_tests_{unique_suffix}"
