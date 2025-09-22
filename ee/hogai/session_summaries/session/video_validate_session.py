@@ -26,11 +26,7 @@ from ee.hogai.session_summaries.llm.call import call_llm
 from ee.hogai.session_summaries.session.output_data import EnrichedKeyActionSerializer, SessionSummarySerializer
 from ee.hogai.session_summaries.utils import load_custom_template
 from ee.hogai.videos.session_moments import SessionMomentInput, SessionMomentOutput, SessionMomentsLLMAnalyzer
-from ee.models.session_summaries import (
-    SessionSummaryRunMeta,
-    SessionSummaryVisualConfirmationResult,
-    SingleSessionSummary,
-)
+from ee.models.session_summaries import SessionSummaryRunMeta, SessionSummaryVisualConfirmationResult
 
 logger = structlog.get_logger(__name__)
 
@@ -45,15 +41,11 @@ class _SessionSummaryVideoValidationFieldToUpdate:
 
 
 class SessionSummaryVideoValidator:
-    def _init__(
-        self, *, session_id: str, summary_row: SingleSessionSummary, team_id: int, user: User, model_to_use: str
-    ) -> None:
+    def _init__(self, *, session_id: str, summary: SessionSummarySerializer, team_id: int, user: User) -> None:
         self.session_id = session_id
         self.team_id = team_id
         self.user = user
-        self.summary_row = summary_row
-        self.summary = SessionSummarySerializer(data=summary_row.summary)
-        self.summary.is_valid(raise_exception=True)
+        self.summary = summary
         self.moments_analyzer = SessionMomentsLLMAnalyzer(
             session_id=session_id,
             team_id=team_id,
@@ -61,7 +53,9 @@ class SessionSummaryVideoValidator:
             failed_moments_min_ratio=FAILED_MOMENTS_MIN_RATIO,
         )
 
-    async def validate_session_summary_with_videos(self, model_to_use: str) -> None:
+    async def validate_session_summary_with_videos(
+        self, model_to_use: str
+    ) -> tuple[SessionSummarySerializer, SessionSummaryRunMeta]:
         """Validate the session summary with videos"""
         # Find the events that would value from video validation (currently, blocking exceptions)
         events_to_validate, fields_to_update = self._pick_events_to_validate()
@@ -79,14 +73,14 @@ class SessionSummaryVideoValidator:
         updates_result = await self._generate_updates(
             description_results=description_results, fields_to_update=fields_to_update, model_to_use=model_to_use
         )
-        # Apply updates to the summary
+        # Apply updates to the summary object
         updated_summary = self._apply_updates(updates_result=updates_result)
-        # Store the changes in the database
-        await self._store_updates(
-            updated_summary=updated_summary,
-            description_results=description_results,
-            events_to_validate=events_to_validate,
+        # Generate updated run metadata
+        updated_run_metadata = self._generate_updates_run_metadata(
+            description_results=description_results, events_to_validate=events_to_validate
         )
+        # Return the updated summary and the run metadata
+        return updated_summary, updated_run_metadata
 
     def _generate_video_description_prompt(self, event: EnrichedKeyActionSerializer) -> str:
         """Generate a prompt for validating a video"""
@@ -278,12 +272,11 @@ class SessionSummaryVideoValidator:
             json.dump(summary_to_update, f, indent=4, sort_keys=True)
         return updated_summary
 
-    async def _store_updates(
+    async def _generate_updates_run_metadata(
         self,
-        updated_summary: SessionSummarySerializer,
         description_results: list[SessionMomentOutput],
         events_to_validate: list[tuple[str, EnrichedKeyActionSerializer]],
-    ) -> None:
+    ) -> SessionSummaryRunMeta:
         """Store the updates to the summary in the database, together with the validation results"""
         events_id_to_uuid = {event.data["event_id"]: event.data["event_uuid"] for _, event in events_to_validate}
         # Prepare data on the video generation results
@@ -297,12 +290,8 @@ class SessionSummaryVideoValidator:
         # Prepare run metadata
         run_metadata = cast(dict[str, Any], self.summary_row.run_metadata)
         model_used = cast(str, run_metadata["model_used"])
-        current_run_metadata = SessionSummaryRunMeta(
+        return SessionSummaryRunMeta(
             model_used=model_used,
             visual_confirmation=True,
             visual_confirmation_results=validation_confirmation_results,
         )
-        # Store the updated summary in the database
-        self.summary_row.summary = updated_summary.data
-        self.summary_row.run_metadata = asdict(current_run_metadata)
-        await self.summary_row.asave(update_fields=["summary", "run_metadata"])
