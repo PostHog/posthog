@@ -97,23 +97,28 @@ export class CyclotronJobQueueDelay {
         return this.kafkaConsumer.isHealthy()
     }
 
+    private scheduleHeartbeats() {
+        this.kafkaConsumer?.heartbeat()
+
+        const interval = setInterval(() => {
+            this.kafkaConsumer?.heartbeat()
+        }, 25000)
+
+        return () => {
+            clearInterval(interval)
+        }
+    }
+
     private async delayWithCancellation(delayMs: number): Promise<void> {
         const checkInterval = 1000 // Check every second
         const startTime = Date.now()
-        let lastHeartbeatTime = startTime
 
         while (Date.now() - startTime < delayMs) {
             if (this.kafkaConsumer?.isShuttingDown() || this.kafkaConsumer?.isRebalancing()) {
                 throw new Error('Delay cancelled due to consumer shutdown or rebalancing')
             }
 
-            const now = Date.now()
-            if (now - lastHeartbeatTime >= 25000) {
-                this.kafkaConsumer?.heartbeat()
-                lastHeartbeatTime = now
-            }
-
-            const remainingTime = delayMs - (now - startTime)
+            const remainingTime = delayMs - (Date.now() - startTime)
             const currentDelay = Math.min(remainingTime, checkInterval)
 
             if (currentDelay > 0) {
@@ -145,11 +150,13 @@ export class CyclotronJobQueueDelay {
 
     private async consumeKafkaBatch(messages: Message[]): Promise<{ backgroundTask: Promise<any> }> {
         if (messages.length === 0) {
-            return await this.consumeBatch([])
+            this.kafkaConsumer?.heartbeat()
+            return { backgroundTask: Promise.resolve() }
         }
 
         logger.info('🔁', `${this.name} - Consuming batch`, { messageCount: messages.length })
 
+        const cancelHeartbeats = this.scheduleHeartbeats()
         const maxDelayMs = getDelayByQueue(this.queue)
         const processingPromises: Promise<void>[] = []
 
@@ -217,7 +224,8 @@ export class CyclotronJobQueueDelay {
             }
         }
 
-        await this.consumeBatch([])
+        cancelHeartbeats()
+
         return {
             backgroundTask: Promise.allSettled(processingPromises),
         }
