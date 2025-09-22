@@ -36,6 +36,7 @@ import {
     AccessControlLevel,
     AccessControlResourceType,
     DashboardPlacement,
+    DashboardTile,
     ExporterFormat,
     InsightColor,
     QueryBasedInsightModel,
@@ -67,12 +68,14 @@ interface InsightMetaProps
         | 'variablesOverride'
         | 'placement'
     > {
+    tile?: DashboardTile<QueryBasedInsightModel>
     insight: QueryBasedInsightModel
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
 }
 
 export function InsightMeta({
+    tile,
     insight,
     ribbonColor,
     dashboardId,
@@ -205,10 +208,22 @@ export function InsightMeta({
             setAreDetailsShown={setAreDetailsShown}
             areDetailsShown={areDetailsShown}
             detailsTooltip="Show insight details, such as creator, last edit, and applied filters."
-            topHeading={<TopHeading query={insight.query} lastRefresh={insight.last_refresh} />}
+            topHeading={
+                <TopHeading
+                    query={insight.query}
+                    lastRefresh={insight.last_refresh}
+                    hasTileOverrides={Object.keys(tile?.filters_overrides ?? {}).length > 0}
+                />
+            }
             content={
                 <InsightMetaContent
-                    link={urls.insightView(short_id, dashboardId, variablesOverride, filtersOverride)}
+                    link={urls.insightView(
+                        short_id,
+                        dashboardId,
+                        variablesOverride,
+                        filtersOverride,
+                        tile?.filters_overrides
+                    )}
                     title={name}
                     fallbackTitle={summary}
                     description={insight.description}
@@ -239,7 +254,7 @@ export function InsightMeta({
                             <LemonButton onClick={rename} fullWidth>
                                 Rename
                             </LemonButton>
-                            {canAccessTileOverrides && (
+                            {canAccessTileOverrides && tile && (
                                 <LemonButton onClick={setOverride} fullWidth>
                                     Set override
                                 </LemonButton>
