@@ -119,8 +119,8 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                             title: `Marketing ${tileColumnSelection.split('_').join(' ')}`,
                             description:
                                 createMarketingDataWarehouseNodes.length > 0
-                                    ? `Track ${tileColumnSelection} from your configured marketing data sources.`
-                                    : `Configure marketing data sources in the settings to track ${tileColumnSelection} from your ad platforms.`,
+                                    ? `Track ${tileColumnSelection?.split('_').join(' ') || 'costs'} from your configured marketing data sources.`
+                                    : `Configure marketing data sources in the settings to track ${tileColumnSelection?.split('_').join(' ') || 'costs'} from your ad platforms.`,
                         },
                     },
                     campaignCostsBreakdown
