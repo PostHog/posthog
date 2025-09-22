@@ -439,7 +439,7 @@ def setup_test_organization_team_and_user(
 
 
 def _setup_test_data(klass):
-    organization, team, project, user, organization_membership = setup_test_organization_team_and_user(
+    organization, project, team, user, organization_membership = setup_test_organization_team_and_user(
         organization_name=klass.CONFIG_ORGANIZATION_NAME,
         team_api_token=klass.CONFIG_API_TOKEN,
         user_email=klass.CONFIG_EMAIL,
