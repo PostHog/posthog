@@ -352,23 +352,17 @@ def get_context_for_template(
             entry_point = "src/index.tsx"
             if template_name == "exporter.html":
                 entry_point = "src/exporter/index.tsx"
-
-            # Use dynamic host logic like get_js_url
-            vite_host = "localhost:8234"
-            if settings.DEBUG and settings.JS_URL == "http://localhost:8234":
-                vite_host = f"{request.get_host().split(':')[0]}:8234"
-
             context["vite_dev_scripts"] = f"""
         <script type="module">
-            import RefreshRuntime from 'http://{vite_host}/@react-refresh'
+            import RefreshRuntime from 'http://localhost:8234/@react-refresh'
             RefreshRuntime.injectIntoGlobalHook(window)
             window.$RefreshReg$ = () => {{}}
             window.$RefreshSig$ = () => (type) => type
             window.__vite_plugin_react_preamble_installed__ = true
         </script>
         <!-- Vite development server -->
-        <script type="module" src="http://{vite_host}/@vite/client"></script>
-        <script type="module" src="http://{vite_host}/{entry_point}"></script>"""
+        <script type="module" src="http://localhost:8234/@vite/client"></script>
+        <script type="module" src="http://localhost:8234/{entry_point}"></script>"""
 
     context["js_posthog_ui_host"] = ""
 
@@ -523,7 +517,7 @@ def render_template(
     If team_for_public_context is provided, this means this is a public page such as a shared dashboard.
     """
 
-    context = get_context_for_template(request, context, team_for_public_context, template_name)
+    context = get_context_for_template(request, context, team_for_public_context)
     template = get_template(template_name)
 
     html = template.render(context, request=request)
