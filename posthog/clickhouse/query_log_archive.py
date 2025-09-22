@@ -261,7 +261,6 @@ SELECT
     query_kind,
 
     exception_code,
-    errorCodeToName(exception_code) as exception_name,
     exception,
     stack_trace,
 
@@ -368,6 +367,7 @@ def QUERY_LOG_ARCHIVE_MV_V4_SQL():
 ALTER TABLE query_log_archive_mv MODIFY QUERY
 {select_sql}
     """.format(select_sql=MV_SELECT_SQL)
+
 
 # V5 - adding exception_name
 ADD_EXCEPTION_NAME_SQL = """
