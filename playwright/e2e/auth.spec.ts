@@ -108,7 +108,9 @@ test.describe('Auth', () => {
 
     test('Logout in another tab results in logout in the current tab too', async ({ page, context }) => {
         const secondPage = await context.newPage()
-        await secondPage.goto('/logout')
+        // Navigate to app and use logout button (Django 5 compliant)
+        await secondPage.goto('/')
+        await secondPage.locator('[data-attr=top-menu-item-logout]').click()
 
         // Now interact with the original page
         // forces a click so that the visibility of other elements doesn't interfere
