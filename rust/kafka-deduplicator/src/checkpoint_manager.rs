@@ -443,8 +443,17 @@ impl CheckpointManager {
     }
 
     async fn cleanup_local_checkpoints(config: &CheckpointConfig) -> Result<()> {
+        info!(
+            checkpoint_base_dir = config.local_checkpoint_dir,
+            "Checkpoint cleaner: starting local checkpoint cleanup scan..."
+        );
+
         let checkpoint_base_dir = PathBuf::from(config.local_checkpoint_dir.clone());
         if !checkpoint_base_dir.exists() {
+            warn!(
+                checkpoint_base_dir = config.local_checkpoint_dir,
+                "Checkpoint cleaner: local checkpoint directory does not exist, skipping cleanup"
+            );
             return Ok(());
         }
 
