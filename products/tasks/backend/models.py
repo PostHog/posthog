@@ -4,6 +4,8 @@ from typing import Optional
 from django.db import models
 from django.utils import timezone
 
+from products.tasks.backend.agents import get_agent_by_id
+
 
 class TaskWorkflow(models.Model):
     """Defines a configurable workflow with stages and transition rules."""
@@ -146,20 +148,10 @@ class TaskWorkflow(models.Model):
                 stage = WorkflowStage.objects.create(workflow=workflow, **stage_data)
                 stages[stage.key] = stage
 
-            # Create default agent (representing current code generation system)
-            agent = AgentDefinition.objects.create(
-                team=team,
-                name="Code Generation Agent",
-                agent_type=AgentDefinition.AgentType.CODE_GENERATION,
-                description="Automated code generation and GitHub integration",
-                is_active=True,
-            )
-
-            # Assign agents to appropriate stages (linear workflow)
-            stages["todo"].agent = None  # Manual stage
-            stages["in_progress"].agent = agent  # Agent processes this stage
-            stages["testing"].agent = agent  # Agent processes this stage
-            stages["done"].agent = None  # Final stage, no agent needed
+            # Assign agents to appropriate stages using agent IDs
+            stages["in_progress"].agent_id = "code_generation"  # Agent processes this stage
+            stages["testing"].agent_id = "code_generation"  # Agent processes this stage
+            # Other stages remain manual (no agent_id)
 
             # Update stages with agent assignments
             for stage in stages.values():
@@ -177,12 +169,8 @@ class WorkflowStage(models.Model):
     key = models.CharField(max_length=50, help_text="Unique key for this stage within the workflow")
     position = models.IntegerField(help_text="Order of this stage in the workflow")
     color = models.CharField(max_length=7, default="#6b7280", help_text="Hex color for UI display")
-    agent = models.ForeignKey(
-        "AgentDefinition",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        help_text="Agent responsible for processing tasks in this stage",
+    agent_id = models.CharField(
+        max_length=50, null=True, blank=True, help_text="ID of the agent responsible for this stage"
     )
     is_manual_only = models.BooleanField(
         default=True, help_text="Whether only manual transitions are allowed from this stage"
@@ -227,6 +215,13 @@ class WorkflowStage(models.Model):
         """Archive this stage instead of deleting it."""
         self.is_archived = True
         self.save(update_fields=["is_archived"])
+
+    @property
+    def agent(self):
+        """Get the agent definition for this stage."""
+        if hasattr(self, "agent_id") and self.agent_id:
+            return get_agent_by_id(self.agent_id)
+        return None
 
 
 class AgentDefinition(models.Model):

@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from posthog.models.integration import Integration
 
-from .models import AgentDefinition, Task, TaskWorkflow, WorkflowStage
+from .models import Task, TaskWorkflow, WorkflowStage
 
 
 class TaskSerializer(serializers.ModelSerializer):
@@ -113,7 +113,9 @@ class WorkflowStageSerializer(serializers.ModelSerializer):
     """Serializer for workflow stages"""
 
     task_count = serializers.SerializerMethodField()
-    agent_name = serializers.CharField(source="agent.name", read_only=True)
+    agent = serializers.SerializerMethodField()
+    agent_name = serializers.SerializerMethodField()
+    agent_id = serializers.CharField(required=False, allow_null=True, allow_blank=True)
 
     class Meta:
         model = WorkflowStage
@@ -124,6 +126,7 @@ class WorkflowStageSerializer(serializers.ModelSerializer):
             "key",
             "position",
             "color",
+            "agent_id",
             "agent",
             "agent_name",
             "is_manual_only",
@@ -131,11 +134,24 @@ class WorkflowStageSerializer(serializers.ModelSerializer):
             "fallback_stage",
             "task_count",
         ]
-        read_only_fields = ["id", "task_count", "agent_name"]
+        read_only_fields = ["id", "task_count", "agent", "agent_name"]
 
     def get_task_count(self, obj):
         """Get number of tasks currently in this stage"""
         return Task.objects.filter(current_stage=obj).count()
+
+    def get_agent(self, obj):
+        """Get the agent object for this stage"""
+        if hasattr(obj, "agent_id") and obj.agent_id:
+            from .agents import get_agent_dict_by_id
+
+            return get_agent_dict_by_id(obj.agent_id)
+        return None
+
+    def get_agent_name(self, obj):
+        """Get the agent name for this stage"""
+        agent = self.get_agent(obj)
+        return agent["name"] if agent else None
 
     def validate_workflow(self, value):
         """Validate that the workflow exists and belongs to the current team"""
@@ -143,18 +159,25 @@ class WorkflowStageSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Workflow must belong to the same team")
         return value
 
+    def validate_agent_id(self, value):
+        """Validate that the agent ID is valid"""
+        if value:
+            from .agents import get_agent_by_id
 
-class AgentDefinitionSerializer(serializers.ModelSerializer):
+            if not get_agent_by_id(value):
+                raise serializers.ValidationError(f"Invalid agent ID: {value}")
+        return value
+
+
+class AgentDefinitionSerializer(serializers.Serializer):
     """Serializer for agent definitions"""
 
-    class Meta:
-        model = AgentDefinition
-        fields = ["id", "name", "agent_type", "description", "config", "is_active", "created_at", "updated_at"]
-        read_only_fields = ["id", "created_at", "updated_at"]
-
-    def create(self, validated_data):
-        validated_data["team"] = self.context["team"]
-        return super().create(validated_data)
+    id = serializers.CharField()
+    name = serializers.CharField()
+    agent_type = serializers.CharField()
+    description = serializers.CharField()
+    config = serializers.DictField(default=dict)
+    is_active = serializers.BooleanField(default=True)
 
 
 class TaskWorkflowSerializer(serializers.ModelSerializer):

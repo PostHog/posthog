@@ -100,7 +100,8 @@ export interface WorkflowStage {
     is_manual_only: boolean
     is_archived: boolean
     task_count: number
-    agent?: string
+    agent_id?: string
+    agent?: AgentDefinition | null
     agent_name?: string
 }
 
