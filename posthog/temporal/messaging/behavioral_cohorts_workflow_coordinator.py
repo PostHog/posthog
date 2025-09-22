@@ -144,7 +144,12 @@ class BehavioralCohortsCoordinatorWorkflow(PostHogWorkflow):
 
         workflow_logger.info(f"Coordinating {total_conditions} conditions across {inputs.parallelism} child workflows")
 
-        # Step 2: Calculate ranges for each child workflow
+        # Step 2: Calculate ranges for each child workflow (potential perf improvement later)
+        #  Each child workflow processes a fixed range regardless of actual data
+        #  distribution. If conditions are sparse in certain ranges, some child
+        # workflows may finish quickly while others take much longer, leading to
+        # inefficient resource utilization.
+
         conditions_per_workflow = math.ceil(total_conditions / inputs.parallelism)
         conditions_per_workflow = min(conditions_per_workflow, inputs.conditions_per_workflow)
 
