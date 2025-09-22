@@ -403,4 +403,5 @@ class BehavioralCohortsWorkflow(PostHogWorkflow):
             "total_memberships": len(all_memberships),
             "conditions_processed": total_conditions_processed,
             "batches_processed": len(batches),
+            "memberships": all_memberships[:5],  # Return first 5 for display
         }
