@@ -3,36 +3,13 @@ import os
 from django.conf import settings
 from django.http import JsonResponse
 
-from rest_framework import serializers, viewsets
+from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models import MessageRecipientPreference
 from posthog.models.utils import uuid7
 from posthog.storage import object_storage
-
-
-class MessagePreferencesSerializer(serializers.ModelSerializer):
-    identifier = serializers.CharField()
-    updated_at = serializers.DateTimeField()
-    preferences = serializers.JSONField()
-
-    class Meta:
-        model = MessageRecipientPreference
-        fields = [
-            "id",
-            "identifier",
-            "updated_at",
-            "preferences",
-        ]
-        read_only_fields = [
-            "id",
-            "identifier",
-            "created_at",
-            "updated_at",
-            "created_by",
-        ]
 
 
 class MessageAttachmentsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
