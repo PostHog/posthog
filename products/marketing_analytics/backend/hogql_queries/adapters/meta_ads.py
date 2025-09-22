@@ -69,6 +69,9 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
         # Check if conversions column exists in the table schema. The field exists in Meta Ads but
         # if it's not used, it won't be in the response, therefore, won't be saved in the table and the column
         # won't be created in the table.
+        # Check if conversions column exists in the table schema. The field exists in Meta Ads but
+        # if it's not used, it won't be in the response, therefore, won't be saved in the table and the column
+        # won't be created in the table.
         try:
             # Try to check if conversions column exists
             columns = getattr(self.config.stats_table, "columns", None)
@@ -78,10 +81,9 @@ class MetaAdsAdapter(MarketingSourceAdapter[MetaAdsConfig]):
                     args=[ast.Call(name="toFloat", args=[ast.Field(chain=[stats_table_name, "conversions"])])],
                 )
                 return ast.Call(name="toFloat", args=[sum])
-        except (TypeError, AttributeError):
-            # If columns is not iterable or doesn't exist, fall back to 0
+        except (TypeError, AttributeError, KeyError):
+            # If columns is not iterable, doesn't exist, or has unexpected structure, fall back to 0
             pass
-
         # Column doesn't exist or can't be checked, return 0
         return ast.Constant(value=0)
 
