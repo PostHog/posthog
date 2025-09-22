@@ -114,8 +114,7 @@ class WorkflowStageSerializer(serializers.ModelSerializer):
 
     task_count = serializers.SerializerMethodField()
     agent = serializers.SerializerMethodField()
-    agent_name = serializers.SerializerMethodField()
-    agent_id = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    agent_name = serializers.CharField(required=False, allow_null=True, allow_blank=True)
 
     class Meta:
         model = WorkflowStage
@@ -126,7 +125,6 @@ class WorkflowStageSerializer(serializers.ModelSerializer):
             "key",
             "position",
             "color",
-            "agent_id",
             "agent",
             "agent_name",
             "is_manual_only",
@@ -134,7 +132,7 @@ class WorkflowStageSerializer(serializers.ModelSerializer):
             "fallback_stage",
             "task_count",
         ]
-        read_only_fields = ["id", "task_count", "agent", "agent_name"]
+        read_only_fields = ["id", "task_count", "agent"]
 
     def get_task_count(self, obj):
         """Get number of tasks currently in this stage"""
@@ -142,16 +140,11 @@ class WorkflowStageSerializer(serializers.ModelSerializer):
 
     def get_agent(self, obj):
         """Get the agent object for this stage"""
-        if hasattr(obj, "agent_id") and obj.agent_id:
+        if hasattr(obj, "agent_name") and obj.agent_name:
             from .agents import get_agent_dict_by_id
 
-            return get_agent_dict_by_id(obj.agent_id)
+            return get_agent_dict_by_id(obj.agent_name)
         return None
-
-    def get_agent_name(self, obj):
-        """Get the agent name for this stage"""
-        agent = self.get_agent(obj)
-        return agent["name"] if agent else None
 
     def validate_workflow(self, value):
         """Validate that the workflow exists and belongs to the current team"""
@@ -159,13 +152,13 @@ class WorkflowStageSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Workflow must belong to the same team")
         return value
 
-    def validate_agent_id(self, value):
-        """Validate that the agent ID is valid"""
+    def validate_agent_name(self, value):
+        """Validate that the agent name is valid"""
         if value:
             from .agents import get_agent_by_id
 
             if not get_agent_by_id(value):
-                raise serializers.ValidationError(f"Invalid agent ID: {value}")
+                raise serializers.ValidationError(f"Invalid agent name: {value}")
         return value
 
 

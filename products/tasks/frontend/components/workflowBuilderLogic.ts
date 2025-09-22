@@ -124,7 +124,7 @@ export const workflowBuilderLogic = kea<workflowBuilderLogicType>([
                         is_manual_only: false,
                         is_archived: false,
                         task_count: 0,
-                        agent_id: '',
+                        agent_name: '',
                     }
 
                     // Insert before Complete and update positions
@@ -233,8 +233,8 @@ export const workflowBuilderLogic = kea<workflowBuilderLogicType>([
                         key: stage.key,
                         position: stage.position,
                         color: stage.color,
-                        is_manual_only: stage.name.toLowerCase() === 'complete' ? true : !stage.agent_id, // Complete stage is always manual
-                        agent_id: stage.name.toLowerCase() === 'complete' ? null : stage.agent_id || null,
+                        is_manual_only: stage.name.toLowerCase() === 'complete' ? true : !stage.agent_name, // Complete stage is always manual
+                        agent_name: stage.name.toLowerCase() === 'complete' ? null : stage.agent_name || null,
                     }
 
                     let savedStage: WorkflowStage
