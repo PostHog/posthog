@@ -29,6 +29,7 @@ const getCategoryDisplayName = (category: string): string => {
         'create-new': 'Create new',
         apps: 'Apps',
         'data-management': 'Data management',
+        'search-results': 'Quick actions',
     }
     return displayNames[category] || category
 }
