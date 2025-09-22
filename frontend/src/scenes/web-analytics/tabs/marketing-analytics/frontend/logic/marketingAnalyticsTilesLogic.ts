@@ -78,7 +78,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                             colSpanClassName: 'md:col-span-2',
                             orderWhenLargeClassName: 'xxl:order-1',
                         },
-                        title: `Marketing ${tileColumnSelection}`,
+                        title: `Marketing ${tileColumnSelection.split('_').join(' ')}`,
                         query: {
                             kind: NodeKind.InsightVizNode,
                             embedded: true,
@@ -116,7 +116,7 @@ export const marketingAnalyticsTilesLogic = kea<marketingAnalyticsTilesLogicType
                         canOpenInsight: true,
                         canOpenModal: false,
                         docs: {
-                            title: `Marketing ${tileColumnSelection}`,
+                            title: `Marketing ${tileColumnSelection.split('_').join(' ')}`,
                             description:
                                 createMarketingDataWarehouseNodes.length > 0
                                     ? `Track ${tileColumnSelection} from your configured marketing data sources.`
