@@ -439,16 +439,6 @@ HOGQL_CLICKHOUSE_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         )
         for name in ["toDate", "to_date"]
     },
-    "toDecimal": HogQLFunctionMeta("toDecimal64OrNull", 2, 2),
-    "toDate": HogQLFunctionMeta(
-        "toDateOrNull",
-        1,
-        1,
-        overloads=[((ast.DateTimeType, ast.DateType), "toDate")],
-        signatures=[
-            ((ast.DateTimeType(),), ast.DateType()),
-        ],
-    ),
     "toDateTime": HogQLFunctionMeta(
         "parseDateTime64BestEffortOrNull",
         1,
@@ -1916,7 +1906,6 @@ HOGQL_AGGREGATIONS: dict[str, HogQLFunctionMeta] = {
     "windowFunnel": HogQLFunctionMeta("windowFunnel", 1, 99, aggregate=True),
     "md5": HogQLFunctionMeta("hex(MD5({}))", 1, 1, aggregate=True, using_placeholder_arguments=True),
 }
-
 HOGQL_POSTHOG_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "matchesAction": HogQLFunctionMeta("matchesAction", 1, 1),
     "sparkline": HogQLFunctionMeta("sparkline", 1, 1),
