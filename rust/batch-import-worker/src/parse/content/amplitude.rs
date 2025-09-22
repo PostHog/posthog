@@ -13,6 +13,14 @@ use crate::cache::GroupCache;
 
 mod identify;
 
+/// Represents a group that has changed properties
+#[derive(Debug, Clone)]
+pub struct ChangedGroup {
+    pub group_type: String,
+    pub group_key: String,
+    pub group_properties: HashMap<String, Value>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AmplitudeData {
     pub path: Option<String>,
@@ -102,7 +110,7 @@ fn detect_group_changes(
     groups: &HashMap<String, Vec<String>>,
     group_properties: &HashMap<String, HashMap<String, HashMap<String, Value>>>,
     group_cache: &dyn GroupCache,
-) -> Result<Vec<(String, String, HashMap<String, Value>)>, Error> {
+) -> Result<Vec<ChangedGroup>, Error> {
     let mut changed_groups = Vec::new();
 
     // Iterate through each group type in the groups field
@@ -121,7 +129,11 @@ fn detect_group_changes(
                 group_cache.has_group_changed(team_id, group_type, group_key, &properties)?;
 
             if has_changed {
-                changed_groups.push((group_type.clone(), group_key.clone(), properties.clone()));
+                changed_groups.push(ChangedGroup {
+                    group_type: group_type.clone(),
+                    group_key: group_key.clone(),
+                    group_properties: properties.clone(),
+                });
 
                 // Mark as seen with current properties
                 group_cache.mark_group_seen(team_id, group_type, group_key, &properties)?;
@@ -508,14 +520,14 @@ impl AmplitudeEvent {
                     context.group_cache.as_ref(),
                 ) {
                     Ok(changed_groups) => {
-                        for (group_type, group_key, group_properties) in changed_groups {
+                        for changed_group in changed_groups {
                             match create_group_identify_event(
                                 team_id,
                                 token.clone(),
                                 distinct_id.clone(),
-                                group_type,
-                                group_key,
-                                group_properties,
+                                changed_group.group_type,
+                                changed_group.group_key,
+                                changed_group.group_properties,
                             ) {
                                 Ok(group_event) => {
                                     events.push(group_event);
