@@ -1044,7 +1044,7 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                 if (searchParams.open_draft || (hashParams.draft && values.queryInput === null)) {
                     const draftId = searchParams.open_draft || hashParams.draft
                     const draft = values.drafts.find((draft) => {
-                        return (draft.id = draftId)
+                        return draft.id === draftId
                     })
 
                     if (!draft) {
