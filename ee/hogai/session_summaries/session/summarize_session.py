@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import structlog
-import yaml
 
 from posthog.session_recordings.models.metadata import RecordingMetadata
 from posthog.sync import database_sync_to_async
@@ -14,7 +13,6 @@ from ee.hogai.session_summaries.session.input_data import (
     get_session_events,
     get_session_metadata,
 )
-from ee.hogai.session_summaries.session.output_data import EnrichedKeyActionSerializer, SessionSummarySerializer
 from ee.hogai.session_summaries.session.prompt_data import SessionSummaryPromptData
 from ee.hogai.session_summaries.utils import load_custom_template, shorten_url
 from ee.models.session_summaries import ExtraSummaryContext
@@ -145,39 +143,6 @@ def prepare_prompt_data(
         url_mapping_reversed=url_mapping_reversed,
         window_mapping_reversed=window_mapping_reversed,
     )
-
-
-def generate_video_description_prompt(event: EnrichedKeyActionSerializer) -> str:
-    """Generate a prompt for validating a video"""
-    template_dir = Path(__file__).parent / "templates" / "video-validation"
-    prompt = load_custom_template(
-        template_dir,
-        "description-prompt.djt",
-        {"EVENT_DESCRIPTION": event.data["description"]},
-    )
-    return prompt
-
-
-# TODO: Provide only an intermediate version of summary.
-# TODO: Use event ids (not event uuids) during description.
-# TODO: Or maybe use just path and fuck it? The id doesn't go into the description prompt anyway
-def generate_video_validation_prompt(
-    summary: SessionSummarySerializer,
-    description_results: dict[str, str],
-    fields_to_update: dict[str, dict[str, str | None]],
-) -> str:
-    """Generate a prompt for validating a video"""
-    template_dir = Path(__file__).parent / "templates" / "video-validation"
-    prompt = load_custom_template(
-        template_dir,
-        "validation-prompt.djt",
-        {
-            "ORIGINAL_SUMMARY": json.dumps(summary.data),
-            "VALIDATION_RESULTS": json.dumps(description_results),
-            "FIELDS_TO_UPDATE": yaml.dump(fields_to_update, allow_unicode=True, sort_keys=False),
-        },
-    )
-    return prompt
 
 
 def generate_single_session_summary_prompt(
