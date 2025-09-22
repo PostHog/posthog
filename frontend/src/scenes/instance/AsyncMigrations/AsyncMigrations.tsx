@@ -1,9 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { Link } from '@posthog/lemon-ui'
+import { IconDatabase } from '@posthog/icons'
 
-import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
@@ -18,6 +17,9 @@ import { humanFriendlyDetailedTime } from 'lib/utils'
 import { AsyncMigrationParametersModal } from 'scenes/instance/AsyncMigrations/AsyncMigrationParametersModal'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
+
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { AsyncMigrationDetails } from './AsyncMigrationDetails'
 import { SettingUpdateField } from './SettingUpdateField'
@@ -258,22 +260,17 @@ export function AsyncMigrations(): JSX.Element {
     }
 
     return (
-        <div>
+        <SceneContent>
             {user?.is_staff ? (
                 <>
-                    <PageHeader
-                        caption={
-                            <>
-                                <p>Manage async migrations in your instance.</p>
-                                <p>
-                                    Read about async migrations on our{' '}
-                                    <Link to="https://posthog.com/docs/self-host/configure/async-migrations/overview">
-                                        dedicated docs page
-                                    </Link>
-                                    .
-                                </p>
-                            </>
-                        }
+                    <SceneTitleSection
+                        name="Async Migrations"
+                        description="Manage async migrations in your instance. <br /> <br /> Read about async migrations on our [dedicated docs page](https://posthog.com/docs/self-host/configure/async-migrations/overview)."
+                        markdown
+                        resourceType={{
+                            type: 'async_migrations',
+                            forceIcon: <IconDatabase />,
+                        }}
                     />
 
                     <LemonTabs activeKey={activeTab} onChange={setActiveTab} tabs={tabs} />
@@ -315,21 +312,15 @@ export function AsyncMigrations(): JSX.Element {
                     ) : null}
                 </>
             ) : (
-                <PageHeader
-                    caption={
-                        <>
-                            <p>
-                                Only users with staff access can manage async migrations. Please contact your instance
-                                admin.
-                            </p>
-                            <p>
-                                If you're an admin and don't have access, set <code>is_staff=true</code> for your user
-                                on the PostgreSQL <code>posthog_user</code> table.
-                            </p>
-                        </>
-                    }
+                <SceneTitleSection
+                    name="Async Migrations"
+                    description="Only users with staff access can manage async migrations. Please contact your instance admin. If you're an admin and don't have access, set <code>is_staff=true</code> for your user on the PostgreSQL <code>posthog_user</code> table."
+                    resourceType={{
+                        type: 'async_migrations',
+                        forceIcon: <IconDatabase />,
+                    }}
                 />
             )}
-        </div>
+        </SceneContent>
     )
 }
