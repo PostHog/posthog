@@ -498,6 +498,70 @@ Jane Smith,{person2.uuid},jane@example.com
         self.assertIn(str(person1.uuid), person_uuids_in_cohort)
         self.assertIn(str(person2.uuid), person_uuids_in_cohort)
 
+    def test_static_cohort_with_manually_added_person_ids(self):
+        person1 = Person.objects.create(team=self.team, distinct_ids=["user123"])
+        person2 = Person.objects.create(team=self.team, distinct_ids=["user456"])
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {
+                "name": f"test_upload_with_person_ids",
+                "_create_static_person_ids": [person1.uuid, person2.uuid],
+                "is_static": True,
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort = Cohort.objects.get(pk=response.json()["id"])
+
+        # Verify the persons were actually added to the cohort
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        self.assertEqual(people_in_cohort.count(), 2)
+
+        # Verify specific persons are in the cohort
+        person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
+        self.assertIn(str(person1.uuid), person_uuids_in_cohort)
+        self.assertIn(str(person2.uuid), person_uuids_in_cohort)
+
+    def test_static_cohort_csv_and_manually_added(self):
+        """Test CSV upload with person_id column using async task"""
+        person1 = Person.objects.create(team=self.team, distinct_ids=["user123"])
+        person2 = Person.objects.create(team=self.team, distinct_ids=["user456"])
+
+        csv = SimpleUploadedFile(
+            f"{person1}.csv",
+            str.encode(
+                f"""name,person_id,email
+John Doe,{person1.uuid},john@example.com
+"""
+            ),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {
+                "name": f"test_csv_and_manual",
+                "csv": csv,
+                "_create_static_person_ids": [person2.uuid],
+                "is_static": True,
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort = Cohort.objects.get(pk=response.json()["id"])
+
+        # Verify the persons were actually added to the cohort
+        people_in_cohort = Person.objects.filter(cohort__id=cohort.pk)
+        self.assertEqual(people_in_cohort.count(), 2)
+
+        # Verify specific persons are in the cohort
+        person_uuids_in_cohort = {str(p.uuid) for p in people_in_cohort}
+        self.assertIn(str(person1.uuid), person_uuids_in_cohort)
+        self.assertIn(str(person2.uuid), person_uuids_in_cohort)
+
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload_person_id_preference_over_distinct_id(self, patch_calculate_cohort_from_list):
         """Test that person_id is preferred over distinct_id when both columns are present"""
