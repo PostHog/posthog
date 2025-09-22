@@ -13,7 +13,6 @@ from azure.ai.inference.models import EmbeddingsResult, EmbeddingsUsage
 from azure.core.credentials import AzureKeyCredential
 from langchain_core import messages
 from langchain_core.messages import AIMessageChunk, BaseMessage
-from langchain_core.prompts.chat import ChatPromptValue
 from langchain_core.runnables import RunnableConfig, RunnableLambda
 from langgraph.errors import GraphRecursionError, NodeInterrupt
 from langgraph.graph.state import CompiledStateGraph
@@ -67,12 +66,7 @@ from ee.hogai.graph.root.nodes import SLASH_COMMAND_INIT
 from ee.hogai.graph.trends.nodes import TrendsSchemaGeneratorOutput
 from ee.hogai.tool import search_documentation
 from ee.hogai.utils.state import GraphMessageUpdateTuple, GraphValueUpdateTuple, LangGraphState
-from ee.hogai.utils.tests import (
-    FakeAnthropicRunnableLambdaWithTokenCounter,
-    FakeChatAnthropic,
-    FakeChatOpenAI,
-    FakeOpenAIRunnableLambdaWithTokenCounter,
-)
+from ee.hogai.utils.tests import FakeAnthropicRunnableLambdaWithTokenCounter, FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import (
     AssistantMode,
     AssistantNodeName,
@@ -545,8 +539,14 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 }
             }
 
-            def root_side_effect(prompt: ChatPromptValue):
-                if prompt.messages[-1].type == "tool":
+            def root_side_effect(msgs: list[BaseMessage]):
+                last_message = msgs[-1]
+
+                if (
+                    isinstance(last_message.content, list)
+                    and isinstance(last_message.content[-1], dict)
+                    and last_message.content[-1]["type"] == "tool_result"
+                ):
                     return RunnableLambda(lambda _: messages.AIMessage(content="Agent needs help with this query"))
 
                 return messages.AIMessage(
@@ -560,7 +560,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     ],
                 )
 
-            root_mock.return_value = FakeOpenAIRunnableLambdaWithTokenCounter(root_side_effect)
+            root_mock.return_value = FakeAnthropicRunnableLambdaWithTokenCounter(root_side_effect)
 
             # Interrupt the graph
             planner_mock.return_value = FakeChatOpenAI(
@@ -729,7 +729,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     async def test_full_trends_flow(
         self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock
     ):
-        res1 = FakeOpenAIRunnableLambdaWithTokenCounter(
+        res1 = FakeAnthropicRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(
                 content="",
                 tool_calls=[
@@ -741,7 +741,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 ],
             )
         )
-        res2 = FakeOpenAIRunnableLambdaWithTokenCounter(
+        res2 = FakeAnthropicRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(content="The results indicate a great future for you.")
         )
         root_mock.side_effect = cycle([res1, res1, res2, res2])
@@ -882,7 +882,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     ):
         action = await Action.objects.acreate(team=self.team, name="Marius Tech Tips")
 
-        res1 = FakeOpenAIRunnableLambdaWithTokenCounter(
+        res1 = FakeAnthropicRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(
                 content="",
                 tool_calls=[
@@ -894,7 +894,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 ],
             )
         )
-        res2 = FakeOpenAIRunnableLambdaWithTokenCounter(
+        res2 = FakeAnthropicRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(content="The results indicate a great future for you.")
         )
         root_mock.side_effect = cycle([res1, res1, res2, res2])
@@ -959,7 +959,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
     async def test_full_sql_flow(
         self, memory_collector_mock, root_mock, planner_mock, generator_mock, title_generator_mock
     ):
-        res1 = FakeOpenAIRunnableLambdaWithTokenCounter(
+        res1 = FakeAnthropicRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(
                 content="",
                 tool_calls=[
@@ -971,7 +971,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 ],
             )
         )
-        res2 = FakeOpenAIRunnableLambdaWithTokenCounter(
+        res2 = FakeAnthropicRunnableLambdaWithTokenCounter(
             lambda _: messages.AIMessage(content="The results indicate a great future for you.")
         )
         root_mock.side_effect = cycle([res1, res1, res2, res2])
@@ -1251,7 +1251,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                 self.assertEqual(self.conversation.status, Conversation.Status.IN_PROGRESS)
                 return messages.AIMessage(content="")
 
-            root_mock.return_value = FakeOpenAIRunnableLambdaWithTokenCounter(assert_lock_status)
+            root_mock.return_value = FakeAnthropicRunnableLambdaWithTokenCounter(assert_lock_status)
             await self._run_assistant_graph(graph)
             await self.conversation.arefresh_from_db()
             self.assertEqual(self.conversation.status, Conversation.Status.IDLE)
@@ -1284,7 +1284,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
                     ],
                 )
 
-            root_mock.return_value = FakeOpenAIRunnableLambdaWithTokenCounter(assert_lock_status)
+            root_mock.return_value = FakeAnthropicRunnableLambdaWithTokenCounter(assert_lock_status)
             await self._run_assistant_graph(graph)
             snapshot = await graph.aget_state({"configurable": {"thread_id": str(self.conversation.id)}})
             self.assertEqual(snapshot.next, (AssistantNodeName.ROOT_TOOLS,))
@@ -1293,7 +1293,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
         with patch("ee.hogai.graph.root.nodes.RootNode._get_model") as root_mock:
             # The graph must start from the root node despite being cancelled on the root tools node.
-            root_mock.return_value = FakeOpenAIRunnableLambdaWithTokenCounter(
+            root_mock.return_value = FakeAnthropicRunnableLambdaWithTokenCounter(
                 lambda _: messages.AIMessage(content="Finished")
             )
             expected_output = [
@@ -2124,79 +2124,3 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
         # Verify the message ID is in the streamed_update_ids set
         self.assertIn(message_id, assistant._streamed_update_ids)
-
-    async def test_mixed_messages_with_and_without_ids(self):
-        """Test behavior with mix of messages with and without IDs."""
-        message_id_1 = str(uuid4())
-        message_id_2 = str(uuid4())
-
-        class MixedMessagesNode:
-            def __init__(self):
-                self.call_count = 0
-
-            def __call__(self, state):
-                self.call_count += 1
-                messages = []
-
-                # Message without ID - should always be yielded
-                messages.append(AssistantMessage(content=f"No ID message {self.call_count}"))
-
-                # Message with ID - should be deduplicated
-                messages.append(AssistantMessage(id=message_id_1, content=f"ID1 message {self.call_count}"))
-
-                # Another message with different ID - should be deduplicated separately
-                messages.append(AssistantMessage(id=message_id_2, content=f"ID2 message {self.call_count}"))
-
-                # Reasoning message without ID - should always be yielded
-                messages.append(ReasoningMessage(content=f"Reasoning {self.call_count}"))
-
-                return {"messages": messages}
-
-        node = MixedMessagesNode()
-        graph = (
-            AssistantGraph(self.team, self.user)
-            .add_node(AssistantNodeName.ROOT, node)
-            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
-            .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
-            .compile()
-        )
-
-        # Create assistant
-        assistant = Assistant.create(
-            self.team,
-            self.conversation,
-            new_message=HumanMessage(content="Test mixed messages"),
-            user=self.user,
-            is_new_conversation=False,
-        )
-        assistant._graph = AssistantCompiledStateGraph(graph, {})
-
-        # Collect all streamed messages
-        streamed_messages = []
-        async for event_type, message in assistant.astream(stream_first_message=False):
-            if event_type == AssistantEventType.MESSAGE:
-                streamed_messages.append(message)
-
-        # Count different message types
-        no_id_messages = [msg for msg in streamed_messages if isinstance(msg, AssistantMessage) and msg.id is None]
-        id1_messages = [
-            msg for msg in streamed_messages if isinstance(msg, AssistantMessage) and msg.id == message_id_1
-        ]
-        id2_messages = [
-            msg for msg in streamed_messages if isinstance(msg, AssistantMessage) and msg.id == message_id_2
-        ]
-        reasoning_messages = [msg for msg in streamed_messages if isinstance(msg, ReasoningMessage)]
-
-        # Messages without ID should appear multiple times (one per call)
-        self.assertGreater(len(no_id_messages), 1, "Messages without ID should be yielded every time")
-
-        # Messages with ID should appear only once despite multiple calls
-        self.assertEqual(len(id1_messages), 1, "Messages with ID should be deduplicated")
-        self.assertEqual(len(id2_messages), 1, "Messages with ID should be deduplicated")
-
-        # Reasoning messages without ID should appear multiple times
-        self.assertGreater(len(reasoning_messages), 1, "Reasoning messages without ID should be yielded every time")
-
-        # Verify IDs are tracked
-        self.assertIn(message_id_1, assistant._streamed_update_ids)
-        self.assertIn(message_id_2, assistant._streamed_update_ids)

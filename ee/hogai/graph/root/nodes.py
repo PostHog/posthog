@@ -56,12 +56,14 @@ from ee.hogai.utils.anthropic import (
 from ee.hogai.utils.helpers import find_last_ui_context, find_start_message, find_start_message_idx
 from ee.hogai.utils.types import (
     AssistantMessageUnion,
+    AssistantNodeName,
     AssistantState,
     BaseState,
     BaseStateWithMessages,
+    InsightQuery,
     PartialAssistantState,
+    ReplaceMessages,
 )
-from ee.hogai.utils.types.base import AssistantNodeName, BaseState, BaseStateWithMessages, InsightQuery, ReplaceMessages
 from ee.hogai.utils.types.composed import MaxNodeName
 
 from .prompts import (
@@ -621,9 +623,7 @@ class RootNode(RootNodeUIContextMixin):
 
         for message in conversation_window:
             if isinstance(message, HumanMessage):
-                history.append(
-                    LangchainHumanMessage(content=[{"type": "text", "text": message.content}], id=message.id)
-                )
+                history.append(LangchainHumanMessage(content=[{"type": "text", "text": message.content}]))
             elif isinstance(message, AssistantMessage):
                 content = get_thinking_from_assistant_message(message)
                 if message.content:
@@ -639,7 +639,6 @@ class RootNode(RootNodeUIContextMixin):
                         LangchainAIMessage(
                             content=cast(list[str | dict[str, Any]], content),
                             tool_calls=tool_calls,
-                            id=message.id,
                         )
                     )
 
@@ -652,14 +651,12 @@ class RootNode(RootNodeUIContextMixin):
                             content=[
                                 {"type": "tool_result", "tool_use_id": tool_call_id, "content": result_message.content}
                             ],
-                            id=result_message.id,
                         ),
                     )
             elif isinstance(message, FailureMessage):
                 history.append(
                     LangchainHumanMessage(
                         content=[{"type": "text", "text": message.content or "An unknown failure occurred."}],
-                        id=message.id,
                     )
                 )
 
@@ -760,6 +757,7 @@ class RootNodeTools(AssistantNode):
             return None
         if not input.messages:
             return None
+
         assert isinstance(input.messages[-1], AssistantMessage)
         tool_calls = input.messages[-1].tool_calls or []
         assert len(tool_calls) <= 1

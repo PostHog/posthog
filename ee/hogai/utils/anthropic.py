@@ -7,7 +7,7 @@ from posthog.schema import AssistantMessage, AssistantMessageMetadata, Assistant
 
 
 def normalize_ai_anthropic_message(message: AIMessage) -> AssistantMessage:
-    message_id = message.id or str(uuid4())
+    message_id = str(uuid4())
     tool_calls = [
         AssistantToolCall(id=tool_call["id"], name=tool_call["name"], args=tool_call["args"])
         for tool_call in message.tool_calls
