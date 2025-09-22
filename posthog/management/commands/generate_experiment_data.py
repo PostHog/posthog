@@ -83,7 +83,7 @@ class ExperimentConfig(BaseModel):
 def get_default_funnel_experiment_config() -> ExperimentConfig:
     return ExperimentConfig(
         number_of_users=2000,
-        start_timestamp=datetime.now() - timedelta(days=14),
+        start_timestamp=datetime.now() - timedelta(days=7),
         end_timestamp=datetime.now(),
         variants={
             "control": VariantConfig(
@@ -107,7 +107,7 @@ def get_default_funnel_experiment_config() -> ExperimentConfig:
 def get_default_trend_experiment_config() -> ExperimentConfig:
     return ExperimentConfig(
         number_of_users=2000,
-        start_timestamp=datetime.now() - timedelta(days=14),
+        start_timestamp=datetime.now() - timedelta(days=7),
         end_timestamp=datetime.now(),
         variants={
             "control": VariantConfig(
@@ -125,7 +125,7 @@ def get_default_trend_experiment_config() -> ExperimentConfig:
 def get_default_revenue_experiment_config() -> ExperimentConfig:
     return ExperimentConfig(
         number_of_users=2000,
-        start_timestamp=datetime.now() - timedelta(days=14),
+        start_timestamp=datetime.now() - timedelta(days=7),
         end_timestamp=datetime.now(),
         variants={
             "control": VariantConfig(
