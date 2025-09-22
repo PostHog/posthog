@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconCopy, IconInfo } from '@posthog/icons'
+import { IconChevronDown, IconCopy, IconInfo, IconUser } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonMenu, LemonSelect, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -30,6 +30,9 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 import { ActivityScope, PersonType, PersonsTabType, ProductKey, PropertyDefinitionType } from '~/types'
 
@@ -135,9 +138,8 @@ export function PersonScene(): JSX.Element | null {
     const settingLevel = featureFlags[FEATURE_FLAGS.ENVIRONMENTS] ? 'environment' : 'project'
 
     return (
-        <>
+        <SceneContent>
             <PageHeader
-                caption={<PersonCaption person={person} />}
                 notebookProps={
                     url
                         ? {
@@ -179,6 +181,23 @@ export function PersonScene(): JSX.Element | null {
                 }
             />
 
+            <SceneTitleSection
+                name="Person"
+                resourceType={{
+                    type: 'person',
+                    forceIcon: <IconUser />,
+                }}
+                forceBackTo={{
+                    name: 'People',
+                    path: urls.persons(),
+                    key: 'people',
+                }}
+            />
+            <SceneDivider />
+
+            <PersonCaption person={person} />
+
+            <SceneDivider />
             <PersonDeleteModal />
 
             <LemonTabs
@@ -347,7 +366,7 @@ export function PersonScene(): JSX.Element | null {
             />
 
             {splitMergeModalShown && person && <MergeSplitPerson person={person} />}
-        </>
+        </SceneContent>
     )
 }
 

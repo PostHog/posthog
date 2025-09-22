@@ -4,7 +4,7 @@ import MaxTool from 'scenes/max/MaxTool'
 
 import { ErrorTrackingIssueImpactToolOutput } from '~/queries/schema/schema-general'
 
-import { errorTrackingSceneLogic } from '../errorTrackingSceneLogic'
+import { errorTrackingSceneLogic } from '../scenes/ErrorTrackingScene/errorTrackingSceneLogic'
 import { errorTrackingImpactListLogic } from '../scenes/ErrorTrackingScene/tabs/impact/errorTrackingImpactListLogic'
 
 export function ErrorTrackingIssueImpactTool(): JSX.Element {

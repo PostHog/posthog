@@ -1,19 +1,16 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { IconGear, IconLaptop, IconPhone, IconRevert, IconTabletLandscape, IconTabletPortrait } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonInput,
-    LemonInputSelect,
-    LemonSegmentedButton,
-    LemonSkeleton,
-} from '@posthog/lemon-ui'
+import { IconDownload, IconGear, IconRevert } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonInput, LemonInputSelect, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType, appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 import { DetectiveHog, FilmCameraHog } from 'lib/components/hedgehogs'
+import { dayjs } from 'lib/dayjs'
+import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { FixedReplayHeatmapBrowser } from 'scenes/heatmaps/FixedReplayHeatmapBrowser'
 import { teamLogic } from 'scenes/teamLogic'
@@ -21,10 +18,64 @@ import { teamLogic } from 'scenes/teamLogic'
 import { sidePanelSettingsLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSettingsLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
+import { FilterPanel } from './FilterPanel'
 import { IframeHeatmapBrowser } from './IframeHeatmapBrowser'
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 
-function UrlSearchHeader(): JSX.Element {
+function ExportButton({
+    iframeRef,
+}: {
+    iframeRef?: React.MutableRefObject<HTMLIFrameElement | null>
+}): JSX.Element | null {
+    const logic = heatmapsBrowserLogic()
+
+    const { browserUrl } = useValues(logic)
+    const { startHeatmapExport } = useActions(exportsLogic)
+
+    const { heatmapFilters, heatmapColorPalette, heatmapFixedPositionMode, commonFilters } = useValues(
+        heatmapDataLogic({ context: 'in-app' })
+    )
+
+    const { width: iframeWidth, height: iframeHeight } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
+
+    const handleExport = (): void => {
+        if (browserUrl) {
+            startHeatmapExport({
+                heatmap_url: browserUrl,
+                width: iframeWidth,
+                height: iframeHeight,
+                heatmap_color_palette: heatmapColorPalette,
+                heatmap_fixed_position_mode: heatmapFixedPositionMode,
+                common_filters: commonFilters,
+                heatmap_filters: heatmapFilters,
+                filename: `heatmap-${new URL(browserUrl).hostname}/${new URL(browserUrl).pathname.slice(1, 11)}-${dayjs().format('YYYY-MM-DD-HH-mm')}`,
+            })
+        }
+    }
+
+    return (
+        <div className="flex justify-between items-center mt-2 md:mt-0">
+            <LemonButton
+                size="small"
+                type="secondary"
+                onClick={handleExport}
+                icon={<IconDownload />}
+                tooltip="Export heatmap as PNG"
+                data-attr="export-heatmap"
+                disabledReason={!browserUrl ? 'We can export only the URL with heatmaps' : undefined}
+            >
+                <div className="flex w-full gap-x-2 justify-between items-center">
+                    Export{' '}
+                    <LemonTag type="warning" size="small">
+                        BETA
+                    </LemonTag>
+                </div>
+            </LemonButton>
+        </div>
+    )
+}
+
+function UrlSearchHeader({ iframeRef }: { iframeRef?: React.MutableRefObject<HTMLIFrameElement | null> }): JSX.Element {
     const logic = heatmapsBrowserLogic()
 
     const { browserUrlSearchOptions, browserUrl, isBrowserUrlValid, replayIframeData, hasValidReplayIframeData } =
@@ -34,13 +85,19 @@ function UrlSearchHeader(): JSX.Element {
     const placeholderUrl = browserUrlSearchOptions?.[0] ?? 'https://your-website.com/pricing'
 
     return (
-        <div className="bg-surface-primary p-2 border-b flex items-center gap-2">
-            <span className="flex-1">
+        <div className="flex-none md:flex justify-between items-center gap-2 w-full">
+            <div className="flex-1 min-w-0">
                 {hasValidReplayIframeData ? (
-                    <LemonInput value={replayIframeData?.url} onChange={(s) => setReplayIframeDataURL(s)} />
+                    <LemonInput
+                        value={replayIframeData?.url}
+                        onChange={(s) => setReplayIframeDataURL(s)}
+                        className="truncate"
+                        size="small"
+                    />
                 ) : (
                     <LemonInputSelect
                         mode="single"
+                        size="small"
                         allowCustomValues
                         placeholder={`e.g. ${placeholderUrl}`}
                         onInputChange={(e) => setBrowserSearch(e)}
@@ -52,24 +109,28 @@ function UrlSearchHeader(): JSX.Element {
                                 key: x,
                             })) ?? []
                         }
-                        className={!isBrowserUrlValid ? 'border-red-500' : undefined}
+                        className={`truncate ${!isBrowserUrlValid ? 'border-red-500' : ''}`}
+                        popoverClassName="truncate"
                     />
                 )}
-            </span>
+            </div>
             {hasValidReplayIframeData ? (
                 <LemonButton
+                    size="small"
                     icon={<IconRevert />}
+                    data-attr="heatmaps-reset"
                     onClick={() => {
                         setReplayIframeData(null)
                         setBrowserUrl(null)
                     }}
+                    className="mt-2 md:mt-0"
                 >
                     Reset
                 </LemonButton>
             ) : null}
             <LemonButton
                 type="secondary"
-                sideIcon={<IconOpenInNew />}
+                icon={<IconOpenInNew />}
                 to={
                     browserUrl
                         ? appEditorUrl(browserUrl, {
@@ -83,9 +144,13 @@ function UrlSearchHeader(): JSX.Element {
                 }
                 targetBlank
                 disabledReason={!browserUrl && !hasValidReplayIframeData ? 'Select a URL first' : undefined}
+                className="mt-2 md:mt-0"
+                size="small"
+                data-attr="heatmaps-open-in-toolbar"
             >
                 Open in toolbar
             </LemonButton>
+            <ExportButton iframeRef={iframeRef} />
         </div>
     )
 }
@@ -148,7 +213,7 @@ function ForbiddenURL(): JSX.Element {
     const { browserUrl } = useValues(logic)
 
     return (
-        <div className="flex-1 p-4 gap-y-4">
+        <div className="flex-1 p-4 gap-y-4 mb-2">
             <LemonBanner type="error">
                 {browserUrl} is not an authorized URL. Please add it to the list of authorized URLs to view heatmaps on
                 this page.
@@ -162,91 +227,8 @@ function ForbiddenURL(): JSX.Element {
 
 function InvalidURL(): JSX.Element {
     return (
-        <div className="flex-1 p-4 gap-y-4">
+        <div className="flex-1 p-4 gap-y-4 mb-2">
             <LemonBanner type="error">Not a valid URL. Can't load a heatmap for that 😰</LemonBanner>
-        </div>
-    )
-}
-
-export function ViewportChooser(): JSX.Element {
-    const logic = heatmapsBrowserLogic()
-
-    const { widthOverride } = useValues(logic)
-    const { setIframeWidth } = useActions(logic)
-
-    return (
-        <div className="flex justify-center mb-2">
-            <LemonSegmentedButton
-                onChange={setIframeWidth}
-                value={widthOverride ? widthOverride : undefined}
-                data-attr="viewport-chooser"
-                options={[
-                    {
-                        value: 320,
-                        label: (
-                            <div className="px-1">
-                                <IconPhone />
-                                <div className="text-xs">320px</div>
-                            </div>
-                        ),
-                    },
-                    {
-                        value: 375,
-                        label: (
-                            <div className="px-1">
-                                <IconPhone />
-                                <div className="text-xs">375px</div>
-                            </div>
-                        ),
-                    },
-                    {
-                        value: 425,
-                        label: (
-                            <div className="px-1">
-                                <IconPhone />
-                                <div className="text-xs">425px</div>
-                            </div>
-                        ),
-                    },
-                    {
-                        value: 768,
-                        label: (
-                            <div className="px-1">
-                                <IconTabletPortrait />
-                                <div className="text-xs">768px</div>
-                            </div>
-                        ),
-                    },
-                    {
-                        value: 1024,
-                        label: (
-                            <div className="px-1">
-                                <IconTabletLandscape />
-                                <div className="text-xs">1024px</div>
-                            </div>
-                        ),
-                    },
-                    {
-                        value: 1440,
-                        label: (
-                            <div className="px-1">
-                                <IconLaptop />
-                                <div className="text-xs">1440px</div>
-                            </div>
-                        ),
-                    },
-                    {
-                        value: 1920,
-                        label: (
-                            <div className="px-1">
-                                <IconLaptop />
-                                <div className="text-xs">1920px</div>
-                            </div>
-                        ),
-                    },
-                ]}
-                size="small"
-            />
         </div>
     )
 }
@@ -301,14 +283,13 @@ export function HeatmapsBrowser(): JSX.Element {
 
     return (
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
-            <SceneContent forceNewSpacing>
+            <SceneContent>
                 <Warnings />
-
                 <ReplayIframeDataIntro />
-                <div className="flex flex-col overflow-hidden w-full h-[90vh] rounded border">
-                    <UrlSearchHeader />
-
-                    <div className="relative flex flex-1 overflow-hidden">
+                <div className="overflow-hidden w-full h-screen">
+                    <UrlSearchHeader iframeRef={iframeRef} />
+                    <FilterPanel />
+                    <div className="relative flex flex-1 overflow-hidden border min-h-screen">
                         {hasValidReplayIframeData ? (
                             <FixedReplayHeatmapBrowser iframeRef={iframeRef} />
                         ) : browserUrl ? (

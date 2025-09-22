@@ -10,8 +10,10 @@ import { eventWithTime } from '@posthog/rrweb-types'
 
 import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { AlertType } from 'lib/components/Alerts/types'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { DashboardCompatibleScenes } from 'lib/components/SceneDashboardChoice/sceneDashboardChoiceModalLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import {
     BIN_COUNT_AUTO,
     DashboardPrivilegeLevel,
@@ -66,6 +68,7 @@ import type {
     RecordingsQuery,
     RevenueAnalyticsConfig,
     SharingConfigurationSettings,
+    TileFilters,
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
@@ -302,6 +305,7 @@ export enum AccessControlResourceType {
     Dashboard = 'dashboard',
     Notebook = 'notebook',
     SessionRecording = 'session_recording',
+    RevenueAnalytics = 'revenue_analytics',
 }
 
 interface UserBaseType {
@@ -597,6 +601,8 @@ export interface TeamSurveyConfigType {
 
 export type SessionRecordingMaskingLevel = 'normal' | 'total-privacy' | 'free-love'
 
+export type SessionRecordingRetentionPeriod = 'legacy' | '30d' | '90d' | '1y' | '5y'
+
 export interface SessionRecordingMaskingConfig {
     maskAllInputs?: boolean
     maskTextSelector?: string
@@ -630,6 +636,7 @@ export interface TeamType extends TeamBasicType {
         | undefined
         | null
     session_recording_masking_config: SessionRecordingMaskingConfig | undefined | null
+    session_recording_retention_period: SessionRecordingRetentionPeriod | null
     session_replay_config: { record_canvas?: boolean; ai_config?: SessionRecordingAIConfig } | undefined | null
     survey_config?: TeamSurveyConfigType
     autocapture_exceptions_opt_in: boolean
@@ -642,6 +649,7 @@ export interface TeamType extends TeamBasicType {
     surveys_opt_in?: boolean
     heatmaps_opt_in?: boolean
     web_analytics_pre_aggregated_tables_enabled?: boolean
+    web_analytics_pre_aggregated_tables_version?: 'v1' | 'v2'
     autocapture_exceptions_errors_to_ignore: string[]
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
@@ -1289,6 +1297,7 @@ export type EntityFilter = {
     custom_name?: string | null
     index?: number
     order?: number
+    optionalInFunnel?: boolean
 }
 
 export interface ActionFilter extends EntityFilter {
@@ -1473,6 +1482,7 @@ export interface CohortType {
     }
     experiment_set?: number[]
     _create_in_folder?: string | null
+    _create_static_person_ids?: string[]
 }
 
 export interface InsightHistory {
@@ -2041,6 +2051,7 @@ export interface DashboardTile<T = InsightModel> extends Tileable {
         type: string
         message: string
     }
+    filters_overrides?: TileFilters
 }
 
 export interface DashboardTileBasicType {
@@ -3600,6 +3611,7 @@ export enum ItemMode {
 
 export enum DashboardPlacement {
     Dashboard = 'dashboard', // When on the standard dashboard page
+    CustomerAnalytics = 'customer-analytics', // When embedded on the customer analytics page
     ProjectHomepage = 'project-homepage', // When embedded on the project homepage
     FeatureFlag = 'feature-flag',
     Public = 'public', // When viewing the dashboard publicly
@@ -4382,7 +4394,21 @@ export interface ReplayExportContext {
     mode?: SessionRecordingPlayerMode
 }
 
-export type ExportContext = OnlineExportContext | LocalExportContext | QueryExportContext | ReplayExportContext
+export interface HeatmapExportContext {
+    heatmap_url: string
+    filename?: string
+    heatmap_filters?: HeatmapFilters
+    heatmap_color_palette?: string | null
+    heatmap_fixed_position_mode?: HeatmapFixedPositionMode
+    common_filters?: CommonFilters
+}
+
+export type ExportContext =
+    | OnlineExportContext
+    | LocalExportContext
+    | QueryExportContext
+    | ReplayExportContext
+    | HeatmapExportContext
 
 export interface ExportedAssetType {
     id: number
@@ -4453,6 +4479,7 @@ export type APIScopeObject =
     | 'cohort'
     | 'dashboard'
     | 'dashboard_template'
+    | 'dataset'
     | 'early_access_feature'
     | 'error_tracking'
     | 'event_definition'
@@ -4470,6 +4497,7 @@ export type APIScopeObject =
     | 'project'
     | 'property_definition'
     | 'query'
+    | 'revenue_analytics'
     | 'session_recording'
     | 'session_recording_playlist'
     | 'sharing_configuration'
@@ -4626,7 +4654,8 @@ export enum ActivityScope {
 
 export type CommentType = {
     id: string
-    content: string
+    content: string | null
+    rich_content: JSONContent | null
     version: number
     created_at: string
     created_by: UserBasicType | null
@@ -4813,6 +4842,7 @@ export enum ExternalDataJobStatus {
 export interface ExternalDataJob {
     id: string
     created_at: string
+    finished_at: string
     status: ExternalDataJobStatus
     schema: SimpleExternalDataSourceSchema
     rows_synced: number
@@ -5375,6 +5405,8 @@ export type HogFunctionTemplateType = Pick<
     description?: string | JSX.Element
     code: string
     code_language: 'javascript' | 'hog'
+    /** Whether the template should be conditionally rendered based on a feature flag */
+    flag?: string
 }
 
 export type HogFunctionTemplateWithSubTemplateType = HogFunctionTemplateType & {
@@ -5552,6 +5584,27 @@ export enum ConversationType {
     ToolCall = 'tool_call',
     DeepResearch = 'deep_research',
 }
+
+export enum Category {
+    DEEP_RESEARCH = 'deep_research',
+}
+
+export enum DeepResearchType {
+    PLANNING = 'planning',
+    REPORT = 'report',
+}
+
+interface _NotebookBase {
+    notebook_id: string
+    title: string
+}
+
+export interface DeepResearchNotebook extends _NotebookBase {
+    category: Category.DEEP_RESEARCH
+    notebook_type?: DeepResearchType
+}
+
+export type NotebookInfo = DeepResearchNotebook
 
 export interface Conversation {
     id: string

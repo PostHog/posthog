@@ -355,7 +355,7 @@ class Team(UUIDTClassicModel):
     session_recording_retention_period = models.CharField(
         max_length=6,
         choices=SessionRecordingRetentionPeriod.choices,
-        default=SessionRecordingRetentionPeriod.LEGACY,
+        default=SessionRecordingRetentionPeriod.THIRTY_DAYS,
     )
     survey_config = models.JSONField(null=True, blank=True)
     capture_console_log_opt_in = models.BooleanField(null=True, blank=True, default=True)
@@ -364,6 +364,9 @@ class Team(UUIDTClassicModel):
     surveys_opt_in = models.BooleanField(null=True, blank=True)
     heatmaps_opt_in = models.BooleanField(null=True, blank=True)
     web_analytics_pre_aggregated_tables_enabled = models.BooleanField(default=False, null=True)
+    web_analytics_pre_aggregated_tables_version = models.CharField(
+        max_length=10, default="v2", null=True, choices=[("v1", "v1"), ("v2", "v2")]
+    )
     flags_persistence_default = models.BooleanField(null=True, blank=True, default=False)
     feature_flag_confirmation_enabled = models.BooleanField(null=True, blank=True, default=False)
     feature_flag_confirmation_message = models.TextField(null=True, blank=True)
@@ -425,11 +428,6 @@ class Team(UUIDTClassicModel):
 
     # DEPRECATED, DISUSED: recordings on CH are cleared with Clickhouse's TTL
     session_recording_retention_period_days = models.IntegerField(null=True, default=None, blank=True)
-    session_recording_retention_period = models.CharField(
-        max_length=6,
-        choices=SessionRecordingRetentionPeriod.choices,
-        default=SessionRecordingRetentionPeriod.LEGACY,
-    )
     # DEPRECATED, DISUSED: plugins are enabled for everyone now
     plugins_opt_in = models.BooleanField(default=False)
     # DEPRECATED, DISUSED: replaced with env variable OPT_OUT_CAPTURE and User.anonymized_data
