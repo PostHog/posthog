@@ -139,13 +139,11 @@ export function ExperimentMetricForm({
             }
         }
 
-        // Get the default metric for the new type
         const newMetric = getDefaultExperimentMetric(newMetricType)
 
         // Apply the existing sources to the new metric type to preserve selections
         if (sources.length > 0 && sources[0]) {
             if (newMetricType === ExperimentMetricType.MEAN && isExperimentMeanMetric(newMetric)) {
-                // For Mean metric, use the first source
                 newMetric.source = sources[0]
             } else if (newMetricType === ExperimentMetricType.FUNNEL && isExperimentFunnelMetric(newMetric)) {
                 // Funnel metrics only support EventsNode and ActionsNode, not DataWarehouseNode
