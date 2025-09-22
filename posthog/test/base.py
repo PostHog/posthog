@@ -409,14 +409,16 @@ def clean_varying_query_parts(query, replace_all_numbers):
     return query
 
 
-def _setup_test_data(klass):
-    klass.organization = Organization.objects.create(name=klass.CONFIG_ORGANIZATION_NAME)
-    klass.project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=klass.organization)
-    klass.team = Team.objects.create(
-        id=klass.project.id,
-        project=klass.project,
-        organization=klass.organization,
-        api_token=klass.CONFIG_API_TOKEN,
+def setup_test_organization_team_and_user(
+    organization_name: str, team_api_token: str, user_email: str | None = None, user_password: str | None = None
+) -> tuple[Organization, Project, Team, User | None, OrganizationMembership | None]:
+    organization = Organization.objects.create(name=organization_name)
+    project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=organization)
+    team = Team.objects.create(
+        id=project.id,
+        project=project,
+        organization=organization,
+        api_token=team_api_token or str(uuid.uuid4()),
         test_account_filters=[
             {
                 "key": "email",
@@ -427,9 +429,27 @@ def _setup_test_data(klass):
         ],
         has_completed_onboarding_for={"product_analytics": True},
     )
-    if klass.CONFIG_EMAIL:
-        klass.user = User.objects.create_and_join(klass.organization, klass.CONFIG_EMAIL, klass.CONFIG_PASSWORD)
-        klass.organization_membership = klass.user.organization_memberships.get()
+    if user_email and user_password:
+        user = User.objects.create_and_join(organization, user_email, user_password)
+        organization_membership = user.organization_memberships.get()
+    else:
+        user = None
+        organization_membership = None
+    return organization, project, team, user, organization_membership
+
+
+def _setup_test_data(klass):
+    organization, project, team, user, organization_membership = setup_test_organization_team_and_user(
+        organization_name=klass.CONFIG_ORGANIZATION_NAME,
+        team_api_token=klass.CONFIG_API_TOKEN,
+        user_email=klass.CONFIG_EMAIL,
+        user_password=klass.CONFIG_PASSWORD,
+    )
+    klass.organization = organization
+    klass.project = project
+    klass.team = team
+    klass.user = user
+    klass.organization_membership = organization_membership
 
 
 class FuzzyInt(int):
