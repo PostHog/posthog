@@ -22,7 +22,7 @@ import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
-import { DashboardFilter, HogQLVariable, Node } from '~/queries/schema/schema-general'
+import { DashboardFilter, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
 import { checkLatestVersionsOnQuery } from '~/queries/utils'
 import {
     ActivityScope,
@@ -87,6 +87,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             alertId: AlertType['id'] | undefined,
             filtersOverride: DashboardFilter | undefined,
             variablesOverride: Record<string, HogQLVariable> | undefined,
+            tileFiltersOverride: TileFilters | undefined,
             dashboardId: DashboardType['id'] | undefined,
             dashboardName: DashboardType['name'] | undefined,
             sceneSource: InsightSceneSource | null
@@ -99,6 +100,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             dashboardName,
             filtersOverride,
             variablesOverride,
+            tileFiltersOverride,
             sceneSource,
         }),
         setInsightLogicRef: (logic: BuiltLogic<insightLogicType> | null, unmount: null | (() => void)) => ({
@@ -173,6 +175,13 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             {
                 setSceneState: (_, { variablesOverride }) =>
                     variablesOverride !== undefined ? variablesOverride : null,
+            },
+        ],
+        tileFiltersOverride: [
+            null as null | TileFilters,
+            {
+                setSceneState: (_, { tileFiltersOverride }) =>
+                    tileFiltersOverride !== undefined ? tileFiltersOverride : null,
             },
         ],
         insightLogicRef: [
@@ -303,10 +312,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             },
         ],
         hasOverrides: [
-            (s) => [s.filtersOverride, s.variablesOverride],
-            (filtersOverride, variablesOverride) =>
+            (s) => [s.filtersOverride, s.variablesOverride, s.tileFiltersOverride],
+            (filtersOverride, variablesOverride, tileFiltersOverride) =>
                 (isObject(filtersOverride) && !isEmptyObject(filtersOverride)) ||
-                (isObject(variablesOverride) && !isEmptyObject(variablesOverride)),
+                (isObject(variablesOverride) && !isEmptyObject(variablesOverride)) ||
+                (isObject(tileFiltersOverride) && !isEmptyObject(tileFiltersOverride)),
         ],
     }),
     sharedListeners(({ actions, values }) => ({
@@ -322,6 +332,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         dashboardItemId: insightId,
                         filtersOverride: values.filtersOverride,
                         variablesOverride: values.variablesOverride,
+                        tileFiltersOverride: values.tileFiltersOverride,
                     }
 
                     const logic = insightLogic.build(insightProps)
@@ -345,7 +356,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 values.insightLogicRef?.logic.actions.loadInsight(
                     insightId as InsightShortId,
                     values.filtersOverride,
-                    values.variablesOverride
+                    values.variablesOverride,
+                    values.tileFiltersOverride
                 )
             }
         },
@@ -423,6 +435,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             const dashboardName = dashboardLogic.findMounted({ id: dashboard })?.values.dashboard?.name
             const filtersOverride = searchParams['filters_override']
             const variablesOverride = searchParams['variables_override']
+            const tileFiltersOverride = searchParams['tile_filters_override']
 
             if (
                 insightId !== values.insightId ||
@@ -432,6 +445,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 alertChanged ||
                 !objectsEqual(variablesOverride, values.variablesOverride) ||
                 !objectsEqual(filtersOverride, values.filtersOverride) ||
+                !objectsEqual(tileFiltersOverride, values.tileFiltersOverride) ||
                 dashboard !== values.dashboardId ||
                 dashboardName !== values.dashboardName
             ) {
@@ -443,6 +457,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     // Only pass filters/variables if overrides exist
                     filtersOverride && isDashboardFilterEmpty(filtersOverride) ? undefined : filtersOverride,
                     variablesOverride && !isEmptyObject(variablesOverride) ? variablesOverride : undefined,
+                    tileFiltersOverride && isDashboardFilterEmpty(tileFiltersOverride)
+                        ? undefined
+                        : tileFiltersOverride,
                     dashboard,
                     dashboardName,
                     sceneSource
