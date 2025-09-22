@@ -1,15 +1,14 @@
 use crate::log_record::KafkaLogRow;
 use anyhow::anyhow;
-use apache_avro::{Schema, Writer};
+use apache_avro::{Codec, Schema, Writer, ZstandardSettings};
 use capture::config::KafkaConfig;
 use health::HealthHandle;
 use metrics::{counter, gauge};
 use rdkafka::error::KafkaError;
 use rdkafka::message::{Header, OwnedHeaders};
-use rdkafka::producer::{DeliveryFuture, FutureProducer, FutureRecord, Producer};
+use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
 use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
-use serde_json;
 use std::result::Result::Ok;
 use std::time::Duration;
 use tracing::log::{debug, info};
@@ -341,9 +340,12 @@ impl KafkaSink {
     }
 
     pub async fn write(&self, team_id: i32, rows: Vec<KafkaLogRow>) -> Result<(), anyhow::Error> {
-        let mut latest_future: Option<DeliveryFuture> = None;
         let schema = Schema::parse_str(AVRO_SCHEMA).unwrap();
-        let mut writer = Writer::new(&schema, Vec::new());
+        let mut writer = Writer::with_codec(
+            &schema,
+            Vec::new(),
+            Codec::Zstandard(ZstandardSettings::default()),
+        );
 
         for row in rows {
             writer.append_ser(row).unwrap();
