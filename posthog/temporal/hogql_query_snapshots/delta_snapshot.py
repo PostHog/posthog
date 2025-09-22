@@ -113,7 +113,8 @@ class DeltaSnapshot:
         delta_table = self.get_delta_table()
         self.schema.add_pyarrow_record_batch(data)
 
-        use_partitioning = False
+        if PARTITION_KEY in data.column_names:
+            use_partitioning = True
 
         if delta_table is None:
             delta_table = deltalake.DeltaTable.create(
