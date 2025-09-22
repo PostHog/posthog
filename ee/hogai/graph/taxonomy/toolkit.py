@@ -161,15 +161,13 @@ class TaxonomyAgentToolkit:
             else:
                 formatted_sample_values.append(str(value))
 
-        data = {"property": property_name, "values": formatted_sample_values}
-
         # Add count information
         if sample_count is None:
-            data["values"].append("and many more distinct values")
+            formatted_sample_values.append("and many more distinct values")
         elif sample_count > len(sample_values):
             remaining = sample_count - len(sample_values)
-            data["values"].append(f"and {remaining} more distinct values")
-
+            formatted_sample_values.append(f"and {remaining} more distinct values")
+        data = {"property": property_name, "values": formatted_sample_values}
         return yaml.dump(data, default_flow_style=False, sort_keys=False)
 
     def _retrieve_session_properties(self, property_name: str) -> str:
@@ -532,6 +530,8 @@ class TaxonomyAgentToolkit:
                 tool_input.arguments.entity,  # type: ignore
                 tool_input.arguments.property_name,  # type: ignore
             )
+            if isinstance(result, list):
+                result = result[0]  # This is temporary until we support parallel tool calls.
         elif tool_name == "retrieve_entity_properties":
             result = self.retrieve_entity_properties(tool_input.arguments.entity)  # type: ignore
         elif tool_name == "retrieve_event_property_values":
@@ -539,6 +539,8 @@ class TaxonomyAgentToolkit:
                 tool_input.arguments.event_name,  # type: ignore
                 tool_input.arguments.property_name,  # type: ignore
             )
+            if isinstance(result, list):
+                result = result[0]  # This is temporary until we support parallel tool calls.
         elif tool_name == "retrieve_event_properties":
             result = self.retrieve_event_or_action_properties(tool_input.arguments.event_name)  # type: ignore
         elif tool_name == "ask_user_for_help":

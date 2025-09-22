@@ -106,8 +106,15 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
 
         return PropertyDefinition.objects.create(**kwargs)
 
-    def _create_mock_taxonomy_response(self, response_type="event", **kwargs):
+    def _create_mock_taxonomy_response(self, response_type="event", results=None, **kwargs):
         """Helper to create mock taxonomy responses"""
+        if results is None:
+            # Create single result from kwargs
+            if response_type == "event":
+                results = [EventTaxonomyItem(**kwargs)]
+            elif response_type == "actors":
+                results = [ActorsPropertyTaxonomyResponse(**kwargs)]
+
         if response_type == "event":
             return CachedEventTaxonomyQueryResponse(
                 cache_key="test",
@@ -115,7 +122,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
                 last_refresh=datetime.now().isoformat(),
                 next_allowed_client_refresh=datetime.now().isoformat(),
                 timezone="UTC",
-                results=[EventTaxonomyItem(**kwargs)],
+                results=results,
             )
         elif response_type == "actors":
             return CachedActorsPropertyTaxonomyQueryResponse(
@@ -124,7 +131,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
                 last_refresh=datetime.now().isoformat(),
                 next_allowed_client_refresh=datetime.now().isoformat(),
                 timezone="UTC",
-                results=[ActorsPropertyTaxonomyResponse(**kwargs)],
+                results=results,
             )
 
     def test_retrieve_entity_properties_person(self):
@@ -171,21 +178,6 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
         result = self.toolkit.retrieve_entity_property_values("person", "email")
         self.assertIn("test@example.com", result)
 
-    def _get_mock_cached_response(
-        self, results: list[ActorsPropertyTaxonomyResponse] | list[EventTaxonomyItem], type_of_response: str = "actors"
-    ):
-        if type_of_response == "actors":
-            mock_cached_response = Mock(spec=CachedActorsPropertyTaxonomyQueryResponse)
-        elif type_of_response == "event":
-            mock_cached_response = Mock(spec=CachedEventTaxonomyQueryResponse)
-
-        mock_cached_response.results = results
-        mock_cached_response.is_cached = True
-        mock_cached_response.cache_key = "test_cache_key"
-        mock_cached_response.last_refresh = datetime.now()
-        mock_cached_response.next_allowed_client_refresh = datetime.now()
-        return mock_cached_response
-
     @patch("ee.hogai.graph.taxonomy.toolkit.ActorsPropertyTaxonomyQueryRunner")
     def test_retrieve_entity_property_values_person_multiple(self, mock_runner_class):
         self._create_property_definition(PropertyDefinition.Type.PERSON, "email")
@@ -198,7 +190,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
             sample_count=3, sample_values=["Bob Johnson", "Jane Smith", "John Doe"]
         )
 
-        mock_cached_response = self._get_mock_cached_response([mock_result1, mock_result2])
+        mock_cached_response = self._create_mock_taxonomy_response("actors", results=[mock_result1, mock_result2])
         mock_runner = Mock()
         mock_runner.run.return_value = mock_cached_response
         mock_runner_class.return_value = mock_runner
@@ -220,7 +212,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
         self._create_property_definition(PropertyDefinition.Type.PERSON, "email")
         self._create_property_definition(PropertyDefinition.Type.PERSON, "name")
 
-        mock_cached_response = self._get_mock_cached_response([])
+        mock_cached_response = self._create_mock_taxonomy_response("actors", results=[])
         mock_runner = Mock()
         mock_runner.run.return_value = mock_cached_response
         mock_runner_class.return_value = mock_runner
@@ -233,8 +225,11 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
     def test_retrieve_entity_property_values_person_results_not_list(self, mock_runner_class):
         self._create_property_definition(PropertyDefinition.Type.PERSON, "name")
 
-        mock_cached_response = self._get_mock_cached_response(
-            ActorsPropertyTaxonomyResponse(sample_count=3, sample_values=["Bob Johnson", "Jane Smith", "John Doe"])
+        mock_cached_response = self._create_mock_taxonomy_response(
+            "actors",
+            results=[
+                ActorsPropertyTaxonomyResponse(sample_count=3, sample_values=["Bob Johnson", "Jane Smith", "John Doe"])
+            ],
         )
         mock_runner = Mock()
         mock_runner.run.return_value = mock_cached_response
@@ -261,7 +256,9 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
             sample_count=10, sample_values=["New York", "Los Angeles", "Chicago"]
         )
 
-        mock_cached_response = self._get_mock_cached_response([mock_result, mock_result2, mock_result3])
+        mock_cached_response = self._create_mock_taxonomy_response(
+            "actors", results=[mock_result, mock_result2, mock_result3]
+        )
         mock_runner = Mock()
         mock_runner.run.return_value = mock_cached_response
         mock_runner_class.return_value = mock_runner
@@ -293,7 +290,9 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
             sample_count=3, sample_values=["Bob Johnson", "Jane Smith", "John Doe"]
         )
         mock_result3 = ActorsPropertyTaxonomyResponse(sample_count=0, sample_values=[])
-        mock_cached_response = self._get_mock_cached_response([mock_result, mock_result2, mock_result3])
+        mock_cached_response = self._create_mock_taxonomy_response(
+            "actors", results=[mock_result, mock_result2, mock_result3]
+        )
         mock_runner = Mock()
         mock_runner.run.return_value = mock_cached_response
         mock_runner_class.return_value = mock_runner
@@ -319,7 +318,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
         mock_result2 = ActorsPropertyTaxonomyResponse(sample_count=3, sample_values=[25, 30, 35])
 
         # Create a single CachedActorsPropertyTaxonomyQueryResponse with a list of result dicts
-        mock_cached_response = self._get_mock_cached_response([mock_result, mock_result2])
+        mock_cached_response = self._create_mock_taxonomy_response("actors", results=[mock_result, mock_result2])
         mock_runner = Mock()
         mock_runner.run.return_value = mock_cached_response
         mock_runner_class.return_value = mock_runner
@@ -381,7 +380,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
         mock_response = EventTaxonomyItem(property="$browser", sample_values=["Chrome", "Firefox"], sample_count=2)
         mock_response2 = EventTaxonomyItem(property="$device_type", sample_values=["Mobile", "Desktop"], sample_count=2)
 
-        mock_cached_response = self._get_mock_cached_response([mock_response, mock_response2], type_of_response="event")
+        mock_cached_response = self._create_mock_taxonomy_response("event", results=[mock_response, mock_response2])
         mock_runner = Mock()
         mock_runner.run.return_value = mock_cached_response
         mock_runner_class.return_value = mock_runner
