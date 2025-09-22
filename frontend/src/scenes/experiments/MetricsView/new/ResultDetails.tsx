@@ -125,7 +125,7 @@ export function ResultDetails({
     isSecondary: boolean
 }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
-    const useExperimentFunnelChart = featureFlags[FEATURE_FLAGS.EXPERIMENTS_FUNNEL_CHART]
+    const useExperimentFunnelChart = featureFlags[FEATURE_FLAGS.EXPERIMENTS_FUNNEL_CHART] == 'test'
 
     const columns: LemonTableColumns<ExperimentVariantResult & { key: string }> = [
         {
