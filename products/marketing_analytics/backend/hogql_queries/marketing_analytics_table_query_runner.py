@@ -397,7 +397,7 @@ class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalytics
 
     def _build_coalesce_campaign_source_columns(self, processors: list[ConversionGoalProcessor]) -> dict[str, ast.Expr]:
         """Build COALESCE expressions for campaign and source that fall back to conversion goal values"""
-        campaign_args = [
+        campaign_args: list[ast.Expr] = [
             ast.Call(
                 name="nullif",
                 args=[
@@ -406,7 +406,7 @@ class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalytics
                 ],
             )
         ]
-        source_args = [
+        source_args: list[ast.Expr] = [
             ast.Call(
                 name="nullif",
                 args=[
