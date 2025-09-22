@@ -1,4 +1,5 @@
 import json
+import datetime
 from datetime import timedelta
 from typing import Optional, cast
 
@@ -6,7 +7,6 @@ from freezegun import freeze_time
 from posthog.test.base import FuzzyInt, snapshot_postgres_queries
 
 from django.test import override_settings
-from django.utils import timezone
 
 from rest_framework import status
 
@@ -322,7 +322,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             key="key_123",
             plan="enterprise",
-            valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7),
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
         )
         dashboard = Dashboard.objects.create(team=self.team, name="Edit-restricted dashboard")
         insight = Insight.objects.create(team=self.team, name="XYZ", created_by=self.user)

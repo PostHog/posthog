@@ -3,8 +3,7 @@ from typing import Any
 from django.conf import settings
 from django.contrib import admin
 from django.contrib.admin.sites import NotRegistered  # type: ignore[attr-defined]
-from django.urls import include, re_path
-from django.urls.conf import path
+from django.urls import include, path
 from django.views.decorators.csrf import csrf_exempt
 
 from django_otp.plugins.otp_static.models import StaticDevice
@@ -128,11 +127,11 @@ if settings.ADMIN_PORTAL_ENABLED:
             pass
 
     admin_urlpatterns = [
-        re_path(r"^admin/oauth2/callback$", admin_oauth2_callback, name="admin_oauth2_callback"),
-        re_path(r"^admin/oauth2/success$", admin_oauth_success, name="admin_oauth_success"),
-        re_path(r"^admin/auth_check$", admin_auth_check, name="admin_auth_check"),
-        re_path(r"^admin/redisvalues$", redis_values_view, name="redis_values"),
-        re_path(r"^admin/apikeysearch$", api_key_search_view, name="api_key_search"),
+        path("admin/oauth2/callback", admin_oauth2_callback, name="admin_oauth2_callback"),
+        path("admin/oauth2/success", admin_oauth_success, name="admin_oauth_success"),
+        path("admin/auth_check", admin_auth_check, name="admin_auth_check"),
+        path("admin/redisvalues", redis_values_view, name="redis_values"),
+        path("admin/apikeysearch", api_key_search_view, name="api_key_search"),
         path("admin/", include("loginas.urls")),
         path("admin/", admin.site.urls),
     ]

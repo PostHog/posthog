@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+import datetime
 from enum import Enum
 from typing import Literal, Optional
 
@@ -132,7 +132,7 @@ def send_invite(invite_id: str) -> None:
         template_name="invite",
         template_context={
             "invite": invite,
-            "expiry_date": (timezone.now() + timezone.timedelta(days=INVITE_DAYS_VALIDITY)).strftime(
+            "expiry_date": (timezone.now() + datetime.timedelta(days=INVITE_DAYS_VALIDITY)).strftime(
                 "%B %d, %Y at %H:%M %Z"
             ),
             "inviter_first_name": invite.created_by.first_name if invite.created_by else "someone",
