@@ -3,7 +3,7 @@ import json
 from dataclasses import asdict, dataclass
 from math import ceil
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import yaml
 import structlog
@@ -54,7 +54,6 @@ class SessionSummaryVideoValidator:
         self.summary_row = summary_row
         self.summary = SessionSummarySerializer(data=summary_row.summary)
         self.summary.is_valid(raise_exception=True)
-        self.model_to_use = model_to_use
         self.moments_analyzer = SessionMomentsLLMAnalyzer(
             session_id=session_id,
             team_id=team_id,
@@ -62,7 +61,7 @@ class SessionSummaryVideoValidator:
             failed_moments_min_ratio=FAILED_MOMENTS_MIN_RATIO,
         )
 
-    async def validate_session_summary_with_videos(self) -> None:
+    async def validate_session_summary_with_videos(self, model_to_use: str) -> None:
         """Validate the session summary with videos"""
         # Find the events that would value from video validation (currently, blocking exceptions)
         events_to_validate, fields_to_update = self._pick_events_to_validate()
@@ -78,7 +77,7 @@ class SessionSummaryVideoValidator:
         #     description_results: list[SessionMomentOutput] = json.load(f)
         # Generate updates through LLM to update specific fields based on the video-based results from the previous step
         updates_result = await self._generate_updates(
-            description_results=description_results, fields_to_update=fields_to_update
+            description_results=description_results, fields_to_update=fields_to_update, model_to_use=model_to_use
         )
         # Apply updates to the summary
         updated_summary = self._apply_updates(updates_result=updates_result)
@@ -226,6 +225,7 @@ class SessionSummaryVideoValidator:
         self,
         description_results: list[SessionMomentOutput],
         fields_to_update: list[_SessionSummaryVideoValidationFieldToUpdate],
+        model_to_use: str,
     ) -> list[dict[str, str]]:
         # Generate prompt for video validation
         validation_prompt = self._generate_video_validation_prompt(
@@ -242,7 +242,7 @@ class SessionSummaryVideoValidator:
             input_prompt=validation_prompt,
             user_key=self.user.id,
             session_id=self.session_id,
-            model=self.model_to_use,
+            model=model_to_use,
             system_prompt=None,  # TODO: Add proper system prompt
             trace_id=trace_id,
         )
@@ -294,8 +294,11 @@ class SessionSummaryVideoValidator:
             )
             for description_result in description_results
         ]
+        # Prepare run metadata
+        run_metadata = cast(dict[str, Any], self.summary_row.run_metadata)
+        model_used = cast(str, run_metadata["model_used"])
         current_run_metadata = SessionSummaryRunMeta(
-            model_used=self.summary_row.run_metadata["model_used"],
+            model_used=model_used,
             visual_confirmation=True,
             visual_confirmation_results=validation_confirmation_results,
         )
