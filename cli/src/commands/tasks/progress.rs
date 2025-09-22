@@ -86,7 +86,7 @@ fn fetch_progress(task_id: &Uuid) -> Result<TaskProgressResponse> {
 }
 
 fn print_progress(task_id: &Uuid, progress: &TaskProgressResponse) {
-    println!("\nProgress for Task {}:\n", task_id);
+    println!("\nProgress for Task {task_id}:\n");
 
     if !progress.has_progress {
         println!(
@@ -100,7 +100,7 @@ fn print_progress(task_id: &Uuid, progress: &TaskProgressResponse) {
     }
 
     if let Some(status) = &progress.status {
-        println!("Status: {}", status);
+        println!("Status: {status}");
     }
 
     if let Some(percentage) = progress.progress_percentage {
@@ -112,28 +112,28 @@ fn print_progress(task_id: &Uuid, progress: &TaskProgressResponse) {
             "░".repeat(empty),
             percentage
         );
-        println!("Progress: {}", bar);
+        println!("Progress: {bar}");
     }
 
     if let Some(current_step) = &progress.current_step {
         if !current_step.is_empty() {
-            println!("Current Step: {}", current_step);
+            println!("Current Step: {current_step}");
         }
     }
 
     if let (Some(completed), Some(total)) = (progress.completed_steps, progress.total_steps) {
-        println!("Steps: {} / {}", completed, total);
+        println!("Steps: {completed} / {total}");
     }
 
     if let Some(workflow_id) = &progress.workflow_id {
         if !workflow_id.is_empty() {
-            println!("\nWorkflow ID: {}", workflow_id);
+            println!("\nWorkflow ID: {workflow_id}");
         }
     }
 
     if let Some(workflow_run_id) = &progress.workflow_run_id {
         if !workflow_run_id.is_empty() {
-            println!("Workflow Run ID: {}", workflow_run_id);
+            println!("Workflow Run ID: {workflow_run_id}");
         }
     }
 
@@ -142,7 +142,7 @@ fn print_progress(task_id: &Uuid, progress: &TaskProgressResponse) {
             println!("\nOutput:");
             println!("{}", "─".repeat(60));
             for line in output_log.lines() {
-                println!("{}", line);
+                println!("{line}");
             }
             println!("{}", "─".repeat(60));
         }
@@ -153,7 +153,7 @@ fn print_progress(task_id: &Uuid, progress: &TaskProgressResponse) {
             println!("\nError:");
             println!("{}", "─".repeat(60));
             for line in error_message.lines() {
-                println!("{}", line);
+                println!("{line}");
             }
             println!("{}", "─".repeat(60));
         }

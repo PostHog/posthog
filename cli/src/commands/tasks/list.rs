@@ -118,7 +118,7 @@ pub fn print_task(task: &Task, workflows: &[TaskWorkflow], stages: &[WorkflowSta
 
     if let Some(desc) = &task.description {
         if !desc.is_empty() {
-            println!("Description: {}", desc);
+            println!("Description: {desc}");
         }
     }
 
@@ -137,7 +137,7 @@ pub fn print_task(task: &Task, workflows: &[TaskWorkflow], stages: &[WorkflowSta
                 }
             );
         } else {
-            println!("Workflow: {} (unknown)", workflow_id);
+            println!("Workflow: {workflow_id} (unknown)");
         }
     } else {
         println!("Workflow: None");
@@ -147,7 +147,7 @@ pub fn print_task(task: &Task, workflows: &[TaskWorkflow], stages: &[WorkflowSta
         if let Some(stage) = stages.iter().find(|s| &s.id == stage_id) {
             println!("Stage: {} ({})", stage.name, stage.key);
         } else {
-            println!("Stage: {} (unknown)", stage_id);
+            println!("Stage: {stage_id} (unknown)");
         }
     } else {
         println!("Stage: None");
@@ -156,17 +156,17 @@ pub fn print_task(task: &Task, workflows: &[TaskWorkflow], stages: &[WorkflowSta
     if let Some(primary_repo) = &task.primary_repository {
         if let Some(org) = primary_repo.get("organization").and_then(|v| v.as_str()) {
             if let Some(repo) = primary_repo.get("repository").and_then(|v| v.as_str()) {
-                println!("Repository: {}/{}", org, repo);
+                println!("Repository: {org}/{repo}");
             }
         }
     }
 
     if let Some(branch) = &task.github_branch {
-        println!("GitHub Branch: {}", branch);
+        println!("GitHub Branch: {branch}");
     }
 
     if let Some(pr_url) = &task.github_pr_url {
-        println!("GitHub PR: {}", pr_url);
+        println!("GitHub PR: {pr_url}");
     }
 
     println!("Created: {}", task.created_at.format("%Y-%m-%d %H:%M UTC"));
