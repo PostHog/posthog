@@ -24,12 +24,14 @@ from products.marketing_analytics.backend.hogql_queries.adapters.base import (
     ExternalConfig,
     GoogleAdsConfig,
     LinkedinAdsConfig,
+    MetaAdsConfig,
     QueryContext,
     RedditAdsConfig,
 )
 from products.marketing_analytics.backend.hogql_queries.adapters.bigquery import BigQueryAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.google_ads import GoogleAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.linkedin_ads import LinkedinAdsAdapter
+from products.marketing_analytics.backend.hogql_queries.adapters.meta_ads import MetaAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.reddit_ads import RedditAdsAdapter
 from products.marketing_analytics.backend.hogql_queries.adapters.self_managed import (
     AWSAdapter,
@@ -396,6 +398,68 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
                     "source3": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
                 },
             ),
+            "meta_campaigns": DataConfig(
+                csv_filename="test/meta_ads/campaigns.csv",
+                table_name="metaads_campaigns",
+                platform="Meta Ads",
+                source_type="MetaAds",
+                bucket_suffix="meta_campaigns",
+                column_schema={
+                    "id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "account_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "name": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "status": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "effective_status": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "configured_status": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "objective": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "buying_type": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "budget_remaining": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "start_time": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "stop_time": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "created_time": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "updated_time": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "special_ad_categories": {
+                        "hogql": "StringDatabaseField",
+                        "clickhouse": "String",
+                        "schema_valid": True,
+                    },
+                },
+            ),
+            "meta_campaign_stats": DataConfig(
+                csv_filename="test/meta_ads/campaign_stats.csv",
+                table_name="metaads_campaign_stats",
+                platform="Meta Ads",
+                source_type="MetaAds",
+                bucket_suffix="meta_campaign_stats",
+                column_schema={
+                    "account_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "campaign_id": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "date_start": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "date_stop": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "impressions": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "clicks": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "unique_clicks": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "reach": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "schema_valid": True},
+                    "frequency": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "spend": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "cpm": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "cpc": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "ctr": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "cpp": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "unique_ctr": {"hogql": "FloatDatabaseField", "clickhouse": "Float64", "schema_valid": True},
+                    "cost_per_unique_click": {
+                        "hogql": "FloatDatabaseField",
+                        "clickhouse": "Float64",
+                        "schema_valid": True,
+                    },
+                    "actions": {"hogql": "StringDatabaseField", "clickhouse": "String", "schema_valid": True},
+                    "cost_per_action_type": {
+                        "hogql": "StringDatabaseField",
+                        "clickhouse": "String",
+                        "schema_valid": True,
+                    },
+                },
+            ),
         }
 
     def setUp(self):
@@ -489,6 +553,7 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         table.name = name
         table.external_data_source = Mock(spec=ExternalDataSource)
         table.external_data_source.source_type = source_type
+
         return table
 
     def _create_source_map(self, **overrides) -> Mock:
@@ -702,6 +767,24 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
         assert result.is_valid, "RedditAdsAdapter validation should succeed"
         assert isinstance(result.errors, list), "RedditAdsAdapter should return list of errors"
 
+    def test_meta_ads_adapter_validation_consistency(self):
+        """Test Meta Ads adapter validation consistency."""
+        campaign_table = self._create_mock_table("metaads_campaigns", "MetaAds")
+        stats_table = self._create_mock_table("metaads_campaign_stats", "MetaAds")
+
+        config = MetaAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="MetaAds",
+            source_id="test_consistency",
+        )
+
+        adapter = MetaAdsAdapter(config=config, context=self.context)
+        result = adapter.validate()
+
+        assert result.is_valid, "MetaAdsAdapter validation should succeed"
+        assert isinstance(result.errors, list), "MetaAdsAdapter should return list of errors"
+
     # ================================================================
     # QUERY GENERATION TESTS
     # ================================================================
@@ -770,6 +853,25 @@ class TestMarketingAnalyticsAdapters(ClickhouseTestMixin, BaseTest):
 
         assert query is not None, "RedditAdsAdapter should generate a query"
         self._validate_query_structure(query, "RedditAdsAdapter")
+        assert self._execute_and_snapshot(query) == self.snapshot
+
+    def test_meta_ads_query_generation(self):
+        """Test Meta Ads adapter query generation with JOIN."""
+        campaign_table = self._create_mock_table("meta_campaigns", "MetaAds")
+        stats_table = self._create_mock_table("meta_campaign_stats", "MetaAds")
+
+        config = MetaAdsConfig(
+            campaign_table=campaign_table,
+            stats_table=stats_table,
+            source_type="MetaAds",
+            source_id="meta_ads",
+        )
+
+        adapter = MetaAdsAdapter(config=config, context=self.context)
+        query = adapter.build_query()
+
+        assert query is not None, "MetaAdsAdapter should generate a query"
+        self._validate_query_structure(query, "MetaAdsAdapter")
         assert self._execute_and_snapshot(query) == self.snapshot
 
     def test_tiktok_ads_query_generation(self):
