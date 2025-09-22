@@ -26,8 +26,8 @@ test.describe('Preflight', () => {
             await route.fulfill({ json: preflightSuccessResponse })
         })
 
-        // POST logout since Django 5 requires POST for logout
-        await page.goto('/login') // Go to login instead as these are preflight tests
+        // Clear session cookies instead of logout for preflight tests
+        await page.context().clearCookies()
         await page.goto('/preflight')
 
         await page.locator('[data-attr=preflight-experimentation]').click()
@@ -48,8 +48,8 @@ test.describe('Preflight', () => {
             await route.fulfill({ json: preflightSuccessResponse })
         })
 
-        // POST logout since Django 5 requires POST for logout
-        await page.goto('/login') // Go to login instead as these are preflight tests
+        // Clear session cookies instead of logout for preflight tests
+        await page.context().clearCookies()
         await page.goto('/preflight')
 
         await page.locator('[data-attr=preflight-live]').click()
@@ -67,8 +67,8 @@ test.describe('Preflight', () => {
             await route.fulfill({ json: { ...preflightSuccessResponse, celery: false } })
         })
 
-        // POST logout since Django 5 requires POST for logout
-        await page.goto('/login') // Go to login instead as these are preflight tests
+        // Clear session cookies instead of logout for preflight tests
+        await page.context().clearCookies()
         await page.goto('/preflight')
 
         await page.locator('[data-attr=preflight-live]').click()
