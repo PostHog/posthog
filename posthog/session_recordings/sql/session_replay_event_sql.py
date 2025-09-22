@@ -156,8 +156,8 @@ def SESSION_REPLAY_EVENTS_TABLE_MV_SQL(on_cluster=True, exclude_columns=None):
 `event_count` Int64,
 `snapshot_source` AggregateFunction(argMin, LowCardinality(Nullable(String)), DateTime64(6, 'UTC')),
 `snapshot_library` AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')),
-`_timestamp` Nullable(DateTime),
-{'`retention_period_days` SimpleAggregateFunction(max, Nullable(Int64))' if 'retention_period_days' not in exclude_columns else ''}
+`_timestamp` Nullable(DateTime)
+{',`retention_period_days` SimpleAggregateFunction(max, Nullable(Int64))' if 'retention_period_days' not in exclude_columns else ''}
 )"""
 
     return f"""
@@ -196,8 +196,8 @@ sum(message_count) as message_count,
 sum(event_count) as event_count,
 argMinState(snapshot_source, first_timestamp) as snapshot_source,
 argMinState(snapshot_library, first_timestamp) as snapshot_library,
-max(_timestamp) as _timestamp,
-{'max(retention_period_days) as retention_period_days' if 'retention_period_days' not in exclude_columns else ''}
+max(_timestamp) as _timestamp
+{',max(retention_period_days) as retention_period_days' if 'retention_period_days' not in exclude_columns else ''}
 FROM {database}.kafka_session_replay_events
 group by session_id, team_id
 """
