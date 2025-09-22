@@ -1,6 +1,6 @@
 import { BindLogic, useValues } from 'kea'
 
-import { Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { humanFriendlyLargeNumber } from 'lib/utils'
@@ -139,6 +139,9 @@ const ListOptions = (): JSX.Element => {
             ) : (
                 <IssueQueryOptions />
             )}
+            <LemonBanner type="info" action={{ children: 'Send feedback', id: 'revenue-analytics-feedback-button' }}>
+                Revenue sorting is currently experimental. We're keen to hear feedback or any issues you have using it
+            </LemonBanner>
         </SceneStickyBar>
     )
 }
