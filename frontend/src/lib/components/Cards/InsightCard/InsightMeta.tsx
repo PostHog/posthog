@@ -1,7 +1,9 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
+import posthog from 'posthog-js'
 import React from 'react'
 
+import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { accessLevelSatisfied } from 'lib/components/AccessControlAction'
@@ -33,6 +35,8 @@ import { isDataVisualizationNode } from '~/queries/utils'
 import {
     AccessControlLevel,
     AccessControlResourceType,
+    DashboardPlacement,
+    DashboardTile,
     ExporterFormat,
     InsightColor,
     QueryBasedInsightModel,
@@ -62,13 +66,16 @@ interface InsightMetaProps
         | 'moreButtons'
         | 'filtersOverride'
         | 'variablesOverride'
+        | 'placement'
     > {
+    tile?: DashboardTile<QueryBasedInsightModel>
     insight: QueryBasedInsightModel
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
 }
 
 export function InsightMeta({
+    tile,
     insight,
     ribbonColor,
     dashboardId,
@@ -90,6 +97,7 @@ export function InsightMeta({
     showEditingControls = true,
     showDetailsControls = true,
     moreButtons,
+    placement,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, dashboards, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
     const { insightProps } = useValues(insightLogic)
@@ -125,6 +133,37 @@ export function InsightMeta({
     const canAccessTileOverrides = !!featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_OVERRIDES]
 
     const summary = useSummarizeInsight()(insight.query)
+
+    // Feedback buttons for Customer Analytics
+    const feedbackButtons =
+        placement === DashboardPlacement.CustomerAnalytics && featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] ? (
+            <div className="flex gap-0">
+                <LemonButton
+                    size="small"
+                    icon={<IconThumbsUp />}
+                    onClick={() => {
+                        posthog.capture('customer-analytics-insight-liked', {
+                            insight_id: insight.short_id,
+                            insight_name: insight.name,
+                            dashboard_id: dashboardId,
+                        })
+                    }}
+                    tooltip="Like this insight"
+                />
+                <LemonButton
+                    size="small"
+                    icon={<IconThumbsDown />}
+                    onClick={() => {
+                        posthog.capture('customer-analytics-insight-disliked', {
+                            insight_id: insight.short_id,
+                            insight_name: insight.name,
+                            dashboard_id: dashboardId,
+                        })
+                    }}
+                    tooltip="Dislike this insight"
+                />
+            </div>
+        ) : null
 
     // If user can't view the insight, show minimal interface
     if (!canViewInsight) {
@@ -169,10 +208,22 @@ export function InsightMeta({
             setAreDetailsShown={setAreDetailsShown}
             areDetailsShown={areDetailsShown}
             detailsTooltip="Show insight details, such as creator, last edit, and applied filters."
-            topHeading={<TopHeading query={insight.query} lastRefresh={insight.last_refresh} />}
+            topHeading={
+                <TopHeading
+                    query={insight.query}
+                    lastRefresh={insight.last_refresh}
+                    hasTileOverrides={Object.keys(tile?.filters_overrides ?? {}).length > 0}
+                />
+            }
             content={
                 <InsightMetaContent
-                    link={urls.insightView(short_id, dashboardId, variablesOverride, filtersOverride)}
+                    link={urls.insightView(
+                        short_id,
+                        dashboardId,
+                        variablesOverride,
+                        filtersOverride,
+                        tile?.filters_overrides
+                    )}
                     title={name}
                     fallbackTitle={summary}
                     description={insight.description}
@@ -203,7 +254,7 @@ export function InsightMeta({
                             <LemonButton onClick={rename} fullWidth>
                                 Rename
                             </LemonButton>
-                            {canAccessTileOverrides && (
+                            {canAccessTileOverrides && tile && (
                                 <LemonButton onClick={setOverride} fullWidth>
                                     Set override
                                 </LemonButton>
@@ -372,6 +423,7 @@ export function InsightMeta({
             moreTooltip={
                 canEditInsight ? 'Rename, duplicate, export, refresh and more…' : 'Duplicate, export, refresh and more…'
             }
+            extraControls={feedbackButtons}
         />
     )
 }

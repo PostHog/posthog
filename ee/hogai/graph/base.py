@@ -1,6 +1,6 @@
-from abc import ABC
+from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
-from typing import Any, Generic, Literal, Union, cast
+from typing import Any, Generic, Literal, Union
 from uuid import UUID
 
 from langchain_core.runnables import RunnableConfig
@@ -38,13 +38,9 @@ class BaseAssistantNode(Generic[StateType, PartialStateType], AssistantContextMi
         self._user = user
 
     @property
-    def node_name(self) -> MaxNodeName | None:
-        """
-        The identifier for this node in the graph.
-        """
-        if not self.config:
-            return None
-        return cast(MaxNodeName, self.config.get("metadata", {}).get("langgraph_node"))
+    @abstractmethod
+    def node_name(self) -> MaxNodeName:
+        raise NotImplementedError
 
     async def __call__(self, state: StateType, config: RunnableConfig) -> PartialStateType | None:
         """

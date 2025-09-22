@@ -98,7 +98,7 @@ pub struct Config {
     #[envconfig(default = "3")]
     pub max_concurrent_checkpoints: usize,
 
-    #[envconfig(default = "./checkpoints")]
+    #[envconfig(default = "/tmp/checkpoints")]
     pub local_checkpoint_dir: String,
 
     pub s3_bucket: Option<String>,
