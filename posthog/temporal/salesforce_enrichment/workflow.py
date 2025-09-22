@@ -8,12 +8,12 @@ import dataclasses
 
 from django.db import close_old_connections
 
-from structlog import get_logger
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.logger import get_logger
 
 from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE, SALESFORCE_ACCOUNTS_QUERY
 from ee.billing.salesforce_enrichment.enrichment import enrich_accounts_chunked_async
@@ -135,7 +135,7 @@ class SalesforceEnrichmentAsyncWorkflow(PostHogWorkflow):
         # Cache all accounts in Redis (if not already cached)
         cache_result = await workflow.execute_activity(
             cache_all_accounts_activity,
-            start_to_close_timeout=dt.timedelta(minutes=2),  # should take 10-30s if querying Salesforce
+            start_to_close_timeout=dt.timedelta(minutes=10),  # should take 10-30s if querying Salesforce
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
