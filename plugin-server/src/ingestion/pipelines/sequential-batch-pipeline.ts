@@ -58,12 +58,4 @@ export class SequentialBatchPipeline<TInput, TIntermediate, TOutput> implements 
             }
         })
     }
-
-    static from<TInput, TIntermediate, TOutput>(
-        step: BatchProcessingStep<TIntermediate, TOutput>,
-        subPipeline: BatchPipeline<TInput, TIntermediate>
-    ): SequentialBatchPipeline<TInput, TIntermediate, TOutput> {
-        const pipeline = subPipeline
-        return new SequentialBatchPipeline<TInput, TIntermediate, TOutput>(step, pipeline)
-    }
 }

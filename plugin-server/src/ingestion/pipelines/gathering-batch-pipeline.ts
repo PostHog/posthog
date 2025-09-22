@@ -40,6 +40,6 @@ export class GatheringBatchPipeline<TInput, TOutput> implements BatchPipeline<TI
     }
 
     pipeBatch<U>(step: BatchProcessingStep<TOutput, U>): SequentialBatchPipeline<TInput, TOutput, U> {
-        return SequentialBatchPipeline.from(step, this)
+        return new SequentialBatchPipeline(step, this)
     }
 }

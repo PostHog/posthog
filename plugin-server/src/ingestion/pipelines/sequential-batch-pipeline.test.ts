@@ -14,7 +14,7 @@ describe('SequentialBatchPipeline', () => {
 
             const batch = createBatch(messages)
             const rootPipeline = createNewBatchPipeline()
-            const pipeline = SequentialBatchPipeline.from((items: any[]) => {
+            const pipeline = new SequentialBatchPipeline((items: any[]) => {
                 return Promise.resolve(items.map((item: any) => ok({ processed: item.message.value?.toString() })))
             }, rootPipeline)
 
@@ -29,7 +29,7 @@ describe('SequentialBatchPipeline', () => {
 
         it('should handle empty batch', async () => {
             const rootPipeline = createNewBatchPipeline()
-            const pipeline = SequentialBatchPipeline.from((items: any[]) => {
+            const pipeline = new SequentialBatchPipeline((items: any[]) => {
                 return Promise.resolve(items.map((item: any) => ok(item)))
             }, rootPipeline)
 
@@ -50,7 +50,7 @@ describe('SequentialBatchPipeline', () => {
 
             const batch = createBatch(messages)
             const rootPipeline = createNewBatchPipeline()
-            const pipeline = SequentialBatchPipeline.from((items: any[]) => {
+            const pipeline = new SequentialBatchPipeline((items: any[]) => {
                 return Promise.resolve(
                     items.map((item: any) => ok({ count: parseInt(item.message.value?.toString() || '0') * 2 }))
                 )
@@ -76,7 +76,7 @@ describe('SequentialBatchPipeline', () => {
 
             const batch = createBatch(messages)
             const rootPipeline = createNewBatchPipeline()
-            const firstPipeline = SequentialBatchPipeline.from((items: any[]) => {
+            const firstPipeline = new SequentialBatchPipeline((items: any[]) => {
                 return Promise.resolve(
                     items.map((item: any) => {
                         const value = item.message.value?.toString() || ''
@@ -91,7 +91,7 @@ describe('SequentialBatchPipeline', () => {
                 )
             }, rootPipeline)
 
-            const secondPipeline = SequentialBatchPipeline.from((items: any[]) => {
+            const secondPipeline = new SequentialBatchPipeline((items: any[]) => {
                 // Should only receive successful items
                 expect(items).toEqual([{ count: 1 }, { count: 3 }])
                 return Promise.resolve(items.map((item: any) => ok({ count: item.count * 2 })))
@@ -187,7 +187,7 @@ describe('SequentialBatchPipeline', () => {
 
             const batch = createBatch(messages)
             const rootPipeline = createNewBatchPipeline()
-            const pipeline = SequentialBatchPipeline.from(() => {
+            const pipeline = new SequentialBatchPipeline(() => {
                 return Promise.reject(new Error('Batch step failed'))
             }, rootPipeline)
 
