@@ -1,5 +1,5 @@
 /* oxlint-disable no-restricted-imports */
-import { ChartType, DefaultDataPoint, Chart as RawChart, Tooltip, registerables } from 'chart.js'
+import { ChartType, DefaultDataPoint, Plugin, Chart as RawChart, Tooltip, registerables } from 'chart.js'
 import CrosshairPlugin from 'chartjs-plugin-crosshair'
 
 import { inStorybookTestRunner } from 'lib/utils'
@@ -8,7 +8,21 @@ if (registerables) {
     // required for storybook to work, not found in esbuild
     RawChart.register(...registerables)
 }
-RawChart.register(CrosshairPlugin)
+
+const CustomCrosshairPlugin = function (plugin: Plugin<'line'>): Plugin<'line'> {
+    const originalAfterDraw = plugin.afterDraw
+    if (originalAfterDraw == null) {
+        return plugin
+    }
+    plugin.afterDraw = function (chart, easing, options) {
+        // chart object has a non-standard crosshair property
+        if (chart && (chart as any).crosshair) {
+            originalAfterDraw.call(this, chart, easing, options)
+        }
+    }
+    return plugin
+}
+RawChart.register(CustomCrosshairPlugin(CrosshairPlugin))
 RawChart.defaults.animation['duration'] = 0
 
 // Create positioner to put tooltip at cursor position
