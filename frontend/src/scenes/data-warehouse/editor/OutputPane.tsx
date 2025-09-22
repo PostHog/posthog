@@ -23,9 +23,11 @@ import { LemonButton, LemonDivider, LemonModal, LemonTable, Tooltip } from '@pos
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { IconTableChart } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
@@ -35,6 +37,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'
+import { QueryExecutionDetails } from '~/queries/nodes/DataNode/QueryExecutionDetails'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { LineGraph } from '~/queries/nodes/DataVisualization/Components/Charts/LineGraph'
 import { SideBar } from '~/queries/nodes/DataVisualization/Components/SideBar'
@@ -255,21 +258,14 @@ function RowDetailsModal({ isOpen, onClose, row, columns }: RowDetailsModalProps
     )
 }
 
-export function OutputPane(): JSX.Element {
+export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
     const { activeTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
     const { editingView } = useValues(multitabEditorLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
-    const {
-        sourceQuery,
-        exportContext,
-        editorKey,
-        editingInsight,
-        updateInsightButtonEnabled,
-        showLegacyFilters,
-        localStorageResponse,
-        queryInput,
-    } = useValues(multitabEditorLogic)
+    const { sourceQuery, exportContext, editingInsight, updateInsightButtonEnabled, showLegacyFilters, queryInput } =
+        useValues(multitabEditorLogic)
     const { saveAsInsight, updateInsight, setSourceQuery, runQuery, shareTab } = useActions(multitabEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
@@ -282,7 +278,7 @@ export function OutputPane(): JSX.Element {
     const { queryCancelled } = useValues(dataVisualizationLogic)
     const { toggleChartSettingsPanel } = useActions(dataVisualizationLogic)
 
-    const response = (dataNodeResponse ?? localStorageResponse) as HogQLQueryResponse | undefined
+    const response = dataNodeResponse as HogQLQueryResponse | undefined
 
     const [progressCache, setProgressCache] = useState<Record<string, number>>({})
 
@@ -610,16 +606,16 @@ export function OutputPane(): JSX.Element {
                     saveAsInsight={saveAsInsight}
                     queryId={queryId}
                     pollResponse={pollResponse}
-                    editorKey={editorKey}
+                    tabId={tabId}
                     setProgress={setProgress}
                     progress={queryId ? progressCache[queryId] : undefined}
                 />
             </div>
             <div className="flex justify-between px-2 border-t">
-                <div>
-                    {response && !responseError ? <LoadPreviewText localResponse={localStorageResponse} /> : <></>}
+                <div>{response && !responseError ? <LoadPreviewText localResponse={response} /> : <></>}</div>
+                <div className="flex items-center gap-4">
+                    {featureFlags[FEATURE_FLAGS.QUERY_EXECUTION_DETAILS] ? <QueryExecutionDetails /> : <ElapsedTime />}
                 </div>
-                <ElapsedTime />
             </div>
             <RowDetailsModal
                 isOpen={!!selectedRow}
@@ -744,7 +740,7 @@ const Content = ({
     rows,
     isDarkModeOn,
     vizKey,
-    editorKey,
+    tabId,
     setSourceQuery,
     exportContext,
     saveAsInsight,
@@ -786,7 +782,7 @@ const Content = ({
         return (
             <TabScroller>
                 <div className="px-6 py-4 border-t">
-                    <QueryInfo codeEditorKey={editorKey} />
+                    <QueryInfo tabId={tabId} />
                 </div>
             </TabScroller>
         )

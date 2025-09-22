@@ -1,6 +1,7 @@
 import hmac
 import json
 import time
+import base64
 import hashlib
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -16,6 +17,7 @@ import structlog
 from google.auth.transport.requests import Request as GoogleRequest
 from google.oauth2 import service_account
 from prometheus_client import Counter
+from requests.auth import HTTPBasicAuth
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -66,6 +68,7 @@ class Integration(models.Model):
         GOOGLE_SHEETS = "google-sheets"
         SNAPCHAT = "snapchat"
         LINKEDIN_ADS = "linkedin-ads"
+        REDDIT_ADS = "reddit-ads"
         INTERCOM = "intercom"
         EMAIL = "email"
         LINEAR = "linear"
@@ -153,6 +156,7 @@ class OauthIntegration:
         "google-sheets",
         "snapchat",
         "linkedin-ads",
+        "reddit-ads",
         "meta-ads",
         "intercom",
         "linear",
@@ -295,7 +299,7 @@ class OauthIntegration:
                 token_url="https://www.linkedin.com/oauth/v2/accessToken",
                 client_id=settings.LINKEDIN_APP_CLIENT_ID,
                 client_secret=settings.LINKEDIN_APP_CLIENT_SECRET,
-                scope="r_ads rw_conversions openid profile email",
+                scope="r_ads rw_conversions r_ads_reporting openid profile email",
                 id_path="sub",
                 name_path="email",
             )
@@ -350,6 +354,20 @@ class OauthIntegration:
                 id_path="id",
                 name_path="name",
             )
+        elif kind == "reddit-ads":
+            if not settings.REDDIT_ADS_CLIENT_ID or not settings.REDDIT_ADS_CLIENT_SECRET:
+                raise NotImplementedError("Reddit Ads app not configured")
+
+            return OauthConfig(
+                authorize_url="https://www.reddit.com/api/v1/authorize",
+                token_url="https://www.reddit.com/api/v1/access_token",
+                client_id=settings.REDDIT_ADS_CLIENT_ID,
+                client_secret=settings.REDDIT_ADS_CLIENT_SECRET,
+                scope="read adsread adsconversions history adsedit",
+                id_path="reddit_user_id",  # We'll extract this from JWT
+                name_path="reddit_user_id",  # Same as ID for Reddit
+                additional_authorize_params={"duration": "permanent"},
+            )
         elif kind == "clickup":
             if not settings.CLICKUP_APP_CLIENT_ID or not settings.CLICKUP_APP_CLIENT_SECRET:
                 raise NotImplementedError("ClickUp app not configured")
@@ -393,16 +411,30 @@ class OauthIntegration:
         cls, kind: str, team_id: int, created_by: User, params: dict[str, str]
     ) -> Integration:
         oauth_config = cls.oauth_config_for_kind(kind)
-        res = requests.post(
-            oauth_config.token_url,
-            data={
-                "client_id": oauth_config.client_id,
-                "client_secret": oauth_config.client_secret,
-                "code": params["code"],
-                "redirect_uri": OauthIntegration.redirect_uri(kind),
-                "grant_type": "authorization_code",
-            },
-        )
+
+        # Reddit uses HTTP Basic Auth https://github.com/reddit-archive/reddit/wiki/OAuth2 and requires a User-Agent header
+        if kind == "reddit-ads":
+            res = requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
+                data={
+                    "code": params["code"],
+                    "redirect_uri": OauthIntegration.redirect_uri(kind),
+                    "grant_type": "authorization_code",
+                },
+                headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
+            )
+        else:
+            res = requests.post(
+                oauth_config.token_url,
+                data={
+                    "client_id": oauth_config.client_id,
+                    "client_secret": oauth_config.client_secret,
+                    "code": params["code"],
+                    "redirect_uri": OauthIntegration.redirect_uri(kind),
+                    "grant_type": "authorization_code",
+                },
+            )
 
         config: dict = res.json()
 
@@ -451,6 +483,27 @@ class OauthIntegration:
                         config[field] = dot_get(data, field)
 
         integration_id = dot_get(config, oauth_config.id_path)
+
+        # Reddit access token is a JWT, extract user ID from it
+        if kind == "reddit-ads" and not integration_id:
+            try:
+                access_token = config.get("access_token")
+                if access_token:
+                    # Split JWT and get payload (middle part)
+                    parts = access_token.split(".")
+                    if len(parts) >= 2:
+                        payload = parts[1]
+                        # Decode JWT payload (handle missing padding)
+                        decoded = base64.urlsafe_b64decode(payload + "===")
+                        jwt_data = json.loads(decoded)
+
+                        # Extract user ID from JWT (lid = login ID)
+                        reddit_user_id = jwt_data.get("lid", jwt_data.get("aid"))
+                        if reddit_user_id:
+                            config["reddit_user_id"] = reddit_user_id
+                            integration_id = reddit_user_id
+            except Exception as e:
+                logger.exception("Failed to decode Reddit JWT", error=str(e))
 
         if isinstance(integration_id, int):
             integration_id = str(integration_id)
@@ -519,15 +572,28 @@ class OauthIntegration:
 
         oauth_config = self.oauth_config_for_kind(self.integration.kind)
 
-        res = requests.post(
-            oauth_config.token_url,
-            data={
-                "client_id": oauth_config.client_id,
-                "client_secret": oauth_config.client_secret,
-                "refresh_token": self.integration.sensitive_config["refresh_token"],
-                "grant_type": "refresh_token",
-            },
-        )
+        # Reddit uses HTTP Basic Auth for token refresh
+        if self.integration.kind == "reddit-ads":
+            res = requests.post(
+                oauth_config.token_url,
+                auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
+                data={
+                    "refresh_token": self.integration.sensitive_config["refresh_token"],
+                    "grant_type": "refresh_token",
+                },
+                # If I use a standard User-Agent, it will throw a 429 too many requests error
+                headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
+            )
+        else:
+            res = requests.post(
+                oauth_config.token_url,
+                data={
+                    "client_id": oauth_config.client_id,
+                    "client_secret": oauth_config.client_secret,
+                    "refresh_token": self.integration.sensitive_config["refresh_token"],
+                    "grant_type": "refresh_token",
+                },
+            )
 
         config: dict = res.json()
 
@@ -1141,13 +1207,7 @@ class GitHubIntegration:
         if not github_app_private_key:
             raise ValidationError("GITHUB_APP_PRIVATE_KEY is not configured")
 
-        # Handle common newline encoding issues in environment variables
-        # Replace literal \n with actual newlines
-        github_app_private_key = github_app_private_key.replace("\\n", "\n")
-
-        # Check if the private key has the proper PEM format
-        if not github_app_private_key.strip().startswith("-----BEGIN"):
-            raise ValidationError("GITHUB_APP_PRIVATE_KEY is not in proper PEM format. It should start with -----BEGIN")
+        github_app_private_key = github_app_private_key.replace("\\n", "\n").strip()
 
         try:
             jwt_token = jwt.encode(
@@ -1239,6 +1299,8 @@ class GitHubIntegration:
             logger.warning(f"Failed to refresh token for {self}", response=response.text)
             self.integration.errors = ERROR_TOKEN_REFRESH_FAILED
             oauth_refresh_counter.labels(self.integration.kind, "failed").inc()
+            self.integration.save()
+            raise Exception(f"Failed to refresh token for {self}: {response.text}")
         else:
             logger.info(f"Refreshed access token for {self}")
             expires_in = datetime.fromisoformat(config["expires_at"]).timestamp() - int(time.time())
@@ -1247,25 +1309,63 @@ class GitHubIntegration:
             self.integration.sensitive_config["access_token"] = config["token"]
             reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
             oauth_refresh_counter.labels(self.integration.kind, "success").inc()
-        self.integration.save()
+            self.integration.save()
 
     def organization(self) -> str:
         return dot_get(self.integration.config, "account.name")
 
     def list_repositories(self, page: int = 1) -> list[str]:
-        access_token = self.integration.sensitive_config["access_token"]
+        # Proactively refresh token if it's close to expiring to avoid intermittent 401s
+        try:
+            if self.access_token_expired():
+                self.refresh_access_token()
+        except Exception:
+            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
 
-        response = requests.get(
-            f"https://api.github.com/installation/repositories?page={page}&per_page=100",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
+        def fetch() -> requests.Response:
+            access_token = self.integration.sensitive_config.get("access_token")
+            return requests.get(
+                f"https://api.github.com/installation/repositories?page={page}&per_page=100",
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": "2022-11-28",
+                },
+            )
+
+        response = fetch()
+
+        # If unauthorized, try a single refresh and retry
+        if response.status_code == 401:
+            try:
+                self.refresh_access_token()
+            except Exception:
+                logger.warning("GitHubIntegration: token refresh after 401 failed", exc_info=True)
+            else:
+                response = fetch()
+
+        try:
+            body = response.json()
+        except Exception:
+            logger.warning(
+                "GitHubIntegration: list_repositories non-JSON response",
+                status_code=response.status_code,
+            )
+            return []
+
+        repositories = body.get("repositories")
+        if response.status_code == 200 and isinstance(repositories, list):
+            names: list[str] = [
+                repo["name"] for repo in repositories if isinstance(repo, dict) and isinstance(repo.get("name"), str)
+            ]
+            return names
+
+        logger.warning(
+            "GitHubIntegration: failed to list repositories",
+            status_code=response.status_code,
+            error=body if isinstance(body, dict) else None,
         )
-
-        repositories = response.json()["repositories"]
-        return [repo["name"] for repo in repositories]
+        return []
 
     def create_issue(self, config: dict[str, str]):
         title: str = config.pop("title")
@@ -1385,8 +1485,6 @@ class GitHubIntegration:
             )
             if get_response.status_code == 200:
                 sha = get_response.json()["sha"]
-
-        import base64
 
         encoded_content = base64.b64encode(content.encode("utf-8")).decode("utf-8")
 

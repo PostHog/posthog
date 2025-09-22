@@ -9,6 +9,7 @@ from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.cdp.filters import compile_filters_bytecode, hog_function_filters_to_expr
 from posthog.models.action.action import Action
 
+from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
 
@@ -68,10 +69,12 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         return json.loads(json.dumps(create_bytecode(res).bytecode))
 
     def test_filters_empty(self):
-        assert self.filters_to_bytecode(filters={}) == snapshot(["_H", HOGQL_BYTECODE_VERSION, 29])
+        bytecode = self.filters_to_bytecode(filters={})
+        assert bytecode == snapshot(["_H", HOGQL_BYTECODE_VERSION, 29])
+        assert execute_bytecode(bytecode, {}).result is True
 
     def test_filters_all_events(self):
-        assert self.filters_to_bytecode(
+        bytecode = self.filters_to_bytecode(
             filters={
                 "events": [
                     {
@@ -82,7 +85,10 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
                     }
                 ]
             }
-        ) == snapshot(["_H", HOGQL_BYTECODE_VERSION, 33, 1])
+        )
+        assert bytecode == snapshot(["_H", HOGQL_BYTECODE_VERSION, 29])
+
+        assert execute_bytecode(bytecode, {}).result is True
 
     def test_filters_raises_on_select(self):
         response = compile_filters_bytecode(

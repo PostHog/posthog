@@ -18,10 +18,15 @@ import { formatLLMCost, formatLLMLatency, formatLLMUsage, normalizeMessages, rem
 
 export function LLMAnalyticsTraces(): JSX.Element {
     const { setDates, setShouldFilterTestAccounts, setPropertyFilters, setTracesQuery } = useActions(llmAnalyticsLogic)
+
     const { tracesQuery } = useValues(llmAnalyticsLogic)
+
     return (
         <DataTable
-            query={tracesQuery}
+            query={{
+                ...tracesQuery,
+                showSavedFilters: true,
+            }}
             setQuery={(query) => {
                 if (!isTracesQuery(query.source)) {
                     throw new Error('Invalid query')

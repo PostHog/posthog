@@ -19,9 +19,10 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import format_events_yaml
+from ee.hogai.utils.types.composed import MaxNodeName
 
 from ..base import BaseAssistantNode
-from ..mixins import StateClassMixin
+from ..mixins import StateClassMixin, TaxonomyReasoningNodeMixin
 from .prompts import (
     HUMAN_IN_THE_LOOP_PROMPT,
     ITERATION_LIMIT_PROMPT,
@@ -31,20 +32,30 @@ from .prompts import (
 )
 from .toolkit import TaxonomyAgentToolkit
 from .tools import TaxonomyTool
-from .types import EntityType, TaxonomyAgentState
+from .types import EntityType, TaxonomyAgentState, TaxonomyNodeName
 
 TaxonomyStateType = TypeVar("TaxonomyStateType", bound=TaxonomyAgentState)
 TaxonomyPartialStateType = TypeVar("TaxonomyPartialStateType", bound=TaxonomyAgentState)
 TaxonomyNodeBound = BaseAssistantNode[TaxonomyStateType, TaxonomyPartialStateType]
 
 
-class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], TaxonomyNodeBound, StateClassMixin, ABC):
+class TaxonomyAgentNode(
+    Generic[TaxonomyStateType, TaxonomyPartialStateType],
+    TaxonomyNodeBound,
+    StateClassMixin,
+    TaxonomyReasoningNodeMixin,
+    ABC,
+):
     """Base node for taxonomy agents."""
 
     def __init__(self, team: Team, user: User, toolkit_class: type["TaxonomyAgentToolkit"]):
         super().__init__(team, user)
         self._toolkit = toolkit_class(team=team)
         self._state_class, self._partial_state_class = self._get_state_class(TaxonomyAgentNode)
+
+    @property
+    def node_name(self) -> MaxNodeName:
+        return TaxonomyNodeName.LOOP_NODE
 
     @cached_property
     def _team_group_types(self) -> list[str]:
@@ -136,7 +147,9 @@ class TaxonomyAgentNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], Ta
         )
 
 
-class TaxonomyAgentToolsNode(Generic[TaxonomyStateType, TaxonomyPartialStateType], TaxonomyNodeBound, StateClassMixin):
+class TaxonomyAgentToolsNode(
+    Generic[TaxonomyStateType, TaxonomyPartialStateType], TaxonomyNodeBound, StateClassMixin, TaxonomyReasoningNodeMixin
+):
     """Base tools node for taxonomy agents."""
 
     MAX_ITERATIONS = 10
@@ -145,6 +158,10 @@ class TaxonomyAgentToolsNode(Generic[TaxonomyStateType, TaxonomyPartialStateType
         super().__init__(team, user)
         self._toolkit = toolkit_class(team=team)
         self._state_class, self._partial_state_class = self._get_state_class(TaxonomyAgentToolsNode)
+
+    @property
+    def node_name(self) -> MaxNodeName:
+        return TaxonomyNodeName.TOOLS_NODE
 
     def run(self, state: TaxonomyStateType, config: RunnableConfig) -> TaxonomyPartialStateType:
         intermediate_steps = state.intermediate_steps or []

@@ -82,13 +82,6 @@ from posthog.queries.trends.lifecycle_actors import LifecycleActors
 from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.util import get_earliest_timestamp
 from posthog.renderers import SafeJSONRenderer
-from posthog.tasks.calculate_cohort import (
-    calculate_cohort_from_list,
-    increment_version_and_enqueue_calculate_cohort,
-    insert_cohort_from_feature_flag,
-    insert_cohort_from_insight_filter,
-    insert_cohort_from_query,
-)
 from posthog.utils import format_query_params_absolute_url
 
 
@@ -190,17 +183,14 @@ logger = structlog.get_logger(__name__)
 class CSVConfig:
     """Configuration constants for CSV processing"""
 
+    PERSON_ID_HEADERS = ["person_id", "person-id", "Person .id"]
     DISTINCT_ID_HEADERS = ["distinct_id", "distinct-id"]
     ENCODING = "utf-8"
 
     class ErrorMessages:
         EMPTY_FILE = "CSV file is empty. Please upload a CSV file with at least one row of data."
-        MISSING_DISTINCT_ID = (
-            "Multi-column CSV must contain a 'distinct_id' or 'distinct-id' column header. Found columns: {columns}"
-        )
-        NO_VALID_IDS = (
-            "CSV file contains no valid distinct IDs. Please ensure your file has data rows with distinct IDs."
-        )
+        MISSING_ID_COLUMN = "Multi-column CSV must contain at least one column with a supported ID header: 'person_id', 'Person .id' (PostHog export format), 'distinct_id', or 'distinct-id'. Found columns: {columns}"
+        NO_VALID_IDS = "CSV file contains no valid person or distinct IDs. Please ensure your file has data rows with person IDs or distinct IDs."
         ENCODING_ERROR = "CSV file encoding is not supported. Please save your file as UTF-8 and try again."
         FORMAT_ERROR = "CSV file format is invalid. Please check your file format and try again."
         GENERIC_ERROR = "An error occurred while processing your CSV file. Please try again or contact support if the problem persists."
@@ -210,6 +200,7 @@ class CohortSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     earliest_timestamp_func = get_earliest_timestamp
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    _create_static_person_ids = serializers.ListField(required=False, child=serializers.CharField(), write_only=True)
 
     # If this cohort is an exposure cohort for an experiment
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
@@ -234,6 +225,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "cohort_type",
             "experiment_set",
             "_create_in_folder",
+            "_create_static_person_ids",
         ]
         read_only_fields = [
             "id",
@@ -271,10 +263,25 @@ class CohortSerializer(serializers.ModelSerializer):
 
         return value
 
-    def _handle_static(self, cohort: Cohort, context: dict, validated_data: dict) -> None:
+    def _handle_static(self, cohort: Cohort, context: dict, validated_data: dict, person_ids: list[str] | None) -> None:
+        from posthog.tasks.calculate_cohort import (
+            insert_cohort_from_feature_flag,
+            insert_cohort_from_insight_filter,
+            insert_cohort_from_query,
+        )
+
         request = self.context["request"]
-        if request.FILES.get("csv"):
-            self._calculate_static_by_csv(request.FILES["csv"], cohort)
+        if request.FILES.get("csv") or person_ids is not None:
+            if person_ids is not None:
+                uuids = [
+                    str(uuid)
+                    for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
+                    .filter(team_id=self.context["team_id"], uuid__in=person_ids)
+                    .values_list("uuid", flat=True)
+                ]
+                cohort.insert_users_list_by_uuid(uuids, team_id=self.context["team_id"])
+            if request.FILES.get("csv"):
+                self._calculate_static_by_csv(request.FILES["csv"], cohort)
         elif context.get("from_feature_flag_key"):
             insert_cohort_from_feature_flag.delay(cohort.pk, context["from_feature_flag_key"], self.context["team_id"])
         elif validated_data.get("query"):
@@ -296,14 +303,16 @@ class CohortSerializer(serializers.ModelSerializer):
             validated_data["is_calculating"] = True
         if validated_data.get("query") and validated_data.get("filters"):
             raise ValidationError("Cannot set both query and filters at the same time.")
-
+        person_ids = validated_data.pop("_create_static_person_ids", None)
         cohort = Cohort.objects.create(team_id=self.context["team_id"], **validated_data)
 
         if cohort.is_static:
-            self._handle_static(cohort, self.context, validated_data)
+            self._handle_static(cohort, self.context, validated_data, person_ids)
         elif cohort.query is not None:
             raise ValidationError("Cannot create a dynamic cohort with a query. Set is_static to true.")
         else:
+            from posthog.tasks.calculate_cohort import increment_version_and_enqueue_calculate_cohort
+
             increment_version_and_enqueue_calculate_cohort(cohort, initiating_user=request.user)
 
         report_user_action(request.user, "cohort created", cohort.get_analytics_metadata())
@@ -329,17 +338,39 @@ class CohortSerializer(serializers.ModelSerializer):
         non_empty_cols = [col for col in first_row if col.strip()]
         return len(non_empty_cols) <= 1
 
-    def _find_distinct_id_column(self, headers: list[str]) -> int | None:
-        """Find the index of the distinct_id column in headers"""
-        normalized_headers = [h.lower().strip() for h in headers]
-        for i, header in enumerate(normalized_headers):
+    def _is_person_id_header(self, header: str) -> bool:
+        """Check if header indicates person_id column"""
+        person_id_headers_lower = [h.lower() for h in CSVConfig.PERSON_ID_HEADERS]
+        return header.strip().lower() in person_id_headers_lower
+
+    def _find_id_column(self, headers: list[str]) -> tuple[int, str] | None:
+        """Find the index and type of the ID column in headers with person_id preference over distinct_id"""
+        normalized_headers = [h.strip() for h in headers]
+        normalized_lower_headers = [h.lower() for h in normalized_headers]
+
+        # First, look for person_id columns (preferred) - use case-insensitive matching
+        person_id_headers_lower = [h.lower() for h in CSVConfig.PERSON_ID_HEADERS]
+        for i, header in enumerate(normalized_lower_headers):
+            if header in person_id_headers_lower:
+                return i, "person_id"
+
+        # Then, look for distinct_id columns
+        for i, header in enumerate(normalized_lower_headers):
             if header in CSVConfig.DISTINCT_ID_HEADERS:
-                return i
+                return i, "distinct_id"
+
         return None
 
-    def _extract_distinct_ids_single_column(self, first_row: list[str], reader: Iterator[list[str]]) -> list[str]:
+    def _extract_ids_single_column(
+        self, first_row: list[str], reader: Iterator[list[str]], skip_header: bool = False
+    ) -> list[str]:
         """Process single-column CSV format"""
-        distinct_ids = [first_row[0].strip()] if first_row and first_row[0].strip() != "" else []
+        distinct_ids = []
+
+        # Include first row only if it's not a header
+        if not skip_header and first_row and first_row[0].strip() != "":
+            distinct_ids.append(first_row[0].strip())
+
         for row in reader:
             if len(row) > 0:
                 stripped_id = row[0].strip()
@@ -347,39 +378,43 @@ class CohortSerializer(serializers.ModelSerializer):
                     distinct_ids.append(stripped_id)
         return distinct_ids
 
-    def _extract_distinct_ids_multi_column(
-        self, reader: Iterator[list[str]], distinct_id_col: int, cohort_pk: int
-    ) -> list[str]:
+    def _extract_ids_multi_column(self, reader: Iterator[list[str]], id_col: int, cohort_pk: int) -> list[str]:
         """Process multi-column CSV format with robust error handling"""
-        distinct_ids = []
+        ids = []
         skipped_rows = 0
 
         for row in reader:
             # Skip rows with incorrect number of columns
-            if len(row) <= distinct_id_col:
+            if len(row) <= id_col:
                 skipped_rows += 1
                 continue
 
-            # Extract distinct ID if present and non-empty
-            distinct_id = row[distinct_id_col].strip()
-            if distinct_id != "":
-                distinct_ids.append(distinct_id)
+            # Extract ID if present and non-empty
+            id_value = row[id_col].strip()
+            if id_value != "":
+                ids.append(id_value)
 
         if skipped_rows > 0:
             logger.info(f"Skipped {skipped_rows} rows with incorrect column count in CSV for cohort {cohort_pk}")
 
-        return distinct_ids
+        return ids
 
-    def _validate_and_process_distinct_ids(self, distinct_ids: list[str], cohort: Cohort) -> None:
+    def _validate_and_process_ids(self, ids: list[str], id_type: str, cohort: Cohort) -> None:
         """Final validation and task scheduling"""
-        if not distinct_ids:
+        from posthog.tasks.calculate_cohort import calculate_cohort_from_list
+
+        if not ids:
             raise ValidationError({"csv": [CSVConfig.ErrorMessages.NO_VALID_IDS]})
 
-        logger.info(f"Processing CSV upload for cohort {cohort.pk} with {len(distinct_ids)} distinct IDs")
-        calculate_cohort_from_list.delay(cohort.pk, distinct_ids, team_id=self.context["team_id"])
+        logger.info(f"Processing CSV upload for cohort {cohort.pk} with {len(ids)} {id_type}s")
+        calculate_cohort_from_list.delay(cohort.pk, ids, team_id=self.context["team_id"], id_type=id_type)
 
     def _handle_csv_errors(self, e: Exception, cohort: Cohort) -> None:
         """Centralized error handling with consistent exception capture"""
+
+        # Reset calculating flag on error
+        cohort.is_calculating = False
+        cohort.save(update_fields=["is_calculating"])
 
         if isinstance(e, UnicodeDecodeError):
             raise ValidationError({"csv": [CSVConfig.ErrorMessages.ENCODING_ERROR]})
@@ -395,28 +430,41 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def _calculate_static_by_csv(self, file, cohort: Cohort) -> None:
         """Main orchestration method for CSV processing - clear high-level flow"""
+        # Set calculating flag immediately so UI shows loading state
+        cohort.is_calculating = True
+        cohort.save(update_fields=["is_calculating"])
+
         try:
             first_row, reader = self._parse_csv_file(file)
 
             if self._is_single_column_format(first_row):
-                distinct_ids = self._extract_distinct_ids_single_column(first_row, reader)
+                # Check if single column header indicates person_id
+                if first_row and self._is_person_id_header(first_row[0]):
+                    ids = self._extract_ids_single_column(first_row, reader, skip_header=True)
+                    id_type = "person_id"
+                else:
+                    # Single column format treated as distinct_ids for backwards compatibility
+                    ids = self._extract_ids_single_column(first_row, reader, skip_header=False)
+                    id_type = "distinct_id"
             else:
-                distinct_id_col = self._find_distinct_id_column(first_row)
-                if distinct_id_col is None:
+                result = self._find_id_column(first_row)
+
+                if result is None:
                     available_headers = [h for h in first_row if h.strip()]
                     raise ValidationError(
                         {
                             "csv": [
-                                CSVConfig.ErrorMessages.MISSING_DISTINCT_ID.format(
+                                CSVConfig.ErrorMessages.MISSING_ID_COLUMN.format(
                                     columns=", ".join(available_headers) if available_headers else "none"
                                 )
                             ]
                         }
                     )
 
-                distinct_ids = self._extract_distinct_ids_multi_column(reader, distinct_id_col, cohort.pk)
+                id_col, id_type = result
+                ids = self._extract_ids_multi_column(reader, id_col, cohort.pk)
 
-            self._validate_and_process_distinct_ids(distinct_ids, cohort)
+            self._validate_and_process_ids(ids, id_type, cohort)
 
         except Exception as e:
             self._handle_csv_errors(e, cohort)
@@ -561,6 +609,8 @@ class CohortSerializer(serializers.ModelSerializer):
         cohort.save()
 
         if not deleted_state:
+            from posthog.tasks.calculate_cohort import increment_version_and_enqueue_calculate_cohort
+
             if cohort.is_static:
                 # You can't update a static cohort using the trend/stickiness thing
                 if request.FILES.get("csv"):
@@ -796,7 +846,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         ]
         if len(uuids) == 0:
             raise ValidationError("No valid users to add to cohort")
-        cohort.insert_users_list_by_uuid(uuids, team_id=self.team_id, insert_in_clickhouse=True)
+        cohort.insert_users_list_by_uuid(uuids, team_id=self.team_id)
         log_activity(
             organization_id=cast(UUIDT, self.organization_id),
             team_id=self.team_id,
@@ -931,7 +981,7 @@ def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
         f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} where team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
         {"cohort_id": cohort.pk, "team_id": team_id},
     )
-    cohort.insert_users_list_by_uuid(items=[str(id[0]) for id in ids], team_id=team_id)
+    cohort.insert_users_list_by_uuid_into_pg_only(items=[str(id[0]) for id in ids], team_id=team_id)
 
 
 def insert_cohort_query_actors_into_ch(cohort: Cohort, *, team: Team):
@@ -1128,18 +1178,14 @@ def get_cohort_actors_for_feature_flag(cohort_id: int, flag: str, team_id: int, 
                     capture_exception(err)
 
                 if len(uuids_to_add_to_cohort) >= batchsize:
-                    cohort.insert_users_list_by_uuid(
-                        uuids_to_add_to_cohort, insert_in_clickhouse=True, batchsize=batchsize, team_id=team_id
-                    )
+                    cohort.insert_users_list_by_uuid(uuids_to_add_to_cohort, batchsize=batchsize, team_id=team_id)
                     uuids_to_add_to_cohort = []
 
             start += batchsize
             batch_of_persons = queryset[start : start + batchsize]
 
         if len(uuids_to_add_to_cohort) > 0:
-            cohort.insert_users_list_by_uuid(
-                uuids_to_add_to_cohort, insert_in_clickhouse=True, batchsize=batchsize, team_id=team_id
-            )
+            cohort.insert_users_list_by_uuid(uuids_to_add_to_cohort, batchsize=batchsize, team_id=team_id)
 
     except Exception as err:
         if settings.DEBUG or settings.TEST:

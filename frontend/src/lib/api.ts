@@ -2,11 +2,6 @@ import { EventSourceMessage, fetchEventSource } from '@microsoft/fetch-event-sou
 import { encodeParams } from 'kea-router'
 import posthog from 'posthog-js'
 
-import {
-    ErrorTrackingRule,
-    ErrorTrackingRuleType,
-} from '@posthog/products-error-tracking/frontend/configuration/rules/types'
-
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { dayjs } from 'lib/dayjs'
@@ -163,6 +158,10 @@ import {
     UserType,
 } from '~/types'
 
+import {
+    ErrorTrackingRule,
+    ErrorTrackingRuleType,
+} from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import { HogflowTestResult } from 'products/messaging/frontend/Campaigns/hogflows/steps/types'
 import { HogFlow } from 'products/messaging/frontend/Campaigns/hogflows/types'
 import { OptOutEntry } from 'products/messaging/frontend/OptOuts/optOutListLogic'
@@ -172,6 +171,7 @@ import { Task, TaskUpsertProps } from 'products/tasks/frontend/types'
 import { MaxUIContext } from '../scenes/max/maxTypes'
 import { AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
+    ErrorTrackingFingerprint,
     ErrorTrackingStackFrame,
     ErrorTrackingStackFrameRecord,
     ErrorTrackingSymbolSet,
@@ -458,6 +458,18 @@ export class ApiRequest {
         return this.insight(id, teamId).addPathComponent('sharing')
     }
 
+    public insightSharingPasswords(id: QueryBasedInsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.insightSharing(id, teamId).addPathComponent('passwords')
+    }
+
+    public insightSharingPassword(
+        id: QueryBasedInsightModel['id'],
+        passwordId: string,
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.insightSharingPasswords(id, teamId).addPathComponent(passwordId)
+    }
+
     public insightsCancel(teamId?: TeamType['id']): ApiRequest {
         return this.insights(teamId).addPathComponent('cancel')
     }
@@ -702,6 +714,18 @@ export class ApiRequest {
         return this.recording(id, teamId).addPathComponent('sharing')
     }
 
+    public recordingSharingPasswords(id: SessionRecordingType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.recordingSharing(id, teamId).addPathComponent('passwords')
+    }
+
+    public recordingSharingPassword(
+        id: SessionRecordingType['id'],
+        passwordId: string,
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.recordingSharingPasswords(id, teamId).addPathComponent(passwordId)
+    }
+
     // # Dashboards
     public dashboards(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('dashboards')
@@ -720,6 +744,18 @@ export class ApiRequest {
 
     public dashboardSharing(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.dashboardsDetail(dashboardId, teamId).addPathComponent('sharing')
+    }
+
+    public dashboardSharingPasswords(dashboardId: DashboardType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.dashboardSharing(dashboardId, teamId).addPathComponent('passwords')
+    }
+
+    public dashboardSharingPassword(
+        dashboardId: DashboardType['id'],
+        passwordId: string,
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.dashboardSharingPasswords(dashboardId, teamId).addPathComponent(passwordId)
     }
 
     public dashboardCollaboratorsDetail(
@@ -980,6 +1016,10 @@ export class ApiRequest {
         return this.errorTracking(teamId).addPathComponent('external_references')
     }
 
+    public errorTrackingIssueFingerprints(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('fingerprints')
+    }
+
     public errorTrackingSymbolSets(teamId?: TeamType['id']): ApiRequest {
         return this.errorTracking(teamId).addPathComponent('symbol_sets')
     }
@@ -1235,6 +1275,10 @@ export class ApiRequest {
 
     public queryUpgrade(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('query').addPathComponent('upgrade')
+    }
+
+    public queryLog(queryId: string, teamId?: TeamType['id']): ApiRequest {
+        return this.query(teamId).addPathComponent(queryId).addPathComponent('log')
     }
 
     // Conversations
@@ -1866,7 +1910,7 @@ const api = {
 
     comments: {
         async create(
-            data: Partial<CommentType>,
+            data: Partial<CommentType> & { mentions?: number[] },
             params: Record<string, any> = {},
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): Promise<CommentType> {
@@ -1875,7 +1919,7 @@ const api = {
 
         async update(
             id: CommentType['id'],
-            data: Partial<CommentType>,
+            data: Partial<CommentType> & { new_mentions?: number[] },
             params: Record<string, any> = {},
             teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
         ): Promise<CommentType> {
@@ -1932,9 +1976,10 @@ const api = {
         },
 
         async list(
-            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()
+            teamId: TeamType['id'] = ApiConfig.getCurrentTeamId(),
+            params: Record<string, any> = {}
         ): Promise<PaginatedResponse<ExportedAssetType>> {
-            return new ApiRequest().exports(teamId).get()
+            return new ApiRequest().exports(teamId).withQueryString(toParams(params)).get()
         },
 
         async get(id: number, teamId: TeamType['id'] = ApiConfig.getCurrentTeamId()): Promise<ExportedAssetType> {
@@ -2526,6 +2571,48 @@ const api = {
                     ? new ApiRequest().recordingSharing(recordingId).update({ data })
                     : null
         },
+
+        async createPassword(
+            {
+                dashboardId,
+                insightId,
+                recordingId,
+            }: {
+                dashboardId?: DashboardType['id']
+                insightId?: QueryBasedInsightModel['id']
+                recordingId?: SessionRecordingType['id']
+            },
+            data: { raw_password?: string; note?: string }
+        ): Promise<{ id: string; password: string; note: string; created_at: string; created_by_email: string }> {
+            return dashboardId
+                ? new ApiRequest().dashboardSharingPasswords(dashboardId).create({ data })
+                : insightId
+                  ? new ApiRequest().insightSharingPasswords(insightId).create({ data })
+                  : recordingId
+                    ? new ApiRequest().recordingSharingPasswords(recordingId).create({ data })
+                    : null
+        },
+
+        async deletePassword(
+            {
+                dashboardId,
+                insightId,
+                recordingId,
+            }: {
+                dashboardId?: DashboardType['id']
+                insightId?: QueryBasedInsightModel['id']
+                recordingId?: SessionRecordingType['id']
+            },
+            passwordId: string
+        ): Promise<void> {
+            return dashboardId
+                ? new ApiRequest().dashboardSharingPassword(dashboardId, passwordId).delete()
+                : insightId
+                  ? new ApiRequest().insightSharingPassword(insightId, passwordId).delete()
+                  : recordingId
+                    ? new ApiRequest().recordingSharingPassword(recordingId, passwordId).delete()
+                    : null
+        },
     },
 
     pluginConfigs: {
@@ -2776,6 +2863,16 @@ const api = {
             return await new ApiRequest()
                 .errorTrackingIssueSplit(issueId)
                 .create({ data: { fingerprints: fingerprints, exclusive } })
+        },
+
+        fingerprints: {
+            async list(issueId: ErrorTrackingIssue['id']): Promise<CountedPaginatedResponse<ErrorTrackingFingerprint>> {
+                const queryString = { issue_id: issueId }
+                return await new ApiRequest()
+                    .errorTrackingIssueFingerprints()
+                    .withQueryString(toParams(queryString))
+                    .get()
+            },
         },
 
         symbolSets: {
@@ -3553,16 +3650,6 @@ const api = {
         async delete_data(schemaId: ExternalDataSourceSchema['id']): Promise<SchemaIncrementalFieldsResponse> {
             return await new ApiRequest().externalDataSourceSchema(schemaId).withAction('delete_data').delete()
         },
-        async logs(
-            schemaId: ExternalDataSourceSchema['id'],
-            params: LogEntryRequestParams = {}
-        ): Promise<PaginatedResponse<LogEntry>> {
-            return await new ApiRequest()
-                .externalDataSourceSchema(schemaId)
-                .withAction('logs')
-                .withQueryString(params)
-                .get()
-        },
     },
     fixHogQLErrors: {
         async fix(query: string, error?: string): Promise<Record<string, any>> {
@@ -3780,6 +3867,12 @@ const api = {
     queryStatus: {
         async get(queryId: string, showProgress: boolean): Promise<QueryStatusResponse> {
             return await new ApiRequest().queryStatus(queryId, showProgress).get()
+        },
+    },
+
+    queryLog: {
+        async get(queryId: string): Promise<HogQLQueryResponse> {
+            return await new ApiRequest().queryLog(queryId).get()
         },
     },
 
@@ -4099,6 +4192,14 @@ const api = {
     async getResponse(url: string, options?: ApiMethodOptions): Promise<Response> {
         url = prepareUrl(url)
         ensureProjectIdNotInvalid(url)
+
+        // Add JWT token to Authorization header if available
+        const exporterContext = getCurrentExporterData()
+        const authHeaders: Record<string, string> = {}
+        if (exporterContext?.shareToken) {
+            authHeaders['Authorization'] = `Bearer ${exporterContext.shareToken}`
+        }
+
         return await handleFetch(url, 'GET', () => {
             return fetch(url, {
                 signal: options?.signal,
@@ -4106,6 +4207,7 @@ const api = {
                     ...objectClean(options?.headers ?? {}),
                     ...(getSessionId() ? { 'X-POSTHOG-SESSION-ID': getSessionId() } : {}),
                     ...(getDistinctId() ? { 'X-POSTHOG-DISTINCT-ID': getDistinctId() } : {}),
+                    ...authHeaders,
                 },
             })
         })

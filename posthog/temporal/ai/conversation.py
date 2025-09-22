@@ -90,7 +90,7 @@ async def process_conversation_activity(inputs: AssistantConversationRunnerWorkf
 
     human_message = HumanMessage.model_validate(inputs.message) if inputs.message else None
 
-    assistant = Assistant(
+    assistant = Assistant.create(
         team,
         conversation,
         new_message=human_message,

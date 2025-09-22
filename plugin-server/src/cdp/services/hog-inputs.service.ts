@@ -96,7 +96,9 @@ export class HogInputsService {
         }
     }
 
-    public async loadIntegrationInputs(hogFunction: HogFunctionType): Promise<Record<string, any>> {
+    public async loadIntegrationInputs(
+        hogFunction: HogFunctionType
+    ): Promise<Record<string, { value: Record<string, any> | null }>> {
         const inputsToLoad: Record<string, number> = {}
 
         hogFunction.inputs_schema?.forEach((schema) => {
@@ -128,10 +130,11 @@ export class HogInputsService {
                     value: {
                         ...integration.config,
                         ...integration.sensitive_config,
-                        ...(key === 'oauth'
+                        ...(integration.sensitive_config.access_token || integration.config.access_token
                             ? {
                                   access_token: ACCESS_TOKEN_PLACEHOLDER + integration.id,
-                                  access_token_raw: integration.sensitive_config.access_token,
+                                  access_token_raw:
+                                      integration.sensitive_config.access_token ?? integration.config.access_token,
                               }
                             : {}),
                     },
@@ -197,7 +200,11 @@ export const formatHogInput = async (
     return bytecode
 }
 
-const formatLiquidInput = (value: unknown, globals: HogFunctionInvocationGlobalsWithInputs, key?: string): any => {
+export const formatLiquidInput = (
+    value: unknown,
+    globals: HogFunctionInvocationGlobalsWithInputs,
+    key?: string
+): any => {
     if (value === null || value === undefined) {
         return value
     }

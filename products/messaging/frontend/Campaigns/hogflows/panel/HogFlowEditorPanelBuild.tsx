@@ -17,19 +17,17 @@ export const ACTION_NODES_TO_SHOW: CreateActionType[] = [
         description: 'Send an email to the user.',
         config: {
             template_id: 'template-email',
-            inputs: {
-                email: {
-                    // Default email inputs to liquid templating
-                    templating: 'liquid',
-                },
-            },
+            inputs: {},
         },
     },
     {
         type: 'function_sms',
         name: 'SMS',
         description: 'Send an SMS to the user.',
-        config: { template_id: 'template-twilio', inputs: {} },
+        config: {
+            template_id: 'template-twilio',
+            inputs: {},
+        },
     },
     {
         type: 'function',
@@ -49,9 +47,8 @@ export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
     { type: 'delay', name: 'Delay', description: 'Wait for a specified duration.', config: { delay_duration: '10m' } },
     {
         type: 'wait_until_time_window',
-        name: 'Wait until time window',
+        name: 'Wait until window',
         description: 'Wait until a specified time window.',
-        branchEdges: 1,
         config: {
             timezone: null,
             day: 'any',
@@ -94,14 +91,11 @@ export const LOGIC_NODES_TO_SHOW: CreateActionType[] = [
     },
     {
         type: 'random_cohort_branch',
-        name: 'Random cohort branch',
-        description: 'Randomly branch off to a different path based on cohort percentages.',
+        name: 'Cohort branch',
+        description: 'Randomly branch off based on cohort percentages.',
         branchEdges: 1,
         config: {
             cohorts: [
-                {
-                    percentage: 50,
-                },
                 {
                     percentage: 50,
                 },
@@ -119,15 +113,15 @@ export const POSTHOG_NODES_TO_SHOW: CreateActionType[] = [
     },
     {
         type: 'function',
-        name: 'Set group properties',
-        description: 'Set properties of a group in PostHog.',
-        config: { template_id: 'template-posthog-group-identify', inputs: {} },
+        name: 'Update person property',
+        description: 'Set properties of a person in PostHog.',
+        config: { template_id: 'template-posthog-update-person-properties', inputs: {} },
     },
     {
         type: 'function',
-        name: 'Update person properties',
-        description: 'Update properties of a person in PostHog.',
-        config: { template_id: 'template-posthog-update-person-properties', inputs: {} },
+        name: 'Set group property',
+        description: 'Set properties of a group in PostHog.',
+        config: { template_id: 'template-posthog-group-identify', inputs: {} },
     },
 ]
 

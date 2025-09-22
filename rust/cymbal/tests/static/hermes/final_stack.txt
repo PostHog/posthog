@@ -1,0 +1,8 @@
+Uncaught Error: kaboom from Hermes
+    at c (address at /Users/olly/Documents/work/test-rn/HermesMapsDemo/mini-entry.js:1:c)
+    at b (address at /Users/olly/Documents/work/test-rn/HermesMapsDemo/mini-entry.js:2:b)
+    at anonymous (address at /Users/olly/Documents/work/test-rn/HermesMapsDemo/mini-entry.js:3:a)
+    at loadModuleImplementation (address at /Users/olly/Documents/work/test-rn/HermesMapsDemo/node_modules/metro-runtime/src/polyfills/require.js:285:loadModuleImplementation)
+    at guardedLoadModule (address at /Users/olly/Documents/work/test-rn/HermesMapsDemo/node_modules/metro-runtime/src/polyfills/require.js:183:guardedLoadModule)
+    at metroRequire (address at /Users/olly/Documents/work/test-rn/HermesMapsDemo/node_modules/metro-runtime/src/polyfills/require.js:98:metroRequire)
+    at global (address at null:null:null)

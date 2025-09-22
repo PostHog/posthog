@@ -453,6 +453,8 @@ export const getShowValuesOnSeries = (query: InsightQueryNode): boolean | undefi
         return query.stickinessFilter?.showValuesOnSeries
     } else if (isTrendsQuery(query)) {
         return query.trendsFilter?.showValuesOnSeries
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.showValuesOnSeries
     }
     return undefined
 }

@@ -26,6 +26,12 @@ const hogFunctionFilterDuration = new Histogram({
     labelNames: ['type'],
 })
 
+const hogFunctionFilterOutcomes = new Counter({
+    name: 'cdp_hog_function_filter_outcome',
+    help: 'Count of filter outcomes',
+    labelNames: ['result', 'result_type'],
+})
+
 const hogFunctionPreFilterCounter = new Counter({
     name: 'cdp_hog_function_prefilter_result',
     help: 'Count of pre-filter results',
@@ -394,6 +400,12 @@ export async function filterFunctionInstrumented(options: {
         if (!execHogOutcome.execResult || execHogOutcome.error || execHogOutcome.execResult.error) {
             throw execHogOutcome.error ?? execHogOutcome.execResult?.error ?? new Error('Unknown error')
         }
+
+        // Metric the actual result of the filter to investigate if we get anything other than booleans
+        hogFunctionFilterOutcomes.inc({
+            result: JSON.stringify(execHogOutcome.execResult.result),
+            result_type: typeof execHogOutcome.execResult.result,
+        })
 
         result.match = typeof execHogOutcome.execResult.result === 'boolean' && execHogOutcome.execResult.result
 

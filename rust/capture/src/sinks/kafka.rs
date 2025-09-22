@@ -190,7 +190,7 @@ impl KafkaSink {
                 .set("enable.ssl.certificate.verification", "false");
         };
 
-        debug!("rdkafka configuration: {:?}", client_config);
+        debug!("rdkafka configuration: {client_config:?}");
         let producer: FutureProducer<KafkaContext> =
             client_config.create_with_context(KafkaContext {
                 liveness: liveness.clone(),
@@ -233,7 +233,7 @@ impl KafkaSink {
         let (event, metadata) = (event.event, event.metadata);
 
         let payload = serde_json::to_string(&event).map_err(|e| {
-            error!("failed to serialize event: {}", e);
+            error!("failed to serialize event: {e}");
             CaptureError::NonRetryableSinkError
         })?;
 
@@ -298,6 +298,9 @@ impl KafkaSink {
             }
         };
 
+        // Use the computed event timestamp for Kafka timestamp header
+        let computed_timestamp = metadata.computed_timestamp.map(|ts| ts.timestamp_millis());
+
         match self.producer.send_result(FutureRecord {
             topic,
             payload: Some(&payload),
@@ -313,6 +316,10 @@ impl KafkaSink {
                     .insert(Header {
                         key: "distinct_id",
                         value: Some(&distinct_id),
+                    })
+                    .insert(Header {
+                        key: "timestamp",
+                        value: computed_timestamp.map(|ts| ts.to_string()).as_deref(),
                     }),
             ),
         }) {
@@ -327,7 +334,7 @@ impl KafkaSink {
                 _ => {
                     // TODO(maybe someday): Don't drop them but write them somewhere and try again
                     report_dropped_events("kafka_write_error", 1);
-                    error!("failed to produce event: {}", e);
+                    error!("failed to produce event: {e}");
                     Err(CaptureError::RetryableSinkError)
                 }
             },
@@ -352,7 +359,7 @@ impl KafkaSink {
             Ok(Err((err, _))) => {
                 // Unretriable produce error
                 counter!("capture_kafka_produce_errors_total").increment(1);
-                error!("failed to produce to Kafka: {}", err);
+                error!("failed to produce to Kafka: {err}");
                 Err(CaptureError::RetryableSinkError)
             }
             Ok(Ok(_)) => {
@@ -397,7 +404,7 @@ impl Event for KafkaSink {
                     }
                     Err(err) => {
                         set.abort_all();
-                        error!("join error while waiting on Kafka ACK: {:?}", err);
+                        error!("join error while waiting on Kafka ACK: {err:?}");
                         return Err(CaptureError::RetryableSinkError);
                     }
                 }
@@ -493,6 +500,7 @@ mod tests {
         let metadata = ProcessedEventMetadata {
             data_type: DataType::AnalyticsMain,
             session_id: None,
+            computed_timestamp: None,
         };
 
         let event = ProcessedEvent {

@@ -6,7 +6,8 @@ import { routerPlugin } from 'kea-router'
 import { subscriptionsPlugin } from 'kea-subscriptions'
 import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
-import posthog from 'posthog-js'
+import posthog, { PostHog } from 'posthog-js'
+import { posthogKeaLogger } from 'posthog-js/lib/src/customizations'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { identifierToHuman } from 'lib/utils'
@@ -47,23 +48,6 @@ export function silenceKeaLoadersErrors(): void {
 export function resumeKeaLoadersErrors(): void {
     errorsSilenced = false
 }
-
-export const loggerPlugin: () => KeaPlugin = () => ({
-    name: 'verbose-kea-logger',
-    events: {
-        beforeReduxStore(options) {
-            options.middleware.push((store) => (next) => (action) => {
-                const response = next(action)
-                /* oxlint-disable no-console */
-                console.groupCollapsed('KEA LOGGER', action)
-                console.log(store.getState())
-                console.groupEnd()
-                /* oxlint-enable no-console */
-                return response
-            })
-        },
-    },
-})
 
 export function initKea({
     routerHistory,
@@ -119,9 +103,14 @@ export function initKea({
                     !(isLoadAction && error.status === 403) // 403 access denied is handled by sceneLogic gates
                 ) {
                     let errorMessage = error.detail || error.statusText
+                    const isTwoFactorError =
+                        error.code === 'two_factor_setup_required' || error.code === 'two_factor_verification_required'
 
                     if (!errorMessage && error.status === 404) {
                         errorMessage = 'URL not found'
+                    }
+                    if (isTwoFactorError) {
+                        errorMessage = null
                     }
                     if (errorMessage) {
                         lemonToast.error(`${identifierToHuman(actionKey)} failed: ${errorMessage}`)
@@ -139,7 +128,14 @@ export function initKea({
 
     // To enable logging, run localStorage.setItem("ph-kea-debug", true) in the console
     if (window.JS_KEA_VERBOSE_LOGGING || ('localStorage' in window && window.localStorage.getItem('ph-kea-debug'))) {
-        plugins.push(loggerPlugin)
+        plugins.push(
+            posthogKeaLogger({
+                logger: (title, stateEvent) => {
+                    const ph: PostHog | undefined = window.posthog
+                    ph?.sessionRecording?.tryAddCustomEvent('app-state', { title, stateEvent })
+                },
+            })
+        )
     }
 
     if ((window as any).__REDUX_DEVTOOLS_EXTENSION__) {

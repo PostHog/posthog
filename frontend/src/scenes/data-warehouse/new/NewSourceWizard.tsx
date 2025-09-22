@@ -3,7 +3,7 @@ import posthog from 'posthog-js'
 import { useCallback, useEffect } from 'react'
 
 import { IconBell, IconCheck } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTable, LemonTag, Link, lemonToast } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSkeleton, LemonTable, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
 import { PageHeader } from 'lib/components/PageHeader'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -13,6 +13,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-general'
 import { ManualLinkSourceType, SurveyEventName, SurveyEventProperties } from '~/types'
 
@@ -215,13 +216,10 @@ function FirstStep({ disableConnectedSources, allowedSources }: NewSourcesWizard
         .sort((a, b) => Number(a.unreleasedSource) - Number(b.unreleasedSource))
 
     return (
-        <>
-            <h2 className="mt-4">Managed data warehouse sources</h2>
-
-            <p>
-                Data will be synced to PostHog and regularly refreshed.{' '}
-                <Link to="https://posthog.com/docs/cdp/sources">Learn more</Link>
-            </p>
+        <SceneSection
+            title="Managed data warehouse sources"
+            description="Data will be synced to PostHog and regularly refreshed."
+        >
             <LemonTable
                 dataSource={filteredConnectors}
                 loading={false}
@@ -314,47 +312,46 @@ function FirstStep({ disableConnectedSources, allowedSources }: NewSourcesWizard
                 ]}
             />
 
-            <h2 className="mt-4">Self-managed data warehouse sources</h2>
-
-            <p>
-                Data will be queried directly from your data source that you manage.{' '}
-                <Link to="https://posthog.com/docs/cdp/sources">Learn more</Link>
-            </p>
-            <LemonTable
-                dataSource={manualConnectors}
-                loading={false}
-                disableTableWhileLoading={false}
-                columns={[
-                    {
-                        title: 'Source',
-                        width: 0,
-                        render: (_, sourceConfig) => <DataWarehouseSourceIcon type={sourceConfig.type} />,
-                    },
-                    {
-                        title: 'Name',
-                        key: 'name',
-                        render: (_, sourceConfig) => (
-                            <span className="gap-1 text-sm font-semibold">{sourceConfig.name}</span>
-                        ),
-                    },
-                    {
-                        key: 'actions',
-                        width: 0,
-                        render: (_, sourceConfig) => (
-                            <div className="flex flex-row justify-end p-1">
-                                <LemonButton
-                                    onClick={() => onManualLinkClick(sourceConfig.type)}
-                                    className="my-2"
-                                    type="primary"
-                                >
-                                    Link
-                                </LemonButton>
-                            </div>
-                        ),
-                    },
-                ]}
-            />
-        </>
+            <SceneSection
+                title="Self-managed data warehouse sources"
+                description="Data will be queried directly from your data source that you manage."
+            >
+                <LemonTable
+                    dataSource={manualConnectors}
+                    loading={false}
+                    disableTableWhileLoading={false}
+                    columns={[
+                        {
+                            title: 'Source',
+                            width: 0,
+                            render: (_, sourceConfig) => <DataWarehouseSourceIcon type={sourceConfig.type} />,
+                        },
+                        {
+                            title: 'Name',
+                            key: 'name',
+                            render: (_, sourceConfig) => (
+                                <span className="gap-1 text-sm font-semibold">{sourceConfig.name}</span>
+                            ),
+                        },
+                        {
+                            key: 'actions',
+                            width: 0,
+                            render: (_, sourceConfig) => (
+                                <div className="flex flex-row justify-end p-1">
+                                    <LemonButton
+                                        onClick={() => onManualLinkClick(sourceConfig.type)}
+                                        className="my-2"
+                                        type="primary"
+                                    >
+                                        Link
+                                    </LemonButton>
+                                </div>
+                            ),
+                        },
+                    ]}
+                />
+            </SceneSection>
+        </SceneSection>
     )
 }
 
@@ -366,6 +363,16 @@ function SecondStep(): JSX.Element {
             {selectedConnector.caption && (
                 <LemonMarkdown className="text-sm">{selectedConnector.caption}</LemonMarkdown>
             )}
+
+            {selectedConnector.docsUrl && (
+                <div className="inline-block">
+                    <LemonButton to={selectedConnector.docsUrl} type="primary" size="small">
+                        View docs
+                    </LemonButton>
+                </div>
+            )}
+
+            <LemonDivider />
 
             <SourceForm sourceConfig={selectedConnector} />
         </div>

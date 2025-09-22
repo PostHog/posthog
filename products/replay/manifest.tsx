@@ -1,10 +1,8 @@
 import { combineUrl } from 'kea-router'
 
-import { IconRewindPlay } from '@posthog/icons'
-
 import { urls } from 'scenes/urls'
 
-import { ProductManifest, RecordingUniversalFilters, ReplayTabs } from '../../frontend/src/types'
+import { FileSystemIconColor, ProductManifest, RecordingUniversalFilters, ReplayTabs } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Replay',
@@ -28,7 +26,7 @@ export const manifest: ProductManifest = {
     fileSystemTypes: {
         session_recording_playlist: {
             name: 'Replay playlist',
-            icon: <IconRewindPlay />,
+            iconType: 'session_replay',
             href: (ref: string) => urls.replayPlaylist(ref),
             iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
             filterKey: 'session_recording_playlist',
@@ -39,6 +37,11 @@ export const manifest: ProductManifest = {
             path: `Replay playlist`,
             type: 'session_recording_playlist',
             href: urls.replayPlaylist('new'),
+            iconType: 'session_replay',
+            iconColor: [
+                'var(--color-product-session-replay-light)',
+                'var(--color-product-session-replay-dark)',
+            ] as FileSystemIconColor,
         },
     ],
     treeItemsProducts: [
@@ -47,6 +50,8 @@ export const manifest: ProductManifest = {
             category: 'Behavior',
             href: urls.replay(ReplayTabs.Home),
             type: 'session_recording_playlist',
+            iconType: 'session_replay',
+            iconColor: ['var(--color-product-session-replay-light)', 'var(--color-product-session-replay-dark)'],
         },
     ],
 }

@@ -30,7 +30,7 @@ export class TeamFilter {
             // TODO refactor
             eventDroppedCounter
                 .labels({
-                    event_type: 'session_recordings_blob_ingestion',
+                    event_type: 'session_recordings_blob_ingestion_v2',
                     drop_cause: reason,
                 })
                 .inc()
