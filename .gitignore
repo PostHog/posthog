@@ -118,3 +118,6 @@ bin/mprocs*.local.yaml
 
 # Debug output of our session summaries product
 .session-summaries
+
+# Migrations caching, used in local dev
+.migration_cache.json
