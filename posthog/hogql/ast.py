@@ -178,7 +178,9 @@ class BaseTableType(Type):
                     # we penalize the tables with not defined nullable fields
                 )
             return FieldType(
-                name=name, table_type=self, nullable=(field.nullable if field.nullable is not None else True)
+                name=name,
+                table_type=self,
+                nullable=(field.nullable if field.nullable is not None else True),  # type: ignore[attr-defined]
             )
 
         raise QueryError(f"Field not found: {name}")
