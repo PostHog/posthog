@@ -68,7 +68,7 @@ interface InsightMetaProps
         | 'variablesOverride'
         | 'placement'
     > {
-    tile: DashboardTile<QueryBasedInsightModel>
+    tile?: DashboardTile<QueryBasedInsightModel>
     insight: QueryBasedInsightModel
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
@@ -254,7 +254,7 @@ export function InsightMeta({
                             <LemonButton onClick={rename} fullWidth>
                                 Rename
                             </LemonButton>
-                            {canAccessTileOverrides && (
+                            {canAccessTileOverrides && tile && (
                                 <LemonButton onClick={setOverride} fullWidth>
                                     Set override
                                 </LemonButton>

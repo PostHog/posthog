@@ -43,8 +43,6 @@ import { ResizeHandle1D, ResizeHandle2D } from '../handles'
 import { InsightMeta } from './InsightMeta'
 
 export interface InsightCardProps extends Resizeable {
-    /** Tile to configure the card */
-    tile: DashboardTile<QueryBasedInsightModel>
     /** Insight to display. */
     insight: QueryBasedInsightModel
     /** id of the dashboard the card is on (when the card is being displayed on a dashboard) **/
@@ -94,6 +92,7 @@ export interface InsightCardProps extends Resizeable {
     className?: string
     style?: React.CSSProperties
     children?: React.ReactNode
+    tile?: DashboardTile<QueryBasedInsightModel>
 }
 
 function InsightCardInternal(
