@@ -1,0 +1,309 @@
+import copy
+import json
+from dataclasses import asdict, dataclass
+from math import ceil
+from pathlib import Path
+from typing import cast
+
+import yaml
+import structlog
+import temporalio
+from glom import (
+    assign as assign_value,
+    glom as find_value,
+)
+from temporalio.exceptions import ApplicationError
+
+from posthog.models.user import User
+
+from ee.hogai.graph.session_summaries.parsers import load_yaml_from_raw_llm_content
+from ee.hogai.session_summaries.constants import (
+    FAILED_MOMENTS_MIN_RATIO,
+    SECONDS_BEFORE_EVENT_FOR_VALIDATION_VIDEO,
+    VALIDATION_VIDEO_DURATION,
+)
+from ee.hogai.session_summaries.llm.call import call_llm
+from ee.hogai.session_summaries.session.output_data import EnrichedKeyActionSerializer, SessionSummarySerializer
+from ee.hogai.session_summaries.utils import load_custom_template
+from ee.hogai.videos.session_moments import SessionMomentInput, SessionMomentOutput, SessionMomentsLLMAnalyzer
+from ee.models.session_summaries import (
+    SessionSummaryRunMeta,
+    SessionSummaryVisualConfirmationResult,
+    SingleSessionSummary,
+)
+
+logger = structlog.get_logger(__name__)
+
+
+@dataclass(frozen=True)
+class _SessionSummaryVideoValidationFieldToUpdate:
+    """Field which value could be updated based on the video-based validation"""
+
+    path: str
+    current_value: str | None
+    new_value: str | None
+
+
+class SessionSummaryVideoValidator:
+    def _init__(
+        self, *, session_id: str, summary_row: SingleSessionSummary, team_id: int, user: User, model_to_use: str
+    ) -> None:
+        self.session_id = session_id
+        self.team_id = team_id
+        self.user = user
+        self.summary_row = summary_row
+        self.summary = SessionSummarySerializer(data=summary_row.summary)
+        self.summary.is_valid(raise_exception=True)
+        self.model_to_use = model_to_use
+        self.moments_analyzer = SessionMomentsLLMAnalyzer(
+            session_id=session_id,
+            team_id=team_id,
+            user=user,
+            failed_moments_min_ratio=FAILED_MOMENTS_MIN_RATIO,
+        )
+
+    async def validate_session_summary_with_videos(self) -> None:
+        """Validate the session summary with videos"""
+        # Find the events that would value from video validation (currently, blocking exceptions)
+        events_to_validate, fields_to_update = self._pick_events_to_validate()
+        # Prepare input for video validation
+        moments_input = self._prepare_moments_input(events_to_validate=events_to_validate)
+        # Generate videos and ask LLM to describe them
+        description_results = await self.moments_analyzer.analyze(moments_input=moments_input)
+        with open(f"description_results_{self.session_id}.json", "w") as f:
+            json.dump([asdict(x) for x in description_results], f, indent=4)
+        # with open(
+        #     f"/Users/woutut/Documents/Code/posthog/validation_results_01995bac-a002-7ba2-bc68-baa043d8e46c.json", "r"
+        # ) as f:
+        #     description_results: list[SessionMomentOutput] = json.load(f)
+        # Generate updates through LLM to update specific fields based on the video-based results from the previous step
+        updates_result = await self._generate_updates(
+            description_results=description_results, fields_to_update=fields_to_update
+        )
+        # Apply updates to the summary
+        updated_summary = self._apply_updates(updates_result=updates_result)
+        # Store the changes in the database
+        await self._store_updates(
+            updated_summary=updated_summary,
+            description_results=description_results,
+            events_to_validate=events_to_validate,
+        )
+
+    @staticmethod
+    def generate_video_description_prompt(event: EnrichedKeyActionSerializer) -> str:
+        """Generate a prompt for validating a video"""
+        template_dir = Path(__file__).parent / "templates" / "video-validation"
+        prompt = load_custom_template(
+            template_dir,
+            "description-prompt.djt",
+            {"EVENT_DESCRIPTION": event.data["description"]},
+        )
+        return prompt
+
+    def _pick_events_to_validate(
+        self,
+    ) -> tuple[list[tuple[str, EnrichedKeyActionSerializer]], list[_SessionSummaryVideoValidationFieldToUpdate]]:
+        # Pick blocking exceptions to generate videos for
+        events_to_validate: list[tuple[str, EnrichedKeyActionSerializer]] = []
+        # Keep track of the blocks that would need an update based on the video-based results
+        fields_to_update_mapping: dict[str, _SessionSummaryVideoValidationFieldToUpdate] = {}
+        for ki, key_actions in enumerate(self.summary.data.get("key_actions", [])):
+            segment_index = key_actions["segment_index"]
+            for ei, event in enumerate(key_actions.get("events", [])):
+                if event.get("exception") != "blocking":
+                    continue
+                # Keep only blocking exceptions
+                validated_event = EnrichedKeyActionSerializer(data=event)
+                validated_event.is_valid(raise_exception=True)
+                # Collect the fields to validate/update and their current values
+                # Current event fields
+                for field in ["description", "exception", "abandonment", "confusion"]:
+                    field_path = f"key_actions.{ki}.events.{ei}.{field}"
+                    # TODO: Use dataclasses, avoid code repetition
+                    fields_to_update_mapping[field_path] = _SessionSummaryVideoValidationFieldToUpdate(
+                        path=field_path,
+                        current_value=event[field],
+                        new_value=None,
+                    )
+                # Related segment outcome
+                for field in ["success", "summary"]:
+                    field_path = f"segment_outcomes.{segment_index}.{field}"
+                    fields_to_update_mapping[field_path] = _SessionSummaryVideoValidationFieldToUpdate(
+                        path=field_path,
+                        current_value=self.summary.data["segment_outcomes"][segment_index][field],
+                        new_value=None,
+                    )
+                field_path = f"segments.{segment_index}.name"
+                fields_to_update_mapping[field_path] = _SessionSummaryVideoValidationFieldToUpdate(
+                    path=field_path,
+                    current_value=self.summary.data["segments"][segment_index]["name"],
+                    new_value=None,
+                )
+                # Session outcome
+                for field in ["success", "description"]:
+                    field_path = f"session_outcome.{field}"
+                    fields_to_update_mapping[field_path] = _SessionSummaryVideoValidationFieldToUpdate(
+                        path=field_path,
+                        current_value=self.summary.data["session_outcome"][field],
+                        new_value=None,
+                    )
+                # Generate prompt
+                prompt = self.generate_video_description_prompt(event=validated_event)
+                events_to_validate.append((prompt, validated_event))
+        if not events_to_validate:
+            # No blocking issues detected in the summary, no need to validate
+            return [], []
+        # Sort fields to update by path
+        fields_to_update_mapping = dict(sorted(fields_to_update_mapping.items(), key=lambda x: x[0]))
+        fields_to_update = list(fields_to_update_mapping.values())
+        with open(f"fields_to_update_{self.session_id}.yml", "w") as f:
+            yaml.dump(fields_to_update, f, allow_unicode=True, sort_keys=False)
+        return events_to_validate, fields_to_update
+
+    def _prepare_moment_input_from_summary_event(
+        self, prompt: str, event: EnrichedKeyActionSerializer
+    ) -> SessionMomentInput | None:
+        # TODO: Keep uuids for videos though
+        event_id = event.data["event_id"]  # Using event id (hex) instead of uuid for simpler input/output
+        ms_from_start = event.data.get("milliseconds_since_start")
+        if ms_from_start is None:
+            logger.error(
+                f"Milliseconds since start not found in the event {event.data['event_uuid']} for session {self.session_id}"
+                "when generating video for validating session summary",
+            )
+            return None
+        event_timestamp = ceil(ms_from_start / 1000)
+        # Start a video a couple of seconds before the event
+        moment_timestamp = max(0, event_timestamp - SECONDS_BEFORE_EVENT_FOR_VALIDATION_VIDEO)
+        return SessionMomentInput(
+            moment_id=event_id,
+            timestamp_s=moment_timestamp,
+            duration_s=VALIDATION_VIDEO_DURATION,
+            prompt=prompt,
+        )
+
+    def _prepare_moments_input(
+        self, events_to_validate: list[tuple[str, EnrichedKeyActionSerializer]]
+    ) -> list[SessionMomentInput]:
+        """Prepare input for video validation from events to validate"""
+        moments_input = [
+            moment
+            for prompt, event in events_to_validate
+            if (
+                moment := self._prepare_moment_input_from_summary_event(
+                    prompt=prompt, event=event, session_id=self.session_id
+                )
+            )
+        ]
+        with open(f"moments_input_{self.session_id}.json", "w") as f:
+            json.dump([asdict(x) for x in moments_input], f, indent=4)
+        if not moments_input:
+            # TODO: Update it to a more generic error and catch on the outside?
+            raise ApplicationError(
+                f"No moments input found for session {self.session_id} when validating session summary with videos: {events_to_validate}",
+                # No sense to retry, as the events picked to validate don't have enough metadata to generate a moment
+                non_retryable=True,
+            )
+        return moments_input
+
+    # TODO: Provide only an intermediate version of summary.
+    # TODO: Use event ids (not event uuids) during description.
+    # TODO: Or maybe use just path and fuck it? The id doesn't go into the description prompt anyway
+    def generate_video_validation_prompt(
+        self,
+        description_results: dict[str, str],
+        fields_to_update: dict[str, dict[str, str | None]],
+    ) -> str:
+        """Generate a prompt for validating a video"""
+        template_dir = Path(__file__).parent / "templates" / "video-validation"
+        prompt = load_custom_template(
+            template_dir,
+            "validation-prompt.djt",
+            {
+                "ORIGINAL_SUMMARY": json.dumps(self.summary.data),
+                "VALIDATION_RESULTS": json.dumps(description_results),
+                "FIELDS_TO_UPDATE": yaml.dump(fields_to_update, allow_unicode=True, sort_keys=False),
+            },
+        )
+        return prompt
+
+    async def _generate_updates(
+        self,
+        description_results: list[SessionMomentOutput],
+        fields_to_update: list[_SessionSummaryVideoValidationFieldToUpdate],
+    ) -> list[dict[str, str]]:
+        # Generate prompt for video validation
+        validation_prompt = self.generate_video_validation_prompt(
+            summary=self.summary,
+            description_results=description_results,
+            fields_to_update=fields_to_update,
+        )
+        with open(f"validation_prompt_{self.session_id}.txt", "w") as f:
+            f.write(validation_prompt)
+        # TODO: Revert after testing
+        # Temporary disabling to focus on the last part
+        # Call LLM with the validation prompt
+        trace_id = temporalio.activity.info().workflow_id
+        updates_raw = await call_llm(
+            input_prompt=validation_prompt,
+            user_key=self.user.id,
+            session_id=self.session_id,
+            model=self.model_to_use,
+            system_prompt=None,  # TODO: Add proper system prompt
+            trace_id=trace_id,
+        )
+        updates_result = load_yaml_from_raw_llm_content(
+            raw_content=updates_raw.choices[0].message.content, final_validation=True
+        )
+        updates_result = cast(list[dict[str, str]], updates_result)
+        with open(f"updates_result_{self.session_id}.json", "w") as f:
+            json.dump(updates_result, f, indent=4, sort_keys=False)
+        # with open(f"validation_result_{inputs.session_id}.json", "r") as f:
+        #     validation_result = json.load(f)
+        return updates_result
+
+    def _apply_updates(self, updates_result: list[dict[str, str]]) -> SessionSummarySerializer:
+        """Apply updates to the summary"""
+        summary_to_update = copy.deepcopy(self.summary.data)
+        for field in updates_result:
+            if field.get("new_value") is None:
+                continue
+            found_value = find_value(target=summary_to_update, spec=field["path"])
+            if found_value is None:
+                temporalio.workflow.logger.error(
+                    f"Field {field['path']} not found in the session summary to update for the session {self.session_id}, skipping"
+                )
+                continue
+            assign_value(obj=summary_to_update, path=field["path"], val=field["new_value"])
+        updated_summary = SessionSummarySerializer(data=summary_to_update)
+        updated_summary.is_valid(raise_exception=True)
+        # TODO: Remove after testing
+        with open(f"updated_summary_{self.session_id}.json", "w") as f:
+            json.dump(summary_to_update, f, indent=4, sort_keys=True)
+        return updated_summary
+
+    async def _store_updates(
+        self,
+        updated_summary: SessionSummarySerializer,
+        description_results: list[SessionMomentOutput],
+        events_to_validate: list[tuple[str, EnrichedKeyActionSerializer]],
+    ) -> None:
+        """Store the updates to the summary in the database, together with the validation results"""
+        events_id_to_uuid = {event.data["event_id"]: event.data["event_uuid"] for event in events_to_validate}
+        # Prepare data on the video generation results
+        validation_confirmation_results = [
+            SessionSummaryVisualConfirmationResult.from_session_moment_output(
+                session_moment_output=description_result,
+                event_uuid=events_id_to_uuid[description_result.moment_id],
+            )
+            for description_result in description_results
+        ]
+        current_run_metadata = SessionSummaryRunMeta(
+            model_used=self.summary_row.run_metadata["model_used"],
+            visual_confirmation=True,
+            visual_confirmation_results=[asdict(x) for x in validation_confirmation_results],
+        )
+        # Store the updated summary in the database
+        self.summary_row.summary = updated_summary.data
+        self.summary_row.run_metadata = asdict(current_run_metadata)
+        await self.summary_row.asave(update_fields=["summary", "run_metadata"])
