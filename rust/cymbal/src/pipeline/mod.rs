@@ -36,6 +36,7 @@ pub mod geoip;
 pub mod group;
 pub mod person;
 pub mod prep;
+pub mod transformations;
 
 // We can receive either ClickhouseEvents or CaptureEvents
 #[derive(Debug, Clone, Deserialize)]
