@@ -197,7 +197,7 @@ export class CyclotronJobQueueDelay {
                         topic:
                             delayMs === 0
                                 ? returnTopic
-                                : `cdp_cyclotron_${getDelayQueue(DateTime.fromMillis(scheduledTime.getTime() - waitTime))}`,
+                                : `cdp_cyclotron_${getDelayQueue(DateTime.fromMillis(scheduledTime.getTime()))}`,
                         headers: message.headers as unknown as Record<string, string>,
                     })
                 )
