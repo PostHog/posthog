@@ -89,7 +89,7 @@ from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.rbac.user_access_control import UserAccessControlError, UserAccessControlSerializerMixin
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.schema_migrations.upgrade_manager import upgrade_query
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
@@ -970,6 +970,17 @@ class InsightViewSet(
                 queryset = queryset.filter(created_by=request.user)
             elif key == "favorited":
                 queryset = queryset.filter(Q(favorited=True))
+            elif key == "hide_feature_flag_insights":
+                if str_to_bool(request.GET["hide_feature_flag_insights"]):
+                    # Exclude insights with the specific feature flag names
+                    from posthog.helpers.dashboard_templates import (
+                        FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME,
+                        FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME,
+                    )
+
+                    queryset = queryset.exclude(
+                        name__in=[FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME, FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME]
+                    )
             elif key == "date_from":
                 queryset = queryset.filter(
                     last_modified_at__gt=relative_date_parse(request.GET["date_from"], self.team.timezone_info)
@@ -1096,6 +1107,8 @@ When set, the specified dashboard's filters and date range override will be appl
                 else:
                     result = self.calculate_trends(request)
         except ExposedHogQLError as e:
+            raise ValidationError(str(e))
+        except UserAccessControlError as e:
             raise ValidationError(str(e))
         except Cohort.DoesNotExist as e:
             raise ValidationError(str(e))

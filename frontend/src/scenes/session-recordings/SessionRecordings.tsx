@@ -21,7 +21,6 @@ import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
-import { getAppContext } from 'lib/utils/getAppContext'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -84,11 +83,6 @@ function Header(): JSX.Element {
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.SessionRecording}
                                 minAccessLevel={AccessControlLevel.Editor}
-                                userAccessLevel={
-                                    getAppContext()?.resource_access_control?.[
-                                        AccessControlResourceType.SessionRecording
-                                    ]
-                                }
                             >
                                 <LemonButton
                                     type="primary"

@@ -11,8 +11,8 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 
-from .models import Task, TaskProgress
-from .serializers import TaskSerializer
+from .models import AgentDefinition, Task, TaskProgress, TaskWorkflow, WorkflowStage
+from .serializers import AgentDefinitionSerializer, TaskSerializer, TaskWorkflowSerializer, WorkflowStageSerializer
 from .temporal.client import execute_task_processing_workflow
 
 
@@ -23,7 +23,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     required_scopes = ["INTERNAL"]
     scope_object = "INTERNAL"
     queryset = Task.objects.all()
-    # Require the 'tasks' PostHog feature flag for all actions
     posthog_feature_flag = {
         "tasks": [
             "list",
@@ -32,7 +31,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "update",
             "partial_update",
             "destroy",
-            "update_status",
+            "update_stage",
             "update_position",
             "bulk_reorder",
             "progress",
@@ -60,15 +59,16 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # Get the current task state before update
         task = cast(Task, serializer.instance)
-        previous_status = task.status
+        previous_status = task.current_stage.key if task.current_stage else "backlog"
 
         logger.info(f"perform_update called for task {task.id} with validated_data: {serializer.validated_data}")
 
         # Save the changes
         serializer.save()
 
-        # Check if status changed and trigger workflow
-        new_status = serializer.validated_data.get("status", previous_status)
+        # Check if current_stage changed and trigger workflow
+        new_stage = serializer.validated_data.get("current_stage")
+        new_status = new_stage.key if new_stage else "backlog"
         if new_status != previous_status:
             logger.info(f"Task {task.id} status changed from {previous_status} to {new_status}")
 
@@ -77,8 +77,6 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 execute_task_processing_workflow(
                     task_id=str(task.id),
                     team_id=task.team.id,
-                    previous_status=previous_status,
-                    new_status=new_status,
                     user_id=getattr(self.request.user, "id", None),
                 )
                 logger.info(f"Workflow trigger completed for task {task.id}")
@@ -91,47 +89,53 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             logger.info(f"Task {task.id} updated but status unchanged ({previous_status})")
 
     @action(detail=True, methods=["patch"])
-    def update_status(self, request, pk=None):
+    def update_stage(self, request, pk=None):
         import logging
 
         logger = logging.getLogger(__name__)
 
-        logger.info(f"update_status called for task {pk} with data: {request.data}")
+        logger.info(f"update_stage called for task {pk} with data: {request.data}")
 
         task = cast(Task, self.get_object())
-        new_status = request.data.get("status")
+        new_stage_id = request.data.get("current_stage")
 
-        logger.info(f"Task {task.id}: current_status={task.status}, new_status={new_status}")
+        logger.info(f"Task {task.id}: current_stage={task.current_stage}, new_stage={new_stage_id}")
 
-        if new_status and new_status in Task.Status.values:
-            previous_status = task.status
-            task.status = new_status
-            task.save()
+        if new_stage_id:
+            from .models import WorkflowStage
 
-            logger.info(f"Task {task.id} status updated from {previous_status} to {new_status}")
-
-            # Trigger Temporal workflow for background processing
             try:
-                logger.info(f"Attempting to trigger workflow for task {task.id}")
-                execute_task_processing_workflow(
-                    task_id=str(task.id),
-                    team_id=task.team.id,
-                    previous_status=previous_status,
-                    new_status=new_status,
-                    user_id=getattr(request.user, "id", None),
-                )
-                logger.info(f"Workflow trigger completed for task {task.id}")
-            except Exception as e:
-                # Log the error but don't fail the status update
-                logger.exception(f"Failed to trigger task processing workflow for task {task.id}: {e}")
-                import traceback
+                new_stage = WorkflowStage.objects.get(id=new_stage_id)
+                previous_status = task.current_stage.key if task.current_stage else "backlog"
+                task.current_stage = new_stage
+                task.save()
 
-                logger.exception(f"Workflow error traceback: {traceback.format_exc()}")
+                new_status = task.current_stage.key if task.current_stage else "backlog"
 
-            return Response(TaskSerializer(task).data)
-        else:
-            logger.warning(f"Invalid status '{new_status}' for task {pk}. Valid statuses: {Task.Status.values}")
-        return Response({"error": "Invalid status"}, status=status.HTTP_400_BAD_REQUEST)
+                logger.info(f"Task {task.id} stage updated from {previous_status} to {new_status}")
+
+                # Trigger Temporal workflow for background processing
+                try:
+                    logger.info(f"Attempting to trigger workflow for task {task.id}")
+                    execute_task_processing_workflow(
+                        task_id=str(task.id),
+                        team_id=task.team.id,
+                        user_id=getattr(request.user, "id", None),
+                    )
+                    logger.info(f"Workflow trigger completed for task {task.id}")
+                except Exception as e:
+                    # Log the error but don't fail the stage update
+                    logger.exception(f"Failed to trigger task processing workflow for task {task.id}: {e}")
+                    import traceback
+
+                    logger.exception(f"Workflow error traceback: {traceback.format_exc()}")
+
+                return Response(TaskSerializer(task).data)
+            except WorkflowStage.DoesNotExist:
+                logger.warning(f"Invalid stage '{new_stage_id}' for task {pk}")
+                return Response({"error": "Invalid stage"}, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"error": "Stage is required"}, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=True, methods=["patch"])
     def update_position(self, request, pk=None):
@@ -170,12 +174,15 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         # Flatten all ids and validate
         all_ids = []
-        for status_key, id_list in columns.items():
-            if status_key not in Task.Status.values:
-                return Response({"error": f"Invalid status '{status_key}'"}, status=status.HTTP_400_BAD_REQUEST)
+        for stage_key, id_list in columns.items():
+            # Validate that the stage key exists in at least one active workflow
+            from .models import WorkflowStage
+
+            if not WorkflowStage.objects.filter(key=stage_key, is_archived=False).exists():
+                return Response({"error": f"Invalid stage '{stage_key}'"}, status=status.HTTP_400_BAD_REQUEST)
             if not isinstance(id_list, list):
                 return Response(
-                    {"error": f"columns['{status_key}'] must be a list of task ids"}, status=status.HTTP_400_BAD_REQUEST
+                    {"error": f"columns['{stage_key}'] must be a list of task ids"}, status=status.HTTP_400_BAD_REQUEST
                 )
             all_ids.extend(id_list)
 
@@ -194,35 +201,49 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
 
         updated = []
-        # Capture status change events so we can trigger workflows after DB update
-        status_change_events = []  # list of tuples: (task_id, previous_status, new_status)
+        # Capture stage change events so we can trigger workflows after DB update
+        stage_change_events = []  # list of tuples: (task_id, previous_status, new_status)
         with transaction.atomic():
-            for status_key, id_list in columns.items():
+            for stage_key, id_list in columns.items():
+                # Find the stage for this key across all workflows
+                from .models import WorkflowStage
+
+                stage = WorkflowStage.objects.filter(key=stage_key, is_archived=False).first()
+
                 for idx, tid in enumerate(id_list):
                     task = task_by_id[str(tid)]
-                    if task.status != status_key or task.position != idx:
-                        previous_status = task.status
-                        new_status = status_key
-                        # Record status changes so we can trigger workflows after bulk update
-                        if previous_status != new_status:
-                            status_change_events.append((str(task.id), previous_status, new_status))
+                    task_needs_update = False
 
-                        task.status = new_status
+                    # Check if stage changed
+                    if stage and task.current_stage != stage:
+                        previous_status = task.current_stage.key if task.current_stage else "backlog"
+                        task.current_stage = stage
+                        task.workflow = stage.workflow
+                        new_status = task.current_stage.key if task.current_stage else "backlog"
+
+                        # Record stage changes so we can trigger workflows after bulk update
+                        if previous_status != new_status:
+                            stage_change_events.append((str(task.id), previous_status, new_status))
+                        task_needs_update = True
+
+                    # Check if position changed
+                    if task.position != idx:
                         task.position = idx
+                        task_needs_update = True
+
+                    if task_needs_update:
                         updated.append(task)
 
             if updated:
-                Task.objects.bulk_update(updated, ["status", "position"])  # updated_at handled by model defaults if any
+                Task.objects.bulk_update(updated, ["current_stage", "workflow", "position"])
 
-        # Trigger Temporal workflows for any tasks whose status changed
-        if status_change_events:
-            for task_id, previous_status, new_status in status_change_events:
+        # Trigger Temporal workflows for any tasks whose stage changed
+        if stage_change_events:
+            for task_id, previous_status, new_status in stage_change_events:
                 try:
                     execute_task_processing_workflow(
                         task_id=str(task_id),
                         team_id=task_by_id[str(task_id)].team.id,
-                        previous_status=previous_status,
-                        new_status=new_status,
                         user_id=getattr(self.request.user, "id", None),
                     )
                 except Exception:
@@ -315,3 +336,105 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 {"error": "An internal error occurred while fetching progress stream."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+
+class TaskWorkflowViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    """API for managing task workflows"""
+
+    serializer_class = TaskWorkflowSerializer
+    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
+    required_scopes = ["INTERNAL"]
+    scope_object = "INTERNAL"
+    queryset = TaskWorkflow.objects.all()
+    posthog_feature_flag = {
+        "tasks": [
+            "list",
+            "retrieve",
+            "create",
+            "update",
+            "partial_update",
+            "destroy",
+            "set_default",
+            "deactivate",
+            "create_default",
+        ]
+    }
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(team=self.team, is_active=True)
+
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(), "team": self.team}
+
+    @action(detail=True, methods=["post"])
+    def set_default(self, request, pk=None):
+        """Set this workflow as the team's default"""
+        workflow = self.get_object()
+
+        # Unset current default
+        TaskWorkflow.objects.filter(team=self.team, is_default=True).update(is_default=False)
+
+        # Set new default
+        workflow.is_default = True
+        workflow.save(update_fields=["is_default"])
+
+        return Response(TaskWorkflowSerializer(workflow, context=self.get_serializer_context()).data)
+
+    @action(detail=True, methods=["post"])
+    def deactivate(self, request, pk=None, **kwargs):
+        """Safely deactivate a workflow"""
+        workflow = self.get_object()
+
+        try:
+            workflow.deactivate_safely()
+            return Response({"message": "Workflow deactivated successfully"})
+        except ValueError:
+            return Response({"error": "Cannot deactivate the default workflow"}, status=status.HTTP_400_BAD_REQUEST)
+
+    @action(detail=False, methods=["post"])
+    def create_default(self, request):
+        """Create a default workflow for the team"""
+        existing_default = TaskWorkflow.objects.filter(team=self.team, is_default=True).first()
+        if existing_default:
+            return Response({"error": "Team already has a default workflow"}, status=status.HTTP_400_BAD_REQUEST)
+
+        workflow = TaskWorkflow.create_default_workflow(self.team)
+        return Response(TaskWorkflowSerializer(workflow, context=self.get_serializer_context()).data)
+
+
+class WorkflowStageViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    """API for managing workflow stages"""
+
+    serializer_class = WorkflowStageSerializer
+    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
+    required_scopes = ["INTERNAL"]
+    scope_object = "INTERNAL"
+    queryset = WorkflowStage.objects.all()
+    posthog_feature_flag = {"tasks": ["list", "retrieve", "create", "update", "partial_update", "destroy", "archive"]}
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(workflow__team=self.team, is_archived=False)
+
+    @action(detail=True, methods=["post"])
+    def archive(self, request, pk=None):
+        """Archive a stage instead of deleting it"""
+        stage = self.get_object()
+        stage.archive()
+        return Response({"message": "Stage archived successfully"})
+
+
+class AgentDefinitionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    """API for managing agent definitions"""
+
+    serializer_class = AgentDefinitionSerializer
+    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
+    required_scopes = ["INTERNAL"]
+    scope_object = "INTERNAL"
+    queryset = AgentDefinition.objects.all()
+    posthog_feature_flag = {"tasks": ["list", "retrieve", "create", "update", "partial_update", "destroy"]}
+
+    def safely_get_queryset(self, queryset):
+        return queryset.filter(team=self.team, is_active=True)
+
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(), "team": self.team}
