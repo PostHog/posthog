@@ -117,7 +117,7 @@ class Integration(models.Model):
         if self.kind == "email":
             return self.config.get("email", self.integration_id)
         if self.kind == Integration.IntegrationKind.DATABRICKS.value:
-            return dot_get(self.config, "server_hostname", self.integration_id)
+            return dot_get(self.config, "server_hostname", self.integration_id or "unknown ID")
 
         return f"ID: {self.integration_id}"
 
