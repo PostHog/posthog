@@ -1,5 +1,5 @@
 import re
-import typing
+from typing import Union, cast
 
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
@@ -31,6 +31,7 @@ from posthog.models import User
 from posthog.models.named_query import NamedQuery
 from posthog.rate_limit import APIQueriesBurstThrottle, APIQueriesSustainedThrottle
 from posthog.schema_migrations.upgrade import upgrade
+from posthog.types import InsightQueryNode
 
 from common.hogvm.python.utils import HogVMException
 
@@ -87,10 +88,7 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
 
     def validate_request(self, data: NamedQueryRequest, strict: bool = True) -> None:
         query = data.query
-        if query:
-            if query.kind != "HogQLQuery":
-                raise ValidationError("Only HogQLQuery query kind is supported (want more? speak to us)")
-        elif strict:
+        if not query and strict:
             raise ValidationError("Must specify query")
 
         name = data.name
@@ -117,9 +115,9 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
         try:
             named_query = NamedQuery.objects.create(
                 team=self.team,
-                created_by=typing.cast(User, request.user),
-                name=typing.cast(str, data.name),  # verified in validate_request
-                query=typing.cast(HogQLQuery, data.query).model_dump(),
+                created_by=cast(User, request.user),
+                name=cast(str, data.name),  # verified in validate_request
+                query=cast(Union[HogQLQuery, InsightQueryNode], data.query).model_dump(),
                 description=data.description or "",
                 is_active=data.is_active if data.is_active is not None else True,
             )
@@ -139,6 +137,7 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
                 status=status.HTTP_201_CREATED,
             )
 
+        # We should expose if the query name is duplicate
         except Exception as e:
             capture_exception(e)
             raise ValidationError("Failed to create named query.")
@@ -210,7 +209,10 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
                     if variable.get("code_name", "") == code_name:
                         variable["value"] = value
 
-            # Build QueryRequest
+            query_overrides = data.query_override or {}
+            for query_field, value in query_overrides.items():
+                named_query.query[query_field] = value
+
             query_request_data = {
                 "client_query_id": data.client_query_id,
                 "filters_override": data.filters_override,
@@ -235,7 +237,7 @@ class NamedQueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Mod
                 query,
                 execution_mode=execution_mode,
                 query_id=client_query_id,
-                user=typing.cast(User, request.user),
+                user=cast(User, request.user),
                 is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
             )
 
