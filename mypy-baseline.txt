@@ -816,6 +816,8 @@ posthog/queries/trends/util.py:0: error: Argument 1 to "translate_hogql" has inc
 posthog/schema_migrations/upgrade_manager.py:0: error: Argument 1 to "upgrade" has incompatible type "Any | None"; expected "dict[Any, Any]"  [arg-type]
 posthog/settings/__init__.py:0: error: Cannot determine type of "MAILJET_PUBLIC_KEY"  [has-type]
 posthog/settings/__init__.py:0: error: Cannot determine type of "MAILJET_SECRET_KEY"  [has-type]
+posthog/settings/__init__.py:0: error: Cannot determine type of "MESSAGING_ATTACHMENTS_CDN_DOMAIN"  [has-type]
+posthog/settings/__init__.py:0: error: Cannot determine type of "MESSAGING_ATTACHMENTS_OBJECT_STORAGE_BUCKET"  [has-type]
 posthog/settings/__init__.py:0: error: Cannot determine type of "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY"  [has-type]
 posthog/settings/__init__.py:0: error: Cannot determine type of "SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET"  [has-type]
 posthog/settings/data_stores.py:0: error: Name "DATABASE_URL" already defined on line 0  [no-redef]
