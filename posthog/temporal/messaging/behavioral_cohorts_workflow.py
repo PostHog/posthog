@@ -63,7 +63,7 @@ class ProcessConditionBatchInputs:
 
 @dataclasses.dataclass
 class CohortMembershipResult:
-    memberships: list[tuple[int, str, int]]
+    memberships_count: int  # Just the count, not the actual data
     conditions_processed: int
     batch_number: int
 
@@ -189,7 +189,7 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
     if not isinstance(inputs.min_matches, int) or inputs.min_matches < 0:
         raise ValueError(f"Invalid min_matches value: {inputs.min_matches}")
 
-    memberships = []
+    memberships_count = 0
 
     async with Heartbeater():
         for idx, condition_data in enumerate(inputs.conditions, 1):
@@ -240,9 +240,8 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
                         workload=Workload.OFFLINE,
                     )
 
-                for row in results:
-                    person_id = row[0]
-                    memberships.append((team_id, person_id, cohort_id))
+                # Just count the memberships, don't store them
+                memberships_count += len(results)
 
             except Exception as e:
                 logger.exception(
@@ -254,14 +253,16 @@ async def process_condition_batch_activity(inputs: ProcessConditionBatchInputs) 
                 continue
 
     logger.info(
-        f"Batch {inputs.batch_number} completed: {len(memberships)} memberships from {len(inputs.conditions)} conditions",
+        f"Batch {inputs.batch_number} completed: {memberships_count} memberships from {len(inputs.conditions)} conditions",
         batch_number=inputs.batch_number,
-        memberships_count=len(memberships),
+        memberships_count=memberships_count,
         conditions_count=len(inputs.conditions),
     )
 
     return CohortMembershipResult(
-        memberships=memberships, conditions_processed=len(inputs.conditions), batch_number=inputs.batch_number
+        memberships_count=memberships_count,
+        conditions_processed=len(inputs.conditions),
+        batch_number=inputs.batch_number,
     )
 
 
@@ -386,22 +387,21 @@ class BehavioralCohortsWorkflow(PostHogWorkflow):
         results = await asyncio.gather(*batch_tasks)
 
         # Step 4: Aggregate results
-        all_memberships = []
+        total_memberships = 0
         total_conditions_processed = 0
 
         for result in results:
-            all_memberships.extend(result.memberships)
+            total_memberships += result.memberships_count
             total_conditions_processed += result.conditions_processed
-            workflow_logger.info(f"Batch {result.batch_number} contributed {len(result.memberships)} memberships")
+            workflow_logger.info(f"Batch {result.batch_number} contributed {result.memberships_count} memberships")
 
         workflow_logger.info(
-            f"Workflow completed: {len(all_memberships)} total memberships from {total_conditions_processed} conditions"
+            f"Workflow completed: {total_memberships} total memberships from {total_conditions_processed} conditions"
         )
 
         # Return summary statistics
         return {
-            "total_memberships": len(all_memberships),
+            "total_memberships": total_memberships,
             "conditions_processed": total_conditions_processed,
             "batches_processed": len(batches),
-            "memberships": all_memberships[:5],  # Return first 5 for display
         }

@@ -131,17 +131,11 @@ class Command(BaseCommand):
                 )
                 self.stdout.write(f"Total time: {total_time_seconds} seconds")
 
-                # Display sample results
-                if result.get("memberships"):
-                    self.stdout.write("\nSample results (first 5):")
-                    self.stdout.write("team_id,person_id,cohort_id")
-                    for team_id, person_id, cohort_id in result["memberships"][:5]:
-                        self.stdout.write(f"{team_id},{person_id},{cohort_id}")
-
-                    if len(result["memberships"]) > 5:
-                        self.stdout.write(
-                            f"\n... showing first 5 of {result['total_memberships']} total memberships ..."
-                        )
+                # Note: Individual membership data not returned (only counts for performance)
+                self.stdout.write(
+                    f"\nNote: Processed {result['total_memberships']} total memberships (counts only, no individual data returned)"
+                )
+                self.stdout.write("Individual membership data can be written to storage in future versions.")
         else:
             # Legacy sequential processing
             logger.info("Using legacy sequential processing")
