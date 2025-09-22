@@ -1,16 +1,18 @@
 import {
     ConversionGoalFilter,
+    CurrencyCode,
     DataWarehouseNode,
     ExternalDataSourceType,
+    MARKETING_ANALYTICS_SCHEMA,
     MarketingAnalyticsColumnsSchemaNames,
     MarketingAnalyticsHelperForColumnNames,
     MarketingAnalyticsOrderBy,
     MarketingAnalyticsTableQuery,
+    NodeKind,
 } from '~/queries/schema/schema-general'
-import { ManualLinkSourceType } from '~/types'
+import { ManualLinkSourceType, PropertyMathType } from '~/types'
 
 import { NativeSource } from './marketingAnalyticsLogic'
-import { googleAdsCostTile, linkedinAdsCostTile, metaAdsCostTile, redditAdsCostTile } from './marketingCostTile'
 
 export type NativeMarketingSource = Extract<
     ExternalDataSourceType,
@@ -58,19 +60,7 @@ export function MarketingDashboardMapper(
     source: NativeSource,
     tileColumnSelection: validColumnsForTiles
 ): DataWarehouseNode | null {
-    switch (source.source.source_type) {
-        case 'GoogleAds':
-            return googleAdsCostTile(source, tileColumnSelection)
-        case 'LinkedinAds':
-            return linkedinAdsCostTile(source, tileColumnSelection)
-        case 'RedditAds':
-            return redditAdsCostTile(source, tileColumnSelection)
-
-        case 'MetaAds':
-            return metaAdsCostTile(source, tileColumnSelection)
-        default:
-            return null
-    }
+    return createMarketingTile(source, tileColumnSelection)
 }
 
 export const COST_MICROS_MULTIPLIER = 1 / 1000000
@@ -183,93 +173,208 @@ export function createMarketingAnalyticsOrderBy(
 ): MarketingAnalyticsOrderBy[] {
     return [[column, direction]]
 }
-export type validColumnsForTiles = Extract<MarketingAnalyticsColumnsSchemaNames, 'cost' | 'impressions' | 'clicks'>
+export type validColumnsForTiles = Extract<
+    MarketingAnalyticsColumnsSchemaNames,
+    'cost' | 'impressions' | 'clicks' | 'reported_conversion'
+>
 
-export const columnTileConfig: {
-    [key in (typeof VALID_NATIVE_MARKETING_SOURCES)[number]]: {
-        columns: {
-            [key in validColumnsForTiles]: {
-                name: string
-                type: string
-                needsDivision: boolean
-            }
-        }
-    }
-} = {
+interface ColumnConfig {
+    name: string
+    type: string
+    needsDivision: boolean
+}
+
+interface SourceColumnMappings {
+    cost: string
+    impressions: string
+    clicks: string
+    reportedConversion: string
+    costNeedsDivision?: boolean
+}
+
+interface SourceTileConfig {
+    statsTableName: string
+    displayName: string
+    idField: string
+    timestampField: string
+    columnMappings: SourceColumnMappings
+    specialConversionLogic?: (
+        _table: any,
+        tileColumnSelection: validColumnsForTiles
+    ) => Partial<DataWarehouseNode> | null
+}
+
+const sourceTileConfigs: Record<NativeMarketingSource, SourceTileConfig> = {
     GoogleAds: {
-        columns: {
-            [MarketingAnalyticsColumnsSchemaNames.Cost]: {
-                name: 'metrics_cost_micros',
-                type: 'float',
-                needsDivision: true,
-            },
-            [MarketingAnalyticsColumnsSchemaNames.Impressions]: {
-                name: 'metrics_impressions',
-                type: 'integer',
-                needsDivision: false,
-            },
-            [MarketingAnalyticsColumnsSchemaNames.Clicks]: {
-                name: 'metrics_clicks',
-                type: 'integer',
-                needsDivision: false,
-            },
+        statsTableName: 'campaign_stats',
+        displayName: 'google',
+        idField: 'id',
+        timestampField: 'segments_date',
+        columnMappings: {
+            cost: 'metrics_cost_micros',
+            impressions: 'metrics_impressions',
+            clicks: 'metrics_clicks',
+            reportedConversion: 'metrics_conversions',
+            costNeedsDivision: true,
         },
     },
     RedditAds: {
-        columns: {
-            [MarketingAnalyticsColumnsSchemaNames.Cost]: {
-                name: 'spend',
-                type: 'float',
-                needsDivision: true,
-            },
-            [MarketingAnalyticsColumnsSchemaNames.Impressions]: {
-                name: 'impressions',
-                type: 'integer',
-                needsDivision: false,
-            },
-            [MarketingAnalyticsColumnsSchemaNames.Clicks]: {
-                name: 'clicks',
-                type: 'integer',
-                needsDivision: false,
-            },
+        statsTableName: 'campaign_report',
+        displayName: 'reddit',
+        idField: 'campaign_id',
+        timestampField: 'date',
+        columnMappings: {
+            cost: 'spend',
+            impressions: 'impressions',
+            clicks: 'clicks',
+            reportedConversion: 'conversion_purchase_total_items',
+            costNeedsDivision: true,
+        },
+        specialConversionLogic: (_table, tileColumnSelection) => {
+            if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
+                return {
+                    math: 'hogql' as any,
+                    math_hogql:
+                        'SUM(toFloat(conversion_signup_total_value) + toFloat(conversion_purchase_total_items))',
+                }
+            }
+            return null
         },
     },
     LinkedinAds: {
-        columns: {
-            [MarketingAnalyticsColumnsSchemaNames.Cost]: {
-                name: 'cost_in_usd',
-                type: 'float',
-                needsDivision: false,
-            },
-            [MarketingAnalyticsColumnsSchemaNames.Impressions]: {
-                name: 'impressions',
-                type: 'integer',
-                needsDivision: false,
-            },
-            [MarketingAnalyticsColumnsSchemaNames.Clicks]: {
-                name: 'clicks',
-                type: 'integer',
-                needsDivision: false,
-            },
+        statsTableName: 'campaign_stats',
+        displayName: 'linkedin',
+        idField: 'id',
+        timestampField: 'date_start',
+        columnMappings: {
+            cost: 'cost_in_usd',
+            impressions: 'impressions',
+            clicks: 'clicks',
+            reportedConversion: 'external_website_conversions',
         },
     },
     MetaAds: {
-        columns: {
-            [MarketingAnalyticsColumnsSchemaNames.Cost]: {
-                name: 'spend',
-                type: 'float',
-                needsDivision: false,
-            },
-            [MarketingAnalyticsColumnsSchemaNames.Impressions]: {
-                name: 'impressions',
-                type: 'integer',
-                needsDivision: false,
-            },
-            [MarketingAnalyticsColumnsSchemaNames.Clicks]: {
-                name: 'clicks',
-                type: 'integer',
-                needsDivision: false,
-            },
+        statsTableName: 'campaign_stats',
+        displayName: 'meta',
+        idField: 'campaign_id',
+        timestampField: 'date_stop',
+        columnMappings: {
+            cost: 'spend',
+            impressions: 'impressions',
+            clicks: 'clicks',
+            reportedConversion: 'conversions',
+        },
+        specialConversionLogic: (table, tileColumnSelection) => {
+            if (tileColumnSelection === MarketingAnalyticsColumnsSchemaNames.ReportedConversion) {
+                // If meta does not return conversions it won't be in the table.fields.
+                const hasConversionsColumn = table.fields && 'conversions' in table.fields
+                if (hasConversionsColumn) {
+                    return {
+                        math: 'hogql' as any,
+                        math_hogql: 'SUM(toFloat(conversions))',
+                    }
+                }
+                return {
+                    math: 'hogql' as any,
+                    math_hogql: '0',
+                }
+            }
+            return null
         },
     },
+}
+
+function createColumnConfig(columnName: string, type: 'float' | 'integer', needsDivision = false): ColumnConfig {
+    return { name: columnName, type, needsDivision }
+}
+
+function buildSourceConfig(mappings: SourceColumnMappings): {
+    columns: { [key in validColumnsForTiles]: ColumnConfig }
+} {
+    return {
+        columns: {
+            [MarketingAnalyticsColumnsSchemaNames.Cost]: createColumnConfig(
+                mappings.cost,
+                'float',
+                mappings.costNeedsDivision ?? false
+            ),
+            [MarketingAnalyticsColumnsSchemaNames.Impressions]: createColumnConfig(mappings.impressions, 'integer'),
+            [MarketingAnalyticsColumnsSchemaNames.Clicks]: createColumnConfig(mappings.clicks, 'integer'),
+            [MarketingAnalyticsColumnsSchemaNames.ReportedConversion]: createColumnConfig(
+                mappings.reportedConversion,
+                'integer'
+            ),
+        },
+    }
+}
+
+export const columnTileConfig: {
+    [key in NativeMarketingSource]: {
+        columns: {
+            [key in validColumnsForTiles]: ColumnConfig
+        }
+    }
+} = Object.fromEntries(
+    VALID_NATIVE_MARKETING_SOURCES.map((source) => [
+        source,
+        buildSourceConfig(sourceTileConfigs[source].columnMappings),
+    ])
+) as any
+
+export function createMarketingTile(
+    source: NativeSource,
+    tileColumnSelection: validColumnsForTiles
+): DataWarehouseNode | null {
+    const sourceType = source.source.source_type as NativeMarketingSource
+    const config = sourceTileConfigs[sourceType]
+
+    if (!config) {
+        return null
+    }
+
+    const table = source.tables.find((t) => t.name.split('.').pop() === config.statsTableName)
+    if (!table) {
+        return null
+    }
+
+    const column = columnTileConfig[sourceType].columns[tileColumnSelection]
+    if (!column) {
+        return null
+    }
+
+    // Check for special conversion logic first
+    if (config.specialConversionLogic) {
+        const specialLogic = config.specialConversionLogic(table, tileColumnSelection)
+        if (specialLogic) {
+            return {
+                kind: NodeKind.DataWarehouseNode,
+                id: table.id,
+                name: config.displayName,
+                custom_name: `${table.name} ${tileColumnSelection}`,
+                id_field: config.idField,
+                distinct_id_field: config.idField,
+                timestamp_field: config.timestampField,
+                table_name: table.name,
+                ...specialLogic,
+            }
+        }
+    }
+
+    // Default tile configuration
+    return {
+        kind: NodeKind.DataWarehouseNode,
+        id: table.id,
+        name: config.displayName,
+        custom_name: `${table.name} ${tileColumnSelection}`,
+        id_field: config.idField,
+        distinct_id_field: config.idField,
+        timestamp_field: config.timestampField,
+        table_name: table.name,
+        math: PropertyMathType.Sum,
+        math_property: column.name,
+        ...(MARKETING_ANALYTICS_SCHEMA[tileColumnSelection].isCurrency
+            ? { math_property_revenue_currency: { static: CurrencyCode.USD } }
+            : {}),
+        ...(column.needsDivision ? { math_multiplier: COST_MICROS_MULTIPLIER } : {}),
+    }
 }
