@@ -173,6 +173,13 @@ fn create_group_identify_event(
         );
     }
 
+    // Mark this as a historical migration event
+    properties.insert("historical_migration".to_string(), Value::Bool(true));
+    properties.insert(
+        "analytics_source".to_string(),
+        Value::String("amplitude".to_string()),
+    );
+
     let raw_event = RawEvent {
         event: "$groupidentify".to_string(),
         properties: properties.into_iter().collect(),
@@ -1348,6 +1355,16 @@ mod tests {
         assert_eq!(
             group_identify_data["properties"]["$group_set"]["industry"],
             "Technology"
+        );
+
+        // Verify historical migration flag is present
+        assert_eq!(
+            group_identify_data["properties"]["historical_migration"],
+            true
+        );
+        assert_eq!(
+            group_identify_data["properties"]["analytics_source"],
+            "amplitude"
         );
 
         // Verify timestamp is preserved from the original event
