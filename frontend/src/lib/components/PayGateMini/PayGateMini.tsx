@@ -53,7 +53,7 @@ export function PayGateMini({
     loadingSkeleton,
     handleSubmit,
 }: PayGateMiniProps): JSX.Element | null {
-    const { productWithFeature, featureInfo, gateVariant, bypassPaywall } = useValues(
+    const { productWithFeature, featureInfo, gateVariant, bypassPaywall, ctaLabel } = useValues(
         payGateMiniLogic({ feature, currentUsage })
     )
     const { setBypassPaywall } = useActions(payGateMiniLogic({ feature, currentUsage }))
@@ -67,9 +67,10 @@ export function PayGateMini({
                 product_key: productWithFeature?.type,
                 feature: feature,
                 gate_variant: gateVariant,
+                cta_label: ctaLabel,
             })
         }
-    }, [gateVariant]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [gateVariant, ctaLabel]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const handleCtaClick = (): void => {
         if (handleSubmit) {
@@ -79,6 +80,7 @@ export function PayGateMini({
             product_key: productWithFeature?.type,
             feature: feature,
             gate_variant: gateVariant,
+            cta_label: ctaLabel,
         })
     }
 
