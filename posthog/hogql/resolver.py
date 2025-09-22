@@ -33,7 +33,6 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.models.utils import UUIDT
 
-
 # https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"
 
 # To quickly disable global joins, switch this to False
@@ -470,7 +469,7 @@ class Resolver(CloningVisitor):
         node.type = ast.FieldAliasType(
             alias=node.alias,
             type=node.expr.type or ast.UnknownType(),
-            nullable=(node.expr.type is None or node.expr.type.nullable),
+            nullable=(node.expr.type.nullable if node.expr.type else True),
         )
         if not node.hidden:
             scope.aliases[node.alias] = node.type
@@ -559,7 +558,7 @@ class Resolver(CloningVisitor):
             # )
 
         if node.name == "concat":
-            return_type.nullable = False
+            return_type.nullable = False  # valid only if at least 1 param is not null
         else:
             return_type.nullable = any(arg_type.nullable for arg_type in arg_types)
 
