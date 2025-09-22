@@ -13,7 +13,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, BillingFeatureType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
-import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { PayGateButton } from './PayGateButton'
 import { PayGateMiniLogicProps, payGateMiniLogic } from './payGateMiniLogic'
 
@@ -54,13 +53,12 @@ export function PayGateMini({
     loadingSkeleton,
     handleSubmit,
 }: PayGateMiniProps): JSX.Element | null {
-    const { productWithFeature, featureInfo, gateVariant, bypassPaywall, isTrialFlow } = useValues(
+    const { productWithFeature, featureInfo, gateVariant, bypassPaywall } = useValues(
         payGateMiniLogic({ feature, currentUsage })
     )
     const { setBypassPaywall } = useActions(payGateMiniLogic({ feature, currentUsage }))
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
     const { billingLoading } = useValues(billingLogic)
-    const { hideUpgradeModal } = useActions(upgradeModalLogic)
     const { user } = useValues(userLogic)
 
     useEffect(() => {
@@ -76,9 +74,6 @@ export function PayGateMini({
     const handleCtaClick = (): void => {
         if (handleSubmit) {
             handleSubmit()
-        }
-        if (!isTrialFlow) {
-            hideUpgradeModal()
         }
         posthog.capture('pay gate CTA clicked', {
             product_key: productWithFeature?.type,
