@@ -5,9 +5,7 @@ Uses rope for refactoring and Claude Code CLI for intelligent migration editing.
 """
 
 import os
-import re
 import ast
-import sys
 import json
 import logging
 import subprocess
@@ -49,44 +47,10 @@ class ModelMigrator:
         self.rope_project = rope.base.project.Project(str(self.root_dir))
 
     def load_config(self) -> dict:
-        """Load migration configuration and normalise status flags."""
+        """Load migration configuration and normalize status flags."""
         if not self.config_path.exists():
-            default_config = {
-                "migrations": [
-                    {
-                        "name": "experiments",
-                        "source_files": ["experiment.py", "web_experiment.py"],
-                        "target_app": "experiments",
-                        "create_backend_dir": True,
-                        "table_names": [
-                            "posthog_experiment",
-                            "posthog_experimentholdout",
-                            "posthog_experimentsavedmetric",
-                        ],
-                        "status": "todo",
-                    },
-                    {
-                        "name": "links",
-                        "source_files": ["link.py"],
-                        "target_app": "links",
-                        "create_backend_dir": False,
-                        "table_names": ["posthog_link"],
-                        "status": "todo",
-                    },
-                    {
-                        "name": "messaging",
-                        "source_files": ["messaging.py", "subscription.py"],
-                        "target_app": "messaging",
-                        "create_backend_dir": False,
-                        "table_names": ["posthog_subscription"],
-                        "status": "todo",
-                    },
-                ]
-            }
-            self.save_config(default_config)
-            logger.info("📝 Created default config: %s", self.config_path)
-            logger.info("Update statuses in the config file to plan your next run, then execute the script again.")
-            sys.exit(0)
+            logger.error("❌ Configuration file not found: %s", self.config_path)
+            sys.exit(1)
 
         with self.config_path.open() as f:
             config = json.load(f)
@@ -137,12 +101,8 @@ class ModelMigrator:
                 pending.append((index, migration))
         return pending
 
-    def _ensure_model_db_tables(self, models_path: Path, table_names: list[str]) -> None:
+    def _ensure_model_db_tables(self, models_path: Path) -> None:
         """Ensure moved models keep referencing the original database tables."""
-        table_set = {name for name in table_names if isinstance(name, str) and name}
-        if not table_set:
-            return
-
         try:
             source = models_path.read_text()
         except FileNotFoundError:
@@ -163,8 +123,6 @@ class ModelMigrator:
 
             class_name = node.name
             expected_table = f"posthog_{class_name.lower()}"
-            if expected_table not in table_set:
-                continue
 
             meta_class = next(
                 (stmt for stmt in node.body if isinstance(stmt, ast.ClassDef) and stmt.name == "Meta"),
@@ -362,9 +320,7 @@ class {app_name.title()}Config(AppConfig):
 
         return True
 
-    def move_model_files_manually_then_rope(
-        self, source_files: list[str], target_app: str, table_names: list[str] | None = None
-    ) -> bool:
+    def move_model_files_manually_then_rope(self, source_files: list[str], target_app: str) -> bool:
         """Move files manually first, then use rope to update imports"""
         logger.info("🔄 Moving %d model files...", len(source_files))
 
@@ -408,8 +364,7 @@ class {app_name.title()}Config(AppConfig):
         with open(target_models_py, "w") as f:
             f.write("\n".join(combined_content))
 
-        if table_names:
-            self._ensure_model_db_tables(target_models_py, table_names)
+        self._ensure_model_db_tables(target_models_py)
 
         logger.info("✅ Created combined models.py: %s", target_models_py)
 
@@ -716,9 +671,7 @@ class {app_name.title()}Config(AppConfig):
             return False
 
         # Step 3: Move model files and update imports
-        if not self.move_model_files_manually_then_rope(
-            source_files, target_app, migration_spec.get("table_names", [])
-        ):
+        if not self.move_model_files_manually_then_rope(source_files, target_app):
             return False
 
         # Step 4: Update posthog/models/__init__.py imports
