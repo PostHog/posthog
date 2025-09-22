@@ -30,7 +30,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { tagsModel } from '~/models/tagsModel'
-import { DashboardFilter, HogQLVariable, Node } from '~/queries/schema/schema-general'
+import { DashboardFilter, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
 import { isValidQueryForExperiment } from '~/queries/utils'
 import {
     AccessControlResourceType,
@@ -60,7 +60,7 @@ export const createEmptyInsight = (
 })
 
 export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType>([
-    props({ filtersOverride: null, variablesOverride: null } as InsightLogicProps),
+    props({ filtersOverride: null, variablesOverride: null, tileFiltersOverride: null } as InsightLogicProps),
     key((props) => keyForInsightLogicProps('new')(props)),
     path((key) => ['scenes', 'insights', 'insightLogic', key]),
     connect(() => ({
@@ -109,11 +109,13 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         loadInsight: (
             shortId: InsightShortId,
             filtersOverride?: DashboardFilter | null,
-            variablesOverride?: Record<string, HogQLVariable> | null
+            variablesOverride?: Record<string, HogQLVariable> | null,
+            tileFiltersOverride?: DashboardFilter | null
         ) => ({
             shortId,
             filtersOverride,
             variablesOverride,
+            tileFiltersOverride,
         }),
         updateInsight: (insightUpdate: Partial<QueryBasedInsightModel>, callback?: () => void) => ({
             insightUpdate,
@@ -141,7 +143,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         insight: [
             props.cachedInsight ?? createEmptyInsight(props.dashboardItemId || 'new'),
             {
-                loadInsight: async ({ shortId, filtersOverride, variablesOverride }, breakpoint) => {
+                loadInsight: async (
+                    { shortId, filtersOverride, variablesOverride, tileFiltersOverride },
+                    breakpoint
+                ) => {
                     await breakpoint(100)
                     try {
                         const insight = await insightsApi.getByShortId(
@@ -149,7 +154,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                             undefined,
                             'async',
                             filtersOverride,
-                            variablesOverride
+                            variablesOverride,
+                            tileFiltersOverride
                         )
 
                         if (!insight) {
@@ -399,11 +405,20 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
         isUsingPathsV1: [(s) => [s.featureFlags], (featureFlags) => !featureFlags[FEATURE_FLAGS.PATHS_V2]],
         isUsingPathsV2: [(s) => [s.featureFlags], (featureFlags) => featureFlags[FEATURE_FLAGS.PATHS_V2]],
         hasOverrides: [
-            () => [(_, props) => props.filtersOverride, (_, props) => props.variablesOverride],
-            (filtersOverride: DashboardFilter | null, variablesOverride: Record<string, HogQLVariable> | null) => {
+            () => [
+                (_, props) => props.filtersOverride,
+                (_, props) => props.variablesOverride,
+                (_, props) => props.tileFiltersOverride,
+            ],
+            (
+                filtersOverride: DashboardFilter | null,
+                variablesOverride: Record<string, HogQLVariable> | null,
+                tileFiltersOverride: TileFilters | null
+            ) => {
                 return (
                     (isObject(filtersOverride) && !isEmptyObject(filtersOverride)) ||
-                    (isObject(variablesOverride) && !isEmptyObject(variablesOverride))
+                    (isObject(variablesOverride) && !isEmptyObject(variablesOverride)) ||
+                    (isObject(tileFiltersOverride) && !isEmptyObject(tileFiltersOverride))
                 )
             },
         ],
@@ -596,7 +611,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 actions.loadInsight(
                     props.dashboardItemId as InsightShortId,
                     props.filtersOverride,
-                    props.variablesOverride
+                    props.variablesOverride,
+                    props.tileFiltersOverride
                 )
             }
         },

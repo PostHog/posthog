@@ -16,7 +16,9 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { performQuery } from '~/queries/query'
 import {
+    ExperimentFunnelMetricStep,
     ExperimentMetric,
+    ExperimentMetricSource,
     ExperimentMetricType,
     NodeKind,
     isExperimentFunnelMetric,
@@ -123,8 +125,39 @@ export function ExperimentMetricForm({
     }
 
     const handleMetricTypeChange = (newMetricType: ExperimentMetricType): void => {
+        // Extract current sources from the existing metric to preserve selections
+        let sources: ExperimentMetricSource[] = []
+
+        if (isExperimentMeanMetric(metric)) {
+            sources = [metric.source]
+        } else if (isExperimentFunnelMetric(metric)) {
+            sources = metric.series
+        } else if (isExperimentRatioMetric(metric)) {
+            sources = [metric.numerator]
+            if (metric.denominator) {
+                sources.push(metric.denominator)
+            }
+        }
+
+        const newMetric = getDefaultExperimentMetric(newMetricType)
+
+        // Apply the existing sources to the new metric type to preserve selections
+        if (sources.length > 0 && sources[0]) {
+            if (newMetricType === ExperimentMetricType.MEAN && isExperimentMeanMetric(newMetric)) {
+                newMetric.source = sources[0]
+            } else if (newMetricType === ExperimentMetricType.FUNNEL && isExperimentFunnelMetric(newMetric)) {
+                // Funnel metrics only support EventsNode and ActionsNode, not DataWarehouseNode
+                newMetric.series = sources.filter(
+                    (s): s is ExperimentFunnelMetricStep =>
+                        s && (s.kind === NodeKind.EventsNode || s.kind === NodeKind.ActionsNode)
+                )
+            } else if (newMetricType === ExperimentMetricType.RATIO && isExperimentRatioMetric(newMetric)) {
+                newMetric.numerator = sources[0]
+            }
+        }
+
         handleSetMetric({
-            ...getDefaultExperimentMetric(newMetricType),
+            ...newMetric,
             // Keep the current uuid and name
             uuid: metric.uuid,
             name: metric.name,

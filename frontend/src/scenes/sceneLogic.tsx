@@ -201,7 +201,6 @@ export const sceneLogic = kea<sceneLogicType>([
             tabId,
             params,
         }),
-        setLoadedSceneLogic: (logic: BuiltLogic) => ({ logic }),
         reloadBrowserDueToImportError: true,
 
         newTab: (href?: string | null) => ({ href }),
@@ -353,14 +352,6 @@ export const sceneLogic = kea<sceneLogicType>([
                     ...state,
                     [sceneId]: { ...exportedScene, lastTouch: new Date().valueOf() },
                 }),
-            },
-        ],
-        loadedSceneLogics: [
-            {} as Record<string, BuiltLogic>,
-            {
-                setLoadedSceneLogic: (state, { logic }) => {
-                    return { ...state, [logic.pathString]: logic }
-                },
             },
         ],
         loadingScene: [
@@ -683,7 +674,6 @@ export const sceneLogic = kea<sceneLogicType>([
                 const builtLogicProps = { tabId, ...exportedScene?.paramsToProps?.(params) }
                 const builtLogic = exportedScene?.logic(builtLogicProps)
                 cache.mountedTabLogic[tabId] = builtLogic.mount()
-                actions.setLoadedSceneLogic(builtLogic) // persist the logic for TURBO MODE
             }
         },
         openScene: ({ tabId, sceneId, sceneKey, params, method }) => {
