@@ -90,6 +90,7 @@ class AssistantContextualTool(StrEnum):
     SEARCH_DOCS = "search_docs"
     SEARCH_INSIGHTS = "search_insights"
     SESSION_SUMMARIZATION = "session_summarization"
+    CREATE_DASHBOARD = "create_dashboard"
 
 
 class AssistantDateRange(BaseModel):
@@ -207,40 +208,41 @@ class AssistantMessageType(StrEnum):
 
 
 class AssistantNavigateUrls(StrEnum):
-    CREATE_ACTION = "createAction"
     ACTIONS = "actions"
-    COHORTS = "cohorts"
-    PROJECT_HOMEPAGE = "projectHomepage"
-    MAX = "max"
-    SETTINGS = "settings"
-    EVENT_DEFINITIONS = "eventDefinitions"
-    PROPERTY_DEFINITIONS = "propertyDefinitions"
-    DATABASE = "database"
     ACTIVITY = "activity"
+    ALERTS = "alerts"
+    ANNOTATIONS = "annotations"
+    CREATE_ACTION = "createAction"
+    COHORTS = "cohorts"
+    DASHBOARDS = "dashboards"
+    DATABASE = "database"
+    EARLY_ACCESS_FEATURES = "earlyAccessFeatures"
+    EVENT_DEFINITIONS = "eventDefinitions"
+    ERROR_TRACKING = "errorTracking"
+    EXPERIMENTS = "experiments"
+    FEATURE_FLAGS = "featureFlags"
+    GAME368HEDGEHOGS = "game368hedgehogs"
+    HEATMAPS = "heatmaps"
     INGESTION_WARNINGS = "ingestionWarnings"
     INSIGHTS = "insights"
     INSIGHT_NEW = "insightNew"
-    SAVED_INSIGHTS = "savedInsights"
-    WEB_ANALYTICS = "webAnalytics"
-    WEB_ANALYTICS_WEB_VITALS = "webAnalyticsWebVitals"
-    ALERTS = "alerts"
-    DASHBOARDS = "dashboards"
-    EXPERIMENTS = "experiments"
-    FEATURE_FLAGS = "featureFlags"
-    SURVEYS = "surveys"
-    SURVEY_TEMPLATES = "surveyTemplates"
+    PIPELINE = "pipeline"
+    PROJECT_HOMEPAGE = "projectHomepage"
+    PROPERTY_DEFINITIONS = "propertyDefinitions"
+    MAX = "max"
+    NOTEBOOKS = "notebooks"
     REPLAY = "replay"
     REPLAY_SETTINGS = "replaySettings"
-    PIPELINE = "pipeline"
+    REVENUE_ANALYTICS = "revenueAnalytics"
+    SAVED_INSIGHTS = "savedInsights"
+    SETTINGS = "settings"
     SQL_EDITOR = "sqlEditor"
-    ANNOTATIONS = "annotations"
-    HEATMAPS = "heatmaps"
-    EARLY_ACCESS_FEATURES = "earlyAccessFeatures"
-    ERROR_TRACKING = "errorTracking"
-    GAME368HEDGEHOGS = "game368hedgehogs"
-    NOTEBOOKS = "notebooks"
-    PERSONS = "persons"
+    SURVEYS = "surveys"
+    SURVEY_TEMPLATES = "surveyTemplates"
     TOOLBAR_LAUNCH = "toolbarLaunch"
+    WEB_ANALYTICS = "webAnalytics"
+    WEB_ANALYTICS_WEB_VITALS = "webAnalyticsWebVitals"
+    PERSONS = "persons"
 
 
 class AssistantNumericValuePropertyFilterOperator(StrEnum):
@@ -919,6 +921,11 @@ class DateRange(BaseModel):
 
 class DatetimeDay(RootModel[datetime]):
     root: datetime
+
+
+class DeepResearchType(StrEnum):
+    PLANNING = "planning"
+    REPORT = "report"
 
 
 class DefaultChannelTypes(StrEnum):
@@ -3642,6 +3649,16 @@ class Day(RootModel[int]):
     root: int
 
 
+class DeepResearchNotebook(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    category: Literal["deep_research"] = "deep_research"
+    notebook_id: str
+    notebook_type: Optional[DeepResearchType] = None
+    title: str
+
+
 class ElementPropertyFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4147,8 +4164,11 @@ class NotebookUpdateMessage(BaseModel):
         extra="forbid",
     )
     content: ProsemirrorJSONContent
+    conversation_notebooks: Optional[list[DeepResearchNotebook]] = None
+    current_run_notebooks: Optional[list[DeepResearchNotebook]] = None
     id: Optional[str] = None
     notebook_id: str
+    notebook_type: Literal["deep_research"] = "deep_research"
     tool_calls: Optional[list[AssistantToolCall]] = None
     type: Literal["ai/notebook"] = "ai/notebook"
 
@@ -4885,6 +4905,7 @@ class SurveyQuestionSchema(BaseModel):
     descriptionContentType: Optional[SurveyQuestionDescriptionContentType] = None
     display: Optional[Display1] = None
     hasOpenChoice: Optional[bool] = None
+    id: Optional[str] = None
     link: Optional[str] = None
     lowerBoundLabel: Optional[str] = None
     optional: Optional[bool] = None
@@ -4913,6 +4934,7 @@ class TaskExecutionItem(BaseModel):
     progress_text: Optional[str] = None
     prompt: str
     status: TaskExecutionStatus
+    task_type: str
 
 
 class TaskExecutionMessage(BaseModel):

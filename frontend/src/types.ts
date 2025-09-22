@@ -1482,6 +1482,7 @@ export interface CohortType {
     }
     experiment_set?: number[]
     _create_in_folder?: string | null
+    _create_static_person_ids?: string[]
 }
 
 export interface InsightHistory {
@@ -3013,6 +3014,8 @@ export interface InsightLogicProps<Q extends QuerySchema = QuerySchema> {
     filtersOverride?: DashboardFilter | null
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
+    /** Tile filters to override the ones in the query */
+    tileFiltersOverride?: TileFilters | null
     /** The tab of the scene if the insight is a full scene insight */
     tabId?: string | null
 }
@@ -3610,6 +3613,7 @@ export enum ItemMode {
 
 export enum DashboardPlacement {
     Dashboard = 'dashboard', // When on the standard dashboard page
+    CustomerAnalytics = 'customer-analytics', // When embedded on the customer analytics page
     ProjectHomepage = 'project-homepage', // When embedded on the project homepage
     FeatureFlag = 'feature-flag',
     Public = 'public', // When viewing the dashboard publicly
@@ -5582,6 +5586,27 @@ export enum ConversationType {
     ToolCall = 'tool_call',
     DeepResearch = 'deep_research',
 }
+
+export enum Category {
+    DEEP_RESEARCH = 'deep_research',
+}
+
+export enum DeepResearchType {
+    PLANNING = 'planning',
+    REPORT = 'report',
+}
+
+interface _NotebookBase {
+    notebook_id: string
+    title: string
+}
+
+export interface DeepResearchNotebook extends _NotebookBase {
+    category: Category.DEEP_RESEARCH
+    notebook_type?: DeepResearchType
+}
+
+export type NotebookInfo = DeepResearchNotebook
 
 export interface Conversation {
     id: string

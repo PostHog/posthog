@@ -1,64 +1,15 @@
-import time
-import asyncio
 import logging
-import datetime as dt
-import threading
-from contextlib import contextmanager
 
 import pytest
 
-import temporalio.worker
 from asgiref.sync import async_to_sync
 from temporalio.client import Client as TemporalClient
 from temporalio.service import RPCError
-from temporalio.worker import Worker
 
-from posthog import constants
+from posthog.api.test.batch_exports.fixtures import create_organization, create_team, create_user
+from posthog.api.test.batch_exports.operations import start_test_worker
 from posthog.batch_exports.models import BatchExport
 from posthog.temporal.common.client import sync_connect
-
-from products.batch_exports.backend.temporal import ACTIVITIES, WORKFLOWS
-
-
-class ThreadedWorker(Worker):
-    """A Temporal Worker that can run in a separate thread.
-
-    Inteded to be used in sync tests that require a Temporal Worker.
-    """
-
-    @contextmanager
-    def run_in_thread(self):
-        """Run a Temporal Worker in a thread.
-
-        Don't use this outside of tests. Once PostHog is fully async we can get rid of this.
-        """
-        loop = asyncio.new_event_loop()
-        t = threading.Thread(target=self.run_using_loop, daemon=True, args=(loop,))
-        t.start()
-
-        try:
-            while not self.is_running:
-                time.sleep(0.1)
-            yield
-        finally:
-            self._shutdown_event.set()
-            # Give the worker a chance to shut down before exiting
-            max_wait = 10.0
-            while t.is_alive() and max_wait > 0:
-                time.sleep(0.1)
-                max_wait -= 0.1
-
-    def run_using_loop(self, loop):
-        """Setup an event loop to run the Worker.
-
-        Using async_to_sync(Worker.run) causes a deadlock.
-        """
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(super().run())
-        finally:
-            loop.run_until_complete(loop.shutdown_asyncgens())
-            loop.close()
 
 
 @async_to_sync
@@ -95,22 +46,38 @@ async def describe_workflow(temporal: TemporalClient, workflow_id: str):
     return temporal_workflow
 
 
-@contextmanager
-def start_test_worker(temporal: TemporalClient):
-    with ThreadedWorker(
-        client=temporal,
-        task_queue=constants.BATCH_EXPORTS_TASK_QUEUE,
-        workflows=WORKFLOWS,
-        activities=ACTIVITIES,
-        workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
-        graceful_shutdown_timeout=dt.timedelta(seconds=5),
-    ).run_in_thread():
-        yield
-
-
-@pytest.fixture
+@pytest.fixture(scope="module")
 def temporal():
     """Return a TemporalClient instance."""
     client = sync_connect()
     yield client
-    cleanup_temporal_schedules(client)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def temporal_worker(temporal):
+    """Use a module scoped fixture to start a Temporal Worker.
+
+    This saves a lot of time, as waiting for the worker to stop takes a while.
+    """
+    with start_test_worker(temporal):
+        yield
+
+
+@pytest.fixture(autouse=True)
+def cleanup(temporal):
+    cleanup_temporal_schedules(temporal)
+
+
+@pytest.fixture
+def organization():
+    return create_organization("Test Org")
+
+
+@pytest.fixture
+def team(organization):
+    return create_team(organization)
+
+
+@pytest.fixture
+def user(organization):
+    return create_user("test@user.com", "Test User", organization)
