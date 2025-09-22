@@ -1532,6 +1532,7 @@ name = "posthog-cli"
 version = "0.4.8"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
  "crossterm 0.28.1",
  "dirs",
