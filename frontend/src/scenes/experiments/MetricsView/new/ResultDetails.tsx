@@ -1,11 +1,18 @@
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { IconRewindPlay } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyNumber } from 'lib/utils'
 import { FunnelChart } from 'scenes/experiments/charts/funnel/FunnelChart'
+import { ResultsBreakdown } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdown'
+import { ResultsBreakdownSkeleton } from 'scenes/experiments/components/ResultsBreakdown/ResultsBreakdownSkeleton'
+import { ResultsInsightInfoBanner } from 'scenes/experiments/components/ResultsBreakdown/ResultsInsightInfoBanner'
+import { ResultsQuery } from 'scenes/experiments/components/ResultsBreakdown/ResultsQuery'
 import { getViewRecordingFilters } from 'scenes/experiments/utils'
 import { urls } from 'scenes/urls'
 
@@ -110,12 +117,16 @@ export function ResultDetails({
     experiment,
     result,
     metric,
+    isSecondary,
 }: {
     experiment: Experiment
     result: CachedNewExperimentQueryResponse
     metric: ExperimentMetric
     isSecondary: boolean
 }): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const useExperimentFunnelChart = featureFlags[FEATURE_FLAGS.EXPERIMENTS_FUNNEL_CHART]
+
     const columns: LemonTableColumns<ExperimentVariantResult & { key: string }> = [
         {
             key: 'variant',
@@ -237,15 +248,47 @@ export function ResultDetails({
     return (
         <div className="space-y-2">
             <LemonTable columns={columns} dataSource={dataSource} loading={false} />
-            {isExperimentFunnelMetric(metric) && (
-                <FunnelChart
-                    steps={convertExperimentResultToFunnelSteps(result, metric, experiment)}
-                    showPersonsModal={false}
-                    disableBaseline={true}
-                    inCardView={true}
-                    experimentResult={result}
-                />
-            )}
+            {isExperimentFunnelMetric(metric) &&
+                (useExperimentFunnelChart ? (
+                    <FunnelChart
+                        steps={convertExperimentResultToFunnelSteps(result, metric, experiment)}
+                        showPersonsModal={false}
+                        disableBaseline={true}
+                        inCardView={true}
+                        experimentResult={result}
+                    />
+                ) : (
+                    <ResultsBreakdown
+                        result={result}
+                        experiment={experiment}
+                        metricUuid={metric.uuid || ''}
+                        isPrimary={!isSecondary}
+                    >
+                        {({
+                            query,
+                            breakdownResultsLoading,
+                            breakdownResults,
+                            exposureDifference,
+                            breakdownLastRefresh,
+                        }) => {
+                            return (
+                                <>
+                                    {breakdownResultsLoading && <ResultsBreakdownSkeleton />}
+                                    {query && breakdownResults && (
+                                        <>
+                                            <ResultsInsightInfoBanner exposureDifference={exposureDifference} />
+                                            <ResultsQuery
+                                                query={query}
+                                                breakdownResults={breakdownResults}
+                                                breakdownLastRefresh={breakdownLastRefresh}
+                                            />
+                                        </>
+                                    )}
+                                </>
+                            )
+                        }}
+                    </ResultsBreakdown>
+                ))}
         </div>
     )
 }
