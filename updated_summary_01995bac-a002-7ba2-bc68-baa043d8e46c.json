@@ -107,7 +107,7 @@
                     "abandonment": false,
                     "confusion": false,
                     "current_url": "http://localhost:8010/project/2/error_tracking",
-                    "description": "Viewed Error tracking page (no data)",
+                    "description": "Viewed Error tracking feature (no data)",
                     "event": "$exception",
                     "event_id": "5e7fc9d4",
                     "event_index": 113,
@@ -180,7 +180,7 @@
         {
             "segment_index": 1,
             "success": true,
-            "summary": "User explored Error tracking and Surveys features"
+            "summary": "User explored Error tracking and surveys features"
         }
     ],
     "segments": [
@@ -215,12 +215,12 @@
                 "failure_count": 1,
                 "key_action_count": 5
             },
-            "name": "Exploration of Error tracking and Surveys",
+            "name": "Exploration of Error tracking and surveys",
             "start_event_id": "edb7bf17"
         }
     ],
     "session_outcome": {
-        "description": "User successfully explored analytics, error tracking, and surveys features",
+        "description": "Session showcased broad feature exploration; no blocking errors were observed",
         "success": true
     }
 }

@@ -1,0 +1,34 @@
+[
+    {
+        "path": "key_actions.1.events.1.abandonment",
+        "new_value": false
+    },
+    {
+        "path": "key_actions.1.events.1.description",
+        "new_value": "Viewed Error tracking feature (no data)"
+    },
+    {
+        "path": "key_actions.1.events.1.exception",
+        "new_value": null
+    },
+    {
+        "path": "segment_outcomes.1.success",
+        "new_value": true
+    },
+    {
+        "path": "segment_outcomes.1.summary",
+        "new_value": "User explored Error tracking and surveys features"
+    },
+    {
+        "path": "segments.1.name",
+        "new_value": "Exploration of Error tracking and surveys"
+    },
+    {
+        "path": "session_outcome.description",
+        "new_value": "Session showcased broad feature exploration; no blocking errors were observed"
+    },
+    {
+        "path": "session_outcome.success",
+        "new_value": true
+    }
+]
