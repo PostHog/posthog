@@ -1,3 +1,5 @@
+import uuid
+
 from django.conf import settings
 
 from posthog.hogql.database.schema.web_analytics_s3 import get_s3_function_args
@@ -11,10 +13,10 @@ def is_eu_cluster() -> bool:
     return getattr(settings, "CLOUD_DEPLOYMENT", None) == "EU"
 
 
-def TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True, replace=False, zk_path=None):
+def TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True, force_unique_zk_path=False, replace=False):
     engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
-    if zk_path is not None:
-        engine.set_zookeeper_path_key(str(zk_path))
+    if force_unique_zk_path:
+        engine.set_zookeeper_path_key(str(uuid.uuid4()))
 
     return f"""
     {f"REPLACE TABLE {table_name}" if replace else f"CREATE TABLE IF NOT EXISTS {table_name}"} {ON_CLUSTER_CLAUSE(on_cluster=on_cluster)}
@@ -30,10 +32,12 @@ def TABLE_TEMPLATE(table_name, columns, order_by, on_cluster=True, replace=False
     """
 
 
-def HOURLY_TABLE_TEMPLATE(table_name, columns, order_by, ttl=None, on_cluster=True, replace=False, zk_path=None):
+def HOURLY_TABLE_TEMPLATE(
+    table_name, columns, order_by, ttl=None, on_cluster=True, force_unique_zk_path=False, replace=False
+):
     engine = MergeTreeEngine(table_name, replication_scheme=ReplicationScheme.REPLICATED)
-    if zk_path is not None:
-        engine.set_zookeeper_path_key(str(zk_path))
+    if force_unique_zk_path:
+        engine.set_zookeeper_path_key(str(uuid.uuid4()))
 
     ttl_clause = f"TTL period_bucket + INTERVAL {ttl} DELETE" if ttl else ""
 
@@ -88,27 +92,27 @@ def DROP_WEB_BOUNCES_STAGING_SQL():
     return _DROP_TABLE_TEMPLATE("web_pre_aggregated_bounces_staging")
 
 
-def REPLACE_WEB_BOUNCES_HOURLY_STAGING_SQL(zk_path=None):
+def REPLACE_WEB_BOUNCES_HOURLY_STAGING_SQL():
     return HOURLY_TABLE_TEMPLATE(
         "web_bounces_hourly_staging",
         WEB_BOUNCES_COLUMNS,
         WEB_BOUNCES_ORDER_BY_FUNC("period_bucket"),
         ttl="24 HOUR",
+        force_unique_zk_path=True,
         replace=True,
         on_cluster=False,
-        zk_path=zk_path,
     )
 
 
-def REPLACE_WEB_STATS_HOURLY_STAGING_SQL(zk_path=None):
+def REPLACE_WEB_STATS_HOURLY_STAGING_SQL():
     return HOURLY_TABLE_TEMPLATE(
         "web_stats_hourly_staging",
         WEB_STATS_COLUMNS,
         WEB_STATS_ORDER_BY_FUNC("period_bucket"),
         ttl="24 HOUR",
+        force_unique_zk_path=True,
         replace=True,
         on_cluster=False,
-        zk_path=zk_path,
     )
 
 
@@ -235,25 +239,25 @@ WEB_BOUNCES_V2_PRODUCTION_ORDER_BY = """(
 )"""
 
 
-def REPLACE_WEB_STATS_V2_STAGING_SQL(zk_path=None):
+def REPLACE_WEB_STATS_V2_STAGING_SQL():
     return TABLE_TEMPLATE(
         "web_pre_aggregated_stats_staging",
         WEB_STATS_V2_PRODUCTION_COLUMNS,
         WEB_STATS_V2_PRODUCTION_ORDER_BY,
+        force_unique_zk_path=True,
         replace=True,
         on_cluster=False,
-        zk_path=zk_path,
     )
 
 
-def REPLACE_WEB_BOUNCES_V2_STAGING_SQL(zk_path=None):
+def REPLACE_WEB_BOUNCES_V2_STAGING_SQL():
     return TABLE_TEMPLATE(
         "web_pre_aggregated_bounces_staging",
         WEB_BOUNCES_V2_PRODUCTION_COLUMNS,
         WEB_BOUNCES_V2_PRODUCTION_ORDER_BY,
+        force_unique_zk_path=True,
         replace=True,
         on_cluster=False,
-        zk_path=zk_path,
     )
 
 

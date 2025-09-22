@@ -8,8 +8,6 @@ from posthog.models.utils import uuid7
 from posthog.models.web_preaggregated.sql import (
     DROP_PARTITION_SQL,
     HOURLY_TABLE_TEMPLATE,
-    REPLACE_WEB_BOUNCES_V2_STAGING_SQL,
-    REPLACE_WEB_STATS_V2_STAGING_SQL,
     TABLE_TEMPLATE,
     WEB_BOUNCES_INSERT_SQL,
     WEB_STATS_COLUMNS,
@@ -107,30 +105,6 @@ class TestTableTemplates:
 
         assert "PARTITION BY formatDateTime(period_bucket, '%Y%m%d%H')" in sql
         assert "TTL period_bucket + INTERVAL 24 HOUR DELETE" in sql
-
-    def test_table_template_with_custom_zk_path(self):
-        custom_zk_path = "custom_test_path_123"
-        sql = TABLE_TEMPLATE("test_table", WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC(), zk_path=custom_zk_path)
-
-        # Should contain the custom zk path in the engine specification
-        assert custom_zk_path in sql
-        assert "ReplicatedMergeTree" in sql
-
-    def test_table_template_without_zk_path_uses_default(self):
-        sql = TABLE_TEMPLATE("test_table", WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC())
-
-        # Should use default ReplicatedMergeTree without custom path
-        assert "ReplicatedMergeTree" in sql
-        # Should not contain any specific custom path
-        assert "custom_test_path" not in sql
-
-    def test_hourly_table_template_with_custom_zk_path(self):
-        custom_zk_path = "hourly_custom_path_456"
-        sql = HOURLY_TABLE_TEMPLATE("test_hourly", WEB_STATS_COLUMNS, WEB_STATS_ORDER_BY_FUNC(), zk_path=custom_zk_path)
-
-        # Should contain the custom zk path
-        assert custom_zk_path in sql
-        assert "ReplicatedMergeTree" in sql
 
 
 class TestPartitionIDFormatting:
@@ -438,42 +412,3 @@ class TestCentralizedFilters:
         assert "SETTINGS max_threads=4" in stats_sql  # settings_clause
         assert "toIntervalHour(25)" in stats_sql  # extended session range
         assert "period_bucket >= toDateTime('2024-01-01', 'UTC')" in stats_sql  # outer filter
-
-
-class TestStagingTableZKPath:
-    def test_staging_tables_with_custom_zk_path(self):
-        deterministic_stats_path = "stats_v2_staging_deterministic_path"
-        deterministic_bounces_path = "bounces_v2_staging_deterministic_path"
-
-        stats_sql = REPLACE_WEB_STATS_V2_STAGING_SQL(zk_path=deterministic_stats_path)
-        bounces_sql = REPLACE_WEB_BOUNCES_V2_STAGING_SQL(zk_path=deterministic_bounces_path)
-
-        assert deterministic_stats_path in stats_sql
-        assert deterministic_bounces_path in bounces_sql
-
-    def test_staging_tables_consistent_across_calls_with_same_zk_path(self):
-        consistent_path = "consistent_test_path_789"
-
-        sql1 = REPLACE_WEB_STATS_V2_STAGING_SQL(zk_path=consistent_path)
-        sql2 = REPLACE_WEB_STATS_V2_STAGING_SQL(zk_path=consistent_path)
-        sql3 = REPLACE_WEB_BOUNCES_V2_STAGING_SQL(zk_path=consistent_path)
-        sql4 = REPLACE_WEB_BOUNCES_V2_STAGING_SQL(zk_path=consistent_path)
-
-        assert sql1 == sql2
-        assert sql3 == sql4
-
-    def test_staging_tables_different_zk_paths_produce_different_sql(self):
-        path1 = "path_one"
-        path2 = "path_two"
-
-        stats_sql1 = REPLACE_WEB_STATS_V2_STAGING_SQL(zk_path=path1)
-        stats_sql2 = REPLACE_WEB_STATS_V2_STAGING_SQL(zk_path=path2)
-
-        # Should be different SQL
-        assert stats_sql1 != stats_sql2
-
-        # Should contain respective paths
-        assert path1 in stats_sql1
-        assert path2 in stats_sql2
-        assert path1 not in stats_sql2
-        assert path2 not in stats_sql1
