@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
-import { IconCopy, IconMinusSmall, IconPlusSmall, IconTrash } from '@posthog/icons'
+import { IconCopy, IconMinusSmall, IconPlusSmall, IconTrash, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonDivider, LemonFileInput, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
@@ -35,6 +35,7 @@ import { QueryContext } from '~/queries/types'
 
 import { AddPersonToCohortModal } from './AddPersonToCohortModal'
 import { addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
+import { cohortCountWarningLogic } from './cohortCountWarningLogic'
 import { createCohortDataNodeLogicKey } from './cohortUtils'
 
 const RESOURCE_TYPE = 'cohort'
@@ -59,6 +60,8 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
         useValues(logic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
+    const warningLogic = cohortCountWarningLogic({ cohort, query, dataNodeLogicKey })
+    const { shouldShowCountWarning } = useValues(warningLogic)
 
     const createStaticCohortContext: QueryContext = {
         columns: {
@@ -414,10 +417,13 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     <>
                                         Persons in this cohort
                                         <span className="text-secondary ml-2">
-                                            {!cohort.is_calculating &&
-                                                cohort.count !== undefined &&
-                                                `(${cohort.count})`}
+                                            {!cohort.is_calculating && cohort.count != undefined && `(${cohort.count})`}
                                         </span>
+                                        {shouldShowCountWarning && (
+                                            <Tooltip title="The displayed number of persons is less than the cohort count due to deleted persons. This is expected behavior for dynamic cohorts where persons may be deleted after being counted.">
+                                                <IconWarning className="text-warning ml-2" />
+                                            </Tooltip>
+                                        )}
                                     </>
                                 }
                                 description="Persons who match the following criteria will be part of the cohort."
