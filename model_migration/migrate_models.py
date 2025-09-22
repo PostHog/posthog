@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Automated model migration script for moving PostHog models into product apps.
-Uses rope for refactoring and Claude Code CLI for intelligent migration editing.
+Uses bowler for refactoring and Claude Code CLI for intelligent migration editing.
 """
 
 import os
@@ -11,11 +11,127 @@ import logging
 import subprocess
 from pathlib import Path
 
-import rope.base.project
-import rope.refactor.move
-import rope.base.resources
+import libcst as cst
 
 logger = logging.getLogger(__name__)
+
+
+class ImportTransformer(cst.CSTTransformer):
+    """LibCST transformer to update import statements for moved models"""
+
+    def __init__(self, model_names: set[str], target_app: str, module_name: str):
+        self.model_names = model_names
+        self.target_app = target_app
+        self.module_name = module_name
+        self.changed = False
+        self.imports_to_add = []  # Store additional imports to add
+
+    def leave_ImportFrom(
+        self, original_node: cst.ImportFrom, updated_node: cst.ImportFrom
+    ) -> cst.ImportFrom | cst.RemovalSentinel | cst.FlattenSentinel:
+        """Transform ImportFrom statements"""
+
+        # Check if this is a posthog.models import
+        if self._is_posthog_models_import(updated_node):
+            return self._transform_posthog_models_import(updated_node)
+
+        # Check if this is a direct module import like posthog.models.experiment
+        if self._is_direct_module_import(updated_node):
+            return self._transform_direct_module_import(updated_node)
+
+        return updated_node
+
+    def _is_posthog_models_import(self, node: cst.ImportFrom) -> bool:
+        """Check if this is 'from posthog.models import ...'"""
+        if not node.module:
+            return False
+
+        module_str = self._get_module_string(node.module)
+        return module_str == "posthog.models"
+
+    def _is_direct_module_import(self, node: cst.ImportFrom) -> bool:
+        """Check if this is 'from posthog.models.experiment import ...'"""
+        if not node.module:
+            return False
+
+        module_str = self._get_module_string(node.module)
+        return module_str == f"posthog.models.{self.module_name}"
+
+    def _get_module_string(self, module: cst.CSTNode) -> str:
+        """Convert module CST node to string"""
+        if isinstance(module, cst.Name):
+            return module.value
+        elif isinstance(module, cst.Attribute):
+            return f"{self._get_module_string(module.value)}.{module.attr.value}"
+        else:
+            # For other node types, generate the actual code
+            return cst.Module(body=[cst.SimpleStatementLine(body=[cst.Expr(value=module)])]).code.strip()
+
+    def _transform_posthog_models_import(self, node: cst.ImportFrom) -> cst.ImportFrom | cst.FlattenSentinel:
+        """Transform 'from posthog.models import ...' statements"""
+        if not node.names or isinstance(node.names, cst.ImportStar):
+            return node
+
+        # Extract import names
+        current_imports = []
+        for name in node.names:
+            if isinstance(name, cst.ImportAlias):
+                current_imports.append(name.name.value)
+
+        # Separate moved models from remaining models
+        remaining_imports = [name for name in current_imports if name not in self.model_names]
+        moved_imports = [name for name in current_imports if name in self.model_names]
+
+        if not moved_imports:
+            return node  # No changes needed
+
+        self.changed = True
+
+        # Store the moved import to add later
+        moved_module = cst.parse_expression(f"products.{self.target_app}.backend.models")
+        moved_names = [cst.ImportAlias(name=cst.Name(name)) for name in moved_imports]
+        moved_stmt = cst.ImportFrom(module=moved_module, names=moved_names)
+        self.imports_to_add.append(moved_stmt)
+
+        if remaining_imports:
+            # Keep original import with remaining models only
+            remaining_names = [cst.ImportAlias(name=cst.Name(name)) for name in remaining_imports]
+            return node.with_changes(names=remaining_names)
+        else:
+            # Remove this import entirely (moved import will be added separately)
+            return cst.RemovalSentinel.REMOVE
+
+    def _transform_direct_module_import(self, node: cst.ImportFrom) -> cst.ImportFrom:
+        """Transform 'from posthog.models.experiment import ...' statements"""
+        self.changed = True
+
+        # Replace module with new location
+        new_module = cst.parse_expression(f"products.{self.target_app}.backend.models")
+        return node.with_changes(module=new_module)
+
+    def leave_Module(self, original_node: cst.Module, updated_node: cst.Module) -> cst.Module:
+        """Add collected imports at the end of import section"""
+        if not self.imports_to_add:
+            return updated_node
+
+        # Find the last import statement
+        body = list(updated_node.body)
+        last_import_idx = -1
+
+        for i, stmt in enumerate(body):
+            if isinstance(stmt, cst.SimpleStatementLine):
+                for substmt in stmt.body:
+                    if isinstance(substmt, (cst.ImportFrom, cst.Import)):
+                        last_import_idx = i
+                        break
+
+        # Insert new imports after the last import
+        if last_import_idx >= 0:
+            for import_stmt in self.imports_to_add:
+                last_import_idx += 1
+                body.insert(last_import_idx, cst.SimpleStatementLine(body=[import_stmt]))
+
+        return updated_node.with_changes(body=body)
 
 
 class LLMLimitReachedError(Exception):
@@ -44,7 +160,7 @@ class ModelMigrator:
         ]
 
         self.config = self.load_config()
-        self.rope_project = rope.base.project.Project(str(self.root_dir))
+        # Bowler doesn't need project initialization
 
     def load_config(self) -> dict:
         """Load migration configuration and normalize status flags."""
@@ -124,6 +240,17 @@ class ModelMigrator:
             class_name = node.name
             expected_table = f"posthog_{class_name.lower()}"
 
+            # Only add Meta class to Django Model classes, not managers or other classes
+            is_model_class = any(
+                isinstance(base, ast.Name)
+                and base.id in ["Model", "models.Model"]
+                or isinstance(base, ast.Attribute)
+                and base.attr == "Model"
+                for base in node.bases
+            )
+            if not is_model_class:
+                continue
+
             meta_class = next(
                 (stmt for stmt in node.body if isinstance(stmt, ast.ClassDef) and stmt.name == "Meta"),
                 None,
@@ -163,15 +290,17 @@ class ModelMigrator:
                 class_indent = class_line[: len(class_line) - len(class_line.lstrip())]
                 body_indent = class_indent + "    "
 
+                # Place Meta class after all fields but before methods
                 insert_after = node.lineno
                 if node.body:
-                    first_stmt = node.body[0]
-                    if (
-                        isinstance(first_stmt, ast.Expr)
-                        and isinstance(first_stmt.value, ast.Constant)
-                        and isinstance(first_stmt.value.value, str)
-                    ):
-                        insert_after = first_stmt.end_lineno
+                    # Find the last field assignment (before any method definitions)
+                    last_field_line = node.lineno
+                    for stmt in node.body:
+                        if isinstance(stmt, ast.Assign) or isinstance(stmt, ast.AnnAssign):
+                            last_field_line = stmt.end_lineno
+                        elif isinstance(stmt, ast.FunctionDef):
+                            break  # Stop at first method
+                    insert_after = last_field_line
 
                 insert_block = [
                     "",
@@ -197,9 +326,9 @@ class ModelMigrator:
         try:
             result = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=True)
             return True, result.stdout
-        except subprocess.CalledProcessError as e:
-            logging.exception("❌ Command failed: %s", cmd)
-            return False, e.stderr
+        except subprocess.CalledProcessError:
+            logger.exception("❌ Command failed: %s", cmd)
+            return False, "Command failed"
 
     def _call_llm_cli(self, tool: str, prompt: str, file_content: str) -> str:
         """Invoke an AI CLI tool and return its stdout."""
@@ -293,41 +422,222 @@ class ModelMigrator:
         return True
 
     def create_django_app_config(self, app_name: str) -> bool:
-        """Create Django app configuration"""
+        """Create Django app configuration in backend/"""
         app_dir = self.root_dir / "products" / app_name
-        apps_py = app_dir / "apps.py"
+        backend_dir = app_dir / "backend"
 
+        # Check for old structure and warn
+        old_files_found = []
+        old_init_py = app_dir / "__init__.py"
+        if old_init_py.exists():
+            old_files_found.append(str(old_init_py))
+
+        old_apps_py = app_dir / "apps.py"
+        if old_apps_py.exists():
+            old_files_found.append(str(old_apps_py))
+
+        old_models_py = app_dir / "models.py"
+        if old_models_py.exists():
+            old_files_found.append(str(old_models_py))
+
+        if old_files_found:
+            logger.warning("⚠️  WARNING: Found old product structure files that should be manually reviewed:")
+            for file_path in old_files_found:
+                logger.warning("⚠️    %s", file_path)
+            logger.warning("⚠️  These files don't follow the new architecture (only backend/ should have Python files)")
+            logger.warning("⚠️  Please review and remove them manually if they're not needed")
+
+        # Create backend/apps.py
+        apps_py = backend_dir / "apps.py"
         if not apps_py.exists():
             app_config_content = f"""from django.apps import AppConfig
 
 
 class {app_name.title()}Config(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
-    name = "products.{app_name}"
-    label = "{app_name}"
+    name = "products.{app_name}.backend"
+    label = "products.{app_name}"
 """
             with open(apps_py, "w") as f:
                 f.write(app_config_content)
             logger.info("✅ Created Django app config: %s", apps_py)
 
-        # Create proxy models.py
-        models_py = app_dir / "models.py"
-        if not models_py.exists():
-            models_content = "# Import models from backend to make them discoverable by Django\nfrom .backend.models import *  # noqa: F403, F401\n"
-            with open(models_py, "w") as f:
-                f.write(models_content)
-            logger.info("✅ Created proxy models.py: %s", models_py)
-
         return True
 
-    def move_model_files_manually_then_rope(self, source_files: list[str], target_app: str) -> bool:
-        """Move files manually first, then use rope to update imports"""
+    def update_admin_registrations(self, model_names: set[str], target_app: str) -> bool:
+        """Update Django admin registrations to import models from new location"""
+        admin_init = self.root_dir / "posthog" / "admin" / "__init__.py"
+
+        if not admin_init.exists():
+            logger.warning("⚠️  Admin __init__.py not found: %s", admin_init)
+            return False
+
+        try:
+            with open(admin_init, "r") as f:
+                content = f.read()
+
+            # Find the posthog.models import block
+            import re
+
+            # Pattern to match the import block from posthog.models
+            pattern = r'(from posthog\.models import \()(.*?)(\)\n)'
+            match = re.search(pattern, content, re.DOTALL)
+
+            if not match:
+                logger.warning("⚠️  Could not find posthog.models import block in admin __init__.py")
+                return False
+
+            import_start, import_content, import_end = match.groups()
+
+            # Split the imports and find which ones need to be moved
+            import_lines = [line.strip().rstrip(',') for line in import_content.strip().split('\n') if line.strip()]
+
+            remaining_imports = []
+            moved_imports = []
+
+            for line in import_lines:
+                # Handle both single imports and comma-separated imports on one line
+                if ',' in line:
+                    # Multiple imports on one line
+                    line_models = [m.strip() for m in line.split(',') if m.strip()]
+                    line_moved = []
+                    line_remaining = []
+                    for model in line_models:
+                        if model in model_names:
+                            line_moved.append(model)
+                        else:
+                            line_remaining.append(model)
+                    moved_imports.extend(line_moved)
+                    remaining_imports.extend(line_remaining)
+                else:
+                    # Single import
+                    model = line.strip()
+                    if model in model_names:
+                        moved_imports.append(model)
+                    else:
+                        remaining_imports.append(model)
+
+            if not moved_imports:
+                logger.info("✅ No admin registrations need updating")
+                return True
+
+            # Build the new import blocks
+            new_posthog_imports = "from posthog.models import (\n"
+            for imp in remaining_imports:
+                new_posthog_imports += f"    {imp},\n"
+            new_posthog_imports += ")"
+
+            # Add the new product import
+            product_import = f"from products.{target_app}.backend.models import (\n"
+            for model in moved_imports:
+                product_import += f"    {model},\n"
+            product_import += ")"
+
+            # Replace the old import block and add the new one
+            new_content = content.replace(match.group(0), new_posthog_imports + "\n" + product_import + "\n")
+
+            with open(admin_init, "w") as f:
+                f.write(new_content)
+
+            logger.info("✅ Updated admin registrations for models: %s", ", ".join(moved_imports))
+            return True
+
+        except Exception:
+            logger.exception("❌ Failed to update admin registrations")
+            return False
+
+    def _extract_class_names_from_files(self, source_files: list[str]) -> set[str]:
+        """Extract Django model class names from source files"""
+        class_names = set()
+        for source_file in source_files:
+            source_path = self.root_dir / "posthog" / "models" / source_file
+            if source_path.exists():
+                try:
+                    with open(source_path) as f:
+                        content = f.read()
+                    tree = ast.parse(content)
+                    for node in tree.body:
+                        if isinstance(node, ast.ClassDef):
+                            class_names.add(node.name)
+                except (FileNotFoundError, SyntaxError):
+                    continue
+        return class_names
+
+    def _update_foreign_key_references(self, line: str, model_names: set[str]) -> str:
+        """Update string-based foreign key references to include posthog. prefix"""
+        import re
+
+        # Only update references in ForeignKey, ManyToManyField, OneToOneField lines
+        if not any(field_type in line for field_type in ["ForeignKey", "ManyToManyField", "OneToOneField"]):
+            return line
+
+        # Pattern to match quoted model references in field definitions
+        # Matches: "ModelName" but not "posthog.ModelName" (already prefixed)
+        pattern = r'"([A-Z][a-zA-Z]*)"'
+
+        def replace_reference(match):
+            model_ref = match.group(1)
+            # Don't prefix if it's one of our models being moved, or already has a prefix
+            if model_ref in model_names or "." in model_ref:
+                return match.group(0)  # Return unchanged
+            # Add posthog. prefix for references to models staying in posthog
+            return f'"posthog.{model_ref}"'
+
+        return re.sub(pattern, replace_reference, line)
+
+    def _update_external_references_to_moved_models(self, model_names: set[str], target_app: str) -> None:
+        """Update references in external files to models we're moving"""
+        import re
+
+        # Files that commonly reference other models via ForeignKey strings
+        external_files = [
+            "posthog/models/tagged_item.py",
+            "posthog/models/comment.py",
+            "posthog/models/annotation.py",
+            # Add more files as needed
+        ]
+
+        updated_files = 0
+        for file_path in external_files:
+            full_path = self.root_dir / file_path
+            if not full_path.exists():
+                continue
+
+            try:
+                content = full_path.read_text()
+                original_content = content
+
+                # Update ForeignKey references to moved models
+                for model_name in model_names:
+                    # Pattern for both single-line and multi-line ForeignKey definitions
+                    # Handles: ForeignKey("ModelName") and ForeignKey(\n    "ModelName"
+                    pattern = rf'(ForeignKey|ManyToManyField|OneToOneField)\s*\(\s*\n?\s*"{re.escape(model_name)}"'
+                    replacement = rf'\1(\n        "{target_app}.{model_name}"'
+                    content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
+
+                if content != original_content:
+                    full_path.write_text(content)
+                    updated_files += 1
+                    logger.info("📝 Updated external references in %s", file_path)
+
+            except Exception as e:
+                logger.warning("⚠️  Failed to update external references in %s: %s", file_path, e)
+
+        if updated_files > 0:
+            logger.info("✅ Updated external references in %d files", updated_files)
+
+    def move_model_files_manually_then_bowler(self, source_files: list[str], target_app: str) -> bool:
+        """Move files manually first, then use bowler to update imports"""
         logger.info("🔄 Moving %d model files...", len(source_files))
 
         target_dir = self.root_dir / "products" / target_app / "backend"
         target_models_py = target_dir / "models.py"
 
-        # Step 1: Manually move and combine files
+        # Step 1: Get model class names to avoid circular imports
+        model_names = self._extract_class_names_from_files(source_files)
+        logger.info("📋 Model classes found: %s", list(model_names))
+
+        # Step 2: Manually move and combine files
         combined_content = []
         imports_seen = set()
 
@@ -349,11 +659,19 @@ class {app_name.title()}Config(AppConfig):
 
             for line in lines:
                 if line.strip().startswith(("from ", "import ")) and not line.strip().startswith("#"):
-                    if line not in imports_seen:
-                        file_imports.append(line)
-                        imports_seen.add(line)
+                    # Filter out circular imports and strip whitespace from import lines
+                    stripped_line = line.strip()  # Remove leading whitespace from import lines
+                    if stripped_line not in imports_seen and not any(
+                        model_name in stripped_line for model_name in model_names
+                    ):
+                        file_imports.append(stripped_line)
+                        imports_seen.add(stripped_line)
                 else:
-                    file_content.append(line)
+                    # Skip TYPE_CHECKING blocks and empty/whitespace-only lines
+                    if not (line.strip() == "if TYPE_CHECKING:" or line.strip() == ""):
+                        # Update string-based foreign key references to include posthog. prefix
+                        updated_line = self._update_foreign_key_references(line, model_names)
+                        file_content.append(updated_line)
 
             combined_content.extend(file_imports)
             combined_content.extend(["", ""])
@@ -368,15 +686,13 @@ class {app_name.title()}Config(AppConfig):
 
         logger.info("✅ Created combined models.py: %s", target_models_py)
 
-        # Step 2: Use rope to update imports across the codebase
-        logger.info("🔄 Using rope to update imports across codebase...")
+        # Step 2: Use libcst to update imports across the codebase
+        logger.info("🔄 Using libcst to update imports across codebase...")
         for source_file in source_files:
             module_name = source_file.replace(".py", "")
 
             try:
-                # Use rope to find and replace imports
-
-                # This is simpler - just update the imports
+                # Use libcst to find and replace imports
                 self._update_imports_for_module(module_name, target_app)
 
             except Exception as e:
@@ -393,54 +709,71 @@ class {app_name.title()}Config(AppConfig):
         return True
 
     def _update_imports_for_module(self, module_name: str, target_app: str):
-        """Update imports for a specific module using simple string replacement"""
-        import re
+        """Update imports for a specific module using libcst"""
+        logger.info("🔄 Using libcst to update imports for %s...", module_name)
 
-        # Find all Python files and update imports
+        # Get model class names that were moved from this module
+        model_names = self._extract_class_names_from_files([f"{module_name}.py"])
+        if not model_names:
+            logger.warning("No model classes found for module %s", module_name)
+            return True
+
+        logger.info("Updating imports for models: %s", model_names)
+
         updated_files = 0
 
-        for root, dirs, files in os.walk(str(self.root_dir)):
-            # Skip some directories
-            dirs[:] = [d for d in dirs if d not in ["__pycache__", ".git", "node_modules"]]
+        # First, find files that actually contain imports we need to update
+        logger.info("Finding files with relevant imports...")
 
-            for file in files:
-                if file.endswith(".py"):
-                    file_path = os.path.join(root, file)
-                    try:
-                        with open(file_path) as f:
-                            content = f.read()
+        import subprocess
 
-                        original_content = content
+        relevant_patterns = [
+            f"posthog.models.{module_name}",  # Direct module imports
+            "posthog.models import",  # General posthog.models imports
+        ]
 
-                        # Update various import patterns
-                        patterns = [
-                            (
-                                rf"from posthog\.models\.{re.escape(module_name)} import (.+)",
-                                rf"from products.{target_app}.backend.models import \1",
-                            ),
-                            (
-                                rf"import posthog\.models\.{re.escape(module_name)}",
-                                rf"import products.{target_app}.backend.models",
-                            ),
-                            (
-                                rf"posthog\.models\.{re.escape(module_name)}\.",
-                                rf"products.{target_app}.backend.models.",
-                            ),
-                        ]
+        candidate_files = set()
+        for pattern in relevant_patterns:
+            try:
+                result = subprocess.run(
+                    ["grep", "-r", "-l", "--include=*.py", pattern, str(self.root_dir)],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                if result.returncode == 0:
+                    files = result.stdout.strip().split("\n")
+                    candidate_files.update(Path(f) for f in files if f)
+            except Exception as e:
+                logger.warning("Failed to grep for pattern %s: %s", pattern, e)
 
-                        for pattern, replacement in patterns:
-                            content = re.sub(pattern, replacement, content)
+        logger.info("Found %d candidate files to process", len(candidate_files))
 
-                        if content != original_content:
-                            with open(file_path, "w") as f:
-                                f.write(content)
-                            updated_files += 1
+        # Process only the candidate files
+        for file_path in candidate_files:
+            if not file_path.exists():
+                continue
 
-                    except Exception:
-                        # Skip files that can't be read/written
-                        pass
+            try:
+                # Read and parse file
+                content = file_path.read_text(encoding="utf-8")
+                tree = cst.parse_module(content)
 
-        logger.info("✅ Updated imports in %d files", updated_files)
+                # Transform the tree
+                transformer = ImportTransformer(model_names, target_app, module_name)
+                new_tree = tree.visit(transformer)
+
+                # Write back if changed
+                if transformer.changed:
+                    file_path.write_text(new_tree.code, encoding="utf-8")
+                    updated_files += 1
+                    logger.debug("Updated imports in %s", file_path)
+
+            except Exception as e:
+                logger.warning("Failed to process %s: %s", file_path, e)
+                continue
+
+        logger.info("✅ LibCST updated imports in %d files", updated_files)
         return True
 
     def _combine_model_files(self, source_files: list[str], target_app: str) -> bool:
@@ -490,28 +823,25 @@ class {app_name.title()}Config(AppConfig):
         return True
 
     def update_posthog_models_init(self, source_files: list[str], target_app: str) -> bool:
-        """Update posthog/models/__init__.py to import from new location"""
+        """Remove imports from posthog/models/__init__.py for moved models to prevent circular imports"""
         init_file = self.root_dir / "posthog" / "models" / "__init__.py"
 
         with open(init_file) as f:
             content = f.read()
 
-        # For each moved model, update the import in __init__.py
+        # For each moved model, remove the import line entirely
         for source_file in source_files:
             module_name = source_file.replace(".py", "")
-
-            # Find imports from the old location and replace them
             import re
 
             # Pattern: from .MODULE import Class1, Class2
-            pattern = rf"from \.{re.escape(module_name)} import (.+)"
-            replacement = rf"from products.{target_app}.backend.models import \1"
-            content = re.sub(pattern, replacement, content)
+            pattern = rf"from \.{re.escape(module_name)} import .+\n"
+            content = re.sub(pattern, "", content)
 
         with open(init_file, "w") as f:
             f.write(content)
 
-        logger.info("✅ Updated posthog/models/__init__.py imports")
+        logger.info("✅ Removed imports from posthog/models/__init__.py to prevent circular imports")
         return True
 
     def update_settings(self, target_app: str) -> bool:
@@ -522,7 +852,7 @@ class {app_name.title()}Config(AppConfig):
             content = f.read()
 
         # Check if already added
-        if f'"products.{target_app}"' in content:
+        if f'"products.{target_app}.backend"' in content:
             logger.info("✅ App %s already in settings", target_app)
             return True
 
@@ -532,7 +862,7 @@ class {app_name.title()}Config(AppConfig):
         def replacement(match):
             apps_content = match.group(2)
             # Add new app before the closing bracket
-            return f'{match.group(1)}{apps_content}    "products.{target_app}",\n{match.group(3)}'
+            return f'{match.group(1)}{apps_content}    "products.{target_app}.backend",\n{match.group(3)}'
 
         new_content = re.sub(pattern, replacement, content, flags=re.DOTALL)
 
@@ -661,6 +991,10 @@ class {app_name.title()}Config(AppConfig):
         logger.info("   Source files: %s", source_files)
         logger.info("   Target app: %s", target_app)
 
+        # Step 0: Extract model class names early (before files are moved/deleted)
+        model_names = self._extract_class_names_from_files(source_files)
+        logger.info("📋 Model classes found: %s", list(model_names))
+
         # Step 1: Create backend structure if needed
         if create_backend:
             if not self.create_backend_structure(target_app):
@@ -670,13 +1004,20 @@ class {app_name.title()}Config(AppConfig):
         if not self.create_django_app_config(target_app):
             return False
 
-        # Step 3: Move model files and update imports
-        if not self.move_model_files_manually_then_rope(source_files, target_app):
-            return False
-
-        # Step 4: Update posthog/models/__init__.py imports
+        # Step 3: Update posthog/models/__init__.py imports (before bowler to prevent circular imports)
         if not self.update_posthog_models_init(source_files, target_app):
             return False
+
+        # Step 4: Move model files and update imports with bowler
+        if not self.move_model_files_manually_then_bowler(source_files, target_app):
+            return False
+
+        # Step 4.5: Update external file references to moved models
+        self._update_external_references_to_moved_models(model_names, target_app)
+
+        # Step 4.6: Update Django admin registrations
+        if not self.update_admin_registrations(model_names, target_app):
+            logger.warning("⚠️  Admin registration update failed, but continuing...")
 
         # Step 5: Update settings
         if not self.update_settings(target_app):
