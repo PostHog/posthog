@@ -59,7 +59,7 @@ from posthog.redis import get_client
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
 
-    from posthog.models import Dashboard, InsightVariable, Team, User
+    from posthog.models import Dashboard, DashboardTile, InsightVariable, Team, User
 
 DATERANGE_MAP = {
     "second": datetime.timedelta(seconds=1),
@@ -389,6 +389,7 @@ def get_context_for_template(
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
     context["js_kea_verbose_logging"] = settings.KEA_VERBOSE_LOGGING
+    context["js_app_state_logging_sample_rate"] = settings.APP_STATE_LOGGING_SAMPLE_RATE
     context["js_url"] = get_js_url(request)
 
     posthog_app_context: dict[str, Any] = {
@@ -1220,6 +1221,26 @@ def variables_override_requested_by_client(
         raise serializers.ValidationError({"variables_override": "Invalid JSON passed in variables_override parameter"})
 
     return map_stale_to_latest({**dashboard_variables, **request_variables}, variables)
+
+
+def tile_filters_override_requested_by_client(request: Request, tile: Optional["DashboardTile"]) -> dict:
+    from posthog.auth import SharingAccessTokenAuthentication
+
+    tile_filters = tile.filters_overrides if tile and tile.filters_overrides else {}
+    raw_override = request.query_params.get("tile_filters_override")
+
+    # Security: Don't allow overrides when accessing via sharing tokens
+    if not raw_override or isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
+        return tile_filters
+
+    try:
+        request_filters = json.loads(raw_override)
+    except Exception:
+        raise serializers.ValidationError(
+            {"tile_filters_override": "Invalid JSON passed in tile_filters_override parameter"}
+        )
+
+    return {**tile_filters, **request_filters}
 
 
 def _request_has_key_set(key: str, request: Request, allowed_values: Optional[list[str]] = None) -> bool | str:

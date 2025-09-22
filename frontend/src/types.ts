@@ -1482,6 +1482,7 @@ export interface CohortType {
     }
     experiment_set?: number[]
     _create_in_folder?: string | null
+    _create_static_person_ids?: string[]
 }
 
 export interface InsightHistory {
@@ -3013,6 +3014,8 @@ export interface InsightLogicProps<Q extends QuerySchema = QuerySchema> {
     filtersOverride?: DashboardFilter | null
     /** Dashboard variables to override the ones in the query */
     variablesOverride?: Record<string, HogQLVariable> | null
+    /** Tile filters to override the ones in the query */
+    tileFiltersOverride?: TileFilters | null
     /** The tab of the scene if the insight is a full scene insight */
     tabId?: string | null
 }

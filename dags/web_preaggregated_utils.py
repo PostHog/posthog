@@ -99,6 +99,16 @@ def drop_partitions_for_date_range(
         current_date += timedelta(days=1)
 
 
+def sync_partitions_on_replicas(
+    context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, target_table: str
+) -> None:
+    context.log.info(f"Syncing replicas for {target_table} on all hosts")
+    cluster.map_hosts_by_roles(
+        lambda client: client.execute(f"SYSTEM SYNC REPLICA {target_table} LIGHTWEIGHT"),
+        node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+    ).result()
+
+
 def swap_partitions_from_staging(
     context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, target_table: str, staging_table: str
 ) -> None:
