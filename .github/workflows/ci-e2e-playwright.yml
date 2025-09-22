@@ -495,8 +495,6 @@ jobs:
               if: needs.changes.outputs.shouldRun == 'true'
               continue-on-error: true
               id: playwright-tests
-              env:
-                  START_PLAYWRIGHT: '1'
               run: pnpm --filter=@posthog/playwright exec playwright test
 
             - name: Configure global git diff log
