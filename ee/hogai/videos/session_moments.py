@@ -51,6 +51,7 @@ class SessionMomentsLLMAnalyzer:
         # If less than N% of moments were generated, fail the analysis
         # Allow as an input as the expected success ratio could differ from task to tasks
         self._failed_moments_min_ratio = failed_moments_min_ratio
+        # TODO: Allow defining for how long to store the videos
 
     async def analyze(self, moments_input: list[SessionMomentInput]) -> list[SessionMomentOutput]:
         """Analyze the session moments with LLM and return mapping of moment_id to LLM analysis"""

@@ -41,11 +41,20 @@ class _SessionSummaryVideoValidationFieldToUpdate:
 
 
 class SessionSummaryVideoValidator:
-    def _init__(self, *, session_id: str, summary: SessionSummarySerializer, team_id: int, user: User) -> None:
+    def __init__(
+        self,
+        *,
+        session_id: str,
+        summary: SessionSummarySerializer,
+        run_metadata: dict[str, Any],
+        team_id: int,
+        user: User,
+    ) -> None:
         self.session_id = session_id
         self.team_id = team_id
         self.user = user
         self.summary = summary
+        self.run_metadata = run_metadata
         self.moments_analyzer = SessionMomentsLLMAnalyzer(
             session_id=session_id,
             team_id=team_id,
@@ -60,7 +69,9 @@ class SessionSummaryVideoValidator:
         # Find the events that would value from video validation (currently, blocking exceptions)
         events_to_validate, fields_to_update = self._pick_events_to_validate()
         # Prepare input for video validation
-        moments_input = self._prepare_moments_input(events_to_validate=events_to_validate)
+        moments_input = self._prepare_moments_input(
+            events_to_validate=events_to_validate
+        )  # TODO: moment inputs instead of moments input?
         # Generate videos and ask LLM to describe them
         description_results = await self.moments_analyzer.analyze(moments_input=moments_input)
         with open(f"description_results_{self.session_id}.json", "w") as f:
@@ -222,6 +233,7 @@ class SessionSummaryVideoValidator:
         model_to_use: str,
     ) -> list[dict[str, str]]:
         # Generate prompt for video validation
+        # TODO: Fix - validation prompt now include lots of metadata, not only the prompt
         validation_prompt = self._generate_video_validation_prompt(
             description_results=description_results,
             fields_to_update=fields_to_update,
@@ -272,7 +284,7 @@ class SessionSummaryVideoValidator:
             json.dump(summary_to_update, f, indent=4, sort_keys=True)
         return updated_summary
 
-    async def _generate_updates_run_metadata(
+    def _generate_updates_run_metadata(
         self,
         description_results: list[SessionMomentOutput],
         events_to_validate: list[tuple[str, EnrichedKeyActionSerializer]],
@@ -288,8 +300,7 @@ class SessionSummaryVideoValidator:
             for description_result in description_results
         ]
         # Prepare run metadata
-        run_metadata = cast(dict[str, Any], self.summary_row.run_metadata)
-        model_used = cast(str, run_metadata["model_used"])
+        model_used = cast(str, self.run_metadata["model_used"])
         return SessionSummaryRunMeta(
             model_used=model_used,
             visual_confirmation=True,
