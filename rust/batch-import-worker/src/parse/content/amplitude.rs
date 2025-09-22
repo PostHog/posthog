@@ -152,9 +152,9 @@ fn create_group_identify_event(
     group_type: String,
     group_key: String,
     group_properties: HashMap<String, Value>,
+    timestamp: chrono::DateTime<chrono::Utc>,
 ) -> Result<InternallyCapturedEvent, Error> {
     let event_uuid = Uuid::now_v7();
-    let timestamp = Utc::now();
 
     let mut properties = serde_json::Map::new();
     properties.insert("$group_type".to_string(), Value::String(group_type));
@@ -167,7 +167,7 @@ fn create_group_identify_event(
     let raw_event = RawEvent {
         event: "$groupidentify".to_string(),
         properties: properties.into_iter().collect(),
-        timestamp: Some(timestamp.format("%Y-%m-%d %H:%M:%S%.3f").to_string()),
+        timestamp: Some(timestamp.to_rfc3339()),
         distinct_id: Some(Value::String(distinct_id.clone())),
         uuid: Some(event_uuid),
         token: Some(token.clone()),
@@ -528,6 +528,7 @@ impl AmplitudeEvent {
                                 changed_group.group_type,
                                 changed_group.group_key,
                                 changed_group.group_properties,
+                                timestamp,
                             ) {
                                 Ok(group_event) => {
                                     events.push(group_event);
@@ -1340,6 +1341,12 @@ mod tests {
             "Technology"
         );
 
+        // Verify timestamp is preserved from the original event
+        assert_eq!(
+            group_identify_data["timestamp"],
+            "2023-10-15T14:30:00+00:00"
+        );
+
         // Second event should be original event with groups
         let original_event = &result[1];
         let original_data: serde_json::Value =
@@ -1486,6 +1493,13 @@ mod tests {
             serde_json::from_str(&result2[0].inner.data).unwrap();
         assert_eq!(group_identify_data["event"], "$groupidentify");
         assert_eq!(group_identify_data["properties"]["$group_set"]["size"], 300);
+
+        // Verify timestamp is set (should not be empty or null)
+        assert!(group_identify_data["timestamp"].is_string());
+        assert!(!group_identify_data["timestamp"]
+            .as_str()
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
@@ -1538,6 +1552,23 @@ mod tests {
 
         // Should have 3 events: 2 group identify + 1 original event
         assert_eq!(result.len(), 3);
+
+        // Check group identify events have timestamps
+        let group_identify1_data: serde_json::Value =
+            serde_json::from_str(&result[0].inner.data).unwrap();
+        let group_identify2_data: serde_json::Value =
+            serde_json::from_str(&result[1].inner.data).unwrap();
+
+        assert!(group_identify1_data["timestamp"].is_string());
+        assert!(group_identify2_data["timestamp"].is_string());
+        assert!(!group_identify1_data["timestamp"]
+            .as_str()
+            .unwrap()
+            .is_empty());
+        assert!(!group_identify2_data["timestamp"]
+            .as_str()
+            .unwrap()
+            .is_empty());
 
         // Check original event has both groups
         let original_event = &result[2];
@@ -1595,6 +1626,72 @@ mod tests {
             original_data["properties"]["$groups"]["company"],
             "acme-corp"
         );
+    }
+
+    #[test]
+    fn test_group_identify_timestamp_preservation() {
+        use crate::cache::{MockGroupCache, MockIdentifyCache};
+        use std::collections::HashMap;
+        use std::sync::Arc;
+
+        let mut groups = HashMap::new();
+        groups.insert("company".to_string(), vec!["acme-corp".to_string()]);
+
+        let mut group_properties = HashMap::new();
+        let mut company_props = HashMap::new();
+        company_props.insert("acme-corp".to_string(), {
+            let mut props = HashMap::new();
+            props.insert("name".to_string(), json!("Acme Corporation"));
+            props
+        });
+        group_properties.insert("company".to_string(), company_props);
+
+        // Use a specific timestamp that's not "now"
+        let specific_timestamp = "2023-10-15T14:30:00+00:00";
+
+        let amp_event = AmplitudeEvent {
+            event_type: Some("test_event".to_string()),
+            user_id: Some("user123".to_string()),
+            device_id: Some("device456".to_string()),
+            event_time: Some("2023-10-15 14:30:00".to_string()),
+            groups,
+            group_properties,
+            ..Default::default()
+        };
+
+        let context = TransformContext {
+            team_id: 123,
+            token: "test_token".to_string(),
+            identify_cache: Arc::new(MockIdentifyCache::new()),
+            group_cache: Arc::new(MockGroupCache::new()),
+            import_events: true,
+            generate_identify_events: false,
+            generate_group_identify_events: true,
+        };
+
+        let parser = AmplitudeEvent::parse_fn(context, identity_transform);
+        let result = parser(amp_event).unwrap();
+
+        // Should have 2 events: group identify + original event
+        assert_eq!(result.len(), 2);
+
+        // Check group identify event timestamp
+        let group_identify_event = &result[0];
+        let group_identify_data: serde_json::Value =
+            serde_json::from_str(&group_identify_event.inner.data).unwrap();
+
+        assert_eq!(group_identify_data["event"], "$groupidentify");
+        assert_eq!(group_identify_data["timestamp"], specific_timestamp);
+
+        // Verify the timestamp is not a "now" timestamp
+        let now = chrono::Utc::now();
+        assert_ne!(group_identify_data["timestamp"], now.to_rfc3339());
+
+        // Check original event also has the same timestamp
+        let original_event = &result[1];
+        let original_data: serde_json::Value =
+            serde_json::from_str(&original_event.inner.data).unwrap();
+        assert_eq!(original_data["timestamp"], specific_timestamp);
     }
 
     #[test]
