@@ -62,13 +62,7 @@ function convertExperimentResultToFunnelSteps(
     for (let stepIndex = 0; stepIndex < numSteps; stepIndex++) {
         const variantSteps: FunnelStep[] = allResults.map((variantResult, variantIndex) => {
             const variantKey = variants[variantIndex]?.key || (variantIndex === 0 ? 'control' : `test_${variantIndex}`)
-
-            let count: number
-            if (stepIndex === 0) {
-                count = variantResult.number_of_samples
-            } else {
-                count = variantResult.step_counts?.[stepIndex - 1] || 0
-            }
+            const count = variantResult.step_counts?.[stepIndex - 1] || 0
 
             let stepName: string
             if (stepIndex === 0) {
