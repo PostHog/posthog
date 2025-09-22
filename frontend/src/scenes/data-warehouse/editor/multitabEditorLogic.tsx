@@ -825,21 +825,25 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
     subscriptions(({ actions, values }) => ({
         showLegacyFilters: (showLegacyFilters: boolean) => {
             if (showLegacyFilters) {
-                actions.setSourceQuery({
-                    ...values.sourceQuery,
-                    source: {
-                        ...values.sourceQuery.source,
-                        filters: {},
-                    },
-                })
+                if (typeof values.sourceQuery.source.filters !== 'object') {
+                    actions.setSourceQuery({
+                        ...values.sourceQuery,
+                        source: {
+                            ...values.sourceQuery.source,
+                            filters: {},
+                        },
+                    })
+                }
             } else {
-                actions.setSourceQuery({
-                    ...values.sourceQuery,
-                    source: {
-                        ...values.sourceQuery.source,
-                        filters: undefined,
-                    },
-                })
+                if (values.sourceQuery.source.filters !== undefined) {
+                    actions.setSourceQuery({
+                        ...values.sourceQuery,
+                        source: {
+                            ...values.sourceQuery.source,
+                            filters: undefined,
+                        },
+                    })
+                }
             }
         },
         editingView: (editingView) => {
@@ -1113,6 +1117,9 @@ export const multitabEditorLogic = kea<multitabEditorLogicType>([
                     const queryToOpen = searchParams.open_query ? searchParams.open_query : query
 
                     actions.editInsight(queryToOpen, insight)
+                    if (insight.query) {
+                        actions.setSourceQuery(insight.query as DataVisualizationNode)
+                    }
 
                     // Only run the query if the results aren't already cached locally and we're not using the open_query search param
                     if (

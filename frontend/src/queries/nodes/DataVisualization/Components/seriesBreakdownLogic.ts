@@ -50,7 +50,10 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
     props({ key: '' } as SeriesBreakdownLogicProps),
     connect(() => ({
         actions: [dataVisualizationLogic, ['clearAxis', 'setQuery']],
-        values: [dataVisualizationLogic, ['query', 'response', 'columns', 'selectedXAxis', 'selectedYAxis']],
+        values: [
+            dataVisualizationLogic,
+            ['query', 'response', 'columns', 'selectedXAxis', 'selectedYAxis', 'chartSettings'],
+        ],
     })),
     actions(({ values }) => ({
         addSeriesBreakdown: (columnName: string | null) => ({ columnName, response: values.response }),
@@ -66,7 +69,9 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
             },
         ],
         selectedSeriesBreakdownColumn: [
-            values.query?.chartSettings?.seriesBreakdownColumn ?? (null as string | null),
+            values.query?.chartSettings?.seriesBreakdownColumn ??
+                values.chartSettings?.seriesBreakdownColumn ??
+                (null as string | null),
             {
                 clearAxis: () => null,
                 addSeriesBreakdown: (_, { columnName }) => columnName,
@@ -232,18 +237,22 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
     }),
     subscriptions(({ values, actions }) => ({
         selectedSeriesBreakdownColumn: (value: string | null) => {
-            actions.setQuery({
-                ...values.query,
-                chartSettings: {
-                    ...values.query.chartSettings,
-                    seriesBreakdownColumn: value,
-                },
-            })
+            if (values.query?.chartSettings?.seriesBreakdownColumn !== value) {
+                actions.setQuery({
+                    ...values.query,
+                    chartSettings: {
+                        ...values.query.chartSettings,
+                        seriesBreakdownColumn: value,
+                    },
+                })
+            }
         },
     })),
     afterMount(({ values, actions }) => {
         if (values.query?.chartSettings?.seriesBreakdownColumn) {
             actions.addSeriesBreakdown(values.query.chartSettings.seriesBreakdownColumn)
+        } else if (values.chartSettings?.seriesBreakdownColumn) {
+            actions.addSeriesBreakdown(values.chartSettings.seriesBreakdownColumn)
         }
     }),
 ])
