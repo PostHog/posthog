@@ -11,7 +11,8 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
 
-from .models import AgentDefinition, Task, TaskProgress, TaskWorkflow, WorkflowStage
+from .agents import get_all_agents
+from .models import Task, TaskProgress, TaskWorkflow, WorkflowStage
 from .serializers import AgentDefinitionSerializer, TaskSerializer, TaskWorkflowSerializer, WorkflowStageSerializer
 from .temporal.client import execute_task_processing_workflow
 
@@ -423,18 +424,26 @@ class WorkflowStageViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response({"message": "Stage archived successfully"})
 
 
-class AgentDefinitionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    """API for managing agent definitions"""
+class AgentDefinitionViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
+    """API for retrieving hardcoded agent definitions"""
 
     serializer_class = AgentDefinitionSerializer
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     required_scopes = ["INTERNAL"]
     scope_object = "INTERNAL"
-    queryset = AgentDefinition.objects.all()
-    posthog_feature_flag = {"tasks": ["list", "retrieve", "create", "update", "partial_update", "destroy"]}
+    queryset = None  # No model queryset since we're using hardcoded agents
+    posthog_feature_flag = {"tasks": ["list", "retrieve"]}
 
-    def safely_get_queryset(self, queryset):
-        return queryset.filter(team=self.team, is_active=True)
+    def list(self, request, *args, **kwargs):
+        """Return all agents"""
+        agents = get_all_agents()
+        return Response({"results": agents})
 
-    def get_serializer_context(self):
-        return {**super().get_serializer_context(), "team": self.team}
+    def retrieve(self, request, pk=None, *args, **kwargs):
+        """Return a specific agent by ID"""
+        from .agents import get_agent_dict_by_id
+
+        agent = get_agent_dict_by_id(pk)
+        if agent:
+            return Response(agent)
+        return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)

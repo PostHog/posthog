@@ -7,6 +7,8 @@ from django.conf import settings
 from django.db import connection, models
 from django.db.models import Q, QuerySet
 from django.db.models.expressions import F
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 from django.utils import timezone
 
 import structlog
@@ -583,3 +585,28 @@ class CohortPeople(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=["cohort_id", "person_id"])]
+
+
+@receiver(post_delete, sender=CohortPeople)
+def cohort_people_changed(sender, instance: "CohortPeople", **kwargs):
+    from posthog.models.cohort.util import get_static_cohort_size
+
+    try:
+        cohort_id = instance.cohort_id
+        person_uuid = instance.person_id
+
+        cohort = Cohort.objects.get(id=cohort_id)
+        cohort.count = get_static_cohort_size(cohort_id=cohort.id, team_id=cohort.team_id)
+        cohort.save(update_fields=["count"])
+
+        logger.info(
+            "Updated cohort count after CohortPeople change",
+            cohort_id=cohort_id,
+            person_uuid=person_uuid,
+            new_count=cohort.count,
+        )
+    except Cohort.DoesNotExist:
+        logger.warning("Attempted to update count for non-existent cohort", cohort_id=cohort_id)
+    except Exception as e:
+        logger.exception("Error updating cohort count", cohort_id=cohort_id, person_uuid=person_uuid)
+        capture_exception(e)

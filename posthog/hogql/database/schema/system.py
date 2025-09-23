@@ -1,6 +1,8 @@
+from posthog.hogql import ast
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DateTimeDatabaseField,
+    ExpressionField,
     IntegerDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
@@ -17,7 +19,8 @@ cohorts: PostgresTable = PostgresTable(
         "team_id": IntegerDatabaseField(name="team_id"),
         "name": StringDatabaseField(name="name"),
         "description": StringDatabaseField(name="description"),
-        "deleted": BooleanDatabaseField(name="deleted"),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
         "filters": StringJSONDatabaseField(name="filters"),
         "groups": StringJSONDatabaseField(name="groups"),
         "query": StringJSONDatabaseField(name="query"),
@@ -25,7 +28,10 @@ cohorts: PostgresTable = PostgresTable(
         "last_calculation": DateTimeDatabaseField(name="last_calculation"),
         "version": IntegerDatabaseField(name="version"),
         "count": IntegerDatabaseField(name="count"),
-        "is_static": BooleanDatabaseField(name="is_static"),
+        "_is_static": BooleanDatabaseField(name="is_static", hidden=True),
+        "is_static": ExpressionField(
+            name="is_static", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_static"])])
+        ),
     },
 )
 
@@ -38,7 +44,8 @@ dashboards: PostgresTable = PostgresTable(
         "name": StringDatabaseField(name="name"),
         "description": StringDatabaseField(name="description"),
         "created_at": DateTimeDatabaseField(name="created_at"),
-        "deleted": BooleanDatabaseField(name="deleted"),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
         "filters": StringJSONDatabaseField(name="filters"),
         "variables": StringJSONDatabaseField(name="variables"),
     },
@@ -56,8 +63,10 @@ insights: PostgresTable = PostgresTable(
         "filters": StringJSONDatabaseField(name="filters"),
         "query": StringJSONDatabaseField(name="query"),
         "query_metadata": StringJSONDatabaseField(name="query_metadata"),
-        "deleted": BooleanDatabaseField(name="deleted"),
-        "saved": BooleanDatabaseField(name="saved"),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "_saved": BooleanDatabaseField(name="saved", hidden=True),
+        "saved": ExpressionField(name="saved", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_saved"])])),
         "created_at": DateTimeDatabaseField(name="created_at"),
         "updated_at": DateTimeDatabaseField(name="updated_at"),
     },
@@ -77,7 +86,10 @@ experiments: PostgresTable = PostgresTable(
         "parameters": StringJSONDatabaseField(name="parameters"),
         "start_date": DateTimeDatabaseField(name="start_date"),
         "end_date": DateTimeDatabaseField(name="end_date"),
-        "archived": BooleanDatabaseField(name="archived"),
+        "_archived": BooleanDatabaseField(name="archived", hidden=True),
+        "archived": ExpressionField(
+            name="archived", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_archived"])])
+        ),
         "feature_flag_id": IntegerDatabaseField(name="feature_flag_id"),
     },
 )
@@ -92,7 +104,8 @@ data_warehouse_sources: PostgresTable = PostgresTable(
         "prefix": StringDatabaseField(name="prefix"),
         "created_at": DateTimeDatabaseField(name="created_at"),
         "updated_at": DateTimeDatabaseField(name="updated_at"),
-        "deleted": BooleanDatabaseField(name="deleted"),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
         "deleted_at": DateTimeDatabaseField(name="deleted_at"),
     },
 )
@@ -108,7 +121,8 @@ feature_flags: PostgresTable = PostgresTable(
         "filters": StringJSONDatabaseField(name="filters"),
         "rollout_percentage": IntegerDatabaseField(name="rollout_percentage"),
         "created_at": DateTimeDatabaseField(name="created_at"),
-        "deleted": BooleanDatabaseField(name="deleted"),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
     },
 )
 
@@ -181,6 +195,18 @@ teams: PostgresTable = PostgresTable(
     },
 )
 
+exports: PostgresTable = PostgresTable(
+    name="exports",
+    postgres_table_name="posthog_exportedasset",
+    fields={
+        "id": IntegerDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "export_format": StringDatabaseField(name="export_format"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "export_context": StringJSONDatabaseField(name="export_context"),
+    },
+)
+
 
 class SystemTables(TableGroup):
     tables: dict[str, Table | TableGroup] = {
@@ -188,6 +214,7 @@ class SystemTables(TableGroup):
         "cohorts": cohorts,
         "insights": insights,
         "experiments": experiments,
+        "exports": exports,
         "data_warehouse_sources": data_warehouse_sources,
         "feature_flags": feature_flags,
         "groups": groups,
