@@ -193,6 +193,7 @@ class SessionMomentsLLMAnalyzer:
     ) -> str | None | Exception:
         """Analyze a moment video with LLM"""
         try:
+            # Not chunking bytes, as even with 300 sessions at once it's 100MB memory tops
             video_bytes = await self._get_video_bytes(asset_id=asset_id)
             if not video_bytes:
                 logger.warning(
