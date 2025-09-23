@@ -199,7 +199,6 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
                         } else {
                             lemonToast.error(`An unexpected server error occurred while testing the function: ${e}`)
                         }
-                        return [...values.retries]
                     }
                     actions.removeLoadingRetry(eventId)
                     return [...values.retries]
