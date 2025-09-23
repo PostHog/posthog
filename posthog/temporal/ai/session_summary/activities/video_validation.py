@@ -35,8 +35,9 @@ async def validate_llm_single_session_summary_with_videos_activity(
         # Summary was already validated with videos, return
         return None
     # Getting the user explicitly from the DB as we can't pass models between activities
-    user = await User.objects.aget(id=inputs.user_id)
-    if not user:
+    try:
+        user = await User.objects.aget(id=inputs.user_id)
+    except User.DoesNotExist:
         raise ApplicationError(
             f"User not found in the database for user {inputs.user_id} when validating session summary with videos",
             non_retryable=True,
