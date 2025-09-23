@@ -5,24 +5,40 @@
                 {
                     "abandonment": false,
                     "confusion": false,
-                    "current_url": "http://localhost:8010/project/2",
-                    "description": "Loaded main project dashboard",
-                    "event": "viewed dashboard",
-                    "event_id": "a57dc7d1",
-                    "event_index": 22,
+                    "current_url": "http://localhost:8010/",
+                    "description": "User opted in and entered the application",
+                    "event": "$opt_in",
+                    "event_id": "d66f4f4c",
+                    "event_index": 0,
                     "event_type": null,
-                    "event_uuid": "01995bac-a78d-7380-bf77-e208f754325b",
+                    "event_uuid": "01995bac-a005-76d0-9e92-f8ae52cfc0d4",
                     "exception": null,
-                    "milliseconds_since_start": 1118,
+                    "milliseconds_since_start": 0,
                     "session_id": "01995bac-a002-7ba2-bc68-baa043d8e46c",
-                    "timestamp": "2025-09-18T07:14:25.827000+00:00",
+                    "timestamp": "2025-09-18T07:14:23.889000+00:00",
                     "window_id": "01995bac-a002-7ba2-bc68-baa1a21f6b9a"
                 },
                 {
                     "abandonment": false,
                     "confusion": false,
                     "current_url": "http://localhost:8010/project/2",
-                    "description": "Opened LLM analytics section",
+                    "description": "Viewed main project dashboard and triggered multiple dashboard queries",
+                    "event": "$pageview",
+                    "event_id": "add68946",
+                    "event_index": 8,
+                    "event_type": null,
+                    "event_uuid": "01995bac-a475-7b2f-8ff6-1e4753cc622a",
+                    "exception": null,
+                    "milliseconds_since_start": 326,
+                    "session_id": "01995bac-a002-7ba2-bc68-baa043d8e46c",
+                    "timestamp": "2025-09-18T07:14:25.035000+00:00",
+                    "window_id": "01995bac-a002-7ba2-bc68-baa1a21f6b9a"
+                },
+                {
+                    "abandonment": false,
+                    "confusion": false,
+                    "current_url": "http://localhost:8010/project/2",
+                    "description": "Navigated to LLM analytics and product analytics sections",
                     "event": "$autocapture",
                     "event_id": "1147e01a",
                     "event_index": 41,
@@ -37,40 +53,24 @@
                 {
                     "abandonment": false,
                     "confusion": false,
-                    "current_url": "http://localhost:8010/project/2/llm-analytics",
-                    "description": "Switched to Product analytics insights",
+                    "current_url": "http://localhost:8010/project/2",
+                    "description": "Explored dashboards, LLM analytics, product analytics, SQL editor, and web analytics",
                     "event": "$autocapture",
-                    "event_id": "6178fac3",
-                    "event_index": 54,
+                    "event_id": "2c97d09c",
+                    "event_index": 75,
                     "event_type": "click",
-                    "event_uuid": "01995bac-b270-7dd1-9fc5-9d4ca7f4c4ff",
+                    "event_uuid": "01995bac-bb06-748e-94ec-7ec96bbadcfc",
                     "exception": null,
-                    "milliseconds_since_start": 3892,
+                    "milliseconds_since_start": 6095,
                     "session_id": "01995bac-a002-7ba2-bc68-baa043d8e46c",
-                    "timestamp": "2025-09-18T07:14:28.601000+00:00",
-                    "window_id": "01995bac-a002-7ba2-bc68-baa1a21f6b9a"
-                },
-                {
-                    "abandonment": false,
-                    "confusion": false,
-                    "current_url": "http://localhost:8010/project/2/llm-analytics",
-                    "description": "Visited SQL editor for deeper analysis",
-                    "event": "$autocapture",
-                    "event_id": "d9c78aa0",
-                    "event_index": 88,
-                    "event_type": "click",
-                    "event_uuid": "01995bac-c425-72f0-9e85-64cd4060bfb9",
-                    "exception": null,
-                    "milliseconds_since_start": 8430,
-                    "session_id": "01995bac-a002-7ba2-bc68-baa043d8e46c",
-                    "timestamp": "2025-09-18T07:14:33.139000+00:00",
+                    "timestamp": "2025-09-18T07:14:30.804000+00:00",
                     "window_id": "01995bac-a002-7ba2-bc68-baa1a21f6b9a"
                 },
                 {
                     "abandonment": false,
                     "confusion": false,
                     "current_url": "http://localhost:8010/project/2/web",
-                    "description": "Arrived at Session replay home",
+                    "description": "Accessed session replay and error tracking features",
                     "event": "$autocapture",
                     "event_id": "a9f18137",
                     "event_index": 105,
@@ -81,33 +81,12 @@
                     "session_id": "01995bac-a002-7ba2-bc68-baa043d8e46c",
                     "timestamp": "2025-09-18T07:14:35.333000+00:00",
                     "window_id": "01995bac-a002-7ba2-bc68-baa1a21f6b9a"
-                }
-            ],
-            "segment_index": 0
-        },
-        {
-            "events": [
-                {
-                    "abandonment": false,
-                    "confusion": false,
-                    "current_url": "http://localhost:8010/project/2/replay/home",
-                    "description": "Clicked into Error tracking feature",
-                    "event": "$autocapture",
-                    "event_id": "edb7bf17",
-                    "event_index": 111,
-                    "event_type": "click",
-                    "event_uuid": "01995bac-cef9-7aa9-818c-c7e887c68c32",
-                    "exception": null,
-                    "milliseconds_since_start": 11199,
-                    "session_id": "01995bac-a002-7ba2-bc68-baa043d8e46c",
-                    "timestamp": "2025-09-18T07:14:35.908000+00:00",
-                    "window_id": "01995bac-a002-7ba2-bc68-baa1a21f6b9a"
                 },
                 {
                     "abandonment": false,
                     "confusion": false,
                     "current_url": "http://localhost:8010/project/2/error_tracking",
-                    "description": "Viewed Error tracking feature (no data)",
+                    "description": "Viewed Error tracking page (no exceptions captured)",
                     "event": "$exception",
                     "event_id": "5e7fc9d4",
                     "event_index": 113,
@@ -123,7 +102,7 @@
                     "abandonment": false,
                     "confusion": false,
                     "current_url": "http://localhost:8010/project/2/error_tracking",
-                    "description": "Moved on to Surveys section",
+                    "description": "Navigated to surveys and showed product intent",
                     "event": "$autocapture",
                     "event_id": "739c2808",
                     "event_index": 114,
@@ -139,7 +118,7 @@
                     "abandonment": false,
                     "confusion": false,
                     "current_url": "http://localhost:8010/project/2/surveys",
-                    "description": "Returned to Session replay home",
+                    "description": "Returned to session replay, filtered recordings, and fetched updated list",
                     "event": "$autocapture",
                     "event_id": "33b6f4fc",
                     "event_index": 117,
@@ -150,77 +129,39 @@
                     "session_id": "01995bac-a002-7ba2-bc68-baa043d8e46c",
                     "timestamp": "2025-09-18T07:14:39.690000+00:00",
                     "window_id": "01995bac-a002-7ba2-bc68-baa1a21f6b9a"
-                },
-                {
-                    "abandonment": false,
-                    "confusion": false,
-                    "current_url": "http://localhost:8010/project/2/replay/home",
-                    "description": "Applied 30-day filter to recording list",
-                    "event": "$autocapture",
-                    "event_id": "29f5ebfa",
-                    "event_index": 123,
-                    "event_type": "click",
-                    "event_uuid": "01995bac-e683-77d3-857d-3c03486e088c",
-                    "exception": null,
-                    "milliseconds_since_start": 17220,
-                    "session_id": "01995bac-a002-7ba2-bc68-baa043d8e46c",
-                    "timestamp": "2025-09-18T07:14:41.929000+00:00",
-                    "window_id": "01995bac-a002-7ba2-bc68-baa1a21f6b9a"
                 }
             ],
-            "segment_index": 1
+            "segment_index": 0
         }
     ],
     "segment_outcomes": [
         {
             "segment_index": 0,
             "success": true,
-            "summary": "User swiftly browsed multiple analytics areas without errors"
-        },
-        {
-            "segment_index": 1,
-            "success": true,
-            "summary": "User explored Error tracking and surveys features"
+            "summary": "User explored analytics, error tracking, surveys, and session replay features"
         }
     ],
     "segments": [
         {
-            "end_event_id": "cd40302e",
+            "end_event_id": "d76f5d70",
             "index": 0,
             "meta": {
                 "abandonment_count": 0,
                 "confusion_count": 0,
-                "duration": 11,
-                "duration_percentage": 0.6471,
-                "events_count": 111,
-                "events_percentage": 0.8605,
-                "exception_count": 0,
-                "failure_count": 0,
-                "key_action_count": 5
-            },
-            "name": "Rapid tour of analytics areas",
-            "start_event_id": "d66f4f4c"
-        },
-        {
-            "end_event_id": "d76f5d70",
-            "index": 1,
-            "meta": {
-                "abandonment_count": 1,
-                "confusion_count": 0,
-                "duration": 6,
-                "duration_percentage": 0.3529,
-                "events_count": 19,
-                "events_percentage": 0.1473,
+                "duration": 18,
+                "duration_percentage": 1.0,
+                "events_count": 130,
+                "events_percentage": 1.0,
                 "exception_count": 1,
                 "failure_count": 1,
-                "key_action_count": 5
+                "key_action_count": 8
             },
-            "name": "Exploration of Error tracking and surveys",
-            "start_event_id": "edb7bf17"
+            "name": "Explored analytics, error tracking, surveys, and session replay",
+            "start_event_id": "d66f4f4c"
         }
     ],
     "session_outcome": {
-        "description": "Session showcased broad feature exploration; no blocking errors were observed",
+        "description": "User successfully explored analytics, error tracking, surveys, and session replay features",
         "success": true
     }
 }
