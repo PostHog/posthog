@@ -1937,6 +1937,10 @@
                     "type": "string"
                 },
                 {
+                    "const": "ActionsUnstackedBar",
+                    "type": "string"
+                },
+                {
                     "const": "ActionsAreaGraph",
                     "type": "string"
                 },
@@ -2050,6 +2054,7 @@
                     "enum": [
                         "ActionsLineGraph",
                         "ActionsBar",
+                        "ActionsUnstackedBar",
                         "ActionsAreaGraph",
                         "ActionsLineGraphCumulative",
                         "BoldNumber",
@@ -6838,6 +6843,7 @@
             "enum": [
                 "ActionsLineGraph",
                 "ActionsBar",
+                "ActionsUnstackedBar",
                 "ActionsStackedBar",
                 "ActionsAreaGraph",
                 "ActionsLineGraphCumulative",
