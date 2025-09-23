@@ -61,7 +61,9 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
     })),
     reducers(({ values }) => ({
         showSeriesBreakdown: [
-            false as boolean,
+            !!(
+                values.query?.chartSettings?.seriesBreakdownColumn ?? values.chartSettings?.seriesBreakdownColumn
+            ) as boolean,
             {
                 clearAxis: () => false,
                 addSeriesBreakdown: () => true,
@@ -238,13 +240,13 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
     subscriptions(({ values, actions }) => ({
         selectedSeriesBreakdownColumn: (value: string | null) => {
             if (values.query?.chartSettings?.seriesBreakdownColumn !== value) {
-                actions.setQuery({
-                    ...values.query,
+                actions.setQuery((query) => ({
+                    ...query,
                     chartSettings: {
-                        ...values.query.chartSettings,
+                        ...query.chartSettings,
                         seriesBreakdownColumn: value,
                     },
-                })
+                }))
             }
         },
     })),

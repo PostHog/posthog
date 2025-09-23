@@ -56,13 +56,13 @@ const initialQuery: DataVisualizationNode = {
 // globalQuery represents the query object that is passed into the data
 // visualization logic and series breakdown logic it is modified by calls to
 // setQuery so we want to ensure this is updated correctly
-let globalQuery = { ...initialQuery }
+let globalQuery: DataVisualizationNode = { ...initialQuery }
 
 const dummyDataVisualizationLogicProps: DataVisualizationLogicProps = {
     key: testUniqueKey,
     query: globalQuery,
-    setQuery: (query) => {
-        globalQuery = query
+    setQuery: (setter) => {
+        globalQuery = setter(globalQuery)
     },
     editMode: false,
     dataNodeCollectionId: 'new-test-SQL',
@@ -169,13 +169,13 @@ describe('seriesBreakdownLogic', () => {
     })
 
     it('adds a series breakdown after mount if one already selected in query', async () => {
-        builtDataVizLogic.actions.setQuery({
-            ...initialQuery,
+        builtDataVizLogic.actions.setQuery((query) => ({
+            ...query,
             chartSettings: {
                 goalLines: undefined,
                 seriesBreakdownColumn: 'test_column',
             },
-        })
+        }))
 
         logic = seriesBreakdownLogic({ key: testUniqueKey })
         logic.mount()
