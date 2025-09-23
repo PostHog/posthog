@@ -150,7 +150,7 @@ export const QueryEndpointsTable = ({ tabId }: QueryEndpointsTableProps): JSX.El
 
     return (
         <>
-            <div className="flex justify-between gap-2 flex-wrap mb-4">
+            <div className="flex justify-between gap-2 flex-wrap">
                 <LemonInput
                     type="search"
                     className="w-1/3"
