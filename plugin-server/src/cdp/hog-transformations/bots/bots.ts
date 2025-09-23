@@ -207,7 +207,6 @@ export const KNOWN_BOT_UA_LIST = [
     'google-read-aloud',
     'mediapartners',
     'wget',
-    'wget',
     'ahrefsgot',
     'ahrefssiteaudit',
     'wesee:search',
