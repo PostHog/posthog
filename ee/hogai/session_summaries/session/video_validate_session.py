@@ -17,7 +17,6 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.models.user import User
 
-from ee.hogai.graph.session_summaries.parsers import load_yaml_from_raw_llm_content
 from ee.hogai.session_summaries.constants import (
     FAILED_MOMENTS_MIN_RATIO,
     SECONDS_BEFORE_EVENT_FOR_VALIDATION_VIDEO,
@@ -30,6 +29,7 @@ from ee.hogai.session_summaries.session.output_data import (
     SessionSummarySerializer,
 )
 from ee.hogai.session_summaries.utils import load_custom_template
+from ee.hogai.utils.yaml import load_yaml_from_raw_llm_content
 from ee.hogai.videos.session_moments import SessionMomentInput, SessionMomentOutput, SessionMomentsLLMAnalyzer
 from ee.models.session_summaries import SessionSummaryRunMeta, SessionSummaryVisualConfirmationResult
 
