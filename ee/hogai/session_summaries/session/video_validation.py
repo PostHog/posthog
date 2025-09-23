@@ -134,33 +134,38 @@ class SessionSummaryVideoValidator:
                 # Collect the fields to validate and, potentially,update, and their current values
                 for field in ["description", "exception", "abandonment", "confusion"]:
                     field_path = f"key_actions.{ki}.events.{ei}.{field}"
-                    fields_to_update_mapping[field_path] = _SessionSummaryVideoValidationFieldToUpdate(
-                        path=field_path,
-                        current_value=event.get(field),
-                        new_value=None,
-                    )
+                    # Avoid storing the same field multiple times
+                    if not fields_to_update_mapping.get(field_path):
+                        fields_to_update_mapping[field_path] = _SessionSummaryVideoValidationFieldToUpdate(
+                            path=field_path,
+                            current_value=event.get(field),
+                            new_value=None,
+                        )
                 # Related segment outcome
                 for field in ["success", "summary"]:
                     field_path = f"segment_outcomes.{segment_index}.{field}"
+                    if not fields_to_update_mapping.get(field_path):
+                        fields_to_update_mapping[field_path] = _SessionSummaryVideoValidationFieldToUpdate(
+                            path=field_path,
+                            current_value=self.summary.data["segment_outcomes"][segment_index].get(field),
+                            new_value=None,
+                        )
+                field_path = f"segments.{segment_index}.name"
+                if not fields_to_update_mapping.get(field_path):
                     fields_to_update_mapping[field_path] = _SessionSummaryVideoValidationFieldToUpdate(
                         path=field_path,
-                        current_value=self.summary.data["segment_outcomes"][segment_index].get(field),
+                        current_value=self.summary.data["segments"][segment_index].get("name"),
                         new_value=None,
                     )
-                field_path = f"segments.{segment_index}.name"
-                fields_to_update_mapping[field_path] = _SessionSummaryVideoValidationFieldToUpdate(
-                    path=field_path,
-                    current_value=self.summary.data["segments"][segment_index].get("name"),
-                    new_value=None,
-                )
                 # Session outcome
                 for field in ["success", "description"]:
                     field_path = f"session_outcome.{field}"
-                    fields_to_update_mapping[field_path] = _SessionSummaryVideoValidationFieldToUpdate(
-                        path=field_path,
-                        current_value=self.summary.data["session_outcome"].get(field),
-                        new_value=None,
-                    )
+                    if not fields_to_update_mapping.get(field_path):
+                        fields_to_update_mapping[field_path] = _SessionSummaryVideoValidationFieldToUpdate(
+                            path=field_path,
+                            current_value=self.summary.data["session_outcome"].get(field),
+                            new_value=None,
+                        )
                 # Generate prompt
                 prompt = self._generate_video_description_prompt(event=validated_event)
                 events_to_validate.append((prompt, validated_event))
