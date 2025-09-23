@@ -82,6 +82,7 @@ products/data_warehouse/** @PostHog/team-data-warehouse
 frontend/src/scenes/data-warehouse/** @PostHog/team-data-warehouse
 posthog/management/commands/generate_source_configs.py @PostHog/team-data-warehouse
 posthog/settings/data_warehouse.py @PostHog/team-data-warehouse
+posthog/hogql/** @PostHog/team-data-warehouse
 
 # Team error tracking
 
