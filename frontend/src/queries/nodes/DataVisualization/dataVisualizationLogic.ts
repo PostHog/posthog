@@ -1,4 +1,16 @@
-import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import {
+    actions,
+    connect,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+    selectors,
+    sharedListeners,
+} from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import mergeObject from 'lodash.merge'
 
@@ -847,7 +859,73 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 visualizationType === ChartDisplayType.BoldNumber,
         ],
     }),
-    listeners(({ props, actions }) => ({
+    sharedListeners(({ values, actions }) => ({
+        selectedXAxis: () => {
+            if (values.isTableVisualization) {
+                return
+            }
+
+            const value = values.selectedXAxis
+            const yColumns =
+                values.selectedYAxis?.filter((n: SelectedYAxis | null): n is SelectedYAxis => Boolean(n)) ?? []
+            const xColumn: ChartAxis | undefined = value !== null ? { column: value } : undefined
+
+            actions.setQuery((query) => ({
+                ...query,
+                chartSettings: {
+                    ...query.chartSettings,
+                    yAxis: yColumns.map((n) => ({ column: n.name, settings: n.settings })),
+                    xAxis: xColumn,
+                },
+            }))
+        },
+        selectedYAxis: () => {
+            if (values.isTableVisualization) {
+                return
+            }
+            const value = values.selectedYAxis
+            const yColumns = value?.filter((n: SelectedYAxis | null): n is SelectedYAxis => Boolean(n)) ?? []
+            const xColumn: ChartAxis | undefined =
+                values.selectedXAxis !== null ? { column: values.selectedXAxis } : undefined
+
+            actions.setQuery((query) => ({
+                ...query,
+                chartSettings: {
+                    ...query.chartSettings,
+                    yAxis: yColumns.map((n) => ({ column: n.name, settings: n.settings })),
+                    xAxis: xColumn,
+                },
+            }))
+        },
+        tabularColumnSettings: () => {
+            if (!values.isTableVisualization) {
+                return
+            }
+            const value = values.tabularColumnSettings
+            const columns = value?.filter((n: SelectedYAxis | null): n is SelectedYAxis => Boolean(n)) ?? []
+
+            actions.setQuery((query) => ({
+                ...query,
+                tableSettings: {
+                    ...query.tableSettings,
+                    columns: columns.map((n) => ({ column: n.name, settings: n.settings })),
+                },
+            }))
+        },
+        conditionalFormattingRules: () => {
+            const rules = values.conditionalFormattingRules
+            const saveableRules = rules.filter((n) => n.columnName && n.input && n.templateId && n.bytecode.length)
+
+            actions.setQuery((query) => ({
+                ...query,
+                tableSettings: {
+                    ...query.tableSettings,
+                    conditionalFormatting: saveableRules,
+                },
+            }))
+        },
+    })),
+    listeners(({ props, actions, sharedListeners }) => ({
         updateChartSettings: ({ settings }) => {
             actions.setQuery((query) => ({
                 ...query,
@@ -865,6 +943,17 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 display: visualizationType,
             }))
         },
+        clearAxis: [
+            sharedListeners.selectedXAxis,
+            sharedListeners.selectedYAxis,
+            sharedListeners.tabularColumnSettings,
+        ],
+        updateXSeries: [sharedListeners.selectedXAxis],
+        addYSeries: [sharedListeners.selectedYAxis],
+        addSeries: [sharedListeners.tabularColumnSettings],
+        updateSeriesIndex: [sharedListeners.selectedYAxis, sharedListeners.tabularColumnSettings],
+        updateSeries: [sharedListeners.selectedYAxis, sharedListeners.tabularColumnSettings],
+        deleteYSeries: [sharedListeners.selectedYAxis],
     })),
     subscriptions(({ actions, values }) => ({
         columns: (value: Column[], oldValue: Column[]) => {
@@ -917,68 +1006,6 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     actions.updateXSeries(xAxisTypes.name)
                 }
             }
-        },
-        selectedXAxis: (value: string | null) => {
-            if (values.isTableVisualization) {
-                return
-            }
-
-            const yColumns =
-                values.selectedYAxis?.filter((n: SelectedYAxis | null): n is SelectedYAxis => Boolean(n)) ?? []
-            const xColumn: ChartAxis | undefined = value !== null ? { column: value } : undefined
-
-            actions.setQuery((query) => ({
-                ...query,
-                chartSettings: {
-                    ...query.chartSettings,
-                    yAxis: yColumns.map((n) => ({ column: n.name, settings: n.settings })),
-                    xAxis: xColumn,
-                },
-            }))
-        },
-        selectedYAxis: (value: (SelectedYAxis | null)[] | null) => {
-            if (values.isTableVisualization) {
-                return
-            }
-
-            const yColumns = value?.filter((n: SelectedYAxis | null): n is SelectedYAxis => Boolean(n)) ?? []
-            const xColumn: ChartAxis | undefined =
-                values.selectedXAxis !== null ? { column: values.selectedXAxis } : undefined
-
-            actions.setQuery((query) => ({
-                ...query,
-                chartSettings: {
-                    ...query.chartSettings,
-                    yAxis: yColumns.map((n) => ({ column: n.name, settings: n.settings })),
-                    xAxis: xColumn,
-                },
-            }))
-        },
-        tabularColumnSettings: (value: (SelectedYAxis | null)[] | null) => {
-            if (!values.isTableVisualization) {
-                return
-            }
-
-            const columns = value?.filter((n: SelectedYAxis | null): n is SelectedYAxis => Boolean(n)) ?? []
-
-            actions.setQuery((query) => ({
-                ...query,
-                tableSettings: {
-                    ...query.tableSettings,
-                    columns: columns.map((n) => ({ column: n.name, settings: n.settings })),
-                },
-            }))
-        },
-        conditionalFormattingRules: (rules: ConditionalFormattingRule[]) => {
-            const saveableRules = rules.filter((n) => n.columnName && n.input && n.templateId && n.bytecode.length)
-
-            actions.setQuery((query) => ({
-                ...query,
-                tableSettings: {
-                    ...query.tableSettings,
-                    conditionalFormatting: saveableRules,
-                },
-            }))
         },
     })),
 ])
