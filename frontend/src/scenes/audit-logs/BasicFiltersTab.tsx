@@ -99,10 +99,9 @@ export const BasicFiltersTab = (): JSX.Element => {
                     />
                 </div>
 
-                <div className="flex items-end justify-end mb-2">
+                <div className="flex items-end justify-end mb-1">
                     <LemonButton
                         type="tertiary"
-                        size="xsmall"
                         icon={showAdvancedMode ? <IconCollapse /> : <IconExpand />}
                         onClick={() => setShowAdvancedMode(!showAdvancedMode)}
                         data-attr="audit-logs-more-filters-toggle"
@@ -165,7 +164,12 @@ export const BasicFiltersTab = (): JSX.Element => {
                         </div>
 
                         <div className="flex flex-col gap-1">
-                            <label className="block text-sm font-medium mb-1">Item IDs</label>
+                            <div className="flex items-center gap-1 mb-1">
+                                <label className="block text-sm font-medium">Item IDs</label>
+                                <Tooltip title="Filter by specific IDs of the items being tracked. Each activity log entry is associated with the ID of the object that was modified (e.g., dashboard ID, feature flag ID, etc.).">
+                                    <IconInfo className="w-4 h-4 text-muted-alt cursor-help" />
+                                </Tooltip>
+                            </div>
                             <LemonInputSelect
                                 mode="multiple"
                                 displayMode="count"
