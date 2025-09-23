@@ -1,7 +1,3 @@
-import { GeoIp } from '~/utils/geoip'
-
-import { KNOWN_BOT_IP_LIST, KNOWN_BOT_UA_LIST } from './bots/bots'
-
 const MAX_DEPTH = 3
 
 function cleanNullValuesInternal(value: unknown, depth: number): unknown {
@@ -35,36 +31,4 @@ function cleanNullValuesInternal(value: unknown, depth: number): unknown {
 
 export function cleanNullValues(value: unknown): unknown {
     return cleanNullValuesInternal(value, 1)
-}
-
-export const isKnownBotUserAgent = (value: unknown): boolean => {
-    if (typeof value !== 'string') {
-        return false
-    }
-
-    const userAgent = (value as string).toLowerCase()
-    return KNOWN_BOT_UA_LIST.some((bot) => userAgent.includes(bot))
-}
-
-export const isKnownBotIp = (ip: unknown): boolean => {
-    if (typeof ip !== 'string') {
-        return false
-    }
-
-    const ipString = ip as string
-    return KNOWN_BOT_IP_LIST.includes(ipString)
-}
-
-export const getTransformationFunctions = (geoipLookup: GeoIp) => {
-    return {
-        geoipLookup: (val: unknown): any => {
-            return typeof val === 'string' ? geoipLookup.city(val) : null
-        },
-        cleanNullValues,
-        isKnownBotUserAgent,
-        isKnownBotIp,
-        postHogCapture: () => {
-            throw new Error('posthogCapture is not supported in transformations')
-        },
-    }
 }
