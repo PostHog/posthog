@@ -114,14 +114,14 @@ describe('seriesBreakdownLogic', () => {
 
         await expectLogic(logic).toMatchValues({
             showSeriesBreakdown: false,
-            selectedSeriesBreakdownColumn: null,
+            selectedSeriesBreakdownColumn: undefined,
         })
 
         expect(globalQuery).toEqual({
             ...initialQuery,
             chartSettings: {
                 goalLines: undefined,
-                seriesBreakdownColumn: null,
+                seriesBreakdownColumn: undefined,
             },
         })
     })
@@ -138,14 +138,14 @@ describe('seriesBreakdownLogic', () => {
 
         await expectLogic(logic).toMatchValues({
             showSeriesBreakdown: false,
-            selectedSeriesBreakdownColumn: null,
+            selectedSeriesBreakdownColumn: undefined,
         })
 
         expect(globalQuery).toEqual({
             ...initialQuery,
             chartSettings: {
                 goalLines: undefined,
-                seriesBreakdownColumn: null,
+                seriesBreakdownColumn: undefined,
             },
             display: ChartDisplayType.ActionsLineGraph,
         })
@@ -207,14 +207,14 @@ describe('seriesBreakdownLogic', () => {
         logic.actions.deleteSeriesBreakdown()
         await expectLogic(logic).toMatchValues({
             showSeriesBreakdown: false,
-            selectedSeriesBreakdownColumn: null,
+            selectedSeriesBreakdownColumn: undefined,
         })
 
         expect(globalQuery).toEqual({
             ...initialQuery,
             chartSettings: {
                 goalLines: undefined,
-                seriesBreakdownColumn: null,
+                seriesBreakdownColumn: undefined,
             },
         })
     })
@@ -228,7 +228,7 @@ describe('seriesBreakdownLogic', () => {
         logic.actions.clearAxis()
         await expectLogic(logic).toMatchValues({
             showSeriesBreakdown: false,
-            selectedSeriesBreakdownColumn: null,
+            selectedSeriesBreakdownColumn: undefined,
         })
 
         expect(globalQuery).toEqual({
