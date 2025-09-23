@@ -94,7 +94,7 @@ describe('EmailTrackingService', () => {
 
             describe('validation', () => {
                 it('should return 403 if body is missing', async () => {
-                    const res = await supertest(app).post(`/public/m/mailjet_webhook`).send({})
+                    const res = await supertest(app).post(`/public/m/mailjet_webhook`).send()
 
                     expect(res.status).toBe(403)
                     expect(res.body).toEqual({
