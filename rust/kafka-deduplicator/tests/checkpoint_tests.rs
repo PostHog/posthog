@@ -302,16 +302,12 @@ async fn test_manual_checkpoint_export_incremental() {
     let target =
         CheckpointTarget::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
 
-    let worker = CheckpointWorker::new(
-        1,
-        CheckpointMode::Incremental,
-        target.clone(),
-        store.clone(),
-        exporter.clone(),
-    );
+    let worker = CheckpointWorker::new(1, target.clone(), exporter.clone());
 
     // Perform checkpoint
-    let result = worker.checkpoint_partition().await;
+    let result = worker
+        .checkpoint_partition(CheckpointMode::Incremental, &store)
+        .await;
     assert!(result.is_ok());
 
     let result = result.unwrap();
@@ -395,15 +391,11 @@ async fn test_checkpoint_manual_export_full() {
     let target =
         CheckpointTarget::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
 
-    let worker = CheckpointWorker::new(
-        1,
-        CheckpointMode::Full,
-        target.clone(),
-        store.clone(),
-        exporter.clone(),
-    );
+    let worker = CheckpointWorker::new(1, target.clone(), exporter.clone());
 
-    let result = worker.checkpoint_partition().await;
+    let result = worker
+        .checkpoint_partition(CheckpointMode::Full, &store)
+        .await;
     assert!(
         result.is_ok(),
         "checkpoint should succeed: {:?}",
@@ -557,17 +549,13 @@ async fn test_unavailable_uploader() {
     let target =
         CheckpointTarget::new(partition.clone(), Path::new(&config.local_checkpoint_dir)).unwrap();
 
-    let worker = CheckpointWorker::new(
-        1,
-        CheckpointMode::Full,
-        target,
-        store.clone(),
-        exporter.clone(),
-    );
+    let worker = CheckpointWorker::new(1, target, exporter.clone());
 
     // The wrapper thread closure that is spawned to run this in
     // production will catch and log/stat these errors
-    let result = worker.checkpoint_partition().await;
+    let result = worker
+        .checkpoint_partition(CheckpointMode::Full, &store)
+        .await;
     assert!(result.is_err());
 
     // No files should be uploaded when the remote storage is unavailable
@@ -613,10 +601,12 @@ async fn test_unpopulated_exporter() {
 
     // without an exporter supplied to the worker, the checkpoint will
     // succeed and be created locally but never uploaded to remote storage
-    let worker = CheckpointWorker::new(1, CheckpointMode::Full, target, store.clone(), None);
+    let worker = CheckpointWorker::new(1, target, None);
 
     // Checkpoint should still succeed even if uploader is unavailable
-    let result = worker.checkpoint_partition().await;
+    let result = worker
+        .checkpoint_partition(CheckpointMode::Full, &store)
+        .await;
     assert!(result.is_ok()); // Should return OK result
     assert!(result.unwrap().is_none()); // Should be None since no remote upload was attempted
 }

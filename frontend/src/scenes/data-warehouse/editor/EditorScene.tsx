@@ -108,7 +108,7 @@ export function EditorScene({ tabId }: { tabId?: string }): JSX.Element {
     const variablesLogicProps: VariablesLogicProps = {
         key: dataVisualizationLogicProps.key,
         readOnly: false,
-        queryInput,
+        queryInput: queryInput ?? '',
         sourceQuery,
         setQuery: setSourceQuery,
         onUpdate: (query) => {

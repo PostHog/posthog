@@ -173,7 +173,7 @@ interface StageEditorProps {
 }
 
 function StageEditor({ stage, position, agents, onUpdate, onRemove, isLast, isFirst }: StageEditorProps): JSX.Element {
-    const [agent, setAgent] = useState<string>(stage.agent || 'no_agent')
+    const [agent, setAgent] = useState<string>(stage.agent_name || 'no_agent')
 
     return (
         <div className="border border-border rounded-lg p-4">
@@ -214,7 +214,7 @@ function StageEditor({ stage, position, agents, onUpdate, onRemove, isLast, isFi
                             value={agent}
                             onChange={(value) => {
                                 setAgent(value)
-                                onUpdate({ agent: value === 'no_agent' ? undefined : value })
+                                onUpdate({ agent_name: value === 'no_agent' ? undefined : value })
                             }}
                             options={[
                                 { value: 'no_agent', label: 'No agent (manual only)' },

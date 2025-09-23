@@ -114,18 +114,21 @@ function TTLWarning(): JSX.Element | null {
     )
 }
 
-export function PlayerMetaTopSettings({ playerIsHovering }: { playerIsHovering?: boolean }): JSX.Element {
+export function PlayerMetaTopSettings(): JSX.Element {
     const {
         logicProps: { noInspector },
         hoverModeIsEnabled,
+        showPlayerChrome,
     } = useValues(sessionRecordingPlayerLogic)
     const { setPause, openHeatmap } = useActions(sessionRecordingPlayerLogic)
 
     return (
         <div
             className={cn(
-                hoverModeIsEnabled ? 'absolute top-full left-0 right-0 z-10 transition-all duration-150 ease-out' : '',
-                hoverModeIsEnabled && playerIsHovering
+                hoverModeIsEnabled
+                    ? 'absolute top-full left-0 right-0 z-10 transition-all duration-750 ease-in-out'
+                    : '',
+                hoverModeIsEnabled && showPlayerChrome
                     ? 'opacity-100 pointer-events-auto'
                     : hoverModeIsEnabled
                       ? 'opacity-0 pointer-events-none'

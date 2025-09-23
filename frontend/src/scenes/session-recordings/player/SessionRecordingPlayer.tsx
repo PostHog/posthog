@@ -99,6 +99,8 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         setSpeed,
         setSkipInactivitySetting,
         closeExplorer,
+        setIsHovering,
+        allowPlayerChromeToHide,
     } = useActions(sessionRecordingPlayerLogic(logicProps))
     const { isNotFound, isRecentAndInvalid, isLikelyPastTTL } = useValues(sessionRecordingDataLogic(logicProps))
     const { loadSnapshots } = useActions(sessionRecordingDataLogic(logicProps))
@@ -230,7 +232,22 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
 
     const { draggable, elementProps } = useNotebookDrag({ href: urls.replaySingle(sessionRecordingId) })
     const showMeta = !(hidePlayerElements || (noMeta && !isFullScreen))
+
     const isHovering = useIsHovering(playerRef)
+
+    useEffect(() => {
+        // oxlint-disable-next-line exhaustive-deps
+        setIsHovering(isHovering)
+    }, [isHovering])
+
+    useEffect(() => {
+        // just once per recording clear the flag that forces the player chrome to show
+        const timeout = setTimeout(() => {
+            // oxlint-disable-next-line exhaustive-deps
+            allowPlayerChromeToHide()
+        }, 1500)
+        return () => clearTimeout(timeout)
+    }, [sessionRecordingId])
 
     if (isNotFound) {
         return (
@@ -306,7 +323,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                                 {showMeta ? (
                                                     <>
                                                         <PlayerMeta />
-                                                        <PlayerMetaTopSettings playerIsHovering={isHovering} />
+                                                        <PlayerMetaTopSettings />
                                                     </>
                                                 ) : null}
                                             </div>
@@ -324,9 +341,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                                     </>
                                                 ) : null}
                                             </div>
-                                            {!hidePlayerElements ? (
-                                                <PlayerController playerIsHovering={isHovering} />
-                                            ) : null}
+                                            {!hidePlayerElements ? <PlayerController /> : null}
                                         </div>
                                     </div>
                                 )}
