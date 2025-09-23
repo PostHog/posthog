@@ -2,7 +2,7 @@ import copy
 import json
 import uuid
 from dataclasses import asdict, dataclass
-from math import ceil
+from math import floor
 from pathlib import Path
 from typing import Any, cast
 
@@ -191,7 +191,7 @@ class SessionSummaryVideoValidator:
                 "when generating video for validating session summary",
             )
             return None
-        event_timestamp = ceil(ms_from_start / 1000)
+        event_timestamp = floor(ms_from_start / 1000)
         # Start a video a couple of seconds before the event
         moment_timestamp = max(0, event_timestamp - SECONDS_BEFORE_EVENT_FOR_VALIDATION_VIDEO)
         return SessionMomentInput(
