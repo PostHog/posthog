@@ -162,6 +162,11 @@ impl ServerHandle {
             .await
             .expect("failed to send request")
     }
+
+    /// Shutdown the server gracefully
+    pub fn shutdown(&self) {
+        self.shutdown.notify_one();
+    }
 }
 
 impl Drop for ServerHandle {
@@ -384,6 +389,29 @@ impl EphemeralTopic {
     pub fn topic_name(&self) -> &str {
         &self.topic_name
     }
+
+    /// Explicitly cleanup the topic. Call this before dropping the EphemeralTopic
+    /// to avoid race conditions in parallel tests.
+    pub async fn cleanup(&self) {
+        info!("cleaning up EphemeralTopic {}...", self.topic_name);
+
+        // First unsubscribe to stop any ongoing polls
+        self.consumer.unsubscribe();
+
+        // Give some time for any ongoing polls to complete
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Delete the topic
+        match timeout(
+            Duration::from_secs(10),
+            delete_topic(self.topic_name.clone()),
+        )
+        .await
+        {
+            Ok(_) => info!("cleaned up topic: {}", self.topic_name),
+            Err(err) => warn!("failed to cleanup topic: {}", err),
+        }
+    }
 }
 
 impl Drop for EphemeralTopic {
@@ -396,15 +424,33 @@ impl Drop for EphemeralTopic {
         // Give some time for any ongoing polls to complete
         std::thread::sleep(Duration::from_millis(100));
 
-        // Then delete the topic
-        match futures::executor::block_on(timeout(
-            Duration::from_secs(10),
-            delete_topic(self.topic_name.clone()),
-        )) {
-            Ok(_) => info!("dropped topic: {}", self.topic_name.clone()),
-            Err(err) => warn!("failed to drop topic: {}", err),
-        }
+        // For now, just log that we're dropping the topic
+        // The topic will be cleaned up by RedPanda's auto-deletion or manual cleanup
+        info!("dropped topic: {} (cleanup deferred)", self.topic_name);
     }
+}
+
+/// Test helper that creates topics and server, and ensures proper cleanup
+pub async fn with_test_setup<F, Fut, E>(f: F) -> Result<(), E>
+where
+    F: FnOnce(EphemeralTopic, EphemeralTopic, ServerHandle) -> Fut,
+    Fut: std::future::Future<Output = Result<(), E>>,
+{
+    let main_topic = EphemeralTopic::new().await;
+    let histo_topic = EphemeralTopic::new().await;
+    let server = ServerHandle::for_topics(&main_topic, &histo_topic).await;
+
+    // Store topic names for cleanup
+    let main_topic_name = main_topic.topic_name().to_string();
+    let histo_topic_name = histo_topic.topic_name().to_string();
+
+    let result = f(main_topic, histo_topic, server).await;
+
+    // Cleanup topics explicitly to avoid race conditions
+    delete_topic(main_topic_name).await;
+    delete_topic(histo_topic_name).await;
+
+    result
 }
 
 async fn delete_topic(topic: String) {
