@@ -13,7 +13,6 @@ from glom import (
     assign as assign_value,
     glom as find_value,
 )
-from temporalio.exceptions import ApplicationError
 
 from posthog.models.user import User
 
@@ -202,13 +201,6 @@ class SessionSummaryVideoValidator:
         ]
         with open(f"moments_input_{self.session_id}.json", "w") as f:
             json.dump([asdict(x) for x in moments_input], f, indent=4)
-        if not moments_input:
-            # TODO: Update it to a more generic error and catch on the outside?
-            raise ApplicationError(
-                f"No moments input found for session {self.session_id} when validating session summary with videos: {events_to_validate}",
-                # No sense to retry, as the events picked to validate don't have enough metadata to generate a moment
-                non_retryable=True,
-            )
         return moments_input
 
     # TODO: Add more specific instructions on updates
