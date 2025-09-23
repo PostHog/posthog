@@ -185,7 +185,7 @@ class CSVConfig:
 
     PERSON_ID_HEADERS = ["person_id", "person-id", "Person .id"]
     DISTINCT_ID_HEADERS = ["distinct_id", "distinct-id"]
-    EMAIL_HEADERS = ["email", "e-mail", "$email", "Email"]
+    EMAIL_HEADERS = ["email", "e-mail"]
     ENCODING = "utf-8"
 
     class ErrorMessages:
