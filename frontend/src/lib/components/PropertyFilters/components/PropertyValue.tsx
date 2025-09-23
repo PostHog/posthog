@@ -216,8 +216,7 @@ export function PropertyValue({
     }
 
     // Disable comma splitting for user agent properties that contain commas in their values
-    const isUserAgentProperty =
-        propertyKey === '$raw_user_agent' || propertyKey === '$initial_raw_user_agent' || propertyKey === '$user_agent'
+    const isUserAgentProperty = ['$raw_user_agent', '$initial_raw_user_agent', '$user_agent'].includes(propertyKey)
 
     return (
         <LemonInputSelect

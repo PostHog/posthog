@@ -37,6 +37,7 @@ from .constants import (
     TOTAL_CLICKS_FIELD,
     TOTAL_COST_FIELD,
     TOTAL_IMPRESSIONS_FIELD,
+    TOTAL_REPORTED_CONVERSION_FIELD,
     to_marketing_analytics_data,
 )
 from .conversion_goal_processor import ConversionGoalProcessor
@@ -356,6 +357,10 @@ class MarketingAnalyticsTableQueryRunner(AnalyticsQueryRunner[MarketingAnalytics
             ast.Alias(
                 alias=TOTAL_IMPRESSIONS_FIELD,
                 expr=ast.Call(name="sum", args=[ast.Field(chain=[MarketingSourceAdapter.impressions_field])]),
+            ),
+            ast.Alias(
+                alias=TOTAL_REPORTED_CONVERSION_FIELD,
+                expr=ast.Call(name="sum", args=[ast.Field(chain=[MarketingSourceAdapter.reported_conversion_field])]),
             ),
         ]
 

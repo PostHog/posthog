@@ -22,7 +22,13 @@ class AST:
         name = camel_case_pattern.sub("_", self.__class__.__name__).lower()
 
         # NOTE: Sync with ./test/test_visitor.py#test_hogql_visitor_naming_exceptions
-        replacements = {"hog_qlxtag": "hogqlx_tag", "hog_qlxattribute": "hogqlx_attribute", "uuidtype": "uuid_type"}
+        replacements = {
+            "hog_qlxtag": "hogqlx_tag",
+            "hog_qlxattribute": "hogqlx_attribute",
+            "uuidtype": "uuid_type",
+            "string_jsontype": "string_json_type",
+        }
+
         for old, new in replacements.items():
             name = name.replace(old, new)
         method_name = f"visit_{name}"
@@ -54,6 +60,8 @@ _T_AST = TypeVar("_T_AST", bound=AST)
 
 @dataclass(kw_only=True)
 class Type(AST):
+    nullable: bool = field(default=True)
+
     def get_child(self, name: str, context: "HogQLContext") -> "Type":
         raise NotImplementedError("Type.get_child not overridden")
 
@@ -85,7 +93,6 @@ class CTE(Expr):
 @dataclass(kw_only=True)
 class ConstantType(Type):
     data_type: ConstantDataType
-    nullable: bool = field(default=True)
 
     def resolve_constant_type(self, context: "HogQLContext") -> "ConstantType":
         return self

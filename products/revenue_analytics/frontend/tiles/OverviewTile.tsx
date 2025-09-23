@@ -25,5 +25,5 @@ export const OverviewTile = (): JSX.Element => {
 
     const context = useMemo(() => ({ insightProps: { ...INSIGHT_PROPS, query } }), [query])
 
-    return <Query query={query} readOnly context={context} />
+    return <Query attachTo={revenueAnalyticsLogic} query={query} readOnly context={context} />
 }

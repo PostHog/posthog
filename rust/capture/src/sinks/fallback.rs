@@ -188,6 +188,7 @@ mod tests {
             metadata: ProcessedEventMetadata {
                 data_type: DataType::AnalyticsMain,
                 session_id: None,
+                computed_timestamp: None,
             },
         };
 
@@ -225,6 +226,7 @@ mod tests {
             metadata: ProcessedEventMetadata {
                 data_type: DataType::AnalyticsMain,
                 session_id: None,
+                computed_timestamp: None,
             },
         };
 

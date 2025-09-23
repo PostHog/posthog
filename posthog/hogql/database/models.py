@@ -74,16 +74,16 @@ class UnknownDatabaseField(DatabaseField):
 
 class StringJSONDatabaseField(DatabaseField):
     def get_constant_type(self) -> "ConstantType":
-        from posthog.hogql.ast import StringType
+        from posthog.hogql.ast import StringJSONType
 
-        return StringType(nullable=self.is_nullable())
+        return StringJSONType(nullable=self.is_nullable())
 
 
 class StringArrayDatabaseField(DatabaseField):
     def get_constant_type(self) -> "ConstantType":
-        from posthog.hogql.ast import StringType
+        from posthog.hogql.ast import StringArrayType
 
-        return StringType(nullable=self.is_nullable())
+        return StringArrayType(nullable=self.is_nullable())
 
 
 class FloatArrayDatabaseField(DatabaseField):
@@ -112,6 +112,13 @@ class BooleanDatabaseField(DatabaseField):
         from posthog.hogql.ast import BooleanType
 
         return BooleanType(nullable=self.is_nullable())
+
+
+class UUIDDatabaseField(DatabaseField):
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import UUIDType
+
+        return UUIDType(nullable=self.is_nullable())
 
 
 class ExpressionField(DatabaseField):
@@ -273,8 +280,15 @@ class FunctionCallTable(Table):
     """
 
     name: str
+    requires_args: bool = True
     min_args: Optional[int] = None
     max_args: Optional[int] = None
+
+
+class DANGEROUS_NoTeamIdCheckTable(Table):
+    """Don't use this other than referencing tables that contain no user data"""
+
+    pass
 
 
 class SavedQuery(Table):

@@ -27,6 +27,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_produce_only_logger, get_write_only_logger
 
 from products.batch_exports.backend.temporal.batch_exports import (
+    OverBillingLimitError,
     StartBatchExportRunInputs,
     default_fields,
     get_data_interval,
@@ -127,9 +128,10 @@ def get_allowed_template_variables(inputs: S3InsertInputs) -> dict[str, str]:
 
 def get_s3_key_prefix(inputs: S3InsertInputs) -> str:
     template_variables = get_allowed_template_variables(inputs)
+
     try:
         return inputs.prefix.format(**template_variables)
-    except KeyError as e:
+    except (KeyError, ValueError) as e:
         EXTERNAL_LOGGER.warning(
             f"The key prefix '{inputs.prefix}' will be used as-is since it contains invalid template variables: {str(e)}"
         )
@@ -273,17 +275,20 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             include_events=inputs.include_events,
             backfill_id=inputs.backfill_details.backfill_id if inputs.backfill_details else None,
         )
-        run_id = await workflow.execute_activity(
-            start_batch_export_run,
-            start_batch_export_run_inputs,
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=RetryPolicy(
-                initial_interval=dt.timedelta(seconds=10),
-                maximum_interval=dt.timedelta(seconds=60),
-                maximum_attempts=0,
-                non_retryable_error_types=["NotNullViolation", "IntegrityError"],
-            ),
-        )
+        try:
+            run_id = await workflow.execute_activity(
+                start_batch_export_run,
+                start_batch_export_run_inputs,
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=10),
+                    maximum_interval=dt.timedelta(seconds=60),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["NotNullViolation", "IntegrityError"],
+                ),
+            )
+        except OverBillingLimitError:
+            return
 
         insert_inputs = S3InsertInputs(
             bucket_name=inputs.bucket_name,

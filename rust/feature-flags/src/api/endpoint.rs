@@ -32,8 +32,21 @@ struct LogContext<'a> {
     response_format: &'a str,
 }
 
-fn get_minimal_flags_response(version: Option<&str>) -> Result<Json<ServiceResponse>, FlagError> {
-    let request_id = Uuid::new_v4();
+/// Extracts request ID from X-REQUEST-ID header, falling back to generating a new UUID if not present or invalid
+/// Good for tracing logs from the Contour layer all the way to the property evaluation
+fn extract_request_id(headers: &HeaderMap) -> Uuid {
+    headers
+        .get("X-REQUEST-ID")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|s| s.parse::<Uuid>().ok())
+        .unwrap_or_else(Uuid::new_v4)
+}
+
+fn get_minimal_flags_response(
+    headers: &HeaderMap,
+    version: Option<&str>,
+) -> Result<Json<ServiceResponse>, FlagError> {
+    let request_id = extract_request_id(headers);
 
     // Parse version string to determine response format
     let version_num = version.map(|v| v.parse::<i32>().unwrap_or(1)).unwrap_or(1);
@@ -137,13 +150,16 @@ pub async fn flags(
     path: MatchedPath,
     body: Bytes,
 ) -> Result<Response, FlagError> {
-    let request_id = Uuid::new_v4();
+    let request_id = extract_request_id(&headers);
 
     // Handle different HTTP methods
     match method {
         Method::GET => {
             // GET requests return minimal flags response
-            return Ok(get_minimal_flags_response(query_params.version.as_deref())?.into_response());
+            return Ok(
+                get_minimal_flags_response(&headers, query_params.version.as_deref())?
+                    .into_response(),
+            );
         }
         Method::POST => {
             // POST requests continue with full processing logic below
@@ -434,5 +450,36 @@ mod tests {
 
         assert_eq!(params_config_missing.version, Some("1".to_string()));
         assert_eq!(params_config_missing.config, None);
+    }
+
+    #[test]
+    fn test_extract_request_id() {
+        use axum::http::HeaderValue;
+
+        // Test with valid UUID in header
+        let mut headers = HeaderMap::new();
+        let valid_uuid = "550e8400-e29b-41d4-a716-446655440000";
+        headers.insert("x-request-id", HeaderValue::from_static(valid_uuid));
+
+        let extracted_id = extract_request_id(&headers);
+        assert_eq!(extracted_id.to_string(), valid_uuid);
+
+        // Test with invalid UUID in header - should generate new UUID
+        let mut headers_invalid = HeaderMap::new();
+        headers_invalid.insert("x-request-id", HeaderValue::from_static("invalid-uuid"));
+
+        let extracted_id_invalid = extract_request_id(&headers_invalid);
+        // Should be a valid UUID (not the invalid string)
+        assert_ne!(extracted_id_invalid.to_string(), "invalid-uuid");
+        assert!(extracted_id_invalid.to_string().len() == 36); // UUID format
+
+        // Test without header - should generate new UUID
+        let empty_headers = HeaderMap::new();
+        let extracted_id_empty = extract_request_id(&empty_headers);
+        assert!(extracted_id_empty.to_string().len() == 36); // UUID format
+
+        // Two calls without header should generate different UUIDs
+        let extracted_id_empty2 = extract_request_id(&empty_headers);
+        assert_ne!(extracted_id_empty, extracted_id_empty2);
     }
 }

@@ -112,7 +112,7 @@ class InputsSchemaItemSerializer(serializers.Serializer):
     integration_field = serializers.CharField(required=False)
     requiredScopes = serializers.CharField(required=False)
     # Indicates if hog templating should be used for this input
-    templating = serializers.BooleanField(required=False)
+    templating = serializers.ChoiceField(choices=[True, False, "hog", "liquid"], required=False)
 
     # TODO Validate choices if type=choice
 
@@ -234,6 +234,16 @@ class InputsSerializer(serializers.DictField):
                 value = existing_secret_inputs.get(schema["key"]) or {}
 
             self.context["schema"] = schema
+
+            # Propagate templating from schema to input item, if set
+            if "templating" in schema:
+                templating_val = schema["templating"]
+                if isinstance(templating_val, bool):
+                    if templating_val:
+                        value["templating"] = "hog"
+                    # If False, do not set templating field
+                else:
+                    value["templating"] = templating_val
 
             try:
                 input_value = self.child.run_validation(value)

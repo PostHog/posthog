@@ -27,6 +27,7 @@ from posthog.hogql_queries.experiments import MULTIPLE_VARIANT_KEY
 from posthog.hogql_queries.experiments.base_query_utils import (
     get_experiment_date_range,
     get_experiment_exposure_query,
+    get_exposure_time_window_constraints,
     get_metric_aggregation_expr,
     get_metric_events_query,
     get_source_aggregation_expr,
@@ -58,8 +59,9 @@ class ExperimentQueryRunner(QueryRunner):
     query: ExperimentQuery
     cached_response: CachedExperimentQueryResponse
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, override_end_date: Optional[datetime] = None, **kwargs):
         super().__init__(*args, **kwargs)
+        self.override_end_date = override_end_date
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
@@ -76,7 +78,7 @@ class ExperimentQueryRunner(QueryRunner):
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
 
-        self.date_range = get_experiment_date_range(self.experiment, self.team)
+        self.date_range = get_experiment_date_range(self.experiment, self.team, self.override_end_date)
         self.date_range_query = QueryDateRange(
             date_range=self.date_range,
             team=self.team,
@@ -131,6 +133,13 @@ class ExperimentQueryRunner(QueryRunner):
             ),
         ]
 
+        # Get time window constraints for events relative to exposure time
+        metric_time_window = get_exposure_time_window_constraints(
+            self.metric,
+            ast.Field(chain=["metric_events", "timestamp"]),
+            ast.Field(chain=["exposures", "first_exposure_time"]),
+        )
+
         # Build join expression
         join_expr = ast.JoinExpr(
             table=exposure_query,
@@ -153,6 +162,7 @@ class ExperimentQueryRunner(QueryRunner):
                                 right=parse_expr("toString(metric_events.entity_id)"),
                                 op=ast.CompareOperationOp.Eq,
                             ),
+                            *metric_time_window,
                         ]
                     ),
                     constraint_type="ON",
@@ -183,6 +193,13 @@ class ExperimentQueryRunner(QueryRunner):
         # Type assertion - this method is only called for ratio metrics
         assert isinstance(self.metric, ExperimentRatioMetric)
         ratio_metric = self.metric
+
+        # Get time window constraints for events relative to exposure time
+        metric_time_window = get_exposure_time_window_constraints(
+            self.metric,
+            ast.Field(chain=["metric_events", "timestamp"]),
+            ast.Field(chain=["exposures", "first_exposure_time"]),
+        )
 
         # First, create aggregated numerator query (per entity)
         numerator_aggregated = ast.SelectQuery(
@@ -215,6 +232,7 @@ class ExperimentQueryRunner(QueryRunner):
                                     right=parse_expr("toString(metric_events.entity_id)"),
                                     op=ast.CompareOperationOp.Eq,
                                 ),
+                                *metric_time_window,
                             ]
                         ),
                         constraint_type="ON",
@@ -225,6 +243,13 @@ class ExperimentQueryRunner(QueryRunner):
                 ast.Field(chain=["exposures", "variant"]),
                 ast.Field(chain=["exposures", "entity_id"]),
             ],
+        )
+
+        # Get time window constraints for denominator events relative to exposure time
+        metric_time_window_denominator = get_exposure_time_window_constraints(
+            self.metric,
+            ast.Field(chain=["denominator_events", "timestamp"]),
+            ast.Field(chain=["exposures", "first_exposure_time"]),
         )
 
         # Second, create aggregated denominator query (per entity)
@@ -258,6 +283,7 @@ class ExperimentQueryRunner(QueryRunner):
                                     right=parse_expr("toString(denominator_events.entity_id)"),
                                     op=ast.CompareOperationOp.Eq,
                                 ),
+                                *metric_time_window_denominator,
                             ]
                         ),
                         constraint_type="ON",
@@ -367,7 +393,6 @@ class ExperimentQueryRunner(QueryRunner):
         # Get all metric events that are relevant to the experiment
         metric_events_query = get_metric_events_query(
             self.metric,
-            exposure_query,
             self.team,
             self.entity_key,
             self.experiment,
@@ -380,7 +405,6 @@ class ExperimentQueryRunner(QueryRunner):
         if self.is_ratio_metric:
             denominator_events_query = get_metric_events_query(
                 self.metric,
-                exposure_query,
                 self.team,
                 self.entity_key,
                 self.experiment,
@@ -426,7 +450,7 @@ class ExperimentQueryRunner(QueryRunner):
             team=self.team,
             timings=self.timings,
             modifiers=create_default_modifiers_for_team(self.team),
-            settings=HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_TIME),
+            settings=HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_TIME, allow_experimental_analyzer=True),
         )
 
         # Remove the $multiple variant only when using exclude handling

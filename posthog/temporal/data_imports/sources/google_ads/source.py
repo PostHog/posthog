@@ -6,6 +6,7 @@ from posthog.schema import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
     SourceFieldOauthConfig,
+    SourceFieldSwitchGroupConfig,
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
@@ -84,6 +85,8 @@ class GoogleAdsSource(BaseSource[GoogleAdsSourceConfig | GoogleAdsServiceAccount
             label="Google Ads",
             caption="Ensure you have granted PostHog access to your Google Ads account, learn how to do this in [the docs](https://posthog.com/docs/cdp/sources/google-ads).",
             betaSource=True,
+            iconPath="/static/services/google-ads.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/google-ads",
             fields=cast(
                 list[FieldType],
                 [
@@ -96,6 +99,24 @@ class GoogleAdsSource(BaseSource[GoogleAdsSourceConfig | GoogleAdsServiceAccount
                     ),
                     SourceFieldOauthConfig(
                         name="google_ads_integration_id", label="Google Ads account", required=True, kind="google-ads"
+                    ),
+                    SourceFieldSwitchGroupConfig(
+                        name="is_mcc_account",
+                        label="Using MCC account?",
+                        caption="Whether your account is a Google Ads MCC account and you're accessing a clients account?",
+                        default=False,
+                        fields=cast(
+                            list[FieldType],
+                            [
+                                SourceFieldInputConfig(
+                                    name="mcc_client_id",
+                                    label="Managers customer ID",
+                                    type=SourceFieldInputConfigType.TEXT,
+                                    required=True,
+                                    placeholder="",
+                                )
+                            ],
+                        ),
                     ),
                 ],
             ),

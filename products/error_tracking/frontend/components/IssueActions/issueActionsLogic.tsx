@@ -8,7 +8,7 @@ import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import type { issueActionsLogicType } from './issueActionsLogicType'
 
 export const issueActionsLogic = kea<issueActionsLogicType>([
-    path(['scenes', 'error-tracking', 'issueActionsLogic']),
+    path(['products', 'error_tracking', 'components', 'IssueActions', 'issueActionsLogic']),
 
     actions({
         mergeIssues: (ids: string[]) => ({ ids }),

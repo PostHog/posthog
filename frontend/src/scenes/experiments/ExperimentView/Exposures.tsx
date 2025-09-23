@@ -11,6 +11,7 @@ import { humanFriendlyLargeNumber, humanFriendlyNumber } from 'lib/utils'
 
 import { ExperimentExposureCriteria } from '~/queries/schema/schema-general'
 
+import { useChartColors } from '../MetricsView/shared/colors'
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
 import { VariantTag } from './components'
@@ -28,6 +29,7 @@ export function Exposures(): JSX.Element {
     const { experimentId, exposures, exposuresLoading, exposureCriteria, isExperimentDraft } =
         useValues(experimentLogic)
     const { openExposureCriteriaModal } = useActions(modalsLogic)
+    const colors = useChartColors()
 
     const chartRef = useRef<Chart | null>(null)
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
@@ -110,11 +112,16 @@ export function Exposures(): JSX.Element {
                                 maxRotation: 0,
                                 minRotation: 0,
                             },
+                            grid: {
+                                display: true,
+                                color: colors.EXPOSURES_AXIS_LINES,
+                            },
                         },
                         y: {
                             beginAtZero: true,
                             grid: {
                                 display: true,
+                                color: colors.EXPOSURES_AXIS_LINES,
                             },
                         },
                     },
@@ -139,7 +146,7 @@ export function Exposures(): JSX.Element {
                 console.error('Error creating chart:', error)
             }
         },
-        [exposures]
+        [exposures, colors.EXPOSURES_AXIS_LINES]
     )
 
     const canvasRefCallback = useCallback(
@@ -240,7 +247,7 @@ export function Exposures(): JSX.Element {
                     key: 'cumulative-exposures',
                     header: headerContent,
                     content: (
-                        <div className="space-y-4 bg-white -m-4 p-4">
+                        <div className="space-y-4 bg-bg-light -m-4 p-4">
                             {/* Chart Section */}
                             {exposuresLoading ? (
                                 <div className="relative border rounded h-[200px] flex justify-center items-center">

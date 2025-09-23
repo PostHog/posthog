@@ -54,6 +54,8 @@ from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle, PersonalApiKeyRateThrottle
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.renderers import ServerSentEventRenderer
 from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
@@ -213,7 +215,7 @@ class SurrogatePairSafeJSONRenderer(JSONRenderer):
     encoder_class = SurrogatePairSafeJSONEncoder
 
 
-class SessionRecordingSerializer(serializers.ModelSerializer):
+class SessionRecordingSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     id = serializers.CharField(source="session_id", read_only=True)
     recording_duration = serializers.IntegerField(source="duration", read_only=True)
     person = MinimalPersonSerializer(required=False)
@@ -258,6 +260,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "start_url",
             "person",
             "storage",
+            "retention_period_days",
             "snapshot_source",
             "ongoing",
             "activity_score",
@@ -280,6 +283,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "console_error_count",
             "start_url",
             "storage",
+            "retention_period_days",
             "snapshot_source",
             "ongoing",
             "activity_score",
@@ -511,7 +515,9 @@ def clean_referer_url(current_url: str | None) -> str:
 
 
 # NOTE: Could we put the sharing stuff in the shared mixin :thinking:
-class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, UpdateModelMixin):
+class SessionRecordingViewSet(
+    TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet, UpdateModelMixin
+):
     scope_object = "session_recording"
     scope_object_read_actions = ["list", "retrieve", "snapshots"]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
@@ -555,8 +561,11 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
                         e, distinct_id=user_distinct_id or "unknown", properties={"while": "setting tracing attributes"}
                     )
 
+                # we don't want to pass add_events_to_property_queries into the model validation
+                params = request.GET.dict()
+                allow_event_property_expansion = params.pop("add_events_to_property_queries", "0") == "1"
                 with tracer.start_as_current_span("convert_filters"):
-                    query = filter_from_params_to_query(request.GET.dict())
+                    query = filter_from_params_to_query(params)
 
                 if query.comment_text:
                     with tracer.start_as_current_span("search_comments"):
@@ -565,7 +574,12 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
                 self._maybe_report_recording_list_filters_changed(request, team=self.team)
                 with tracer.start_as_current_span("query_for_recordings"):
-                    query_results = list_recordings_from_query(query, cast(User, request.user), team=self.team)
+                    query_results = list_recordings_from_query(
+                        query,
+                        cast(User, request.user),
+                        team=self.team,
+                        allow_event_property_expansion=allow_event_property_expansion,
+                    )
 
                 with tracer.start_as_current_span("make_response"):
                     response = list_recordings_response(
@@ -586,9 +600,13 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             posthoganalytics.capture_exception(
                 e,
                 distinct_id=user_distinct_id,
-                properties={"replay_feature": "listing_recordings", "unfiltered_query": request.GET.dict()},
+                properties={
+                    "replay_feature": "listing_recordings",
+                    "unfiltered_query": request.GET.dict(),
+                    "error_should_alert": True,
+                },
             )
-            return Response({"error": "An internal error has occurred. Please try again later."}, status=500)
+            return Response({"error": "An internal server error occurred. Please try again later."}, status=500)
 
     @extend_schema(
         exclude=True,
@@ -749,7 +767,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             )
 
         # Load recordings from ClickHouse to get distinct_ids for ones that don't exist in Postgres
-        # Create minimal query with only session_ids
+        # Create minimal query with only session_ids - pass None for user to bypass access control filtering
         query_data = {
             "session_ids": session_recording_ids,
             "date_from": None,
@@ -757,10 +775,17 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
             "kind": "RecordingsQuery",
         }
         query = RecordingsQuery.model_validate(query_data)
-        recordings, _, _ = list_recordings_from_query(query, cast(User, request.user), self.team)
+        recordings, _, _ = list_recordings_from_query(query, None, self.team)
+
+        # Filter recordings based on access control - only allow deletion of recordings user has editor access to
+        user_access_control = self.user_access_control
+        accessible_recordings = []
+        for recording in recordings:
+            if user_access_control.check_access_level_for_object(recording, required_level="editor"):
+                accessible_recordings.append(recording)
 
         # Filter out recordings that are already deleted
-        non_deleted_recordings = [recording for recording in recordings if not recording.deleted]
+        non_deleted_recordings = [recording for recording in accessible_recordings if not recording.deleted]
 
         # First, bulk create any missing records
         session_recordings_to_create = [
@@ -1514,7 +1539,7 @@ class SessionRecordingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, U
 
 # TODO i guess this becomes the query runner for our _internal_ use of RecordingsQuery
 def list_recordings_from_query(
-    query: RecordingsQuery, user: User | None, team: Team
+    query: RecordingsQuery, user: User | None, team: Team, allow_event_property_expansion: bool = False
 ) -> tuple[list[SessionRecording], bool, str]:
     """
     As we can store recordings in S3 or in Clickhouse we need to do a few things here
@@ -1561,6 +1586,7 @@ def list_recordings_from_query(
                 query=query,
                 team=team,
                 hogql_query_modifiers=None,
+                allow_event_property_expansion=allow_event_property_expansion,
             ).run()
 
         with timer("build_recordings"), tracer.start_as_current_span("build_recordings"):

@@ -15,6 +15,7 @@ import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -23,7 +24,6 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { ChartParams, TrendResult } from '~/types'
 
 import { insightLogic } from '../../insightLogic'
-import { ensureTooltip } from '../LineGraph/LineGraph'
 import { Textfit } from './Textfit'
 
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
@@ -33,12 +33,10 @@ function useBoldNumberTooltip({
     showPersonsModal,
     isTooltipShown,
     groupTypeLabel,
-    chartId,
 }: {
     showPersonsModal: boolean
     isTooltipShown: boolean
     groupTypeLabel?: string
-    chartId: string
 }): React.RefObject<HTMLDivElement> {
     const { insightProps } = useValues(insightLogic)
     const { series, insightData, trendsFilter, breakdownFilter } = useValues(insightVizDataLogic(insightProps))
@@ -47,7 +45,8 @@ function useBoldNumberTooltip({
     const divRef = useRef<HTMLDivElement>(null)
 
     const divRect = divRef.current?.getBoundingClientRect()
-    const [tooltipRoot, tooltipEl] = ensureTooltip(chartId)
+    const { getTooltip } = useInsightTooltip()
+    const [tooltipRoot, tooltipEl] = getTooltip()
 
     useLayoutEffect(() => {
         tooltipEl.style.opacity = isTooltipShown ? '1' : '0'
@@ -97,12 +96,10 @@ export function BoldNumber({ showPersonsModal = true, context }: ChartParams): J
     )
 
     const [isTooltipShown, setIsTooltipShown] = useState(false)
-    const chartId = useRef(`boldnumber-${Math.random().toString(36).substring(2, 11)}`)
     const valueRef = useBoldNumberTooltip({
         showPersonsModal,
         isTooltipShown,
         groupTypeLabel: context?.groupTypeLabel,
-        chartId: chartId.current,
     })
 
     const showComparison = !!compareFilter?.compare && insightData?.result?.length > 1
