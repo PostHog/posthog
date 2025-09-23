@@ -142,6 +142,10 @@ for session_ad_id in SESSION_V3_LOWER_TIER_AD_IDS:
     LAZY_SESSIONS_FIELDS["$entry_has_" + session_ad_id] = BooleanDatabaseField(name="$entry_has_" + session_ad_id)
 
 
+def get_binary_fields(table: Table) -> set[str]:
+    return {key for key, val in table.fields.items() if val.__class__ == DatabaseField}
+
+
 class RawSessionsTableV3(Table):
     fields: dict[str, FieldOrTable] = RAW_SESSIONS_FIELDS
 
@@ -152,11 +156,9 @@ class RawSessionsTableV3(Table):
         return "raw_sessions_v3"
 
     def avoid_asterisk_fields(self) -> list[str]:
-        binary_fields = {key for key, val in self.fields.items() if val.__class__ == DatabaseField}
-
         return list(
             {
-                *binary_fields,  # our clickhouse driver can't return aggregate states
+                *get_binary_fields(self),  # our clickhouse driver can't return aggregate states
                 "session_id_v7",  # HogQL insights currently don't support returning uint128s due to json serialisation
             }
         )
@@ -375,11 +377,9 @@ class SessionsTableV3(LazyTable):
         return "sessions"
 
     def avoid_asterisk_fields(self) -> list[str]:
-        binary_fields = {key for key, val in self.fields.items() if val.__class__ == DatabaseField}
-
         return list(
             {
-                *binary_fields,  # our clickhouse driver can't return aggregate states
+                *get_binary_fields(self),  # our clickhouse driver can't return aggregate states
                 "session_id_v7",  # HogQL insights currently don't support returning uint128s due to json serialisation
                 "id",  # prefer to use session_id
                 "duration",  # alias of $session_duration, deprecated but included for backwards compatibility
