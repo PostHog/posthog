@@ -199,8 +199,10 @@
                 },
                 $session_id_uuid: {
                   alias: "$session_id_uuid"
+                  nullable: False
                   type: {
                     name: "$session_id_uuid"
+                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
@@ -549,12 +551,14 @@
           ]
           type: {
             name: "$session_id_uuid"
+            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$session_id_uuid"
+          nullable: True
           type: <recursion ...>
         }
       },
@@ -1793,12 +1797,14 @@
           ]
           type: {
             name: "$session_id_uuid"
+            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$session_id_uuid"
+          nullable: False
           type: <recursion ...>
         }
       },
@@ -3674,8 +3680,10 @@
                 },
                 $session_id_uuid: {
                   alias: "$session_id_uuid"
+                  nullable: False
                   type: {
                     name: "$session_id_uuid"
+                    nullable: False
                     table_type: <recursion ...>
                   }
                 },
@@ -4024,12 +4032,14 @@
           ]
           type: {
             name: "$session_id_uuid"
+            nullable: True
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$session_id_uuid"
+          nullable: True
           type: <recursion ...>
         }
       },
@@ -5226,12 +5236,14 @@
                     ]
                     type: {
                       name: "$session_id_uuid"
+                      nullable: False
                       table_type: <recursion ...>
                     }
                   }
                   hidden: True
                   type: {
                     alias: "$session_id_uuid"
+                    nullable: False
                     type: <recursion ...>
                   }
                 },
@@ -6533,12 +6545,14 @@
           ]
           type: {
             name: "$session_id_uuid"
+            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$session_id_uuid"
+          nullable: False
           type: <recursion ...>
         }
       },
@@ -7560,12 +7574,14 @@
           ]
           type: {
             name: "$session_id_uuid"
+            nullable: False
             table_type: <recursion ...>
           }
         }
         hidden: True
         type: {
           alias: "$session_id_uuid"
+          nullable: False
           type: <recursion ...>
         }
       },
