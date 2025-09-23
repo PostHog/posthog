@@ -47,6 +47,10 @@ class DeltaSnapshot:
     def _get_delta_table_uri(self) -> str:
         return f"{settings.BUCKET_URL}/{self.saved_query.snapshot_folder_path}/{self.saved_query.normalized_name}"
 
+    @property
+    def backup_delta_table_uri(self) -> str:
+        return self._get_delta_table_uri() + "_backup"
+
     def _get_credentials(self):
         if not settings.AIRBYTE_BUCKET_KEY or not settings.AIRBYTE_BUCKET_SECRET or not settings.AIRBYTE_BUCKET_REGION:
             raise KeyError(

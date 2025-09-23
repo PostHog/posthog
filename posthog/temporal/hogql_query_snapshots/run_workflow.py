@@ -21,6 +21,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_imports.pipelines.pipeline.utils import append_partition_key_to_table
 from posthog.temporal.data_imports.util import prepare_s3_files_for_querying
+from posthog.temporal.hogql_query_snapshots.backup import clear_backup_object, create_backup_object, restore_from_backup
 from posthog.temporal.hogql_query_snapshots.delta_snapshot import DeltaSnapshot, calculate_partition_settings
 from posthog.warehouse.models.credential import get_or_create_datawarehouse_credential
 from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery, aget_saved_query_by_id
@@ -50,6 +51,22 @@ async def create_snapshot_job_activity(inputs: CreateSnapshotJobInputs) -> str:
     return str(job.id)
 
 
+@dataclasses.dataclass
+class CreateBackupSnapshotJobInputs:
+    team_id: int
+    saved_query_id: str
+
+
+@temporalio.activity.defn
+async def create_backup_snapshot_job_activity(inputs: CreateBackupSnapshotJobInputs) -> str:
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
+
+    await logger.adebug(f"Creating backup object for {inputs.saved_query_id} snapshot")
+    saved_query = await aget_saved_query_by_id(saved_query_id=inputs.saved_query_id, team_id=inputs.team_id)
+    create_backup_object(saved_query)
+
+
 async def start_job_snapshot_run(
     team: Team, workflow_id: str, workflow_run_id: str, saved_query: DataWarehouseSavedQuery
 ) -> DataWarehouseSnapshotJob:
@@ -66,9 +83,26 @@ async def start_job_snapshot_run(
 
 
 @dataclasses.dataclass
+class RestoreFromBackupInputs:
+    team_id: int
+    saved_query_id: str
+
+
+@temporalio.activity.defn
+async def restore_from_backup_activity(inputs: RestoreFromBackupInputs) -> None:
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
+
+    await logger.adebug(f"Restoring from backup for {inputs.saved_query_id}")
+    saved_query = await aget_saved_query_by_id(saved_query_id=inputs.saved_query_id, team_id=inputs.team_id)
+    restore_from_backup(saved_query)
+
+
+@dataclasses.dataclass
 class FinishSnapshotJobInputs:
     team_id: int
     job_id: str
+    saved_query_id: str
     error: str | None
     snapshot_ts: str | None
     snapshot_table_id: str | None
@@ -85,6 +119,7 @@ async def finish_snapshot_job_activity(inputs: FinishSnapshotJobInputs) -> None:
 
     await logger.adebug(f"Finishing DataWarehouseSnapshotJob for {inputs.job_id}")
     job = await database_sync_to_async(DataWarehouseSnapshotJob.objects.get)(id=inputs.job_id)
+    workflow_saved_query = await aget_saved_query_by_id(saved_query_id=inputs.saved_query_id, team_id=inputs.team_id)
 
     if inputs.snapshot_table_id is not None and inputs.snapshot_ts is not None:
         snapshot_table = await database_sync_to_async(DataWarehouseTable.objects.get)(id=inputs.snapshot_table_id)
@@ -109,6 +144,7 @@ async def finish_snapshot_job_activity(inputs: FinishSnapshotJobInputs) -> None:
         DataWarehouseSnapshotJob.Status.COMPLETED if inputs.error is None else DataWarehouseSnapshotJob.Status.FAILED
     )
     job.error = inputs.error if inputs.error is not None else None
+    clear_backup_object(workflow_saved_query)
     await database_sync_to_async(job.save)()
 
 
@@ -252,9 +288,19 @@ class RunWorkflow(PostHogWorkflow):
             ),
         )
 
+        await temporalio.workflow.execute_activity(
+            create_backup_snapshot_job_activity,
+            CreateBackupSnapshotJobInputs(team_id=inputs.team_id, saved_query_id=inputs.saved_query_id),
+            start_to_close_timeout=dt.timedelta(minutes=5),
+            retry_policy=RetryPolicy(
+                maximum_attempts=1,
+            ),
+        )
+
         finish_snapshot_job_inputs = FinishSnapshotJobInputs(
             team_id=inputs.team_id,
             job_id=job_id,
+            saved_query_id=inputs.saved_query_id,
             error=None,
             snapshot_ts=None,
             snapshot_table_id=None,
@@ -275,9 +321,27 @@ class RunWorkflow(PostHogWorkflow):
             finish_snapshot_job_inputs.snapshot_table_id = snapshot_table_id
         except exceptions.ActivityError as e:
             finish_snapshot_job_inputs.error = str(e.cause)
+
+            await temporalio.workflow.execute_activity(
+                restore_from_backup_activity,
+                RestoreFromBackupInputs(team_id=inputs.team_id, saved_query_id=inputs.saved_query_id),
+                start_to_close_timeout=dt.timedelta(minutes=10),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=1,
+                ),
+            )
             raise
         except Exception as e:
             finish_snapshot_job_inputs.error = str(e)
+
+            await temporalio.workflow.execute_activity(
+                restore_from_backup_activity,
+                RestoreFromBackupInputs(team_id=inputs.team_id, saved_query_id=inputs.saved_query_id),
+                start_to_close_timeout=dt.timedelta(minutes=10),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=1,
+                ),
+            )
             raise
         finally:
             await temporalio.workflow.execute_activity(
