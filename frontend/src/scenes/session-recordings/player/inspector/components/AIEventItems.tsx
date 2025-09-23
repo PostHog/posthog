@@ -82,7 +82,7 @@ const isDisplayableAIMessage = (message: Record<string, any>): boolean => {
 }
 
 export function AIEventSummary({ event }: { event: Record<string, any> }): JSX.Element | null {
-    const showConversation = useFeatureFlag('REPlAY_X_LLM_ANALYTICS_CONVERSATION_VIEW')
+    const showConversation = useFeatureFlag('REPLAY_X_LLM_ANALYTICS_CONVERSATION_VIEW')
 
     if (event.properties.$ai_is_error) {
         return (
