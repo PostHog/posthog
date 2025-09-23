@@ -1,14 +1,19 @@
 import time
+import asyncio
 import logging
 from typing import Any
 
 from django.core.management.base import BaseCommand
 
 import structlog
+from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.constants import MESSAGING_TASK_QUEUE
+from posthog.temporal.common.client import async_connect
+from posthog.temporal.messaging.behavioral_cohorts_workflow_coordinator import CoordinatorWorkflowInputs
 
 logger = structlog.get_logger(__name__)
 logger.setLevel(logging.INFO)
@@ -50,6 +55,30 @@ class Command(BaseCommand):
             type=int,
             help="Optional: Limit the number of conditions to process",
         )
+        parser.add_argument(
+            "--parallelism",
+            type=int,
+            default=10,
+            help="Number of parallel child workflows to spawn (default: 10)",
+        )
+        parser.add_argument(
+            "--conditions-page-size",
+            type=int,
+            default=1000,
+            help="Number of conditions to fetch per page when loading data (default: 1000)",
+        )
+        parser.add_argument(
+            "--use-temporal",
+            action="store_true",
+            default=True,
+            help="Use Temporal workflow for parallel processing (default: True)",
+        )
+        parser.add_argument(
+            "--no-temporal",
+            dest="use_temporal",
+            action="store_false",
+            help="Disable Temporal workflow and use sequential processing",
+        )
 
     def handle(self, *args, **options):
         min_matches = options["min_matches"]
@@ -58,41 +87,133 @@ class Command(BaseCommand):
         cohort_id = options.get("cohort_id")
         condition = options.get("condition")
         limit = options.get("limit")
-
-        logger.info("Starting cohort membership generation")
-
-        # Step 1: Get unique condition hashes (with limit applied at query level)
-        condition_hashes = self.get_unique_conditions(team_id, cohort_id, condition, days, limit)
-
-        if not condition_hashes:
-            logger.warning("No conditions found matching the criteria")
-            return
-
-        logger.info(f"Processing {len(condition_hashes)} conditions")
-
-        # Step 2: Get cohort memberships (team_id, person_id, cohort_id)
-        start_time = time.time()
-        memberships = self.get_cohort_memberships(
-            condition_hashes,
-            min_matches,
-            days,
-        )
+        parallelism = options.get("parallelism", 10)
+        conditions_page_size = options.get("conditions_page_size", 1000)
+        conditions_per_workflow = options.get("conditions_per_workflow", 5000)
+        use_temporal = options.get("use_temporal", True)
 
         logger.info(
-            "Completed",
-            total_memberships=len(memberships),
-            conditions_processed=len(condition_hashes),
-            total_time_seconds=round(time.time() - start_time, 2),
+            "Starting cohort membership generation",
+            use_temporal=use_temporal,
+            parallelism=parallelism if use_temporal else 1,
         )
 
-        self.stdout.write("team_id,person_id,cohort_id")
+        if use_temporal:
+            # Use Temporal workflow for parallel processing
+            self.run_temporal_workflow(
+                team_id=team_id,
+                cohort_id=cohort_id,
+                condition=condition,
+                min_matches=min_matches,
+                days=days,
+                limit=limit,
+                parallelism=parallelism,
+                conditions_page_size=conditions_page_size,
+                conditions_per_workflow=conditions_per_workflow,
+            )
 
-        display_limit = 5
-        for team_id, person_id, cohort_id in memberships[:display_limit]:
-            self.stdout.write(f"{team_id},{person_id},{cohort_id}")
+            logger.info(
+                "Coordinator workflow scheduled child workflows",
+                parallelism=parallelism,
+            )
 
-        if len(memberships) > display_limit:
-            self.stdout.write(f"\n... showing first {display_limit} of {len(memberships)} total memberships ...")
+            self.stdout.write(f"Coordinator workflow scheduled {parallelism} child workflows")
+            self.stdout.write(
+                "Child workflows are running in the background. Check Temporal UI for progress and results."
+            )
+        else:
+            # Legacy sequential processing
+            logger.info("Using legacy sequential processing")
+
+            # Step 1: Get unique condition hashes (with limit applied at query level)
+            condition_hashes = self.get_unique_conditions(team_id, cohort_id, condition, days, limit)
+
+            if not condition_hashes:
+                logger.warning("No conditions found matching the criteria")
+                return
+
+            logger.info(f"Processing {len(condition_hashes)} conditions")
+
+            # Step 2: Get cohort memberships (team_id, person_id, cohort_id)
+            start_time = time.time()
+            memberships = self.get_cohort_memberships(
+                condition_hashes,
+                min_matches,
+                days,
+            )
+
+            logger.info(
+                "Completed",
+                total_memberships=len(memberships),
+                conditions_processed=len(condition_hashes),
+                total_time_seconds=round(time.time() - start_time, 2),
+            )
+
+            self.stdout.write("team_id,person_id,cohort_id")
+
+            display_limit = 5
+            for team_id, person_id, cohort_id in memberships[:display_limit]:
+                self.stdout.write(f"{team_id},{person_id},{cohort_id}")
+
+            if len(memberships) > display_limit:
+                self.stdout.write(f"\n... showing first {display_limit} of {len(memberships)} total memberships ...")
+
+    def run_temporal_workflow(
+        self,
+        team_id: int | None,
+        cohort_id: int | None,
+        condition: str | None,
+        min_matches: int,
+        days: int,
+        limit: int | None,
+        parallelism: int,
+        conditions_page_size: int,
+        conditions_per_workflow: int,
+    ) -> None:
+        """Run the Temporal workflow for parallel processing."""
+
+        async def _run_workflow():
+            # Connect to Temporal
+            client = await async_connect()
+
+            # Always use coordinator workflow for true parallelism and to avoid GRPC limits
+            inputs = CoordinatorWorkflowInputs(
+                team_id=team_id,
+                cohort_id=cohort_id,
+                condition=condition,
+                min_matches=min_matches,
+                days=days,
+                limit=limit,
+                parallelism=parallelism,
+                conditions_per_workflow=conditions_per_workflow,
+            )
+
+            # Generate unique workflow ID
+            workflow_id = f"behavioral-cohorts-coordinator-{team_id or 'all'}-{cohort_id or 'all'}-{int(time.time())}"
+
+            logger.info(f"Starting Temporal coordinator workflow: {workflow_id}")
+
+            try:
+                # Execute the coordinator workflow (no result expected)
+                await client.execute_workflow(
+                    "behavioral-cohorts-coordinator",
+                    inputs,
+                    id=workflow_id,
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                    task_queue=MESSAGING_TASK_QUEUE,
+                )
+
+                logger.info(f"Workflow {workflow_id} completed successfully")
+
+            except Exception as e:
+                logger.exception(f"Workflow execution failed: {e}")
+                raise
+
+        try:
+            # Run the async function
+            asyncio.run(_run_workflow())
+        except Exception as e:
+            logger.exception(f"Failed to execute Temporal workflow: {e}")
 
     def get_unique_conditions(
         self,
