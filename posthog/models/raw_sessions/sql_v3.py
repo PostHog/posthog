@@ -125,12 +125,12 @@ CREATE TABLE IF NOT EXISTS {table_name}
     entry_channel_type_properties AggregateFunction(argMin, Tuple(Nullable(String), Nullable(String), Nullable(String), Nullable(String), Boolean, Boolean, Nullable(String)), DateTime64(6, 'UTC')),
 
     -- Count pageview, autocapture, and screen events for providing totals.
-    -- Use uniq instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
+    -- Use uniqExact instead of count, so that inserting events can be idempotent. This is necessary as sometimes we see
     -- events being inserted multiple times to be deduped later, but that can trigger multiple rows here.
     -- Additionally, idempotency is useful for backfilling, as we can just reinsert the same events without worrying.
-    pageview_uniq AggregateFunction(uniq, Nullable(UUID)),
-    autocapture_uniq AggregateFunction(uniq, Nullable(UUID)),
-    screen_uniq AggregateFunction(uniq, Nullable(UUID)),
+    pageview_uniq AggregateFunction(uniqExact, Nullable(UUID)),
+    autocapture_uniq AggregateFunction(uniqExact, Nullable(UUID)),
+    screen_uniq AggregateFunction(uniqExact, Nullable(UUID)),
 
     -- As a performance optimisation, also keep track of the uniq events for all of these combined.
     -- This is a much more efficient way of calculating the bounce rate, as >2 means not a bounce
@@ -329,9 +329,9 @@ SELECT
 
 
     -- counts
-    initializeAggregation('uniqState', if(event='$pageview', uuid, NULL)) as pageview_uniq,
-    initializeAggregation('uniqState', if(event='$autocapture', uuid, NULL)) as autocapture_uniq,
-    initializeAggregation('uniqState', if(event='$screen', uuid, NULL)) as screen_uniq,
+    initializeAggregation('uniqExactState', if(event='$pageview', uuid, NULL)) as pageview_uniq,
+    initializeAggregation('uniqExactState', if(event='$autocapture', uuid, NULL)) as autocapture_uniq,
+    initializeAggregation('uniqExactState', if(event='$screen', uuid, NULL)) as screen_uniq,
 
     -- perf
     initializeAggregation('uniqUpToState(1)', if(event='$pageview' OR event='$screen' OR event='$autocapture', uuid, NULL)) as page_screen_autocapture_uniq_up_to,
@@ -472,9 +472,9 @@ SELECT
     argMinMerge(entry_channel_type_properties) as entry_channel_type_properties,
 
     -- counts
-    uniqMerge(pageview_uniq) as pageview_uniq,
-    uniqMerge(autocapture_uniq) as autocapture_uniq,
-    uniqMerge(screen_uniq) as screen_uniq,
+    uniqExactMerge(pageview_uniq) as pageview_uniq,
+    uniqExactMerge(autocapture_uniq) as autocapture_uniq,
+    uniqExactMerge(screen_uniq) as screen_uniq,
 
     -- perf
     uniqUpToMerge(1)(page_screen_autocapture_uniq_up_to) as page_screen_autocapture_uniq_up_to,
