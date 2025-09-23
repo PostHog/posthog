@@ -473,16 +473,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         if not emails:
             return []
 
-        # Use the simpler Django ORM approach
-        email_conditions = Q()
-        for email in emails:
-            email_conditions |= Q(properties__email=email)
-
         uuids = [
             str(uuid)
             for uuid in Person.objects.db_manager(READ_DB_FOR_PERSONS)
             .filter(team_id=team_id)
-            .filter(email_conditions)
+            .filter(properties__email__in=emails)
             .values_list("uuid", flat=True)
         ]
 
