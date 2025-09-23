@@ -20,6 +20,13 @@ function ModalDescription(): JSX.Element {
                 moving environments back to a project-based approach, and we're offering a way to migrate off of the
                 beta.
             </p>
+            <p>
+                Please choose a primary environment and we will preserve the event data from this environment in this
+                existing project. We will also move everything <em>except</em> data from the other environments into
+                this project. But don't worry! We will create new projects for each of the other environments and all
+                your event data will be preserved.
+            </p>
+
             <p className="font-bold">You will not lose any data.</p>
         </div>
     )
