@@ -77,9 +77,7 @@ class SessionSummaryVideoValidator:
             # No events to validate, no need to generate updates
             return None
         # Prepare input for video validation
-        moments_input = self._prepare_moments_input(
-            events_to_validate=events_to_validate
-        )  # TODO: moment inputs instead of moments input?
+        moments_input = self._prepare_moments_input(events_to_validate=events_to_validate)
         # Generate videos and ask LLM to describe them
         description_results = await self.moments_analyzer.analyze(moments_input=moments_input)
         if not description_results:
