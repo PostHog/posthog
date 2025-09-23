@@ -18,7 +18,7 @@ from ee.models.session_summaries import SingleSessionSummary
 async def validate_llm_single_session_summary_with_videos_activity(
     inputs: SingleSessionSummaryInputs,
 ) -> None:
-    """Validate the LLM single session summary with videos"""  # TODO: Don't do video check if it's already done (get from run metadata)
+    """Validate the LLM single session summary with videos"""
     summary_row = await database_sync_to_async(SingleSessionSummary.objects.get_summary, thread_sensitive=False)(
         team_id=inputs.team_id,
         session_id=inputs.session_id,
@@ -67,29 +67,3 @@ async def validate_llm_single_session_summary_with_videos_activity(
     summary_row.run_metadata = asdict(updated_run_metadata)
     # TODO: Enable back after testing, don't want to store updates to iterate on the logic first
     # await summary_row.asave(update_fields=["summary", "run_metadata"])
-
-    # Pick events that happened before/after the exception, if they fit within the video duration
-    # TODO: Decide if I need it
-    # events_context: dict[str, dict[str, list[EnrichedKeyActionSerializer]]] = {}
-    # for etv in events_to_validate:
-    #     events_context[etv.data["event_uuid"]] = {
-    #         "before": [],
-    #         "after": [],
-    #     }
-    #     etv_timestamp = etv.data.get("milliseconds_since_start")
-    #     if etv_timestamp is None:
-    #         # No context available
-    #         continue
-    #     # Don't want to go negative
-    #     etv_from_timestamp = max(0, etv_timestamp - SECONDS_BEFORE_EVENT_FOR_VALIDATION_VIDEO*1000)
-    #     etv_to_timestamp = etv_timestamp + VALIDATION_VIDEO_DURATION*1000
-    #     for event in summary.data.get("key_actions", []):
-    #         if event.get("event_uuid") == etv.data["event_uuid"]:
-    #             continue
-    #         event_timestamp = event.get("milliseconds_since_start")
-    #         if event_timestamp is None:
-    #             continue
-    #         if event_timestamp >= etv_from_timestamp and event_timestamp <= etv_timestamp:
-    #             events_context[etv.data["event_uuid"]]["before"].append(event)
-    #         elif event_timestamp >= etv_timestamp and event_timestamp <= etv_to_timestamp:
-    #             events_context[etv.data["event_uuid"]]["after"].append(event)
