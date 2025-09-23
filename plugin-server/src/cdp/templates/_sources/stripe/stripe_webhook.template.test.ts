@@ -96,6 +96,7 @@ describe('stripe webhook template', () => {
             },
             {
                 request: {
+                    method: 'POST',
                     headers: {},
                     body: {},
                     stringBody: '',
@@ -183,6 +184,7 @@ const createStripeWebhook = (secret: string, body?: Record<string, any>) => {
     const sigHeader = `t=${timestamp},v1=${signature}`
 
     return {
+        method: 'POST',
         body: parseJSON(payload),
         stringBody: payload,
         headers: {
