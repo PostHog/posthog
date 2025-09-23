@@ -66,7 +66,7 @@ import {
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
-import { NodeKind, QuerySchema } from '~/queries/schema/schema-general'
+import { HogQLQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isEventsQuery, isHogQLQuery } from '~/queries/utils'
 import {
     AccessControlLevel,
@@ -421,7 +421,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                 .slice(0, 20)
                                                 .replace(/\s+/g, '-'),
                                             description: insight.description,
-                                            query: insightQuery as QuerySchema,
+                                            query: insightQuery as HogQLQuery | InsightQueryNode,
                                         })
                                 }
                             }}

@@ -391,38 +391,21 @@ class TestNamedQuery(ClickhouseTestMixin, APIBaseTest):
                     "custom_name": "Page Views",
                     "math": "total",
                     "fixedProperties": [
-                        {
-                            "key": "$current_url",
-                            "operator": "icontains",
-                            "type": "event",
-                            "value": "posthog.com"
-                        }
-                    ]
+                        {"key": "$current_url", "operator": "icontains", "type": "event", "value": "posthog.com"}
+                    ],
                 },
-                {
-                    "kind": "EventsNode", 
-                    "event": "$autocapture",
-                    "custom_name": "Autocapture Events",
-                    "math": "dau"
-                }
+                {"kind": "EventsNode", "event": "$autocapture", "custom_name": "Autocapture Events", "math": "dau"},
             ],
-            "dateRange": {
-                "date_from": "2025-01-01",
-                "date_to": "2025-01-31",
-                "explicitDate": True
-            },
+            "dateRange": {"date_from": "2025-01-01", "date_to": "2025-01-31", "explicitDate": True},
             "interval": "week",
             "breakdownFilter": {
                 "breakdown": "$geoip_country_code",
                 "breakdown_type": "event",
                 "breakdown_limit": 10,
                 "breakdown_hide_other_aggregation": False,
-                "breakdown_normalize_url": True
+                "breakdown_normalize_url": True,
             },
-            "compareFilter": {
-                "compare": True,
-                "compare_to": "-1m"
-            },
+            "compareFilter": {"compare": True, "compare_to": "-1m"},
             "trendsFilter": {
                 "display": "ActionsLineGraph",
                 "showLegend": True,
@@ -445,33 +428,18 @@ class TestNamedQuery(ClickhouseTestMixin, APIBaseTest):
                 "yAxisScaleType": "linear",
                 "formula": "A + B",
                 "formulas": ["A", "B", "A + B"],
-                "goalLines": [
-                    {
-                        "value": 1000,
-                        "label": "Target"
-                    }
-                ],
+                "goalLines": [{"value": 1000, "label": "Target"}],
                 "hiddenLegendIndexes": [1],
             },
             "properties": [
-                {
-                    "key": "$browser",
-                    "operator": "in",
-                    "type": "event",
-                    "value": ["Chrome", "Firefox", "Safari"]
-                },
-                {
-                    "key": "email",
-                    "operator": "is_set",
-                    "type": "person",
-                    "value": None
-                }
+                {"key": "$browser", "operator": "in", "type": "event", "value": ["Chrome", "Firefox", "Safari"]},
+                {"key": "email", "operator": "is_set", "type": "person", "value": None},
             ],
             "filterTestAccounts": True,
             "samplingFactor": 0.1,
             "aggregation_group_type_index": 1,
             "dataColorTheme": 0.5,
-            "version": 2
+            "version": 2,
         }
 
         data = {
@@ -539,42 +507,15 @@ class TestNamedQuery(ClickhouseTestMixin, APIBaseTest):
         """Test executing a named query with TrendsQuery override containing key fields."""
         trends_query = {
             "kind": "TrendsQuery",
-            "series": [
-                {
-                    "kind": "EventsNode",
-                    "event": "$pageview",
-                    "math": "total"
-                }
-            ],
-            "dateRange": {
-                "date_from": "2025-01-01",
-                "date_to": "2025-01-20"
-            },
+            "series": [{"kind": "EventsNode", "event": "$pageview", "math": "total"}],
+            "dateRange": {"date_from": "2025-01-01", "date_to": "2025-01-20"},
             "interval": "week",
-            "breakdownFilter": {
-                "breakdown": "$browser",
-                "breakdown_type": "event",
-                "breakdown_limit": 5
-            },
-            "compareFilter": {
-                "compare": True,
-                "compare_to": "-1d"
-            },
-            "trendsFilter": {
-                "display": "ActionsLineGraph",
-                "showLegend": True,
-                "decimalPlaces": 1
-            },
-            "properties": [
-                {
-                    "key": "$current_url",
-                    "operator": "icontains",
-                    "type": "event",
-                    "value": "posthog.com"
-                }
-            ],
+            "breakdownFilter": {"breakdown": "$browser", "breakdown_type": "event", "breakdown_limit": 5},
+            "compareFilter": {"compare": True, "compare_to": "-1d"},
+            "trendsFilter": {"display": "ActionsLineGraph", "showLegend": True, "decimalPlaces": 1},
+            "properties": [{"key": "$current_url", "operator": "icontains", "type": "event", "value": "posthog.com"}],
             "filterTestAccounts": False,
-            "samplingFactor": 0.5
+            "samplingFactor": 0.5,
         }
 
         NamedQuery.objects.create(
@@ -589,28 +530,15 @@ class TestNamedQuery(ClickhouseTestMixin, APIBaseTest):
             "query_override": {
                 "interval": "hour",
                 "series": [
-                    {
-                        "kind": "EventsNode",
-                        "event": "$pageview",
-                        "math": "total"
-                    },
-                    {
-                        "kind": "EventsNode",
-                        "event": "$autocapture",
-                        "math": "dau"
-                    }
+                    {"kind": "EventsNode", "event": "$pageview", "math": "total"},
+                    {"kind": "EventsNode", "event": "$autocapture", "math": "dau"},
                 ],
-                "dateRange": {
-                    "date_from": "2025-01-01",
-                    "date_to": "2025-01-02"
-                }
+                "dateRange": {"date_from": "2025-01-01", "date_to": "2025-01-02"},
             }
         }
 
         response = self.client.post(
-            f"/api/environments/{self.team.id}/named_query/trends_execution_test/run/",
-            override_payload,
-            format="json"
+            f"/api/environments/{self.team.id}/named_query/trends_execution_test/run/", override_payload, format="json"
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
@@ -624,3 +552,26 @@ class TestNamedQuery(ClickhouseTestMixin, APIBaseTest):
             first_series_result = response_data["results"][0]
             self.assertEqual(first_series_result["interval"], "hour")
             self.assertEqual(len(first_series_result["data"]), 25)
+
+    def test_execute_hogql_query_with_override_validation_error(self):
+        """Test that executing a HogQL query with query_override raises a validation error."""
+        hogql_query = {"kind": "HogQLQuery", "query": "SELECT count(1) FROM events"}
+
+        NamedQuery.objects.create(
+            name="hogql_validation_test",
+            team=self.team,
+            query=hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        # Try to execute with query_override (should fail)
+        override_payload = {"query_override": {"query": "SELECT count(2) FROM events"}}
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/named_query/hogql_validation_test/run/", override_payload, format="json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response_data = response.json()
+        self.assertIn("Query override is not supported for HogQL queries", response_data["detail"])
