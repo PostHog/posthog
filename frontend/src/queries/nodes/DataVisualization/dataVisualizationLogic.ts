@@ -257,7 +257,11 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             ['loadData'],
         ],
     })),
-    propsChanged(({ actions, values, props }) => {
+    propsChanged(({ actions, values, props }, oldProps) => {
+        if (JSON.stringify(props) === JSON.stringify(oldProps)) {
+            return
+        }
+
         if (props.query && !objectsEqual(props.query, values.query)) {
             actions._setQuery(props.query)
         }
