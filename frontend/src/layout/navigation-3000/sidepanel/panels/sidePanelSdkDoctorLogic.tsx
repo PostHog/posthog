@@ -483,7 +483,7 @@ const fetchSdkData = async (
                 changelogUrl = 'https://raw.githubusercontent.com/PostHog/posthog-js/main/packages/node/CHANGELOG.md'
                 versionRegex = /^## (\d+\.\d+\.\d+)$/gm
                 githubFetcher = async () => {
-                    // Fetch CHANGELOG.md to extract PR links for each version
+                    // First try to get release dates from PR links in CHANGELOG.md
                     const changelogResponse = await fetch(
                         'https://raw.githubusercontent.com/PostHog/posthog-js/main/packages/node/CHANGELOG.md'
                     )
@@ -534,8 +534,23 @@ const fetchSdkData = async (
                         }
                     }
 
+                    // Fallback to GitHub releases API for versions without PR links
+                    try {
+                        const githubReleaseDates = await fetchNodeGitHubReleaseDates()
+                        for (const [version, date] of Object.entries(githubReleaseDates)) {
+                            if (!releaseDates[version] && typeof date === 'string') {
+                                releaseDates[version] = date
+                                console.info(
+                                    `[SDK Doctor] Node.js ${version} -> ${date} (from GitHub releases API fallback)`
+                                )
+                            }
+                        }
+                    } catch (error) {
+                        console.warn('[SDK Doctor] GitHub releases API fallback failed for Node.js:', error)
+                    }
+
                     console.info(
-                        `[SDK Doctor] Fetched ${Object.keys(releaseDates).length} Node.js version dates from PR merge dates`
+                        `[SDK Doctor] Fetched ${Object.keys(releaseDates).length} Node.js version dates (PR links + GitHub releases fallback)`
                     )
                     return releaseDates
                 }
