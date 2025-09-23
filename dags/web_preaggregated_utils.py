@@ -2,7 +2,7 @@ import os
 from collections.abc import Callable
 from datetime import datetime, timedelta
 from functools import partial
-from typing import Optional
+from time import sleep
 
 import dagster
 from dagster import Array, Backoff, DagsterRunStatus, Field, Jitter, RetryPolicy, RunsFilter, SkipReason
@@ -47,7 +47,7 @@ def format_clickhouse_settings(settings_dict: dict[str, str]) -> str:
     return ",".join([f"{key}={value}" for key, value in settings_dict.items()])
 
 
-def merge_clickhouse_settings(base_settings: dict[str, str], extra_settings: Optional[str] = None) -> str:
+def merge_clickhouse_settings(base_settings: dict[str, str], extra_settings: str | None = None) -> str:
     settings = base_settings.copy()
 
     if extra_settings:
@@ -74,6 +74,7 @@ def get_partitions(
         end_partition = end_datetime.strftime("%Y%m%d")
         partition_query += f" AND partition >= '{start_partition}' AND partition < '{end_partition}'"
 
+    context.log.info(f"Executing get_partitions query: {partition_query}")
     partitions_result = cluster.any_host_by_roles(
         lambda client: client.execute(partition_query), node_roles=[NodeRole.DATA, NodeRole.COORDINATOR]
     ).result()
@@ -114,11 +115,110 @@ def sync_partitions_on_replicas(
     ).result()
 
 
+def validate_partitions_on_all_hosts(
+    context: dagster.AssetExecutionContext,
+    cluster: ClickhouseCluster,
+    table_name: str,
+    expected_partitions: list[str],
+    max_retries: int = 3,
+    retry_delay: int = 5,
+) -> None:
+    """Validate that expected partitions exist on all hosts.
+
+    Queries all hosts to ensure partitions are present. If validation fails,
+    retries up to max_retries times with retry_delay seconds between attempts.
+    Raises an exception if validation fails after all retries.
+    """
+    for attempt in range(1, max_retries + 1):
+        context.log.info(f"Validating partitions on all hosts (attempt {attempt}/{max_retries})")
+
+        # Query each host for partitions
+        partition_query = f"""
+            SELECT
+                hostName() as host,
+                arraySort(groupArray(DISTINCT partition)) as partitions
+            FROM system.parts
+            WHERE table = '{table_name}'
+                AND active = 1
+                AND partition IN ({','.join([f"'{p}'" for p in expected_partitions])})
+            GROUP BY host
+        """
+
+        context.log.info(f"Executing partition validation query: {partition_query}")
+
+        # Get partitions from all hosts
+        def execute_query(client, query=partition_query):
+            return client.execute(query)
+
+        host_results = cluster.map_hosts_by_roles(
+            execute_query,
+            node_roles=[NodeRole.DATA, NodeRole.COORDINATOR],
+        ).result()
+
+        all_hosts_valid = True
+        missing_partitions_by_host = {}
+
+        for host_key, result in host_results.items():
+            if result.error:
+                context.log.error(f"Error querying host {host_key}: {result.error}")
+                all_hosts_valid = False
+                continue
+
+            if not result.value or len(result.value) == 0:
+                context.log.warning(f"No partition data returned from host {host_key}")
+                missing_partitions_by_host[host_key] = expected_partitions
+                all_hosts_valid = False
+                continue
+
+            # Extract partitions from result
+            host_name = result.value[0][0] if result.value[0] else host_key
+            found_partitions = result.value[0][1] if len(result.value[0]) > 1 else []
+
+            # Check for missing partitions
+            missing = set(expected_partitions) - set(found_partitions)
+            if missing:
+                context.log.warning(
+                    f"Host {host_name} missing partitions: {sorted(missing)}. " f"Found: {found_partitions}"
+                )
+                missing_partitions_by_host[host_name] = sorted(missing)
+                all_hosts_valid = False
+            else:
+                context.log.info(f"Host {host_name} has all expected partitions: {found_partitions}")
+
+        if all_hosts_valid:
+            context.log.info(f"All hosts validated successfully for table {table_name}")
+            return
+
+        # If not all hosts valid and we have retries left, wait and retry
+        if attempt < max_retries:
+            context.log.warning(
+                f"Partition validation failed on attempt {attempt}. "
+                f"Missing partitions by host: {missing_partitions_by_host}. "
+                f"Retrying in {retry_delay} seconds…"
+            )
+            sleep(retry_delay)
+            # Try syncing again before next validation attempt
+            sync_partitions_on_replicas(context, cluster, table_name)
+        else:
+            # Final attempt failed
+            error_msg = (
+                f"Partition validation failed after {max_retries} attempts for table {table_name}. "
+                f"Expected partitions: {expected_partitions}. "
+                f"Missing partitions by host: {missing_partitions_by_host}"
+            )
+            context.log.error(error_msg)
+            raise dagster.Failure(error_msg)
+
+
 def swap_partitions_from_staging(
     context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, target_table: str, staging_table: str
 ) -> None:
     staging_partitions = get_partitions(context, cluster, staging_table, filter_by_partition_window=True)
     context.log.info(f"Swapping partitions {staging_partitions} from {staging_table} to {target_table}")
+
+    # Validate partitions exist on all hosts before swapping
+    if staging_partitions:
+        validate_partitions_on_all_hosts(context, cluster, staging_table, staging_partitions)
 
     def replace_partition(client, pid):
         return client.execute(f"ALTER TABLE {target_table} REPLACE PARTITION '{pid}' FROM {staging_table}")
@@ -186,7 +286,7 @@ WEB_ANALYTICS_CONFIG_SCHEMA = {
 }
 
 
-def check_for_concurrent_runs(context: dagster.ScheduleEvaluationContext) -> Optional[SkipReason]:
+def check_for_concurrent_runs(context: dagster.ScheduleEvaluationContext) -> SkipReason | None:
     # Get the schedule name from the context
     schedule_name = context._schedule_name
 
