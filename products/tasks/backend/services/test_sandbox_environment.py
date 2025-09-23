@@ -36,8 +36,7 @@ class TestSandboxEnvironmentIntegration:
         assert result.stderr == ""
 
         await sandbox.destroy()
-        assert sandbox.status == SandboxEnvironmentStatus.SHUTDOWN
-        assert not sandbox.is_running
+        assert sandbox.status == SandboxEnvironmentStatus.SHUTDOWN  # type: ignore[comparison-overlap]
 
     @pytest.mark.parametrize(
         "command,expected_exit_code,expected_in_stdout",

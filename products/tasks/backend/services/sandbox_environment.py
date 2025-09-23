@@ -72,31 +72,31 @@ class SandboxEnvironment:
 
     @staticmethod
     async def create(config: SandboxEnvironmentConfig) -> "SandboxEnvironment":
+        client = get_runloop_client()
+
+        blueprint_id = TEMPLATE_TO_BLUEPRINT_ID.get(config.template)
+
+        if not blueprint_id:
+            raise RuntimeError(f"Unknown template for sandbox {config.name}")
+
         try:
-            launch_params = {
-                "name": config.name,
-                "blueprint_id": TEMPLATE_TO_BLUEPRINT_ID[config.template],
-                "environment_variables": config.environment_variables or {},
-            }
-
-            if config.entrypoint:
-                launch_params["entrypoint"] = config.entrypoint
-
-            client = get_runloop_client()
-
             # Wait for devbox to be running before returning
-            devbox = await client.devboxes.create_and_await_running(**launch_params)
-
-            sandbox = SandboxEnvironment(id=devbox.id, status=devbox.status, config=config)
-
-            logger.info(f"Created sandbox {sandbox.id} with status: {devbox.status}")
-
-            return sandbox
+            devbox = await client.devboxes.create_and_await_running(
+                name=config.name,
+                blueprint_id=blueprint_id,
+                environment_variables=config.environment_variables or {},
+                entrypoint=config.entrypoint,
+            )
 
         except Exception as e:
-            sandbox.status = SandboxEnvironmentStatus.FAILURE
             logger.exception(f"Failed to create sandbox: {e}")
             raise RuntimeError(f"Failed to create sandbox: {e}")
+
+        sandbox = SandboxEnvironment(id=devbox.id, status=SandboxEnvironmentStatus(devbox.status), config=config)
+
+        logger.info(f"Created sandbox {sandbox.id} with status: {devbox.status}")
+
+        return sandbox
 
     @staticmethod
     async def get_by_id(sandbox_id: str) -> "SandboxEnvironment":
@@ -105,11 +105,17 @@ class SandboxEnvironment:
         try:
             devbox = await client.devboxes.retrieve(sandbox_id)
 
-            config = SandboxEnvironmentConfig(
-                name=devbox.name or f"sandbox-{sandbox_id}", template=BLUEPRINT_ID_TO_TEMPLATE[devbox.blueprint_id]
-            )
+            if not devbox.blueprint_id:
+                raise RuntimeError(f"Unknown template for sandbox {sandbox_id}")
 
-            sandbox = SandboxEnvironment(id=devbox.id, status=devbox.status, config=config)
+            template = BLUEPRINT_ID_TO_TEMPLATE[devbox.blueprint_id]
+
+            if not template:
+                raise RuntimeError(f"Unknown template for sandbox {sandbox_id}")
+
+            config = SandboxEnvironmentConfig(name=devbox.name or f"sandbox-{sandbox_id}", template=template)
+
+            sandbox = SandboxEnvironment(id=devbox.id, status=SandboxEnvironmentStatus(devbox.status), config=config)
 
             logger.info(f"Retrieved sandbox {sandbox_id} with status: {sandbox.status}")
 
