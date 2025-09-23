@@ -4,6 +4,10 @@ from typing import Optional
 from django.db import models
 from django.utils import timezone
 
+from django_deprecate_fields import deprecate_field
+
+from products.tasks.backend.agents import get_agent_by_id
+
 
 class TaskWorkflow(models.Model):
     """Defines a configurable workflow with stages and transition rules."""
@@ -146,20 +150,10 @@ class TaskWorkflow(models.Model):
                 stage = WorkflowStage.objects.create(workflow=workflow, **stage_data)
                 stages[stage.key] = stage
 
-            # Create default agent (representing current code generation system)
-            agent = AgentDefinition.objects.create(
-                team=team,
-                name="Code Generation Agent",
-                agent_type=AgentDefinition.AgentType.CODE_GENERATION,
-                description="Automated code generation and GitHub integration",
-                is_active=True,
-            )
-
-            # Assign agents to appropriate stages (linear workflow)
-            stages["todo"].agent = None  # Manual stage
-            stages["in_progress"].agent = agent  # Agent processes this stage
-            stages["testing"].agent = agent  # Agent processes this stage
-            stages["done"].agent = None  # Final stage, no agent needed
+            # Assign agents to appropriate stages using agent names
+            stages["in_progress"].agent_name = "code_generation"  # Agent processes this stage
+            stages["testing"].agent_name = "code_generation"  # Agent processes this stage
+            # Other stages remain manual (no agent_name)
 
             # Update stages with agent assignments
             for stage in stages.values():
@@ -177,12 +171,17 @@ class WorkflowStage(models.Model):
     key = models.CharField(max_length=50, help_text="Unique key for this stage within the workflow")
     position = models.IntegerField(help_text="Order of this stage in the workflow")
     color = models.CharField(max_length=7, default="#6b7280", help_text="Hex color for UI display")
-    agent = models.ForeignKey(
-        "AgentDefinition",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        help_text="Agent responsible for processing tasks in this stage",
+    agent = deprecate_field(
+        models.ForeignKey(
+            "AgentDefinition",
+            on_delete=models.SET_NULL,
+            null=True,
+            blank=True,
+            help_text="DEPRECATED: Agent responsible for processing tasks in this stage",
+        )
+    )
+    agent_name = models.CharField(
+        max_length=50, null=True, blank=True, help_text="ID of the agent responsible for this stage"
     )
     is_manual_only = models.BooleanField(
         default=True, help_text="Whether only manual transitions are allowed from this stage"
@@ -228,9 +227,15 @@ class WorkflowStage(models.Model):
         self.is_archived = True
         self.save(update_fields=["is_archived"])
 
+    def get_agent_definition(self):
+        """Get the hardcoded agent definition for this stage."""
+        if hasattr(self, "agent_name") and self.agent_name:
+            return get_agent_by_id(self.agent_name)
+        return None
+
 
 class AgentDefinition(models.Model):
-    """Defines available agents that can be used in workflow transitions."""
+    """DEPRECATED: This model is being removed. Agents are now hardcoded in agents.py"""
 
     class AgentType(models.TextChoices):
         CODE_GENERATION = "code_generation", "Code Generation Agent"
@@ -245,7 +250,6 @@ class AgentDefinition(models.Model):
     description = models.TextField(blank=True, help_text="Description of what this agent does")
     config = models.JSONField(default=dict, help_text="Agent-specific configuration")
     is_active = models.BooleanField(default=True, help_text="Whether this agent is available for use")
-
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
