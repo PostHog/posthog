@@ -168,6 +168,9 @@ class GeminiProvider:
         if mime_type not in GeminiConfig.SUPPORTED_VIDEO_MIME_TYPES:
             logger.exception(f"Video bytes for understanding video are not in a supported MIME type: {mime_type}")
             return None
+        if not len(video_bytes):
+            logger.exception(f"Video bytes for understanding video are empty")
+            return None
         if len(video_bytes) > GeminiConfig.VIDEO_MAX_SIZE_BYTES:
             logger.exception(f"Video bytes for understanding video are too large")
             return None
