@@ -25143,6 +25143,11 @@
                 "decimalPlaces": {
                     "type": "number"
                 },
+                "detailedResultsAggregationType": {
+                    "description": "detailed results table",
+                    "enum": ["total", "average", "median"],
+                    "type": "string"
+                },
                 "display": {
                     "$ref": "#/definitions/ChartDisplayType",
                     "default": "ActionsLineGraph"

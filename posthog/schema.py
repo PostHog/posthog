@@ -2699,6 +2699,12 @@ class TimelineEntry(BaseModel):
     sessionId: Optional[str] = Field(default=None, description="Session ID. None means out-of-session events")
 
 
+class DetailedResultsAggregationType(StrEnum):
+    TOTAL = "total"
+    AVERAGE = "average"
+    MEDIAN = "median"
+
+
 class TrendsFilterLegacy(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5079,6 +5085,9 @@ class TrendsFilter(BaseModel):
     breakdown_histogram_bin_count: Optional[float] = None
     confidenceLevel: Optional[float] = None
     decimalPlaces: Optional[float] = None
+    detailedResultsAggregationType: Optional[DetailedResultsAggregationType] = Field(
+        default=None, description="detailed results table"
+    )
     display: Optional[ChartDisplayType] = ChartDisplayType.ACTIONS_LINE_GRAPH
     formula: Optional[str] = None
     formulaNodes: Optional[list[TrendsFormulaNode]] = Field(
