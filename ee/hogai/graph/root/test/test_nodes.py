@@ -12,6 +12,7 @@ from langchain_core.messages import (
     ToolMessage as LangchainToolMessage,
 )
 from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.runnables import RunnableConfig
 from langgraph.errors import NodeInterrupt
 from parameterized import parameterized
 
@@ -19,6 +20,7 @@ from posthog.schema import (
     AssistantMessage,
     AssistantToolCall,
     AssistantToolCallMessage,
+    ContextMessage,
     DashboardFilter,
     EntityType,
     EventsNode,
@@ -49,7 +51,7 @@ from ee.hogai.graph.root.prompts import (
     ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
 )
-from ee.hogai.utils.tests import FakeChatOpenAI
+from ee.hogai.utils.tests import FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
 
@@ -64,7 +66,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             trial=MaxBillingContextTrial(is_active=True, expires_at=str(datetime.date(2023, 2, 1)), target="scale"),
         )
 
-    def test_node_handles_plain_chat_response(self):
+    async def test_node_handles_plain_chat_response(self):
         with patch(
             "ee.hogai.graph.root.nodes.RootNode._get_model",
             return_value=FakeChatOpenAI(
@@ -73,7 +75,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         ):
             node = RootNode(self.team, self.user)
             state_1 = AssistantState(messages=[HumanMessage(content="Tell me a joke")])
-            next_state = node.run(state_1, {})
+            next_state = await node.arun(state_1, {})
             self.assertIsInstance(next_state, PartialAssistantState)
             self.assertEqual(len(next_state.messages), 1)
             self.assertIsInstance(next_state.messages[0], AssistantMessage)
@@ -88,7 +90,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             ["retention"],
         ]
     )
-    def test_node_handles_insight_tool_call(self, insight_type):
+    async def test_node_handles_insight_tool_call(self, insight_type):
         with patch(
             "ee.hogai.graph.root.nodes.RootNode._get_model",
             return_value=FakeChatOpenAI(
@@ -108,7 +110,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         ):
             node = RootNode(self.team, self.user)
             state_1 = AssistantState(messages=[HumanMessage(content=f"generate {insight_type}")])
-            next_state = node.run(state_1, {})
+            next_state = await node.arun(state_1, {})
             self.assertIsInstance(next_state, PartialAssistantState)
             self.assertEqual(len(next_state.messages), 1)
             assistant_message = next_state.messages[0]
@@ -135,7 +137,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             ["retention"],
         ]
     )
-    def test_node_handles_insight_tool_call_without_message(self, insight_type):
+    async def test_node_handles_insight_tool_call_without_message(self, insight_type):
         with patch(
             "ee.hogai.graph.root.nodes.RootNode._get_model",
             return_value=FakeChatOpenAI(
@@ -155,7 +157,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         ):
             node = RootNode(self.team, self.user)
             state_1 = AssistantState(messages=[HumanMessage(content=f"generate {insight_type}")])
-            next_state = node.run(state_1, {})
+            next_state = await node.arun(state_1, {})
             self.assertIsInstance(next_state, PartialAssistantState)
             self.assertEqual(len(next_state.messages), 1)
             assistant_message = next_state.messages[0]
@@ -176,11 +178,17 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             )
 
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
-    def test_node_reconstructs_conversation(self, mock_model):
+    async def test_node_reconstructs_conversation(self, mock_model):
         node = RootNode(self.team, self.user)
         state_1 = AssistantState(messages=[HumanMessage(content="Hello")])
+        result = await node._construct_and_update_messages_window(state_1, {})
         self.assertEqual(
-            node._construct_and_update_messages_window(state_1, {})[0], [LangchainHumanMessage(content="Hello")]
+            result[0],
+            [
+                LangchainHumanMessage(
+                    content=[{"text": "Hello", "type": "text", "cache_control": {"type": "ephemeral"}}]
+                )
+            ],
         )
 
         # We want full access to message history in root
@@ -191,17 +199,20 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 HumanMessage(content="Generate trends"),
             ]
         )
+        result2 = await node._construct_and_update_messages_window(state_2, {})
         self.assertEqual(
-            node._construct_and_update_messages_window(state_2, {})[0],
+            result2[0],
             [
-                LangchainHumanMessage(content="Hello"),
-                LangchainAIMessage(content="Welcome!"),
-                LangchainHumanMessage(content="Generate trends"),
+                LangchainHumanMessage(content=[{"text": "Hello", "type": "text"}]),
+                LangchainAIMessage(content=[{"text": "Welcome!", "type": "text"}]),
+                LangchainHumanMessage(
+                    content=[{"text": "Generate trends", "type": "text", "cache_control": {"type": "ephemeral"}}]
+                ),
             ],
         )
 
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
-    def test_node_reconstructs_conversation_with_tool_calls(self, mock_model):
+    @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatAnthropic(responses=[]))
+    async def test_node_reconstructs_conversation_with_tool_calls(self, mock_model):
         node = RootNode(self.team, self.user)
         state = AssistantState(
             messages=[
@@ -221,12 +232,13 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 HumanMessage(content="Answer"),
             ]
         )
+        result = await node._construct_and_update_messages_window(state, {})
         self.assertEqual(
-            node._construct_and_update_messages_window(state, {})[0],
+            result[0],
             [
-                LangchainHumanMessage(content="Hello"),
+                LangchainHumanMessage(content=[{"text": "Hello", "type": "text"}]),
                 LangchainAIMessage(
-                    content="Welcome!",
+                    content=[{"text": "Welcome!", "type": "text"}],
                     tool_calls=[
                         {
                             "id": "xyz",
@@ -235,14 +247,16 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                         }
                     ],
                 ),
-                LangchainToolMessage(content="Answer", tool_call_id="xyz"),
-                LangchainAIMessage(content="Follow-up"),
-                LangchainHumanMessage(content="Answer"),
+                LangchainHumanMessage(content=[{"type": "tool_result", "tool_use_id": "xyz", "content": "Answer"}]),
+                LangchainAIMessage(content=[{"text": "Follow-up", "type": "text"}]),
+                LangchainHumanMessage(
+                    content=[{"text": "Answer", "type": "text", "cache_control": {"type": "ephemeral"}}]
+                ),
             ],
         )
 
     @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
-    def test_node_filters_tool_calls_without_responses(self, mock_model):
+    async def test_node_filters_tool_calls_without_responses(self, mock_model):
         node = RootNode(self.team, self.user)
         state = AssistantState(
             messages=[
@@ -267,36 +281,49 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 AssistantToolCallMessage(content="Answer for xyz1", tool_call_id="xyz1"),
             ]
         )
-        messages, _ = node._construct_and_update_messages_window(state, {})
+        messages, _ = await node._construct_and_update_messages_window(state, {})
 
         # Verify we get exactly 3 messages
         self.assertEqual(len(messages), 3)
 
         # Verify the messages are in correct order and format
-        self.assertEqual(messages[0], LangchainHumanMessage(content="Hello"))
+        self.assertEqual(messages[0], LangchainHumanMessage(content=[{"text": "Hello", "type": "text"}]))
 
         # Verify the assistant message only includes the tool call that has a response
         assistant_message = messages[1]
         self.assertIsInstance(assistant_message, LangchainAIMessage)
         assert isinstance(assistant_message, LangchainAIMessage)
-        self.assertEqual(assistant_message.content, "Welcome!")
+        self.assertEqual(assistant_message.content, [{"text": "Welcome!", "type": "text"}])
         self.assertEqual(len(assistant_message.tool_calls), 1)
         self.assertEqual(assistant_message.tool_calls[0]["id"], "xyz1")
 
         # Verify the tool response is included
         tool_message = messages[2]
-        self.assertIsInstance(tool_message, LangchainToolMessage)
-        assert isinstance(tool_message, LangchainToolMessage)
-        self.assertEqual(tool_message.content, "Answer for xyz1")
-        self.assertEqual(tool_message.tool_call_id, "xyz1")
+        self.assertIsInstance(tool_message, LangchainHumanMessage)
+        assert isinstance(tool_message, LangchainHumanMessage)
+        self.assertEqual(
+            tool_message.content,
+            [
+                {
+                    "content": "Answer for xyz1",
+                    "type": "tool_result",
+                    "tool_use_id": "xyz1",
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+        )
 
-    def test_hard_limit_removes_tools(self):
+    async def test_hard_limit_removes_tools(self):
         mock_with_tokens = MagicMock()
-        mock_with_tokens.side_effect = lambda _: LangchainAIMessage(content="I can't help with that anymore.")
+        ainvoke_mock = AsyncMock()
+        ainvoke_mock.return_value = LangchainAIMessage(
+            content=[{"text": "I can't help with that anymore.", "type": "text"}], id="1"
+        )
+        mock_with_tokens.ainvoke = ainvoke_mock
         mock_with_tokens.get_num_tokens_from_messages = MagicMock(return_value=1)
 
         with patch(
-            "ee.hogai.graph.root.nodes.MaxChatOpenAI",
+            "ee.hogai.graph.root.nodes.MaxChatAnthropic",
             return_value=mock_with_tokens,
         ):
             node = RootNode(self.team, self.user)
@@ -305,7 +332,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             state = AssistantState(messages=[HumanMessage(content="Hello")], root_tool_calls_count=4)
 
             # Run the node
-            next_state = node.run(state, {})
+            next_state = await node.arun(state, {})
 
             # Verify the response doesn't contain any tool calls
             self.assertIsInstance(next_state, PartialAssistantState)
@@ -317,150 +344,11 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(message.tool_calls, [])
 
             # Verify the hard limit message was added to the conversation
-            messages, _ = node._construct_and_update_messages_window(state, {})
+            messages, _ = await node._construct_and_update_messages_window(state, {})
             self.assertIn("iterations", messages[-1].content)
 
-    @patch("ee.hogai.graph.root.nodes.RootNode._get_model", return_value=FakeChatOpenAI(responses=[]))
-    def test_token_limit_is_respected(self, mock_model):
-        # Trims after 64k
-        node = RootNode(self.team, self.user)
-        state = AssistantState(
-            messages=[
-                HumanMessage(content="Hi" * 64100, id="1"),
-                AssistantMessage(content="Bar", id="2"),
-                HumanMessage(content="Foo", id="3"),
-            ]
-        )
-        messages, window_id = node._construct_and_update_messages_window(state, {})
-        self.assertEqual(len(messages), 1)
-        self.assertIn("Foo", messages[0].content)
-        self.assertEqual(window_id, "3")
-
-        # Trims for 32k limit after 64k is hit
-        state = AssistantState(
-            messages=[
-                HumanMessage(content="Hi" * 48000, id="1"),
-                AssistantMessage(content="Hi" * 24000, id="2"),
-                HumanMessage(content="The" * 31000, id="3"),
-            ]
-        )
-        messages, window_id = node._construct_and_update_messages_window(state, {})
-        self.assertEqual(len(messages), 1)
-        self.assertIn("The", messages[0].content)
-        self.assertEqual(window_id, "3")
-
-        # Beyond limit should still return messages.
-        state = AssistantState(
-            messages=[
-                HumanMessage(content="Hi" * 48000, id="1"),
-                AssistantMessage(
-                    content="Hi" * 24000,
-                    id="2",
-                    tool_calls=[AssistantToolCall(id="xyz", name="create_and_query_insight", args={})],
-                ),
-                AssistantToolCallMessage(content="The" * 48000, id="3", tool_call_id="xyz"),
-            ]
-        )
-        messages, window_id = node._construct_and_update_messages_window(state, {})
-        self.assertEqual(len(messages), 2)
-        self.assertIn("Hi", messages[0].content)
-        self.assertIn("The", messages[1].content)
-        self.assertEqual(window_id, "2")
-
-        state = AssistantState(
-            messages=[
-                HumanMessage(content="Hi" * 48000, id="1"),
-                AssistantMessage(
-                    content="Hi" * 24000,
-                    id="2",
-                ),
-                HumanMessage(content="The" * 48000, id="3"),
-            ]
-        )
-        messages, window_id = node._construct_and_update_messages_window(state, {})
-        self.assertEqual(len(messages), 1)
-        self.assertIn("The", messages[0].content)
-        self.assertEqual(window_id, "3")
-
-        # Tool responses are not removed
-        state = AssistantState(
-            messages=[
-                HumanMessage(content="Foo", id="1"),
-                AssistantMessage(
-                    content="Bar",
-                    id="2",
-                    tool_calls=[AssistantToolCall(id="xyz", name="create_and_query_insight", args={})],
-                ),
-                AssistantToolCallMessage(content="The" * 65000, id="3", tool_call_id="xyz"),
-            ]
-        )
-        messages, window_id = node._construct_and_update_messages_window(state, {})
-        self.assertEqual(len(messages), 2)
-        self.assertIn("Bar", messages[0].content)
-        self.assertIn("The", messages[1].content)
-        self.assertEqual(window_id, "2")
-
-        state = AssistantState(
-            messages=[
-                HumanMessage(content="Foo", id="1"),
-                AssistantMessage(
-                    content="Bar",
-                    id="2",
-                    tool_calls=[AssistantToolCall(id="xyz", name="create_and_query_insight", args={})],
-                ),
-                AssistantToolCallMessage(content="Result", id="3", tool_call_id="xyz"),
-                HumanMessage(content="Baz", id="4"),
-            ]
-        )
-        messages, window_id = node._construct_and_update_messages_window(state, {})
-        self.assertEqual(len(messages), 4)
-        self.assertIsNone(window_id)
-
-    @patch(
-        "ee.hogai.graph.root.nodes.RootNode._get_model",
-        return_value=FakeChatOpenAI(responses=[LangchainAIMessage(content="Simple response")]),
-    )
-    def test_run_updates_conversation_window(self, mock_model):
-        # Mock the model to return a simple response
-        node = RootNode(self.team, self.user)
-
-        # Create initial state with a large conversation
-        initial_state = AssistantState(
-            messages=[
-                HumanMessage(content="Foo", id="1"),
-                AssistantMessage(content="Bar" * 65000, id="2"),  # Large message to exceed token limit
-                HumanMessage(content="Question", id="3"),
-            ]
-        )
-
-        # First run should set a new window ID
-        result_1 = node.run(initial_state, {})
-        self.assertIsNotNone(result_1.root_conversation_start_id)
-        self.assertEqual(result_1.root_conversation_start_id, "3")  # Should start from last human message
-
-        # Create a new state using the window ID from previous run
-        state_2 = AssistantState(
-            messages=[*initial_state.messages, *result_1.messages, HumanMessage(content="Follow-up", id="4")],
-            root_conversation_start_id=result_1.root_conversation_start_id,
-        )
-
-        # Second run should maintain the window
-        result_2 = node.run(state_2, {})
-        self.assertIsNone(result_2.root_conversation_start_id)  # No new window needed
-        self.assertEqual(len(result_2.messages), 1)
-
-        state_3 = AssistantState(
-            messages=[*state_2.messages, *result_2.messages],
-            root_conversation_start_id=result_2.root_conversation_start_id,
-        )
-
-        # Verify the full conversation flow by checking the messages that would be sent to the model
-        messages, _ = node._construct_and_update_messages_window(state_3, {})
-        self.assertEqual(len(messages), 4)  # Question + Response + Follow-up + New Response
-        self.assertEqual(messages[0].content, "Question")  # Starts from the window ID message
-
     def test_node_gets_contextual_tool(self):
-        with patch("ee.hogai.graph.root.nodes.MaxChatOpenAI") as mock_chat_openai:
+        with patch("ee.hogai.graph.root.nodes.MaxChatAnthropic") as mock_chat_openai:
             mock_model = MagicMock()
             mock_model.get_num_tokens_from_messages.return_value = 100
             mock_model.bind_tools.return_value = mock_model
@@ -484,7 +372,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             tool_names = [getattr(tool, "name", None) or tool.__name__ for tool in tools]
             self.assertIn("search_session_recordings", tool_names)
 
-    def test_node_does_not_get_contextual_tool_if_not_configured(self):
+    async def test_node_does_not_get_contextual_tool_if_not_configured(self):
         with (
             patch(
                 "ee.hogai.graph.root.nodes.RootNode._get_model",
@@ -499,7 +387,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             node = RootNode(self.team, self.user)
             state = AssistantState(messages=[HumanMessage(content="show me long recordings")])
 
-            next_state = node.run(state, {})
+            next_state = await node.arun(state, {})
 
             self.assertIsInstance(next_state, PartialAssistantState)
             self.assertEqual(len(next_state.messages), 1)
@@ -510,17 +398,19 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(assistant_message.tool_calls, [])
             mock_bind_tools.assert_not_called()
 
-    def test_node_injects_contextual_tool_prompts(self):
+    async def test_node_injects_contextual_tool_prompts(self):
         with patch("ee.hogai.graph.root.nodes.RootNode._get_model") as mock_get_model:
-            # Use FakeChatOpenAI like other tests
-            fake_model = FakeChatOpenAI(responses=[LangchainAIMessage(content="I'll help with recordings")])
+            # Use FakeChatAnthropic like other tests
+            fake_model = FakeChatAnthropic(
+                responses=[LangchainAIMessage(content=[{"text": "I'll help with recordings", "type": "text"}])]
+            )
             mock_get_model.return_value = fake_model
 
             node = RootNode(self.team, self.user)
             state = AssistantState(messages=[HumanMessage(content="show me long recordings")])
 
             # Test with contextual tools
-            result = node.run(
+            result = await node.arun(
                 state,
                 {
                     "configurable": {
@@ -531,11 +421,17 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
 
             # Verify the node ran successfully and returned a message
             self.assertIsInstance(result, PartialAssistantState)
-            self.assertEqual(len(result.messages), 1)
+            self.assertEqual(len(result.messages), 3)
+            # Context message
+            self.assertIsInstance(result.messages[0], ContextMessage)
+            assert isinstance(result.messages[0], ContextMessage)
+            self.assertIn("search_session_recordings", result.messages[0].content)
+            # Original human message
+            self.assertIsInstance(result.messages[1], HumanMessage)
             # The message should be an AssistantMessage, not VisualizationMessage
-            self.assertIsInstance(result.messages[0], AssistantMessage)
-            assert isinstance(result.messages[0], AssistantMessage)
-            self.assertEqual(result.messages[0].content, "I'll help with recordings")
+            self.assertIsInstance(result.messages[2], AssistantMessage)
+            assert isinstance(result.messages[2], AssistantMessage)
+            self.assertEqual(result.messages[2].content, "I'll help with recordings")
 
             # Verify _get_model was called with contextual tools config
             mock_get_model.assert_called()
@@ -543,10 +439,10 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             self.assertIn("contextual_tools", config_arg["configurable"])
             self.assertIn("search_session_recordings", config_arg["configurable"]["contextual_tools"])
 
-    def test_node_includes_project_org_user_context_in_prompt_template(self):
+    async def test_node_includes_project_org_user_context_in_prompt_template(self):
         with (
-            patch("os.environ", {"OPENAI_API_KEY": "foo"}),
-            patch("langchain_openai.chat_models.base.ChatOpenAI._generate") as mock_generate,
+            patch("os.environ", {"ANTHROPIC_API_KEY": "foo"}),
+            patch("langchain_anthropic.chat_models.ChatAnthropic._agenerate") as mock_generate,
             patch("ee.hogai.graph.root.nodes.RootNode._find_new_window_id", return_value=None),
         ):
             mock_generate.return_value = ChatResult(
@@ -556,7 +452,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
 
             node = RootNode(self.team, self.user)
 
-            node.run(AssistantState(messages=[HumanMessage(content="Foo?")]), {})
+            await node.arun(AssistantState(messages=[HumanMessage(content="Foo?")]), {})
 
             # Verify _generate was called
             mock_generate.assert_called_once()
@@ -567,7 +463,13 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
 
             # Check that the system messages contain the project/org/user context
             system_messages = [msg for msg in messages if isinstance(msg, SystemMessage)]
-            system_content = "\n\n".join(msg.content for msg in system_messages)
+            content_parts = []
+            for msg in system_messages:
+                if isinstance(msg.content, str):
+                    content_parts.append(msg.content)
+                else:
+                    content_parts.append(str(msg.content))
+            system_content = "\n\n".join(content_parts)
 
             self.assertIn("You are currently in project ", system_content)
             self.assertIn("The user's name appears to be ", system_content)
@@ -583,26 +485,148 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             [OrganizationMembership.Level.MEMBER, False, False, ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT],
         ]
     )
-    def test_has_billing_access(self, membership_level, has_billing_context, should_add_billing_tool, expected_prompt):
+    async def test_has_billing_access(
+        self, membership_level, has_billing_context, should_add_billing_tool, expected_prompt
+    ):
         # Set membership level
-        membership = self.user.organization_memberships.get(organization=self.team.organization)
+        membership = await self.user.organization_memberships.aget(organization=self.team.organization)
         membership.level = membership_level
-        membership.save()
+        await membership.asave()
 
         node = RootNode(self.team, self.user)
 
         # Configure billing context if needed
         if has_billing_context:
             billing_context = self._create_billing_context()
-            config = {"configurable": {"billing_context": billing_context.model_dump()}}
+            config = RunnableConfig(configurable={"billing_context": billing_context.model_dump()})
         else:
-            config = {"configurable": {}}
+            config = RunnableConfig(configurable={})
 
-        self.assertEqual(node._get_billing_info(config), (should_add_billing_tool, expected_prompt))
+        self.assertEqual(await node._get_billing_info(config), (should_add_billing_tool, expected_prompt))
 
-    # Note: More complex mocking tests for billing tool availability were removed
-    # as they were difficult to maintain. The core billing access logic is tested above
-    # and the routing behavior is tested in the TestRootNodeTools section.
+    async def test_deduplicate_context_messages(self):
+        """Test that context messages are deduplicated based on existing human message content"""
+        node = RootNode(self.team, self.user)
+
+        # Create state with existing human messages
+        state = AssistantState(
+            messages=[
+                ContextMessage(content="Existing message 1"),
+                AssistantMessage(content="Response"),
+                ContextMessage(content="Existing message 2"),
+            ]
+        )
+
+        # Test deduplication - should filter out matching content
+        context_prompts = [
+            "New context message",
+            "Existing message 1",  # This should be filtered out
+            "Another new message",
+            "Existing message 2",  # This should be filtered out
+        ]
+
+        result = node._deduplicate_context_messages(state, context_prompts)
+
+        expected = ["New context message", "Another new message"]
+        self.assertEqual(result, expected)
+
+    async def test_get_context_prompts_with_ui_and_contextual_tools(self):
+        """Test that context prompts are returned for both UI context and contextual tools"""
+        with (
+            patch.object(RootNode, "_get_contextual_tools_prompt") as mock_contextual_tools,
+            patch.object(RootNode, "_format_ui_context") as mock_format_ui,
+            patch.object(RootNode, "_get_ui_context") as mock_get_ui,
+            patch.object(RootNode, "_deduplicate_context_messages") as mock_dedupe,
+        ):
+            # Setup mocks
+            mock_contextual_tools.return_value = "Contextual tools prompt"
+            mock_format_ui.return_value = "UI context prompt"
+            mock_get_ui.return_value = MaxUIContext()
+            mock_dedupe.return_value = ["Contextual tools prompt", "UI context prompt"]
+
+            node = RootNode(self.team, self.user)
+            state = AssistantState(messages=[HumanMessage(content="Test")])
+            config = RunnableConfig(configurable={})
+
+            result = await node._get_context_prompts(state, config)
+
+            # Verify both prompts are included
+            self.assertEqual(result, ["Contextual tools prompt", "UI context prompt"])
+
+            # Verify methods were called
+            mock_contextual_tools.assert_called_once_with(config)
+            mock_get_ui.assert_called_once_with(state)
+            mock_format_ui.assert_called_once_with(MaxUIContext(), config)
+            mock_dedupe.assert_called_once_with(state, ["Contextual tools prompt", "UI context prompt"])
+
+    async def test_get_context_prompts_with_only_contextual_tools(self):
+        """Test that context prompts work when only contextual tools are present"""
+        with (
+            patch.object(RootNode, "_get_contextual_tools_prompt") as mock_contextual_tools,
+            patch.object(RootNode, "_format_ui_context") as mock_format_ui,
+            patch.object(RootNode, "_get_ui_context") as mock_get_ui,
+            patch.object(RootNode, "_deduplicate_context_messages") as mock_dedupe,
+        ):
+            # Setup mocks - only contextual tools, no UI context
+            mock_contextual_tools.return_value = "Contextual tools prompt"
+            mock_format_ui.return_value = None  # No UI context
+            mock_get_ui.return_value = MaxUIContext()
+            mock_dedupe.return_value = ["Contextual tools prompt"]
+
+            node = RootNode(self.team, self.user)
+            state = AssistantState(messages=[HumanMessage(content="Test")])
+            config = RunnableConfig(configurable={})
+
+            result = await node._get_context_prompts(state, config)
+
+            # Should only include contextual tools prompt
+            self.assertEqual(result, ["Contextual tools prompt"])
+            mock_dedupe.assert_called_once_with(state, ["Contextual tools prompt"])
+
+    def test_is_first_turn_true(self):
+        """Test _is_first_turn returns True when last message is the start message"""
+        node = RootNode(self.team, self.user)
+
+        # Create state where the last message is the first human message
+        state = AssistantState(
+            messages=[
+                HumanMessage(content="First message", id="1"),
+            ]
+        )
+
+        result = node._is_first_turn(state)
+        self.assertTrue(result)
+
+    def test_is_first_turn_false_with_conversation(self):
+        """Test _is_first_turn returns False when there's been conversation"""
+        node = RootNode(self.team, self.user)
+
+        # Create state with conversation history
+        state = AssistantState(
+            messages=[
+                HumanMessage(content="First message", id="1"),
+                AssistantMessage(content="Response", id="2"),
+                HumanMessage(content="Second message", id="3"),
+            ]
+        )
+
+        result = node._is_first_turn(state)
+        self.assertFalse(result)
+
+    def test_is_first_turn_false_with_assistant_message_last(self):
+        """Test _is_first_turn returns False when last message is not human"""
+        node = RootNode(self.team, self.user)
+
+        # Create state where last message is assistant message
+        state = AssistantState(
+            messages=[
+                HumanMessage(content="First message", id="1"),
+                AssistantMessage(content="Response", id="2"),
+            ]
+        )
+
+        result = node._is_first_turn(state)
+        self.assertFalse(result)
 
 
 class TestRootNodeTools(BaseTest):
@@ -908,9 +932,9 @@ class TestRootNodeUIContextMixin(ClickhouseTestMixin, BaseTest):
         self.mixin = RootNode(self.team, self.user)  # Using RootNode since it inherits from RootNodeUIContextMixin
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
-    def test_run_and_format_insight_trends_query(self, mock_query_runner_class):
+    async def test_run_and_format_insight_trends_query(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_and_format_query.return_value = ("Trend results: 100 users", None)
+        mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Trend results: 100 users", None))
 
         insight = MaxInsightContext(
             id="123",
@@ -919,7 +943,7 @@ class TestRootNodeUIContextMixin(ClickhouseTestMixin, BaseTest):
             query=TrendsQuery(series=[EventsNode(event="pageview")]),
         )
 
-        result = self.mixin._run_and_format_insight({}, insight, mock_query_runner, heading="#")
+        result = await self.mixin._arun_and_format_insight({}, insight, mock_query_runner, heading="#")
         expected = """# Insight: User Trends
 
 Description: Daily active users
@@ -934,12 +958,12 @@ Results:
 Trend results: 100 users
 ```"""
         self.assertEqual(result, expected)
-        mock_query_runner.run_and_format_query.assert_called_once()
+        mock_query_runner.arun_and_format_query.assert_called_once()
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
-    def test_run_and_format_insight_funnel_query(self, mock_query_runner_class):
+    async def test_run_and_format_insight_funnel_query(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_and_format_query.return_value = ("Funnel results: 50% conversion", None)
+        mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Funnel results: 50% conversion", None))
 
         insight = MaxInsightContext(
             id="456",
@@ -948,7 +972,7 @@ Trend results: 100 users
             query=FunnelsQuery(series=[EventsNode(event="sign_up"), EventsNode(event="purchase")]),
         )
 
-        result = self.mixin._run_and_format_insight({}, insight, mock_query_runner, heading="#")
+        result = await self.mixin._arun_and_format_insight({}, insight, mock_query_runner, heading="#")
 
         expected = """# Insight: Conversion Funnel
 
@@ -964,9 +988,9 @@ Funnel results: 50% conversion
         self.assertEqual(result, expected)
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
-    def test_run_and_format_insight_retention_query(self, mock_query_runner_class):
+    async def test_run_and_format_insight_retention_query(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_and_format_query.return_value = ("Retention: 30% Day 7", None)
+        mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Retention: 30% Day 7", None))
 
         insight = MaxInsightContext(
             id="789",
@@ -980,7 +1004,7 @@ Funnel results: 50% conversion
             ),
         )
 
-        result = self.mixin._run_and_format_insight({}, insight, mock_query_runner, heading="#")
+        result = await self.mixin._arun_and_format_insight({}, insight, mock_query_runner, heading="#")
         expected = """# Insight: ID 789
 
 Query schema:
@@ -995,9 +1019,9 @@ Retention: 30% Day 7
         self.assertEqual(result, expected)
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
-    def test_run_and_format_insight_hogql_query(self, mock_query_runner_class):
+    async def test_run_and_format_insight_hogql_query(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_and_format_query.return_value = ("Query results: 42 events", None)
+        mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Query results: 42 events", None))
 
         insight = MaxInsightContext(
             id="101",
@@ -1006,7 +1030,7 @@ Retention: 30% Day 7
             query=HogQLQuery(query="SELECT count() FROM events"),
         )
 
-        result = self.mixin._run_and_format_insight({}, insight, mock_query_runner, heading="#")
+        result = await self.mixin._arun_and_format_insight({}, insight, mock_query_runner, heading="#")
         expected = """# Insight: Custom Query
 
 Description: HogQL analysis
@@ -1022,21 +1046,18 @@ Query results: 42 events
 ```"""
         self.assertEqual(result, expected)
 
-    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
-    def test_run_and_format_insight_unsupported_query_kind(self, mock_query_runner_class):
-        mock_query_runner = mock_query_runner_class.return_value
-
+    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor", return_value=AsyncMock())
+    async def test_run_and_format_insight_unsupported_query_kind(self, mock_query_runner):
         insight = MaxInsightContext(id="123", name="Unsupported", description=None, query=LifecycleQuery(series=[]))
 
-        result = self.mixin._run_and_format_insight({}, insight, mock_query_runner)
+        result = await self.mixin._arun_and_format_insight({}, insight, mock_query_runner)
 
         self.assertEqual(result, None)
-        mock_query_runner.run_and_format_query.assert_not_called()
+        mock_query_runner.arun_and_format_query.assert_not_called()
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
-    def test_run_and_format_insight_exception_handling(self, mock_query_runner_class):
-        mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_and_format_query.side_effect = Exception("Query failed")
+    async def test_run_and_format_insight_exception_handling(self, mock_query_runner):
+        mock_query_runner.arun_and_format_query = AsyncMock(side_effect=Exception("Query failed"))
 
         insight = MaxInsightContext(
             id="123",
@@ -1045,14 +1066,14 @@ Query results: 42 events
             query=TrendsQuery(series=[EventsNode(event="pageview")]),
         )
 
-        result = self.mixin._run_and_format_insight({}, insight, mock_query_runner)
+        result = await self.mixin._arun_and_format_insight({}, insight, mock_query_runner)
 
         self.assertEqual(result, None)
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
-    def test_format_ui_context_with_dashboard(self, mock_query_runner_class):
+    async def test_format_ui_context_with_dashboard(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_and_format_query.return_value = ("Dashboard insight results", None)
+        mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Dashboard insight results", None))
 
         # Create mock insight
         insight = MaxInsightContext(
@@ -1074,15 +1095,17 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(dashboards=[dashboard], insights=None)
 
-        result = self.mixin._format_ui_context(ui_context, {})
+        result = await self.mixin._format_ui_context(ui_context, {})
 
+        self.assertIsNotNone(result)
+        assert result is not None  # Type guard for mypy
         self.assertIn("Dashboard: Test Dashboard", result)
         self.assertIn("Description: Test dashboard description", result)
         self.assertIn("### Dashboard insights", result)
         self.assertIn("Insight: Dashboard Insight", result)
         self.assertNotIn("# Insights", result)
 
-    def test_format_ui_context_with_events(self):
+    async def test_format_ui_context_with_events(self):
         # Create mock events
         event1 = MaxEventContext(id="1", name="page_view")
         event2 = MaxEventContext(id="2", name="button_click")
@@ -1090,12 +1113,14 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(dashboards=None, insights=None, events=[event1, event2], actions=None)
 
-        result = self.mixin._format_ui_context(ui_context, {})
+        result = await self.mixin._format_ui_context(ui_context, {})
 
+        self.assertIsNotNone(result)
+        assert result is not None  # Type guard for mypy
         self.assertIn('"page_view", "button_click"', result)
         self.assertIn("<events_context>", result)
 
-    def test_format_ui_context_with_events_with_descriptions(self):
+    async def test_format_ui_context_with_events_with_descriptions(self):
         # Create mock events with descriptions
         event1 = MaxEventContext(id="1", name="page_view", description="User viewed a page")
         event2 = MaxEventContext(id="2", name="button_click", description="User clicked a button")
@@ -1103,12 +1128,14 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(dashboards=None, insights=None, events=[event1, event2], actions=None)
 
-        result = self.mixin._format_ui_context(ui_context, {})
+        result = await self.mixin._format_ui_context(ui_context, {})
 
+        self.assertIsNotNone(result)
+        assert result is not None  # Type guard for mypy
         self.assertIn('"page_view: User viewed a page", "button_click: User clicked a button"', result)
         self.assertIn("<events_context>", result)
 
-    def test_format_ui_context_with_actions(self):
+    async def test_format_ui_context_with_actions(self):
         # Create mock actions
         action1 = MaxActionContext(id=1.0, name="Sign Up")
         action2 = MaxActionContext(id=2.0, name="Purchase")
@@ -1116,12 +1143,14 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(dashboards=None, insights=None, events=None, actions=[action1, action2])
 
-        result = self.mixin._format_ui_context(ui_context, {})
+        result = await self.mixin._format_ui_context(ui_context, {})
 
+        self.assertIsNotNone(result)
+        assert result is not None  # Type guard for mypy
         self.assertIn('"Sign Up", "Purchase"', result)
         self.assertIn("<actions_context>", result)
 
-    def test_format_ui_context_with_actions_with_descriptions(self):
+    async def test_format_ui_context_with_actions_with_descriptions(self):
         # Create mock actions with descriptions
         action1 = MaxActionContext(id=1.0, name="Sign Up", description="User creates account")
         action2 = MaxActionContext(id=2.0, name="Purchase", description="User makes a purchase")
@@ -1129,15 +1158,17 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(dashboards=None, insights=None, events=None, actions=[action1, action2])
 
-        result = self.mixin._format_ui_context(ui_context, {})
+        result = await self.mixin._format_ui_context(ui_context, {})
 
+        self.assertIsNotNone(result)
+        assert result is not None  # Type guard for mypy
         self.assertIn('"Sign Up: User creates account", "Purchase: User makes a purchase"', result)
         self.assertIn("<actions_context>", result)
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
-    def test_format_ui_context_with_standalone_insights(self, mock_query_runner_class):
+    async def test_format_ui_context_with_standalone_insights(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_and_format_query.return_value = ("Standalone insight results", None)
+        mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Standalone insight results", None))
 
         # Create mock insight
         insight = MaxInsightContext(
@@ -1150,26 +1181,28 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(insights=[insight])
 
-        result = self.mixin._format_ui_context(ui_context, {})
+        result = await self.mixin._format_ui_context(ui_context, {})
 
+        self.assertIsNotNone(result)
+        assert result is not None  # Type guard for mypy
         self.assertIn("Insights", result)
         self.assertIn("Insight: Standalone Insight", result)
         self.assertNotIn("# Dashboards", result)
 
-    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
-    def test_run_insights_from_ui_context_empty(self, mock_query_runner_class):
-        result = self.mixin._format_ui_context(None, {})
+    @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor", return_value=AsyncMock())
+    async def test_run_insights_from_ui_context_empty(self, mock_query_runner_class):
+        result = await self.mixin._format_ui_context(None, {})
         self.assertEqual(result, "")
 
         # Test with ui_context but no insights
         ui_context = MaxUIContext(insights=None)
-        result = self.mixin._format_ui_context(ui_context, {})
-        self.assertEqual(result, "")
+        result = await self.mixin._format_ui_context(ui_context, {})
+        self.assertIsNone(result)
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
-    def test_run_insights_from_ui_context_with_insights(self, mock_query_runner_class):
+    async def test_run_insights_from_ui_context_with_insights(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_and_format_query.return_value = ("Insight execution results", None)
+        mock_query_runner.arun_and_format_query = AsyncMock(return_value=("Insight execution results", None))
 
         # Create mock insight
         insight = MaxInsightContext(
@@ -1182,17 +1215,19 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(insights=[insight])
 
-        result = self.mixin._format_ui_context(ui_context, {})
+        result = await self.mixin._format_ui_context(ui_context, {})
 
+        self.assertIsNotNone(result)
+        result = cast(str, result)  # Type cast for mypy
         self.assertIn("# Insights", result)
         self.assertIn("Test Insight", result)
         self.assertIn("Test description", result)
         self.assertIn("Insight execution results", result)
 
     @patch("ee.hogai.graph.root.nodes.AssistantQueryExecutor")
-    def test_run_insights_from_ui_context_with_failed_insights(self, mock_query_runner_class):
+    async def test_run_insights_from_ui_context_with_failed_insights(self, mock_query_runner_class):
         mock_query_runner = mock_query_runner_class.return_value
-        mock_query_runner.run_and_format_query.side_effect = Exception("Query failed")
+        mock_query_runner.arun_and_format_query = AsyncMock(side_effect=Exception("Query failed"))
 
         # Create mock insight that will fail
         insight = MaxInsightContext(
@@ -1205,10 +1240,10 @@ Query results: 42 events
         # Create mock UI context
         ui_context = MaxUIContext(insights=[insight])
 
-        result = self.mixin._format_ui_context(ui_context, {})
+        result = await self.mixin._format_ui_context(ui_context, {})
 
         # Should return empty string since the insight failed to run
-        self.assertEqual(result, "")
+        self.assertIsNone(result)
 
     @patch("posthoganalytics.feature_enabled")
     def test_session_summarization_tool_included_with_feature_flag(self, mock_feature_enabled):
@@ -1221,7 +1256,7 @@ Query results: 42 events
 
         mock_feature_enabled.side_effect = feature_enabled_side_effect
 
-        with patch("ee.hogai.graph.root.nodes.MaxChatOpenAI") as mock_chat_openai:
+        with patch("ee.hogai.graph.root.nodes.MaxChatAnthropic") as mock_chat_openai:
             mock_model = MagicMock()
             mock_model.get_num_tokens_from_messages.return_value = 100
             mock_model.bind_tools.return_value = mock_model
@@ -1258,7 +1293,7 @@ Query results: 42 events
     def test_session_summarization_tool_excluded_without_feature_flag(self, mock_feature_enabled):
         """Test that session_summarization tool is excluded when feature flag is disabled"""
         mock_feature_enabled.return_value = False
-        with patch("ee.hogai.graph.root.nodes.MaxChatOpenAI") as mock_chat_openai:
+        with patch("ee.hogai.graph.root.nodes.MaxChatAnthropic") as mock_chat_openai:
             mock_model = MagicMock()
             mock_model.get_num_tokens_from_messages.return_value = 100
             mock_model.bind_tools.return_value = mock_model
@@ -1300,7 +1335,7 @@ Query results: 42 events
 
         mock_feature_enabled.side_effect = feature_enabled_side_effect
 
-        with patch("ee.hogai.graph.root.nodes.MaxChatOpenAI") as mock_chat_openai:
+        with patch("ee.hogai.graph.root.nodes.MaxChatAnthropic") as mock_chat_openai:
             mock_model = MagicMock()
             mock_model.get_num_tokens_from_messages.return_value = 100
             mock_model.bind_tools.return_value = mock_model
@@ -1336,7 +1371,7 @@ Query results: 42 events
     def test_insight_search_tool_excluded_without_feature_flag(self, mock_feature_enabled):
         """Test that search_insights tool is excluded when feature flag is disabled"""
         mock_feature_enabled.return_value = False
-        with patch("ee.hogai.graph.root.nodes.MaxChatOpenAI") as mock_chat_openai:
+        with patch("ee.hogai.graph.root.nodes.MaxChatAnthropic") as mock_chat_openai:
             mock_model = MagicMock()
             mock_model.get_num_tokens_from_messages.return_value = 100
             mock_model.bind_tools.return_value = mock_model

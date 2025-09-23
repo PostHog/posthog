@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 from uuid import uuid4
 
 from django.conf import settings
@@ -8,6 +8,8 @@ from langchain_core.messages import (
     BaseMessage,
     HumanMessage as LangchainHumanMessage,
     SystemMessage as LangchainSystemMessage,
+    convert_to_messages,
+    convert_to_openai_messages,
 )
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableConfig
@@ -48,10 +50,8 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
 
     def _construct_messages(self, state: AssistantState) -> list[BaseMessage]:
         system_prompt = LangchainSystemMessage(content=INKEEP_DOCS_SYSTEM_PROMPT)
-        messages: list[BaseMessage] = []
-        for message in super()._construct_messages(state):
-            if message.content:
-                messages.append(message)
+        # Original node has Anthropic messages, but Inkeep expects OpenAI messages
+        messages = convert_to_messages(convert_to_openai_messages(super()._construct_messages(state)))
 
         # Only keep the messages up to the last human or system message,
         # as Inkeep doesn't like the last message being an AI one
@@ -60,9 +60,9 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
         )
         if last_human_message_index is not None:
             messages = messages[: last_human_message_index + 1]
-        return [system_prompt] + messages[-29:]
+        return [system_prompt] + messages[-28:]
 
-    def _get_model(self):  # type: ignore
+    def _get_model(self, *args, **kwargs):
         return MaxChatOpenAI(
             model="inkeep-qa-sonnet-4",
             base_url="https://api.inkeep.com/v1/",
@@ -72,6 +72,10 @@ class InkeepDocsNode(RootNode):  # Inheriting from RootNode to use the same mess
             user=self._user,
             team=self._team,
         )
+
+    async def _has_reached_token_limit(self, model: Any, window: list[BaseMessage]) -> bool:
+        # The root node on this step will always have the correct window.
+        return False
 
     def router(self, state: AssistantState) -> Literal["end", "root"]:
         last_message = state.messages[-1]
