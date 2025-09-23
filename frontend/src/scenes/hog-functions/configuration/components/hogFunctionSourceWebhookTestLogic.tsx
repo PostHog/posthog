@@ -17,6 +17,7 @@ export type HogFunctionSourceWebhookTestForm = {
 
 export type HogFunctionSourceWebhookTestResult = {
     status: number
+    headers: Record<string, string>
     body: string
 }
 
@@ -87,6 +88,7 @@ export const hogFunctionSourceWebhookTestLogic = kea<hogFunctionSourceWebhookTes
 
                 actions.setTestResult({
                     status: response.status,
+                    headers: response.headers,
                     body: await response.text(),
                 })
             },
