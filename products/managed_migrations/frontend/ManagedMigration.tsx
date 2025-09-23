@@ -160,6 +160,16 @@ export function ManagedMigration(): JSX.Element {
                                     label="Generate identify events to link user IDs with device IDs"
                                 />
                             </LemonField>
+
+                            <LemonField name="generate_group_identify_events">
+                                <LemonCheckbox
+                                    checked={managedMigration.generate_group_identify_events === true}
+                                    onChange={(checked) =>
+                                        setManagedMigrationValue('generate_group_identify_events', checked)
+                                    }
+                                    label="Generate group identify events from group property changes"
+                                />
+                            </LemonField>
                         </FlaggedFeature>
                     )}
                 </>

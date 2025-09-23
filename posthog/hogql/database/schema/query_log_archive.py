@@ -22,7 +22,7 @@ QUERY_LOG_ARCHIVE_FIELDS: dict[str, FieldOrTable] = {
     "query": StringDatabaseField(name="lc_query__query", nullable=False),
     "query_start_time": DateTimeDatabaseField(name="query_start_time", nullable=False),
     "query_duration_ms": IntegerDatabaseField(name="query_duration_ms", nullable=False),
-    "hogql_name": StringDatabaseField(name="lc_name", nullable=False),
+    "name": StringDatabaseField(name="lc_request_name", nullable=False),
     "created_by": IntegerDatabaseField(name="lc_user_id", nullable=False),
     "read_rows": IntegerDatabaseField(name="read_rows", nullable=False),
     "read_bytes": IntegerDatabaseField(name="read_bytes", nullable=False),
@@ -64,8 +64,6 @@ class QueryLogArchiveTable(LazyTable):
                 return ast.Alias(alias=name, expr=ast.Field(chain=[table_name, "lc_id"]))
             elif name == "query":
                 return ast.Alias(alias=name, expr=ast.Field(chain=[table_name, "lc_query__query"]))
-            elif name == "hogql_name":
-                return ast.Alias(alias=name, expr=ast.Field(chain=[table_name, "lc_name"]))
             elif name == "created_by":
                 return ast.Alias(alias=name, expr=ast.Field(chain=[table_name, "lc_user_id"]))
             elif name == "status":
@@ -105,11 +103,6 @@ class QueryLogArchiveTable(LazyTable):
         return ast.SelectQuery(
             select=fields,
             select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
-            where=ast.CompareOperation(
-                op=ast.CompareOperationOp.Eq,
-                left=ast.Constant(value="HogQLQuery"),
-                right=ast.Field(chain=[table_name, "lc_query__kind"]),
-            ),
         )
 
 
@@ -125,6 +118,7 @@ class RawQueryLogArchiveTable(Table):
         "query_start_time": DateTimeDatabaseField(name="query_start_time", nullable=False),
         "query_duration_ms": IntegerDatabaseField(name="query_duration_ms", nullable=False),
         "lc_name": StringDatabaseField(name="lc_name", nullable=False),
+        "lc_request_name": StringDatabaseField(name="lc_request_name", nullable=False),
         "lc_user_id": IntegerDatabaseField(name="lc_user_id", nullable=False),
         "read_rows": IntegerDatabaseField(name="read_rows", nullable=False),
         "read_bytes": IntegerDatabaseField(name="read_bytes", nullable=False),

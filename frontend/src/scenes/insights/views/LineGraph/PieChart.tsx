@@ -15,12 +15,12 @@ import {
     TooltipModel,
 } from 'lib/Chart'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { LineGraphProps, ensureTooltip, onChartClick, onChartHover } from 'scenes/insights/views/LineGraph/LineGraph'
+import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
+import { LineGraphProps, onChartClick, onChartHover } from 'scenes/insights/views/LineGraph/LineGraph'
 import { createTooltipData } from 'scenes/insights/views/LineGraph/tooltip-data'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
@@ -84,15 +84,7 @@ export function PieChart({
     const { aggregationLabel } = useValues(groupsModel)
     const { highlightSeries } = useActions(insightLogic)
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
-    const chartId = useRef(`pie-${Math.random().toString(36).substring(2, 11)}`)
-
-    // Remove tooltip element on unmount
-    useOnMountEffect(() => {
-        return () => {
-            const tooltipEl = document.getElementById('InsightTooltipWrapper')
-            tooltipEl?.remove()
-        }
-    })
+    const { getTooltip } = useInsightTooltip()
 
     // Build chart
     useEffect(() => {
@@ -179,7 +171,7 @@ export function PieChart({
                                 return
                             }
 
-                            const [tooltipRoot, tooltipEl] = ensureTooltip(chartId.current)
+                            const [tooltipRoot, tooltipEl] = getTooltip()
                             if (tooltip.opacity === 0) {
                                 // remove highlight from the legend
                                 if (trendsFilter?.showLegend) {

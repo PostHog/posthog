@@ -11,7 +11,7 @@ import {
 
 export type CyclotronJobTemplateSuggestionsProps = {
     templating: 'hog' | 'liquid'
-    setTemplating?: (templating: 'hog' | 'liquid') => void
+    setTemplatingEngine?: (templating: 'hog' | 'liquid') => void
     value: string
     onOptionSelect: (option: CyclotronJobTemplateOption) => void
 }
@@ -35,7 +35,7 @@ function CyclotronJobTemplateSuggestionsItem({
 
 export function CyclotronJobTemplateSuggestions({
     templating,
-    setTemplating,
+    setTemplatingEngine,
     onOptionSelect,
 }: CyclotronJobTemplateSuggestionsProps): JSX.Element {
     const logic = cyclotronJobTemplateSuggestionsLogic({ templating })
@@ -60,10 +60,10 @@ export function CyclotronJobTemplateSuggestions({
                         fullWidth
                     />
 
-                    {setTemplating ? (
+                    {setTemplatingEngine ? (
                         <LemonSelect
                             value={templating}
-                            onChange={setTemplating}
+                            onChange={setTemplatingEngine}
                             options={[
                                 { label: 'Hog', value: 'hog' },
                                 { label: 'Liquid', value: 'liquid' },

@@ -117,7 +117,7 @@ class GroupTypeMappingSnapshot(BaseSnapshot[GroupTypeMapping]):
 class DataWarehouseTableSnapshot(BaseSnapshot[DataWarehouseTable]):
     name: str
     format: str
-    columns: dict
+    columns: str
 
     @classmethod
     def serialize_for_team(cls, *, team_id: int):
@@ -125,7 +125,7 @@ class DataWarehouseTableSnapshot(BaseSnapshot[DataWarehouseTable]):
             yield DataWarehouseTableSnapshot(
                 name=table.name,
                 format=table.format,
-                columns=table.columns,
+                columns=json.dumps(table.columns) if table.columns else "",
             )
 
     @classmethod
@@ -134,7 +134,7 @@ class DataWarehouseTableSnapshot(BaseSnapshot[DataWarehouseTable]):
             yield DataWarehouseTable(
                 name=model.name,
                 format=model.format,
-                columns=model.columns,
+                columns=json.loads(model.columns) if model.columns else {},
                 url_pattern="http://localhost",  # Hardcoded. It's not important for evaluations what the value is.
                 team_id=team_id,
             )
@@ -179,8 +179,9 @@ class TeamEvaluationSnapshot(BaseModel):
 
 class DatasetInput(BaseModel):
     team_id: int
-    input: dict[str, Any]
-    expected: dict[str, Any]
+    trace_id: str | None = Field(default=None)
+    input: dict[str, Any] = Field(default_factory=dict)
+    expected: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -199,12 +200,26 @@ class EvalsDockerImageConfig(BaseModel):
     team_snapshots: list[TeamEvaluationSnapshot]
     """
     Raw snapshots for all projects.
+
+    """
+    experiment_id: str
+    """
+    ID of the experiment.
     """
     experiment_name: str
     """
     Name of the experiment.
     """
-    dataset: list[DatasetInput]
+
+    dataset_id: str
+    """
+    ID of the dataset.
+    """
+    dataset_name: str
+    """
+    Name of the dataset.
+    """
+    dataset_inputs: list[DatasetInput]
     """
     Parsed dataset.
     """

@@ -34,7 +34,6 @@ export function SharedMetricModal({
     } = useActions(experimentLogic({ experimentId }))
     const { closePrimarySharedMetricModal, closeSecondarySharedMetricModal } = useActions(modalsLogic)
     const { isPrimarySharedMetricModalOpen, isSecondarySharedMetricModalOpen } = useValues(modalsLogic)
-
     const [selectedMetricIds, setSelectedMetricIds] = useState<SharedMetric['id'][]>([])
     const mode = editingSharedMetricId ? 'edit' : 'create'
 
@@ -246,7 +245,11 @@ export function SharedMetricModal({
                                 ]}
                                 footer={
                                     <div className="flex items-center justify-center m-2">
-                                        <LemonButton to={urls.experimentsSharedMetrics()} size="xsmall" type="tertiary">
+                                        <LemonButton
+                                            to={`${urls.experiments()}?tab=shared-metrics`}
+                                            size="xsmall"
+                                            type="tertiary"
+                                        >
                                             See all shared metrics
                                         </LemonButton>
                                     </div>

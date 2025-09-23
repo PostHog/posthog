@@ -264,6 +264,8 @@ async fn test_basic_deduplication() -> Result<()> {
     env::set_var("KAFKA_CONSUMER_GROUP", &group_id);
     env::set_var("OUTPUT_TOPIC", &output_topic);
     env::set_var("STORE_PATH", _temp_dir.path().to_str().unwrap());
+    // For tests, we need to read from the beginning since we produce before starting
+    env::set_var("KAFKA_CONSUMER_OFFSET_RESET", "earliest");
     // Faster for tests
     env::set_var("COMMIT_INTERVAL_SECS", "1");
     env::set_var("SHUTDOWN_TIMEOUT_SECS", "10");
@@ -275,7 +277,7 @@ async fn test_basic_deduplication() -> Result<()> {
     // Create the service using the same abstraction as production
     println!("Creating Kafka Deduplicator service...");
     let liveness = HealthRegistry::new("test_liveness");
-    let mut service = KafkaDeduplicatorService::new(config, liveness)?;
+    let mut service = KafkaDeduplicatorService::new(config, liveness).await?;
     service.initialize().await?;
     println!("Service initialized");
 
@@ -371,6 +373,8 @@ async fn test_deduplication_with_different_events() -> Result<()> {
     env::set_var("KAFKA_CONSUMER_GROUP", &group_id);
     env::set_var("OUTPUT_TOPIC", &output_topic);
     env::set_var("STORE_PATH", _temp_dir.path().to_str().unwrap());
+    // For tests, we need to read from the beginning since we produce before starting
+    env::set_var("KAFKA_CONSUMER_OFFSET_RESET", "earliest");
     // Faster for tests
     env::set_var("COMMIT_INTERVAL_SECS", "1");
     env::set_var("SHUTDOWN_TIMEOUT_SECS", "10");
@@ -381,7 +385,7 @@ async fn test_deduplication_with_different_events() -> Result<()> {
 
     // Create and initialize the service
     let liveness = HealthRegistry::new("test_liveness");
-    let mut service = KafkaDeduplicatorService::new(config, liveness)?;
+    let mut service = KafkaDeduplicatorService::new(config, liveness).await?;
     service.initialize().await?;
 
     // Produce events with same distinct_id but different event names

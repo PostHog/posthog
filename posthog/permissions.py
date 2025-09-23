@@ -17,6 +17,7 @@ from posthog.auth import (
     ProjectSecretAPIKeyAuthentication,
     SessionAuthentication,
     SharingAccessTokenAuthentication,
+    SharingPasswordProtectedAuthentication,
 )
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
@@ -283,8 +284,12 @@ class SharingTokenPermission(BasePermission):
     """
 
     def has_object_permission(self, request, view, object) -> bool:
-        if not isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
-            raise ValueError("SharingTokenPermission only works if SharingAccessTokenAuthentication succeeded")
+        if not isinstance(
+            request.successful_authenticator, SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication
+        ):
+            raise ValueError(
+                "SharingTokenPermission only works if SharingAccessTokenAuthentication or SharingPasswordProtectedAuthentication succeeded"
+            )
         return request.successful_authenticator.sharing_configuration.can_access_object(object)
 
     def has_permission(self, request, view) -> bool:
@@ -292,7 +297,9 @@ class SharingTokenPermission(BasePermission):
             view, "sharing_enabled_actions"
         ), "SharingTokenPermission requires the `sharing_enabled_actions` attribute to be set in the view"
 
-        if isinstance(request.successful_authenticator, SharingAccessTokenAuthentication):
+        if isinstance(
+            request.successful_authenticator, SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication
+        ):
             try:
                 view.team  # noqa: B018
                 if request.successful_authenticator.sharing_configuration.team != view.team:

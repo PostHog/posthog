@@ -90,7 +90,7 @@ class InsightsAssistant(BaseAssistant):
 
     @property
     def THINKING_NODES(self) -> set[MaxNodeName]:
-        return {
+        return self.VISUALIZATION_NODES.keys() | {
             AssistantNodeName.QUERY_PLANNER,
             TaxonomyNodeName.LOOP_NODE,
         }
@@ -136,6 +136,7 @@ class InsightsAssistant(BaseAssistant):
                 "output": last_ai_message,
                 "response": visualization_response,
                 "tool_name": "create_and_query_insight",
+                "is_new_conversation": False,
             },
         )
 

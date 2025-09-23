@@ -50,17 +50,12 @@ export const ReplayActiveScreensTable = (): JSX.Element => {
                                                 type: FilterLogicalOperator.And,
                                                 values: [
                                                     {
-                                                        id: '$pageview',
-                                                        name: '$pageview',
-                                                        type: 'events',
-                                                        properties: [
-                                                            {
-                                                                key: '$current_url',
-                                                                value: record.screen,
-                                                                operator: PropertyOperator.IContains,
-                                                                type: PropertyFilterType.Event,
-                                                            },
-                                                        ],
+                                                        // Direct $current_url property filter instead of $pageview event filter
+                                                        // This matches any event with $current_url property, not just pageviews
+                                                        key: '$current_url',
+                                                        value: record.screen,
+                                                        operator: PropertyOperator.IContains,
+                                                        type: PropertyFilterType.Event,
                                                     },
                                                 ],
                                             },

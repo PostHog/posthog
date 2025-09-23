@@ -4,7 +4,6 @@ import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { VM } from 'vm2'
-import { z } from 'zod'
 
 import {
     Element,
@@ -75,8 +74,6 @@ export enum PluginServerMode {
     ingestion_v2 = 'ingestion-v2',
     local_cdp = 'local-cdp',
     async_webhooks = 'async-webhooks',
-    recordings_blob_ingestion = 'recordings-blob-ingestion',
-    recordings_blob_ingestion_overflow = 'recordings-blob-ingestion-overflow',
     recordings_blob_ingestion_v2 = 'recordings-blob-ingestion-v2',
     recordings_blob_ingestion_v2_overflow = 'recordings-blob-ingestion-v2-overflow',
     cdp_processed_events = 'cdp-processed-events',
@@ -85,6 +82,7 @@ export enum PluginServerMode {
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     cdp_behavioural_events = 'cdp-behavioural-events',
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
+    cdp_cyclotron_worker_delay = 'cdp-cyclotron-worker-delay',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
 }
@@ -424,6 +422,9 @@ export interface PluginsServerConfig extends CdpConfig, IngestionConsumerConfig 
     COOKIELESS_REDIS_HOST: string
     COOKIELESS_REDIS_PORT: number
 
+    // Timestamp comparison logging (0.0 = disabled, 1.0 = 100% sampling)
+    TIMESTAMP_COMPARISON_LOGGING_SAMPLE_RATE: number
+
     SESSION_RECORDING_MAX_BATCH_SIZE_KB: number
     SESSION_RECORDING_MAX_BATCH_AGE_MS: number
     SESSION_RECORDING_V2_S3_BUCKET: string
@@ -513,8 +514,6 @@ export interface PluginServerCapabilities {
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
     processAsyncWebhooksHandlers?: boolean
-    sessionRecordingBlobIngestion?: boolean
-    sessionRecordingBlobOverflowIngestion?: boolean
     sessionRecordingBlobIngestionV2?: boolean
     sessionRecordingBlobIngestionV2Overflow?: boolean
     cdpProcessedEvents?: boolean
@@ -523,6 +522,7 @@ export interface PluginServerCapabilities {
     cdpLegacyOnEvent?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
+    cdpCyclotronWorkerDelay?: boolean
     cdpBehaviouralEvents?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
@@ -856,22 +856,6 @@ export interface RawClickHouseEvent extends BaseEvent {
     group4_created_at?: ClickHouseTimestamp
     person_mode: PersonMode
 }
-
-export type KafkaConsumerBreadcrumb = {
-    topic: string
-    offset: string | number
-    partition: number
-    processed_at: string
-    consumer_id: string
-}
-
-export const KafkaConsumerBreadcrumbSchema = z.object({
-    topic: z.string(),
-    offset: z.union([z.string(), z.number()]),
-    partition: z.number(),
-    processed_at: z.string(),
-    consumer_id: z.string(),
-})
 
 export interface RawKafkaEvent extends RawClickHouseEvent {
     /**
@@ -1344,15 +1328,22 @@ export interface PipelineEvent extends Omit<PluginEvent, 'team_id'> {
     token?: string
 }
 
+export interface EventHeaders {
+    token?: string
+    distinct_id?: string
+    timestamp?: string
+}
+
 export interface IncomingEvent {
-    message: Message
     event: PipelineEvent
+    headers?: EventHeaders
 }
 
 export interface IncomingEventWithTeam {
     message: Message
     event: PipelineEvent
     team: Team
+    headers: EventHeaders
 }
 
 export type RedisPool = GenericPool<Redis>

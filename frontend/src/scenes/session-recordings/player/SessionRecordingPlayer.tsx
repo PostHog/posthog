@@ -9,6 +9,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { BuilderHog2, SleepingHog } from 'lib/components/hedgehogs'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
+import useIsHovering from 'lib/hooks/useIsHovering'
 import { HotkeysInterface, useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -25,6 +26,7 @@ import { SessionRecordingNextConfirmation } from './SessionRecordingNextConfirma
 import { ClipOverlay } from './controller/ClipRecording'
 import { PlayerController } from './controller/PlayerController'
 import { PlayerMeta } from './player-meta/PlayerMeta'
+import { PlayerMetaTopSettings } from './player-meta/PlayerMetaTopSettings'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import {
@@ -97,12 +99,13 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
         setSpeed,
         setSkipInactivitySetting,
         closeExplorer,
+        setIsHovering,
+        allowPlayerChromeToHide,
     } = useActions(sessionRecordingPlayerLogic(logicProps))
     const { isNotFound, isRecentAndInvalid, isLikelyPastTTL } = useValues(sessionRecordingDataLogic(logicProps))
     const { loadSnapshots } = useActions(sessionRecordingDataLogic(logicProps))
-    const { isFullScreen, explorerMode, isBuffering, isCommenting, quickEmojiIsOpen, showingClipParams } = useValues(
-        sessionRecordingPlayerLogic(logicProps)
-    )
+    const { isFullScreen, explorerMode, isBuffering, isCommenting, quickEmojiIsOpen, showingClipParams, resolution } =
+        useValues(sessionRecordingPlayerLogic(logicProps))
     const {
         setPlayNextAnimationInterrupted,
         setIsCommenting,
@@ -144,7 +147,7 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
             // Not the maximum, but 4 for a balance between speed and quality
             setSpeed(MAX_PLAYBACK_SPEED)
         }
-    }, [mode, setSkipInactivitySetting, setSpeed, hidePlayerElements])
+    }, [mode, setSkipInactivitySetting, setSpeed, hidePlayerElements, resolution])
 
     useEffect(
         () => {
@@ -228,6 +231,23 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     )
 
     const { draggable, elementProps } = useNotebookDrag({ href: urls.replaySingle(sessionRecordingId) })
+    const showMeta = !(hidePlayerElements || (noMeta && !isFullScreen))
+
+    const isHovering = useIsHovering(playerRef)
+
+    useEffect(() => {
+        // oxlint-disable-next-line exhaustive-deps
+        setIsHovering(isHovering)
+    }, [isHovering])
+
+    useEffect(() => {
+        // just once per recording clear the flag that forces the player chrome to show
+        const timeout = setTimeout(() => {
+            // oxlint-disable-next-line exhaustive-deps
+            allowPlayerChromeToHide()
+        }, 1500)
+        return () => clearTimeout(timeout)
+    }, [sessionRecordingId])
 
     if (isNotFound) {
         return (
@@ -298,8 +318,15 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                                     </div>
                                 ) : (
                                     <div className="flex w-full h-full">
-                                        <div className="flex flex-col flex-1 w-full">
-                                            {hidePlayerElements || (noMeta && !isFullScreen) ? null : <PlayerMeta />}
+                                        <div className="flex flex-col flex-1 w-full relative">
+                                            <div className="relative">
+                                                {showMeta ? (
+                                                    <>
+                                                        <PlayerMeta />
+                                                        <PlayerMetaTopSettings />
+                                                    </>
+                                                ) : null}
+                                            </div>
                                             <div
                                                 className="SessionRecordingPlayer__body"
                                                 draggable={draggable}

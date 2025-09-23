@@ -1,11 +1,24 @@
-import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors, sharedListeners } from 'kea'
+import {
+    BindLogic,
+    actions,
+    connect,
+    events,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    reducers,
+    selectors,
+    sharedListeners,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 import uniqBy from 'lodash.uniqby'
 import { Layout, Layouts } from 'react-grid-layout'
 
-import { lemonToast } from '@posthog/lemon-ui'
+import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { DataColorTheme } from 'lib/colors'
@@ -61,6 +74,7 @@ import {
 import { getResponseBytes, sortDayJsDates } from '../insights/utils'
 import { teamLogic } from '../teamLogic'
 import { BreakdownColorConfig } from './DashboardInsightColorsModal'
+import { TileFiltersOverride } from './TileFiltersOverride'
 import type { dashboardLogicType } from './dashboardLogicType'
 import {
     AUTO_REFRESH_INITIAL_INTERVAL_SECONDS,
@@ -79,6 +93,7 @@ import {
     parseURLVariables,
     runWithLimit,
 } from './dashboardUtils'
+import { tileLogic } from './tileLogic'
 
 export interface DashboardLogicProps {
     id: number
@@ -248,6 +263,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             allowUndo: allowUndo === undefined ? true : allowUndo,
         }),
         setTextTileId: (textTileId: number | 'new' | null) => ({ textTileId }),
+        setTileOverride: (tile: DashboardTile<QueryBasedInsightModel>) => ({ tile }),
 
         /**
          * Usage tracking.
@@ -407,7 +423,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 duplicateTile: async ({ tile }) => {
                     try {
                         const newTile = { ...tile } as Partial<DashboardTile<QueryBasedInsightModel>>
-                        delete newTile.id
                         if (newTile.text) {
                             newTile.text = { body: newTile.text.body } as TextModel
                         }
@@ -415,7 +430,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         const dashboard: DashboardType<InsightModel> = await api.update(
                             `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
                             {
-                                tiles: [newTile],
+                                duplicate_tiles: [newTile],
                             }
                         )
                         return getQueryBasedDashboard(dashboard)
@@ -1135,7 +1150,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (dashboard) => {
                 return dashboard?.user_access_level
                     ? accessLevelSatisfied(AccessControlResourceType.Dashboard, dashboard.user_access_level, 'editor')
-                    : true
+                    : false
             },
         ],
         canRestrictDashboard: [
@@ -1181,9 +1196,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.dashboard, s.error404, s.dashboardFailedToLoad, s.canEditDashboard, s.featureFlags],
-            (dashboard, error404, dashboardFailedToLoad, canEditDashboard, featureFlags): Breadcrumb[] => {
-                const newSceneLayout = featureFlags[FEATURE_FLAGS.NEW_SCENE_LAYOUT]
+            (s) => [s.dashboard, s.error404, s.dashboardFailedToLoad],
+            (dashboard, error404, dashboardFailedToLoad): Breadcrumb[] => {
                 return [
                     {
                         key: Scene.Dashboards,
@@ -1199,18 +1213,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                               : error404
                                 ? 'Not found'
                                 : '...',
-                        onRename:
-                            canEditDashboard && !newSceneLayout
-                                ? async (name) => {
-                                      if (dashboard) {
-                                          await dashboardsModel.asyncActions.updateDashboard({
-                                              id: dashboard.id,
-                                              name,
-                                              allowUndo: true,
-                                          })
-                                      }
-                                  }
-                                : undefined,
                     },
                 ]
             },
@@ -1420,7 +1422,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     'force_blocking',
                     undefined,
                     values.urlFilters,
-                    values.urlVariables
+                    values.urlVariables,
+                    tile.filters_overrides
                 )
 
                 eventUsageLogic.actions.reportDashboardTileRefreshed(
@@ -1506,7 +1509,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             forceRefresh ? 'force_blocking' : 'blocking', // 'blocking' returns cached data if available, when manual refresh is triggered we want fresh results
                             methodOptions,
                             values.urlFilters,
-                            values.urlVariables
+                            values.urlVariables,
+                            tile.filters_overrides
                         )
 
                         if (refreshedInsight) {
@@ -1520,7 +1524,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 values.urlFilters,
                                 values.urlVariables,
                                 Math.floor(performance.now() - insightRefreshStartTime),
-                                true
+                                false
                             )
                         } else {
                             actions.setRefreshError(insight.short_id)
@@ -1810,6 +1814,38 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 id: props.id,
                 last_refresh: lastDashboardRefresh.toISOString(),
                 discardResult: true,
+            })
+        },
+        setTileOverride: ({ tile }) => {
+            const tileLogicProps = { dashboardId: props.id, tileId: tile.id, filtersOverrides: tile.filters_overrides }
+            const logic = tileLogic(tileLogicProps)
+
+            LemonDialog.openForm({
+                title: 'Override Tile Filters',
+                initialValues: {},
+                content: (
+                    <BindLogic logic={tileLogic} props={tileLogicProps}>
+                        <TileFiltersOverride tile={tile} />
+                    </BindLogic>
+                ),
+                tertiaryButton: {
+                    children: 'Clear All Overrides',
+                    onClick: () => {
+                        logic.actions.resetOverrides()
+                    },
+                    preventClosing: true,
+                },
+                onSubmit: async () => {
+                    const tileFilterOverrides = logic.values.overrides
+
+                    await api.update(`api/environments/${teamLogic.values.currentTeamId}/dashboards/${props.id}`, {
+                        tiles: [{ id: tile.id, filters_overrides: tileFilterOverrides }],
+                    })
+
+                    tile.filters_overrides = tileFilterOverrides
+                    actions.refreshDashboardItem({ tile })
+                    lemonToast.success('Tile filters saved')
+                },
             })
         },
     })),

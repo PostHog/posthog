@@ -1,9 +1,7 @@
-import { IconCursor } from '@posthog/icons'
-
 import { FEATURE_FLAGS, PRODUCT_VISUAL_ORDER } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 import type { MessagingSceneTab } from './frontend/MessagingScene'
 
 export const manifest: ProductManifest = {
@@ -38,12 +36,12 @@ export const manifest: ProductManifest = {
     },
     redirects: {
         '/messaging': '/messaging/campaigns',
-        '/messaging/campaigns/new': '/messaging/campaigns/new/overview',
+        '/messaging/campaigns/new': '/messaging/campaigns/new/workflow',
     },
     urls: {
         messaging: (tab?: MessagingSceneTab): string => `/messaging/${tab || 'campaigns'}`,
-        messagingCampaign: (id: string, tab?: string): string => `/messaging/campaigns/${id}/${tab || 'overview'}`,
-        messagingCampaignNew: (): string => '/messaging/campaigns/new/overview',
+        messagingCampaign: (id: string, tab?: string): string => `/messaging/campaigns/${id}/${tab || 'workflow'}`,
+        messagingCampaignNew: (): string => '/messaging/campaigns/new/workflow',
         messagingLibraryMessage: (id: string): string => `/messaging/library/messages/${id}`,
         messagingLibraryTemplate: (id?: string): string => `/messaging/library/templates/${id}`,
         messagingLibraryTemplateNew: (): string => '/messaging/library/templates/new',
@@ -53,8 +51,8 @@ export const manifest: ProductManifest = {
     fileSystemTypes: {
         messaging: {
             name: 'Campaign',
-            icon: <IconCursor />,
-            iconColor: ['var(--color-product-messaging-light)'],
+            iconType: 'messaging',
+            iconColor: ['var(--color-product-messaging-light)'] as FileSystemIconColor,
             href: (ref: string) => urls.messagingCampaign(ref),
             filterKey: 'messaging',
         },
@@ -65,9 +63,11 @@ export const manifest: ProductManifest = {
             href: urls.messaging(),
             type: 'messaging',
             visualOrder: PRODUCT_VISUAL_ORDER.messaging,
-            category: 'Tools',
+            category: 'Unreleased',
             tags: ['alpha'],
             flag: FEATURE_FLAGS.MESSAGING,
+            iconType: 'messaging',
+            iconColor: ['var(--color-product-messaging-light)'] as FileSystemIconColor,
         },
     ],
 }

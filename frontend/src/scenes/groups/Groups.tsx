@@ -55,7 +55,6 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
                     description="Associate events with a group or entity - such as a company, community, or project. Analyze these events as if they were sent by that entity itself. Great for B2B, marketplaces, and more."
                     resourceType={{
                         type: groupTypeName,
-                        typePlural: groupTypeNamePlural,
                         forceIcon: <IconPeople />,
                     }}
                 />
@@ -95,7 +94,6 @@ export function Groups({ groupTypeIndex }: { groupTypeIndex: GroupTypeIndex }): 
                 description={`A catalog of all ${groupTypeNamePlural} for this project`}
                 resourceType={{
                     type: groupTypeName,
-                    typePlural: groupTypeNamePlural,
                     forceIcon: <IconPeople />,
                 }}
             />

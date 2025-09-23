@@ -10,6 +10,7 @@ import { setupCommonRoutes, setupExpressApp } from './api/router'
 import { getPluginServerCapabilities } from './capabilities'
 import { CdpApi } from './cdp/cdp-api'
 import { CdpBehaviouralEventsConsumer } from './cdp/consumers/cdp-behavioural-events.consumer'
+import { CdpCyclotronDelayConsumer } from './cdp/consumers/cdp-cyclotron-delay.consumer'
 import { CdpCyclotronWorkerHogFlow } from './cdp/consumers/cdp-cyclotron-worker-hogflow.consumer'
 import { CdpCyclotronWorker } from './cdp/consumers/cdp-cyclotron-worker.consumer'
 import { CdpEventsConsumer } from './cdp/consumers/cdp-events.consumer'
@@ -27,16 +28,13 @@ import { KafkaProducerWrapper } from './kafka/producer'
 import { onShutdown } from './lifecycle'
 import { startAsyncWebhooksHandlerConsumer } from './main/ingestion-queues/on-event-handler-consumer'
 import { SessionRecordingIngester as SessionRecordingIngesterV2 } from './main/ingestion-queues/session-recording-v2/consumer'
-import { SessionRecordingIngester } from './main/ingestion-queues/session-recording/session-recordings-consumer'
 import { Hub, PluginServerService, PluginsServerConfig } from './types'
 import { ServerCommands } from './utils/commands'
 import { closeHub, createHub } from './utils/db/hub'
 import { PostgresRouter } from './utils/db/postgres'
-import { createRedisClient } from './utils/db/redis'
 import { isTestEnv } from './utils/env-utils'
 import { logger } from './utils/logger'
 import { NodeInstrumentation } from './utils/node-instrumentation'
-import { getObjectStorage } from './utils/object_storage'
 import { captureException, shutdown as posthogShutdown } from './utils/posthog'
 import { PubSub } from './utils/pubsub'
 import { delay } from './utils/utils'
@@ -83,12 +81,6 @@ export class PluginServer {
 
         const capabilities = getPluginServerCapabilities(this.config)
         const hub = (this.hub = await createHub(this.config, capabilities))
-
-        // // Creating a dedicated single-connection redis client to this Redis, as it's not relevant for hobby
-        // // and cloud deploys don't have concurrent uses. We should abstract multi-Redis into a router util.
-        const captureRedis = this.config.CAPTURE_CONFIG_REDIS_HOST
-            ? await createRedisClient(this.config.CAPTURE_CONFIG_REDIS_HOST)
-            : undefined
 
         let _initPluginsPromise: Promise<void> | undefined
 
@@ -140,42 +132,6 @@ export class PluginServer {
 
             if (capabilities.processAsyncWebhooksHandlers) {
                 serviceLoaders.push(() => startAsyncWebhooksHandlerConsumer(hub))
-            }
-
-            if (capabilities.sessionRecordingBlobIngestion) {
-                serviceLoaders.push(async () => {
-                    const postgres = hub?.postgres ?? new PostgresRouter(this.config)
-                    const s3 = hub?.objectStorage ?? getObjectStorage(this.config)
-
-                    if (!s3) {
-                        throw new Error("Can't start session recording blob ingestion without object storage")
-                    }
-                    // NOTE: We intentionally pass in the original this.config as the ingester uses both kafkas
-                    const ingester = new SessionRecordingIngester(this.config, postgres, s3, false, captureRedis)
-                    await ingester.start()
-
-                    return {
-                        id: 'session-recordings-blob',
-                        onShutdown: async () => await ingester.stop(),
-                        healthcheck: () => ingester.isHealthy() ?? false,
-                    }
-                })
-            }
-
-            if (capabilities.sessionRecordingBlobOverflowIngestion) {
-                serviceLoaders.push(async () => {
-                    const postgres = hub?.postgres ?? new PostgresRouter(this.config)
-                    const s3 = hub?.objectStorage ?? getObjectStorage(this.config)
-
-                    if (!s3) {
-                        throw new Error("Can't start session recording blob ingestion without object storage")
-                    }
-                    // NOTE: We intentionally pass in the original this.config as the ingester uses both kafkas
-                    // NOTE: We don't pass captureRedis to disable overflow computation on the overflow topic
-                    const ingester = new SessionRecordingIngester(this.config, postgres, s3, true, undefined)
-                    await ingester.start()
-                    return ingester.service
-                })
             }
 
             if (capabilities.sessionRecordingBlobIngestionV2) {
@@ -257,6 +213,14 @@ export class PluginServer {
                     const worker = new CdpCyclotronWorkerHogFlow(hub)
                     await worker.start()
                     return worker.service
+                })
+            }
+
+            if (capabilities.cdpCyclotronWorkerDelay) {
+                serviceLoaders.push(async () => {
+                    const delayConsumer = new CdpCyclotronDelayConsumer(hub)
+                    await delayConsumer.start()
+                    return delayConsumer.service
                 })
             }
 

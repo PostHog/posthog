@@ -2,9 +2,9 @@ import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { IconCheckCircle, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonProps, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
-import { UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
+import { TRIAL_CANCELLATION_SURVEY_ID, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { toSentenceCase } from 'lib/utils'
@@ -15,26 +15,32 @@ import { formatFlatRate } from './BillingProductAddon'
 import { getProration } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
+import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
 
 interface BillingProductAddonActionsProps {
-    productRef: React.RefObject<HTMLDivElement>
     addon: BillingProductV2AddonType
+    productRef?: React.RefObject<HTMLDivElement>
+    buttonSize?: LemonButtonProps['size']
+    ctaTextOverride?: string
 }
 
-export const BillingProductAddonActions = ({ addon, productRef }: BillingProductAddonActionsProps): JSX.Element => {
+export const BillingProductAddonActions = ({
+    addon,
+    productRef,
+    buttonSize,
+    ctaTextOverride,
+}: BillingProductAddonActionsProps): JSX.Element => {
     const { billing, billingError, timeTotalInSeconds, timeRemainingInSeconds } = useValues(billingLogic)
-    const { currentAndUpgradePlans, billingProductLoading, trialLoading, isSubscribedToAnotherAddon } = useValues(
-        billingProductLogic({ product: addon, productRef })
-    )
-
     const {
-        toggleIsPricingModalOpen,
-        reportSurveyShown,
-        setSurveyResponse,
-        initiateProductUpgrade,
-        activateTrial,
-        cancelTrial,
-    } = useActions(billingProductLogic({ product: addon }))
+        currentAndUpgradePlans,
+        billingProductLoading,
+        trialLoading,
+        isSubscribedToAnotherAddon,
+        isDataPipelinesDeprecated,
+    } = useValues(billingProductLogic({ product: addon, productRef }))
+
+    const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse, initiateProductUpgrade, activateTrial } =
+        useActions(billingProductLogic({ product: addon }))
     const upgradePlan = currentAndUpgradePlans?.upgradePlan
     const { prorationAmount, isProrated } = useMemo(
         () =>
@@ -57,6 +63,11 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
                 overlay={
                     <LemonButton
                         fullWidth
+                        disabledReason={
+                            isDataPipelinesDeprecated
+                                ? `Data pipelines have moved to new, usage-based pricing with generous free allowance, and old ingestion-based pricing ended on ${DATA_PIPELINES_CUTOFF_DATE}.`
+                                : undefined
+                        }
                         onClick={() => {
                             setSurveyResponse('$survey_response_1', addon.type)
                             reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, addon.type)
@@ -87,7 +98,16 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
                 </LemonTag>
             </Tooltip>
             {addon.type !== 'enterprise' && (
-                <LemonButton type="primary" size="small" onClick={cancelTrial} loading={trialLoading} className="mt-1">
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    onClick={() => {
+                        setSurveyResponse('$survey_response_1', addon.type)
+                        reportSurveyShown(TRIAL_CANCELLATION_SURVEY_ID, addon.type)
+                    }}
+                    loading={trialLoading}
+                    className="mt-1"
+                >
                     Cancel trial
                 </LemonButton>
             )}
@@ -113,11 +133,11 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
                     </LemonButton>
                 )}
 
-                {!addon.inclusion_only && (
+                {!addon.inclusion_only && !isDataPipelinesDeprecated && (
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}
-                        size="small"
+                        size={buttonSize || 'small'}
                         disableClientSideRouting
                         disabledReason={
                             (billingError && billingError.message) ||
@@ -130,7 +150,7 @@ export const BillingProductAddonActions = ({ addon, productRef }: BillingProduct
                                 : () => initiateProductUpgrade(addon, currentAndUpgradePlans?.upgradePlan, '')
                         }
                     >
-                        {isTrialEligible ? 'Start trial' : 'Add'}
+                        {ctaTextOverride ?? (isTrialEligible ? 'Start trial' : 'Add')}
                     </LemonButton>
                 )}
             </>

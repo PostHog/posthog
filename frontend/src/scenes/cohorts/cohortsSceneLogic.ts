@@ -6,6 +6,7 @@ import { PaginationManual } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { personsLogic } from 'scenes/persons/personsLogic'
 import { urls } from 'scenes/urls'
@@ -19,6 +20,8 @@ import type { cohortsSceneLogicType } from './cohortsSceneLogicType'
 export interface CohortFilters {
     search?: string
     page?: number
+    type?: 'static' | 'dynamic'
+    created_by_id?: number
 }
 
 const POLL_TIMEOUT = 5000
@@ -26,6 +29,8 @@ const POLL_TIMEOUT = 5000
 const DEFAULT_COHORT_FILTERS: CohortFilters = {
     search: undefined,
     page: 1,
+    type: undefined,
+    created_by_id: undefined,
 }
 
 const COHORTS_PER_PAGE = 100
@@ -36,7 +41,7 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
         actions: [exportsLogic, ['startExport']],
     })),
     actions(() => ({
-        setCohortFilters: (filters: Partial<CohortFilters>) => ({ filters }),
+        setCohortFilters: (filters: Partial<CohortFilters>, replace?: boolean) => ({ filters, replace }),
         deleteCohort: (cohort: Partial<CohortType>) => ({ cohort }),
         exportCohortPersons: (id: CohortType['id'], columns?: string[]) => ({ id, columns }),
         setPollTimeout: (pollTimeout: number | null) => ({ pollTimeout }),
@@ -51,7 +56,10 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
         cohortFilters: [
             DEFAULT_COHORT_FILTERS,
             {
-                setCohortFilters: (state, { filters }) => {
+                setCohortFilters: (state, { filters, replace }) => {
+                    if (replace) {
+                        return { ...DEFAULT_COHORT_FILTERS, ...filters }
+                    }
                     return { ...state, ...filters }
                 },
             },
@@ -104,21 +112,34 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
                 }
             },
         ],
+        shouldShowEmptyState: [
+            (s) => [s.cohorts, s.cohortFilters],
+            (cohorts: CountedPaginatedResponse<CohortType>, filters: CohortFilters): boolean => {
+                return cohorts.results.length === 0 && objectsEqual(filters, DEFAULT_COHORT_FILTERS)
+            },
+        ],
     }),
     loaders(({ values }) => ({
-        cohorts: {
-            __default: { count: 0, results: [] } as CountedPaginatedResponse<CohortType>,
-            loadCohorts: async () => {
-                const response = await api.cohorts.listPaginated({
-                    ...values.paramsFromFilters,
-                })
-                personsLogic.findMounted({ syncWithUrl: true })?.actions.loadCohorts()
-                return {
-                    count: response.count,
-                    results: response.results.map((cohort) => processCohort(cohort)),
-                }
+        cohorts: [
+            {
+                count: 0,
+                results: [],
+                filters: DEFAULT_COHORT_FILTERS,
+                offset: 0,
+            } as CountedPaginatedResponse<CohortType>,
+            {
+                loadCohorts: async () => {
+                    const response = await api.cohorts.listPaginated({
+                        ...values.paramsFromFilters,
+                    })
+                    personsLogic.findMounted({ syncWithUrl: true })?.actions.loadCohorts()
+                    return {
+                        count: response.count,
+                        results: response.results.map((cohort) => processCohort(cohort)),
+                    }
+                },
             },
-        },
+        ],
     })),
     listeners(({ actions, values }) => ({
         loadCohortsSuccess: async ({ cohorts }: { cohorts: CountedPaginatedResponse<CohortType> }) => {
@@ -128,7 +149,8 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
             }
             actions.setPollTimeout(window.setTimeout(actions.loadCohorts, POLL_TIMEOUT))
         },
-        setCohortFilters: async () => {
+        setCohortFilters: async (_, breakpoint) => {
+            await breakpoint(300)
             actions.loadCohorts()
         },
         deleteCohort: async ({ cohort }) => {
@@ -184,14 +206,20 @@ export const cohortsSceneLogic = kea<cohortsSceneLogicType>([
     })),
     urlToAction(({ actions }) => ({
         [urls.cohorts()]: (_, searchParams) => {
-            const { page, search } = searchParams
+            const { page, search, type, created_by_id } = searchParams
             const filtersFromUrl: Partial<CohortFilters> = {
                 search,
+                type,
             }
 
-            filtersFromUrl.page = page !== undefined ? parseInt(page) : undefined
+            if (page !== undefined) {
+                filtersFromUrl.page = parseInt(page)
+            }
+            if (created_by_id !== undefined) {
+                filtersFromUrl.created_by_id = parseInt(created_by_id)
+            }
 
-            actions.setCohortFilters({ ...DEFAULT_COHORT_FILTERS, ...filtersFromUrl })
+            actions.setCohortFilters({ ...DEFAULT_COHORT_FILTERS, ...filtersFromUrl }, true)
         },
     })),
     beforeUnmount(({ values }) => {

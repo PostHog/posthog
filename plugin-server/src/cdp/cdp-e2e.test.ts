@@ -210,6 +210,17 @@ describe.each(['postgres' as const, 'kafka' as const, 'hybrid' as const])('CDP C
                         app_source: 'hog_function',
                         app_source_id: fnFetchNoFilters.id.toString(),
                         count: 1,
+                        metric_kind: 'other',
+                        metric_name: 'triggered',
+                        team_id: 2,
+                    },
+                },
+                {
+                    topic: 'clickhouse_app_metrics2_test',
+                    value: {
+                        app_source: 'hog_function',
+                        app_source_id: fnFetchNoFilters.id.toString(),
+                        count: 1,
                         metric_kind: 'billing',
                         metric_name: 'billable_invocation',
                         team_id: 2,

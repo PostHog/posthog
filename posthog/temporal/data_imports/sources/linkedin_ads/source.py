@@ -36,7 +36,9 @@ class LinkedInAdsSource(BaseSource[LinkedinAdsSourceConfig]):
             name=SchemaExternalDataSourceType.LINKEDIN_ADS,
             label="LinkedIn Ads",
             caption="Ensure you have granted PostHog access to your LinkedIn Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/linkedin-ads).",
-            unreleasedSource=True,
+            betaSource=True,
+            iconPath="/static/services/linkedin.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/linkedin-ads",
             fields=cast(
                 list[FieldType],
                 [

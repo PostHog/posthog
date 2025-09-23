@@ -28,7 +28,7 @@ jobs:
                   concurrency: 1
                   group: 1
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
-                  python-version: '3.11.9'
+                  python-version: '3.11.13'
                   clickhouse-server-image: 'clickhouse/clickhouse-server:25.6.9.98'
                   segment: 'FOSS'
                   person-on-events: false

@@ -227,5 +227,34 @@ export function dashboardActivityDescriber(logItem: ActivityLogItem, asNotificat
         }
     }
 
+    if (logItem.activity === 'share_login_success') {
+        const afterData = logItem.detail.changes?.[0]?.after as any
+        const clientIp = afterData?.client_ip || 'unknown IP'
+        const passwordNote = afterData?.password_note || 'unknown password'
+
+        return {
+            description: (
+                <>
+                    <strong>Anonymous user</strong> successfully authenticated to shared dashboard{' '}
+                    <b>{nameAndLink(logItem)}</b> from {clientIp} using password <strong>{passwordNote}</strong>
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity === 'share_login_failed') {
+        const afterData = logItem.detail.changes?.[0]?.after as any
+        const clientIp = afterData?.client_ip || 'unknown IP'
+
+        return {
+            description: (
+                <>
+                    <strong>Anonymous user</strong> failed to authenticate to shared dashboard{' '}
+                    <b>{nameAndLink(logItem)}</b> from {clientIp}
+                </>
+            ),
+        }
+    }
+
     return defaultDescriber(logItem, asNotification, nameAndLink(logItem))
 }
