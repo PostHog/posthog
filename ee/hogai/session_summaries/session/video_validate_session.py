@@ -17,6 +17,7 @@ from glom import (
 from posthog.models.user import User
 
 from ee.hogai.session_summaries.constants import (
+    EXPIRES_AFTER_DAYS,
     FAILED_MOMENTS_MIN_RATIO,
     SECONDS_BEFORE_EVENT_FOR_VALIDATION_VIDEO,
     VALIDATION_VIDEO_DURATION,
@@ -59,12 +60,7 @@ class SessionSummaryVideoValidator:
         self.user = user
         self.summary = summary
         self.run_metadata = run_metadata
-        self.moments_analyzer = SessionMomentsLLMAnalyzer(
-            session_id=session_id,
-            team_id=team_id,
-            user=user,
-            failed_moments_min_ratio=FAILED_MOMENTS_MIN_RATIO,
-        )
+        self.moments_analyzer = SessionMomentsLLMAnalyzer(session_id=session_id, team_id=team_id, user=user)
 
     async def validate_session_summary_with_videos(
         self, model_to_use: str
@@ -78,20 +74,24 @@ class SessionSummaryVideoValidator:
         # Prepare input for video validation
         moments_input = self._prepare_moments_input(events_to_validate=events_to_validate)
         # Generate videos and ask LLM to describe them
-        description_results = await self.moments_analyzer.analyze(moments_input=moments_input)
+        description_results = await self.moments_analyzer.analyze(
+            moments_input=moments_input,
+            expires_after_days=EXPIRES_AFTER_DAYS,
+            failed_moments_min_ratio=FAILED_MOMENTS_MIN_RATIO,
+        )
         if not description_results:
             # No description results generated, no need to generate updates
             return None
+        # TODO: Remove after testing
         with open(f"description_results_{self.session_id}.json", "w") as f:
             json.dump([asdict(x) for x in description_results], f, indent=4)
-        # with open(
-        #     f"/Users/woutut/Documents/Code/posthog/validation_results_01995bac-a002-7ba2-bc68-baa043d8e46c.json", "r"
-        # ) as f:
-        #     description_results: list[SessionMomentOutput] = json.load(f)
         # Generate updates through LLM to update specific fields based on the video-based results from the previous step
         updates_result = await self._generate_updates(
             description_results=description_results, fields_to_update=fields_to_update, model_to_use=model_to_use
         )
+        if updates_result is None:
+            # No updates generated, no need to apply them
+            return None
         # Apply updates to the summary object
         updated_summary = self._apply_updates(updates_result=updates_result)
         # Generate updated run metadata
@@ -237,7 +237,7 @@ class SessionSummaryVideoValidator:
         description_results: list[SessionMomentOutput],
         fields_to_update: list[_SessionSummaryVideoValidationFieldToUpdate],
         model_to_use: str,
-    ) -> list[dict[str, str]]:
+    ) -> list[dict[str, str]] | None:
         # Generate prompt for video validation
         validation_prompt = self._generate_video_validation_prompt(
             description_results=description_results,
@@ -257,15 +257,16 @@ class SessionSummaryVideoValidator:
             trace_id=trace_id,
         )
         updates_content = updates_raw.choices[0].message.content
-        if not updates_content:
-            # TODO: Define exception
-            raise Exception("define exception")
+        if updates_content is None:
+            logger.exception(
+                f"No updates content found for session {self.session_id} when validating session summary with videos"
+            )
+            return None
         updates_result = load_yaml_from_raw_llm_content(raw_content=updates_content, final_validation=True)
         updates_result = cast(list[dict[str, str]], updates_result)
+        # TODO: Remove after testing
         with open(f"updates_result_{self.session_id}.json", "w") as f:
             json.dump(updates_result, f, indent=4, sort_keys=False)
-        # with open(f"validation_result_{inputs.session_id}.json", "r") as f:
-        #     validation_result = json.load(f)
         return updates_result
 
     def _apply_updates(self, updates_result: list[dict[str, str]]) -> SessionSummarySerializer:
