@@ -192,8 +192,7 @@ describe('sessionRecordingDataLogic', () => {
             initKeaTests()
             const props = {
                 sessionRecordingId: '2',
-                // we don't want to wait for the default real time polling interval in tests
-                realTimePollingIntervalMilliseconds: 10,
+                blobV2PollingDisabled: true,
             }
             logic = sessionRecordingDataLogic(props)
             snapshotLogic = snapshotDataLogic(props)
