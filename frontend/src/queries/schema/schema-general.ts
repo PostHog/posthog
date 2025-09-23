@@ -1127,6 +1127,8 @@ export type TrendsFilter = {
     showTrendLines?: boolean
     showMovingAverage?: boolean
     movingAverageIntervals?: number
+    /** detailed results table */
+    detailedResultsAggregationType?: 'total' | 'average' | 'median'
 }
 
 export type CalendarHeatmapFilter = {
@@ -1521,7 +1523,7 @@ export type RefreshType =
 export interface NamedQueryRequest {
     name?: string
     description?: string
-    query?: HogQLQuery
+    query?: HogQLQuery | InsightQueryNode
     is_active?: boolean
 }
 
@@ -1545,6 +1547,7 @@ export interface NamedQueryRunRequest {
     filters_override?: DashboardFilter
     variables_override?: Record<string, Record<string, any>>
     variables_values?: Record<string, any>
+    query_override?: Record<string, any>
 }
 
 export interface QueryRequest {
@@ -2728,6 +2731,17 @@ export type CachedLegacyExperimentQueryResponse = CachedQueryResponse<LegacyExpe
 export type CachedNewExperimentQueryResponse = CachedQueryResponse<NewExperimentQueryResponse>
 
 export type CachedExperimentExposureQueryResponse = CachedQueryResponse<ExperimentExposureQueryResponse>
+
+export interface ExperimentMetricTimeseries {
+    experiment_id: number
+    metric_uuid: string
+    status: 'pending' | 'completed' | 'partial' | 'failed'
+    timeseries: { [date: string]: ExperimentQueryResponse } | null
+    errors: { [date: string]: string } | null
+    computed_at: string | null
+    created_at: string
+    updated_at: string
+}
 
 /**
  * @discriminator kind
