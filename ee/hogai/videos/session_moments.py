@@ -103,7 +103,7 @@ class SessionMomentsLLMAnalyzer:
             res: int | Exception = task.result()
             if isinstance(res, Exception):
                 logger.exception(
-                    f"Failed to generate video for moment {moment} from session {self.session_id} of team {self.team_id}: {res}"
+                    f"Failed to generate video for moment {moment_id} from session {self.session_id} of team {self.team_id}: {res}"
                 )
                 # Not failing explicitly to avoid failing all the generations if one fails
                 continue
