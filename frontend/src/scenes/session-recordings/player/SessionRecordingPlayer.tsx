@@ -121,19 +121,6 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
     const hidePlayerElements =
         mode === SessionRecordingPlayerMode.Screenshot || mode === SessionRecordingPlayerMode.Video
 
-    useEffect(
-        () => {
-            if (isLikelyPastTTL) {
-                posthog.capture('session loaded past ttl', {
-                    viewedSessionRecording: sessionRecordingId,
-                    recordingStartTime: sessionRecordingData?.start,
-                })
-            }
-        },
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [isLikelyPastTTL]
-    )
-
     /**
      * If it's screenshot or video mode, we want to disable inactivity skipping.
      * For video, we also want to speed up the playback.

@@ -29,7 +29,6 @@ import {
     SessionPlayerData,
     SessionRecordingId,
     SessionRecordingType,
-    SnapshotSourceType,
 } from '~/types'
 
 import { ExportedSessionRecordingFileV2 } from '../file-playback/types'
@@ -710,17 +709,6 @@ AND properties.$lib != 'web'`
             (start, snapshotsInvalid) => {
                 const lessThanFiveMinutesOld = dayjs().diff(start, 'minute') <= 5
                 return snapshotsInvalid && lessThanFiveMinutesOld
-            },
-        ],
-
-        isLikelyPastTTL: [
-            (s) => [s.start, s.snapshotSources],
-            (start, snapshotSources) => {
-                // If the recording is older than 30 days and has only realtime sources being reported, it is likely past its TTL
-                const isOlderThan30Days = dayjs().diff(start, 'hour') > 30
-                const onlyHasRealTime = snapshotSources?.every((s) => s.source === SnapshotSourceType.realtime)
-                const hasNoSources = snapshotSources?.length === 0
-                return isOlderThan30Days && (onlyHasRealTime || hasNoSources)
             },
         ],
 
