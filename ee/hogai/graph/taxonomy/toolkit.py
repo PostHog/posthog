@@ -161,7 +161,6 @@ class TaxonomyAgentToolkit:
             else:
                 formatted_sample_values.append(str(value))
 
-        # Add count information
         if sample_count is None:
             formatted_sample_values.append("and many more distinct values")
         elif sample_count > len(sample_values):
