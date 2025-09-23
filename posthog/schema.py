@@ -1183,6 +1183,13 @@ class ExperimentMetricOutlierHandling(BaseModel):
     upper_bound_percentile: Optional[float] = None
 
 
+class Status5(StrEnum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    PARTIAL = "partial"
+    FAILED = "failed"
+
+
 class ExperimentMetricType(StrEnum):
     FUNNEL = "funnel"
     MEAN = "mean"
@@ -13425,6 +13432,20 @@ class ExperimentFunnelsQueryResponse(BaseModel):
     significant: bool
     stats_version: Optional[int] = None
     variants: list[ExperimentVariantFunnelsBaseStats]
+
+
+class ExperimentMetricTimeseries(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    computed_at: Optional[str] = None
+    created_at: str
+    errors: Optional[dict[str, str]] = None
+    experiment_id: float
+    metric_uuid: str
+    status: Status5
+    timeseries: Optional[dict[str, ExperimentQueryResponse]] = None
+    updated_at: str
 
 
 class ExperimentQuery(BaseModel):

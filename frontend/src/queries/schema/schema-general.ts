@@ -2729,6 +2729,17 @@ export type CachedNewExperimentQueryResponse = CachedQueryResponse<NewExperiment
 
 export type CachedExperimentExposureQueryResponse = CachedQueryResponse<ExperimentExposureQueryResponse>
 
+export interface ExperimentMetricTimeseries {
+    experiment_id: number
+    metric_uuid: string
+    status: 'pending' | 'completed' | 'partial' | 'failed'
+    timeseries: { [date: string]: ExperimentQueryResponse } | null
+    errors: { [date: string]: string } | null
+    computed_at: string | null
+    created_at: string
+    updated_at: string
+}
+
 /**
  * @discriminator kind
  */
