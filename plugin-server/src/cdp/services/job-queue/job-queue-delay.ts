@@ -12,16 +12,16 @@ import { HealthCheckResult, HealthCheckResultError, PluginsServerConfig } from '
 import { logger } from '../../../utils/logger'
 import { CyclotronJobInvocation, CyclotronJobQueueKind } from '../../types'
 
-export const getDelayQueue = (_queueScheduledAt: DateTime): CyclotronJobQueueKind => {
-    // if (queueScheduledAt > DateTime.now().plus({ hours: 24 })) {
-    //     return 'delay_24h'
-    // }
+export const getDelayQueue = (queueScheduledAt: DateTime): CyclotronJobQueueKind => {
+    if (queueScheduledAt > DateTime.now().plus({ hours: 23 })) {
+        return 'delay-24h'
+    }
 
-    // if (queueScheduledAt > DateTime.now().plus({ minutes: 10 })) {
-    //     return 'delay_60m'
-    // }
+    if (queueScheduledAt > DateTime.now().plus({ minutes: 55 })) {
+        return 'delay-60m'
+    }
 
-    return 'delay-10m' // Force everything to the 10m queue for now
+    return 'delay-10m'
 }
 
 export const getDelayByQueue = (queue: CyclotronJobQueueKind): number => {
