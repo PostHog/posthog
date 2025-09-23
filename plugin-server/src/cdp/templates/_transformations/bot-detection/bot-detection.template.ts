@@ -12,13 +12,11 @@ export const template: HogFunctionTemplate = {
     category: ['Custom'],
     code_language: 'hog',
     code: `
-let userAgentProperty := inputs.userAgent
+// Get the user agent value
+let user_agent := event.properties[inputs.userAgent]
 
 // Check if user agent property exists in event
-// We treat missing user agent as bot traffic
-let user_agent := event.properties[userAgentProperty]
-
-if (empty(user_agent) or user_agent == '') {
+if (empty(user_agent) and inputs.keepUndefinedUseragent == 'No') {
     return null
 }
 
@@ -114,6 +112,20 @@ return event
             default: '',
             secret: false,
             required: false,
+        },
+        {
+            key: 'keepUndefinedUseragent',
+            type: 'choice',
+            label: 'Keep events where the useragent is not set?',
+            description:
+                'Some events such as server-side events may not have a useragent property, choose if you want to keep these events',
+            default: 'Yes',
+            secret: false,
+            required: false,
+            choices: [
+                { value: 'Yes', label: 'Yes' },
+                { value: 'No', label: 'No' },
+            ],
         },
     ],
 }

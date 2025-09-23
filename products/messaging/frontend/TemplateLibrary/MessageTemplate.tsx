@@ -9,6 +9,9 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { EmailTemplater } from 'scenes/hog-functions/email-templater/EmailTemplater'
 import { SceneExport } from 'scenes/sceneTypes'
 
+import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+
 import { MessageTemplateLogicProps, messageTemplateLogic } from './messageTemplateLogic'
 
 export const scene: SceneExport<MessageTemplateLogicProps> = {
@@ -26,8 +29,8 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element 
         useValues(messageTemplateLogic)
 
     return (
-        <div className="space-y-4">
-            <Form logic={messageTemplateLogic} formKey="template">
+        <SceneContent>
+            <Form logic={messageTemplateLogic} formKey="template" className="flex flex-col gap-4">
                 <PageHeader
                     buttons={
                         <>
@@ -53,6 +56,8 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element 
                         </>
                     }
                 />
+                <SceneTitleSection name={template.name} resourceType={{ type: 'template' }} />
+
                 <div className="flex flex-wrap gap-4 items-start">
                     <div className="flex-1 self-start p-3 space-y-2 rounded border min-w-100 bg-surface-primary">
                         <LemonField name="name" label="Name">
@@ -95,6 +100,6 @@ export function MessageTemplate({ id }: MessageTemplateLogicProps): JSX.Element 
                     </div>
                 </div>
             </Form>
-        </div>
+        </SceneContent>
     )
 }

@@ -15,10 +15,20 @@ export interface EmbeddedTileLayout {
 
 export enum EmbeddedAnalyticsTileId {
     API_QUERIES_COUNT = 'API_QUERIES_COUNT',
+    API_READ_TB = 'API_READ_TB',
+    API_CPU_SECONDS = 'API_CPU_SECONDS',
+    API_QUERIES_PER_KEY = 'API_QUERIES_PER_KEY',
+    API_LAST_20_QUERIES = 'API_LAST_20_QUERIES',
+    API_EXPENSIVE_QUERIES = 'API_EXPENSIVE_QUERIES',
 }
 
 export const loadPriorityMap: Record<EmbeddedAnalyticsTileId, number> = {
     [EmbeddedAnalyticsTileId.API_QUERIES_COUNT]: 1,
+    [EmbeddedAnalyticsTileId.API_READ_TB]: 2,
+    [EmbeddedAnalyticsTileId.API_CPU_SECONDS]: 3,
+    [EmbeddedAnalyticsTileId.API_QUERIES_PER_KEY]: 4,
+    [EmbeddedAnalyticsTileId.API_LAST_20_QUERIES]: 5,
+    [EmbeddedAnalyticsTileId.API_EXPENSIVE_QUERIES]: 6,
 }
 
 export interface EmbeddedBaseTile {

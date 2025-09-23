@@ -15,6 +15,7 @@ import { formatFlatRate } from './BillingProductAddon'
 import { getProration } from './billing-utils'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
+import { DATA_PIPELINES_CUTOFF_DATE } from './constants'
 
 interface BillingProductAddonActionsProps {
     addon: BillingProductV2AddonType
@@ -30,9 +31,13 @@ export const BillingProductAddonActions = ({
     ctaTextOverride,
 }: BillingProductAddonActionsProps): JSX.Element => {
     const { billing, billingError, timeTotalInSeconds, timeRemainingInSeconds } = useValues(billingLogic)
-    const { currentAndUpgradePlans, billingProductLoading, trialLoading, isSubscribedToAnotherAddon } = useValues(
-        billingProductLogic({ product: addon, productRef })
-    )
+    const {
+        currentAndUpgradePlans,
+        billingProductLoading,
+        trialLoading,
+        isSubscribedToAnotherAddon,
+        isDataPipelinesDeprecated,
+    } = useValues(billingProductLogic({ product: addon, productRef }))
 
     const { toggleIsPricingModalOpen, reportSurveyShown, setSurveyResponse, initiateProductUpgrade, activateTrial } =
         useActions(billingProductLogic({ product: addon }))
@@ -58,6 +63,11 @@ export const BillingProductAddonActions = ({
                 overlay={
                     <LemonButton
                         fullWidth
+                        disabledReason={
+                            isDataPipelinesDeprecated
+                                ? `Data pipelines have moved to new, usage-based pricing with generous free allowance, and old ingestion-based pricing ended on ${DATA_PIPELINES_CUTOFF_DATE}.`
+                                : undefined
+                        }
                         onClick={() => {
                             setSurveyResponse('$survey_response_1', addon.type)
                             reportSurveyShown(UNSUBSCRIBE_SURVEY_ID, addon.type)
@@ -123,7 +133,7 @@ export const BillingProductAddonActions = ({
                     </LemonButton>
                 )}
 
-                {!addon.inclusion_only && (
+                {!addon.inclusion_only && !isDataPipelinesDeprecated && (
                     <LemonButton
                         type="primary"
                         icon={<IconPlus />}

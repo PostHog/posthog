@@ -1,8 +1,7 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl, urlToAction } from 'kea-router'
 
-import { getDefaultInterval, isValidRelativeOrAbsoluteDate, updateDatesWithInterval } from 'lib/utils'
-import { uuid } from 'lib/utils'
+import { getDefaultInterval, isValidRelativeOrAbsoluteDate, updateDatesWithInterval, uuid } from 'lib/utils'
 import { mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -18,14 +17,8 @@ import {
     SourceMap,
 } from '~/queries/schema/schema-general'
 import { MARKETING_ANALYTICS_SCHEMA } from '~/queries/schema/schema-general'
-import {
-    ChartDisplayType,
-    DataWarehouseSettingsTab,
-    ExternalDataSource,
-    IntervalType,
-    PipelineNodeTab,
-    PipelineStage,
-} from '~/types'
+import { DataWarehouseSettingsTab, ExternalDataSource, IntervalType } from '~/types'
+import { ChartDisplayType } from '~/types'
 
 import { defaultConversionGoalFilter } from '../components/settings/constants'
 import type { marketingAnalyticsLogicType } from './marketingAnalyticsLogicType'
@@ -250,10 +243,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                                 name: table.fields[field].hogql_value,
                                 type: table.fields[field].type,
                             })),
-                            sourceUrl: urls.pipelineNode(
-                                PipelineStage.Source,
-                                `${tableType}-${dataWarehouseSource?.id || table.source?.id || table.id}`,
-                                isDataWarehouse ? PipelineNodeTab.Schemas : PipelineNodeTab.SourceConfiguration
+                            sourceUrl: urls.dataWarehouseSource(
+                                `${tableType}-${dataWarehouseSource?.id || table.source?.id || table.id}`
                             ),
                             external_type: tableType,
                             source_map: sourceMap,

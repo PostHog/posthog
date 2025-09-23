@@ -7,6 +7,8 @@ from django.conf import settings
 from django.db import connection, models
 from django.db.models import Q, QuerySet
 from django.db.models.expressions import F
+from django.db.models.signals import post_delete
+from django.dispatch import receiver
 from django.utils import timezone
 
 import structlog
@@ -404,7 +406,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     def insert_users_list_by_uuid(
         self,
         items: list[str],
-        insert_in_clickhouse: bool = False,
         batchsize=DEFAULT_COHORT_INSERT_BATCH_SIZE,
         *,
         team_id: int,
@@ -414,7 +415,6 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
         Args:
             items: List of user UUIDs to be inserted into the cohort.
-            insert_in_clickhouse: Whether the data should also be inserted into ClickHouse.
             batchsize: Number of UUIDs to process in each batch.
             team_id: The ID of the team to which the cohort belongs.
 
@@ -423,7 +423,23 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         """
 
         batch_iterator = ArrayBatchIterator(items, batch_size=batchsize)
-        return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse, team_id=team_id)
+        return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
+
+    def insert_users_list_by_uuid_into_pg_only(
+        self,
+        items: list[str],
+        team_id: int,
+    ) -> int:
+        """
+        Insert users into Postgres cohortpeople table ONLY (not ClickHouse).
+        This method exists solely to support syncing from ClickHouse to Postgres
+        after cohort calculations. Do not use for normal cohort operations.
+
+        Used by: insert_cohort_people_into_pg
+        """
+
+        batch_iterator = ArrayBatchIterator(items, batch_size=DEFAULT_COHORT_INSERT_BATCH_SIZE)
+        return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=False, team_id=team_id)
 
     def _insert_users_list_with_batching(
         self, batch_iterator: BatchIterator[str], insert_in_clickhouse: bool = False, *, team_id: int
@@ -569,3 +585,28 @@ class CohortPeople(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=["cohort_id", "person_id"])]
+
+
+@receiver(post_delete, sender=CohortPeople)
+def cohort_people_changed(sender, instance: "CohortPeople", **kwargs):
+    from posthog.models.cohort.util import get_static_cohort_size
+
+    try:
+        cohort_id = instance.cohort_id
+        person_uuid = instance.person_id
+
+        cohort = Cohort.objects.get(id=cohort_id)
+        cohort.count = get_static_cohort_size(cohort_id=cohort.id, team_id=cohort.team_id)
+        cohort.save(update_fields=["count"])
+
+        logger.info(
+            "Updated cohort count after CohortPeople change",
+            cohort_id=cohort_id,
+            person_uuid=person_uuid,
+            new_count=cohort.count,
+        )
+    except Cohort.DoesNotExist:
+        logger.warning("Attempted to update count for non-existent cohort", cohort_id=cohort_id)
+    except Exception as e:
+        logger.exception("Error updating cohort count", cohort_id=cohort_id, person_uuid=person_uuid)
+        capture_exception(e)

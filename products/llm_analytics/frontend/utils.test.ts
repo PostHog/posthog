@@ -1,7 +1,7 @@
 import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { AnthropicInputMessage, OpenAICompletionMessage } from './types'
-import { formatLLMEventTitle, looksLikeXml, normalizeMessage } from './utils'
+import { formatLLMEventTitle, looksLikeXml, normalizeMessage, normalizeMessages } from './utils'
 
 describe('LLM Analytics utils', () => {
     it('normalizeOutputMessage: parses OpenAI message', () => {
@@ -491,6 +491,116 @@ describe('LLM Analytics utils', () => {
                     createdAt: '2024-01-01T00:00:00Z',
                 }
                 expect(formatLLMEventTitle(event)).toBe('Custom Action')
+            })
+        })
+    })
+
+    describe('LiteLLM support', () => {
+        const litellmChoice = {
+            finish_reason: 'stop',
+            index: 0,
+            message: {
+                annotations: [],
+                content:
+                    "That's wonderful to hear! 😊 I'm here to spread positivity. If you have any questions or need anything, just let me know!",
+                function_call: null,
+                role: 'assistant',
+                tool_calls: null,
+            },
+            provider_specific_fields: {},
+        }
+
+        const litellmResponse = {
+            choices: [litellmChoice],
+            model: 'gpt-3.5-turbo',
+            usage: { prompt_tokens: 10, completion_tokens: 25, total_tokens: 35 },
+        }
+
+        describe('normalizeMessage', () => {
+            it('should handle LiteLLM choice format', () => {
+                const result = normalizeMessage(litellmChoice)
+
+                expect(result).toHaveLength(1)
+                expect(result[0]).toMatchObject({
+                    role: 'assistant',
+                    content:
+                        "That's wonderful to hear! 😊 I'm here to spread positivity. If you have any questions or need anything, just let me know!",
+                    function_call: null,
+                })
+                expect(result[0].tool_calls).toBeUndefined()
+            })
+
+            it('should handle LiteLLM choice with tool calls', () => {
+                const choiceWithTools = {
+                    ...litellmChoice,
+                    message: {
+                        ...litellmChoice.message,
+                        content: null,
+                        tool_calls: [
+                            {
+                                type: 'function',
+                                id: 'call_123',
+                                function: {
+                                    name: 'get_weather',
+                                    arguments: '{"location": "San Francisco"}',
+                                },
+                            },
+                        ],
+                    },
+                }
+
+                const result = normalizeMessage(choiceWithTools)
+
+                expect(result).toHaveLength(1)
+                expect(result[0].role).toBe('assistant')
+                expect(result[0].tool_calls).toHaveLength(1)
+                expect(result[0].tool_calls![0].function.name).toBe('get_weather')
+            })
+        })
+
+        describe('normalizeMessages', () => {
+            it('should handle LiteLLM response format', () => {
+                const result = normalizeMessages(litellmResponse, 'assistant')
+
+                expect(result).toHaveLength(1)
+                expect(result[0]).toMatchObject({
+                    role: 'assistant',
+                    content:
+                        "That's wonderful to hear! 😊 I'm here to spread positivity. If you have any questions or need anything, just let me know!",
+                    function_call: null,
+                })
+                expect(result[0].tool_calls).toBeUndefined()
+            })
+
+            it('should handle LiteLLM response with multiple choices', () => {
+                const multiChoiceResponse = {
+                    choices: [
+                        litellmChoice,
+                        {
+                            ...litellmChoice,
+                            index: 1,
+                            message: {
+                                ...litellmChoice.message,
+                                content: 'Alternative response',
+                            },
+                        },
+                    ],
+                }
+
+                const result = normalizeMessages(multiChoiceResponse, 'assistant')
+
+                expect(result).toHaveLength(2)
+                expect(result[0].content).toBe(
+                    "That's wonderful to hear! 😊 I'm here to spread positivity. If you have any questions or need anything, just let me know!"
+                )
+                expect(result[1].content).toBe('Alternative response')
+            })
+
+            it('should handle empty LiteLLM response gracefully', () => {
+                const emptyResponse = { choices: [] }
+                const result = normalizeMessages(emptyResponse, 'assistant')
+
+                expect(result).toHaveLength(0)
             })
         })
     })

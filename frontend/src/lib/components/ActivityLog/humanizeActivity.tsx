@@ -154,6 +154,8 @@ export function humanizeScope(scope: ActivityScope | string, singular = false): 
 }
 
 export function humanizeActivity(activity: string): string {
+    activity = activity.replace('_', ' ')
+
     return activity.charAt(0).toUpperCase() + activity.slice(1)
 }
 

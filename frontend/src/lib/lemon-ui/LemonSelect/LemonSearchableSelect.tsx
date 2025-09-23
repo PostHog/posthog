@@ -121,5 +121,12 @@ export function LemonSearchableSelect<T extends string | number | boolean | null
         setSearchTerm('')
     }
 
-    return <LemonSelect {...selectProps} options={optionsWithSearch} onChange={handleChange} />
+    const handleOnSelect = (newValue: T | null): void => {
+        // Cast to `any` because `onSelect` is a union type (T vs T | null) and TS can't infer it here.
+        onSelect?.(newValue as any)
+    }
+
+    return (
+        <LemonSelect {...selectProps} options={optionsWithSearch} onChange={handleChange} onSelect={handleOnSelect} />
+    )
 }

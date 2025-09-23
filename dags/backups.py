@@ -57,7 +57,6 @@ SHARDED_TABLES = [
     "sharded_raw_sessions",
     "sharded_session_replay_embeddings",
     "sharded_session_replay_events",
-    "sharded_session_replay_events_v2_test",
     "sharded_sessions",
     "sharded_events",
 ]
@@ -420,9 +419,10 @@ def sharded_backup():
     """
 
     def run_backup_for_shard(shard: int):
-        latest_backup = get_latest_backup(shard)
-        new_backup = run_backup(check_latest_backup_status(latest_backup), shard)
-        wait_for_backup(new_backup)
+        latest_backup = get_latest_backup(shard=shard)
+        checked_backup = check_latest_backup_status(latest_backup=latest_backup)
+        new_backup = run_backup(latest_backup=checked_backup, shard=shard)
+        wait_for_backup(backup=new_backup)
 
     shards: dagster.DynamicOutput = get_shards()
     shards.map(run_backup_for_shard)

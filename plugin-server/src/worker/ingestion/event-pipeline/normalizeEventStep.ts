@@ -23,7 +23,7 @@ export function normalizeEventStep(
         // Compare timestamp from headers with event.timestamp - they should be equal if implemented correctly
         if (headers) {
             compareTimestamps(
-                event.timestamp,
+                timestamp.toISO() || undefined,
                 headers,
                 event.team_id,
                 event.uuid,
