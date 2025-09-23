@@ -263,7 +263,6 @@ class SessionSummaryVideoValidator:
         with open(f"validation_prompt_{self.session_id}.txt", "w") as f:
             f.write(validation_prompt)
         # Call LLM with the validation prompt
-        # TODO: Provide trace id as an argument
         updates_raw = await call_llm(
             input_prompt=validation_prompt,
             user_key=self.user.id,
