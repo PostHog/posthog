@@ -300,6 +300,7 @@ export const FEATURE_FLAGS = {
     CDP_NEW_PRICING: 'cdp-new-pricing', // owner: #team-workflows
     IMPROVED_COOKIELESS_MODE: 'improved-cookieless-mode', // owner: @robbie-c #team-web-analytics
     REPLAY_EXPORT_FULL_VIDEO: 'replay-export-full-video', // owner: @veryayskiy #team-replay
+    LIVE_DEBUGGER: 'live-debugger', // owner: @marcecoll
     PLATFORM_PAYGATE_CTA: 'platform-paygate-cta', // owner: @a-lider #team-platform-features
     SWITCH_SUBSCRIPTION_PLAN: 'switch-subscription-plan', // owner: @a-lider #team-platform-features
     LLM_ANALYTICS_DATASETS: 'llm-analytics-datasets', // owner: #team-llm-analytics #team-posthog-ai

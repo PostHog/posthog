@@ -41,6 +41,7 @@ PRODUCTS_APPS = [
     "products.marketing_analytics.backend.apps.MarketingAnalyticsConfig",
     "products.error_tracking.backend.apps.ErrorTrackingConfig",
     "products.notebooks.backend.apps.NotebooksConfig",
+    "products.live_debugger.backend.apps.LiveDebuggerConfig",
 ]
 
 INSTALLED_APPS = [

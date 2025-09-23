@@ -94,6 +94,7 @@ export const urls = {
     login2FA: (): string => '/login/2fa',
     login2FASetup: (): string => '/login/2fa_setup',
     emailMFAVerify: (): string => '/login/verify',
+    liveDebugger: (): string => '/live-debugger',
     passwordReset: (): string => '/reset',
     passwordResetComplete: (userUuid: string, token: string): string => `/reset/${userUuid}/${token}`,
     preflight: (): string => '/preflight',
