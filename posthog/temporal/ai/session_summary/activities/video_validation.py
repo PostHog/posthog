@@ -66,5 +66,6 @@ async def validate_llm_single_session_summary_with_videos_activity(
     # Store the updated summary in the database
     summary_row.summary = updated_summary.data
     summary_row.run_metadata = asdict(updated_run_metadata)
-    # The assumption is that the summary generated once and then reused, so no need for versioning/updated at
+    # Each summary is generated only once and then reused, so probability of race conditions is low, and transactions are not needed
+    # It could be possible if multiple people summarize the same session at the same time, but I don't expect it to happen often
     await summary_row.asave(update_fields=["summary", "run_metadata"])
