@@ -128,9 +128,10 @@ def get_allowed_template_variables(inputs: S3InsertInputs) -> dict[str, str]:
 
 def get_s3_key_prefix(inputs: S3InsertInputs) -> str:
     template_variables = get_allowed_template_variables(inputs)
+
     try:
         return inputs.prefix.format(**template_variables)
-    except KeyError as e:
+    except (KeyError, ValueError) as e:
         EXTERNAL_LOGGER.warning(
             f"The key prefix '{inputs.prefix}' will be used as-is since it contains invalid template variables: {str(e)}"
         )

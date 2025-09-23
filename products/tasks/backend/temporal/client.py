@@ -64,12 +64,16 @@ def execute_task_processing_workflow(task_id: str, team_id: int, user_id: Option
                 from posthog.models.user import User
 
                 try:
+                    if not user_id:
+                        logger.warning(f"No user_id provided for task {task_id} - tasks require authenticated user")
+                        return
+
                     team = Team.objects.get(id=team_id)
-                    user = User.objects.get(id=user_id) if user_id else None
+                    user = User.objects.get(id=user_id)
 
                     tasks_enabled = posthoganalytics.feature_enabled(
                         "tasks",
-                        user.distinct_id if user else f"team_{team_id}",
+                        user.distinct_id,
                         groups={"organization": str(team.organization.id)},
                         group_properties={"organization": {"id": str(team.organization.id)}},
                         only_evaluate_locally=False,
@@ -78,7 +82,7 @@ def execute_task_processing_workflow(task_id: str, team_id: int, user_id: Option
 
                     if not tasks_enabled:
                         logger.warning(
-                            f"Task workflow execution blocked for task {task_id} - feature flag 'tasks' not enabled for team {team_id}"
+                            f"Task workflow execution blocked for task {task_id} - feature flag 'tasks' not enabled for user {user_id}"
                         )
                         return
 

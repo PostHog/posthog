@@ -1761,6 +1761,15 @@ base_inputs = {"bucket_name": "test", "region": "test", "team_id": 1}
         ),
         (
             S3InsertInputs(
+                prefix="invalid-format-spec-{data_interval_start:hour}",
+                data_interval_start="2023-01-01 00:00:00",
+                data_interval_end="2023-01-01 01:00:00",
+                **base_inputs,  # type: ignore
+            ),
+            "invalid-format-spec-{data_interval_start:hour}/2023-01-01 00:00:00-2023-01-01 01:00:00.jsonl",
+        ),
+        (
+            S3InsertInputs(
                 prefix="",
                 data_interval_start="2023-01-01 00:00:00",
                 data_interval_end="2023-01-01 01:00:00",
