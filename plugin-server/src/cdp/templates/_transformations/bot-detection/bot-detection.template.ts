@@ -36,7 +36,7 @@ if (notEmpty(inputs.customBotPatterns)) {
 
 // If bot is detected, return null to filter out the event
 for (let bot_name in bot_list) {
-    if (ua =~* bot_name) {
+    if (user_agent =~* bot_name) {
         return null
     }
 }
