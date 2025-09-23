@@ -1,6 +1,7 @@
 import time
 import datetime
 
+import pytest
 from unittest.mock import Mock, patch
 
 from django.conf import settings
@@ -512,3 +513,9 @@ class TestUserTwoFactorSessionIntegration(TestCase):
         mock_totp_form.assert_called_once_with("1234567890abcdef1234", self.user, data={"token": "123456"})
         mock_form_instance.save.assert_called_once()
         mock_send_email.delay.assert_called_once_with(self.user.id)
+
+    @pytest.mark.no_mock_two_factor_sso_enforcement_check
+    def test_doesnt_break_swagger_schema(self):
+        """Test that schema generation works without session middleware errors"""
+        response = self.client.get("/api/schema/")
+        self.assertEqual(response.status_code, 200)
