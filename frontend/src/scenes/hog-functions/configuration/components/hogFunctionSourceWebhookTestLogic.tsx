@@ -8,7 +8,9 @@ import { HogFunctionConfigurationLogicProps, hogFunctionConfigurationLogic } fro
 import type { hogFunctionSourceWebhookTestLogicType } from './hogFunctionSourceWebhookTestLogicType'
 
 export type HogFunctionSourceWebhookTestForm = {
+    method: string
     headers: string
+    query: string
     body: string
     mock_request: boolean
 }
@@ -52,9 +54,11 @@ export const hogFunctionSourceWebhookTestLogic = kea<hogFunctionSourceWebhookTes
         testInvocation: {
             defaults: {
                 mock_request: true,
+                method: 'POST',
                 headers: `{
   "Content-Type": "application/json"
 }`,
+                query: '',
                 body: `{
   "event": "my example event",
   "distinct_id": "webhook-test-123"
