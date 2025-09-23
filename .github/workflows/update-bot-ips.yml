@@ -54,6 +54,7 @@ jobs:
                       **Source:** https://raw.githubusercontent.com/AnTheMaker/GoodBots/main/all.ips
 
                       This is an automated update that runs daily.
+                  base: master
                   branch: update-bot-ips
                   delete-branch: true
                   labels: |
