@@ -380,7 +380,6 @@ class TaxonomyAgentToolkit:
                 results.append(TaxonomyErrorMessages.entity_not_found(entity, self._entity_names))
                 continue
             if entity == "session":
-                # Handle session properties individually as they use a different method
                 for property_name in property_names:
                     results.append(self._retrieve_session_properties(property_name))
                 continue
@@ -390,7 +389,6 @@ class TaxonomyAgentToolkit:
                 results.append(TaxonomyErrorMessages.entity_not_found(entity))
                 continue
 
-            # Execute the query
             with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
                 property_values_response = ActorsPropertyTaxonomyQueryRunner(query, self._team).run(
                     ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
@@ -405,16 +403,13 @@ class TaxonomyAgentToolkit:
                     results.append(TaxonomyErrorMessages.property_values_not_found(property_name, entity))
                 continue
 
-            # Process results - handle both single and multiple results
             if isinstance(property_values_response.results, list):
                 property_values_results = property_values_response.results
             else:
                 property_values_results = [property_values_response.results]
 
-            # Get property definitions for this entity
             property_definitions = self._get_definitions_for_entity(entity, property_names, query)
 
-            # Process property values using common logic
             results.extend(
                 self._process_property_values(
                     property_names, property_values_results, property_definitions, entity, is_indexed=True
@@ -429,7 +424,6 @@ class TaxonomyAgentToolkit:
         if not property_names:
             return {}
 
-        # Determine the property type and group_type_index for this entity
         if query.groupTypeIndex is not None:
             prop_type = PropertyDefinition.Type.GROUP
             group_type_index = query.groupTypeIndex
@@ -440,7 +434,6 @@ class TaxonomyAgentToolkit:
             prop_type = PropertyDefinition.Type.PERSON
             group_type_index = None
 
-        # Single query to get all property definitions
         property_definitions = PropertyDefinition.objects.filter(
             team=self._team,
             name__in=property_names,
@@ -477,7 +470,7 @@ class TaxonomyAgentToolkit:
             return TaxonomyErrorMessages.generic_not_found("Properties")
         if not response.results:
             return TaxonomyErrorMessages.event_properties_not_found(verbose_name)
-        # Intersect properties with their types.
+
         qs = PropertyDefinition.objects.filter(
             team=self._team, type=PropertyDefinition.Type.EVENT, name__in=[item.property for item in response.results]
         )
