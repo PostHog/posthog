@@ -188,7 +188,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                 updatedAt={(definition && 'updated_at' in definition && definition.updated_at) || undefined}
                 updatedBy={(definition && 'updated_by' in definition && definition.updated_by) || undefined}
             />
-            <LemonDivider className="DefinitionPopover my-4" />
+            <LemonDivider className="DefinitionPopover my-2" />
         </>
     )
 
@@ -229,7 +229,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             <>
                 {sharedComponents}
                 <ActionPopoverInfo entity={_definition} />
-                {(_definition?.steps?.length || 0) > 0 && <LemonDivider className="DefinitionPopover my-4" />}
+                {(_definition?.steps?.length || 0) > 0 && <LemonDivider className="DefinitionPopover my-1" />}
                 <DefinitionPopover.Grid cols={2}>
                     <DefinitionPopover.Card
                         title="First seen"
@@ -266,7 +266,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                 title={isDataWarehousePersonProperty ? 'Table' : 'Sent as'}
                                 value={
                                     <span
-                                        className="truncate text-mono text-xs"
+                                        className="truncate text-mono"
                                         title={
                                             isDataWarehousePersonProperty
                                                 ? _definition.id
@@ -365,7 +365,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                 <DefinitionPopover.Grid cols={2}>
                     <DefinitionPopover.Card title="Type" value={_definition.property_type ?? '-'} />
                 </DefinitionPopover.Grid>
-                <LemonDivider className="DefinitionPopover my-4" />
+                <LemonDivider className="DefinitionPopover my-1" />
                 <DefinitionPopover.Section>
                     <DefinitionPopover.Card
                         title="Sent as"
@@ -506,7 +506,7 @@ function DefinitionEdit(): JSX.Element {
 
     return (
         <>
-            <LemonDivider className="DefinitionPopover my-4" />
+            <LemonDivider className="DefinitionPopover my-1" />
             <form className="definition-popover-edit-form">
                 {definition && 'description' in localDefinition && (
                     <>
@@ -655,7 +655,7 @@ export function ControlledDefinitionPopover({
                     {state === DefinitionPopoverState.Edit ? <DefinitionEdit /> : <DefinitionView group={group} />}
                 </DefinitionPopover.Wrapper>
             }
-            placement="right"
+            placement="right-start"
             fallbackPlacements={['left']}
             middleware={[hide()]} // Hide the definition popover when the reference is off-screen
         />
