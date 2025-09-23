@@ -640,9 +640,9 @@ export class HogExecutorService {
 
         if (!fetchResponse || (fetchResponse?.status && fetchResponse.status >= 400)) {
             const backoffMs = Math.min(
-                this.hub.CDP_FETCH_BACKOFF_BASE_MS * 500000000 * result.invocation.state.attempts +
+                this.hub.CDP_FETCH_BACKOFF_BASE_MS * result.invocation.state.attempts +
                     Math.floor(Math.random() * this.hub.CDP_FETCH_BACKOFF_BASE_MS),
-                this.hub.CDP_FETCH_BACKOFF_MAX_MS * 10
+                this.hub.CDP_FETCH_BACKOFF_MAX_MS
             )
 
             const canRetry = isFetchResponseRetriable(fetchResponse, fetchError)
