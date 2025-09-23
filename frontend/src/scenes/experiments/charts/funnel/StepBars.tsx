@@ -13,14 +13,12 @@ export function StepBars({ step, stepIndex }: StepBarsProps): JSX.Element {
     return (
         <div className={clsx('StepBars', stepIndex === 0 && 'StepBars--first')}>
             <div className="StepBars__grid">
-                {Array(5)
-                    .fill(null)
-                    .map((_, i) => (
-                        <div
-                            key={`gridline-${stepIndex}-${i}`}
-                            className="StepBars__gridline StepBars__gridline--horizontal"
-                        />
-                    ))}
+                {Array.from({ length: 5 }, (_, i) => (
+                    <div
+                        key={`gridline-${stepIndex}-${i}`}
+                        className="StepBars__gridline StepBars__gridline--horizontal"
+                    />
+                ))}
             </div>
             {step.nested_breakdown?.map((series) => (
                 <StepBar key={`bar-${stepIndex}-${series.order}`} step={series} stepIndex={stepIndex} />
