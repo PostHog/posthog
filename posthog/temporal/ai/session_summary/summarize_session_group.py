@@ -346,7 +346,6 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
             # Validate session summary with videos and apply updates
-            # TODO: Hide behind a flag
             if inputs.video_validation_enabled:
                 await temporalio.workflow.execute_activity(
                     validate_llm_single_session_summary_with_videos_activity,
