@@ -261,32 +261,6 @@ const fetchFlutterGitHubReleaseDates = async (): Promise<Record<string, string>>
     }
 }
 
-// Fetch Node.js SDK release dates from GitHub Releases API for time-based detection
-const fetchNodeGitHubReleaseDates = async (): Promise<Record<string, string>> => {
-    try {
-        const response = await fetch('https://api.github.com/repos/PostHog/posthog-js/releases?per_page=100')
-        if (!response.ok) {
-            throw new Error(`GitHub API error: ${response.status}`)
-        }
-
-        const releases = await response.json()
-        const releaseDates: Record<string, string> = {}
-
-        // Node.js releases use version tags like "posthog-node@5.6.0"
-        const nodeReleases = releases.filter((release: any) => release.tag_name?.startsWith('posthog-node@'))
-
-        nodeReleases.forEach((release: any) => {
-            const version = release.tag_name.replace('posthog-node@', '')
-            releaseDates[version] = release.published_at
-        })
-
-        return releaseDates
-    } catch (error) {
-        console.warn('[SDK Doctor] Failed to fetch Node.js SDK GitHub release dates:', error)
-        return {}
-    }
-}
-
 // Fetch iOS SDK release dates from GitHub Releases API for time-based detection
 const fetchiOSGitHubReleaseDates = async (): Promise<Record<string, string>> => {
     try {
@@ -376,6 +350,32 @@ const fetchRubyGitHubReleaseDates = async (): Promise<Record<string, string>> =>
     }
 }
 */
+
+// Fetch Node.js SDK release dates from GitHub Releases API for time-based detection
+const fetchNodeGitHubReleaseDates = async (): Promise<Record<string, string>> => {
+    try {
+        const response = await fetch('https://api.github.com/repos/PostHog/posthog-js/releases?per_page=100')
+        if (!response.ok) {
+            throw new Error(`GitHub API error: ${response.status}`)
+        }
+
+        const releases = await response.json()
+        const releaseDates: Record<string, string> = {}
+
+        // Node.js releases use version tags like "posthog-node@5.6.0"
+        const nodeReleases = releases.filter((release: any) => release.tag_name?.startsWith('posthog-node@'))
+
+        nodeReleases.forEach((release: any) => {
+            const version = release.tag_name.replace('posthog-node@', '')
+            releaseDates[version] = release.published_at
+        })
+
+        return releaseDates
+    } catch (error) {
+        console.warn('[SDK Doctor] Failed to fetch Node.js SDK GitHub release dates:', error)
+        return {}
+    }
+}
 
 // NEW: Fetch individual SDK data on-demand with per-SDK caching
 const fetchSdkData = async (
