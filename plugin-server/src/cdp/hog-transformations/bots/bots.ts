@@ -2,7 +2,7 @@ import fs from 'fs'
 import path from 'path'
 
 export const KNOWN_BOT_IP_LIST = fs
-    .readFileSync(path.join(__dirname, '../../../../..', 'share', 'bot-ips.txt'), 'utf8')
+    .readFileSync(path.join(__dirname, '../../../../', 'assets', 'bot-ips.txt'), 'utf8')
     .split('\n')
     .map((line) => line.trim())
 

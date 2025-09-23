@@ -1,13 +1,13 @@
 #!/bin/bash
 
 # Script to update bot IPs from GoodBots repository
-# Downloads IPs from GitHub and saves to share/bot-ips.txt
+# Downloads IPs from GitHub and saves to the appropriate location
 
 set -e
 
 # Configuration
 GITHUB_URL="https://raw.githubusercontent.com/AnTheMaker/GoodBots/main/all.ips"
-TARGET_FILE="share/bot-ips.txt"
+TARGET_FILE="plugin-server/assets/bot-ips.txt"
 
 # Get the directory of this script
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
