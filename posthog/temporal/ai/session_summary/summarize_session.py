@@ -360,12 +360,13 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         # Validate session summary with videos and apply updates
-        await temporalio.workflow.execute_activity(
-            validate_llm_single_session_summary_with_videos_activity,
-            inputs,
-            start_to_close_timeout=timedelta(minutes=10),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+        if inputs.video_validation_enabled:
+            await temporalio.workflow.execute_activity(
+                validate_llm_single_session_summary_with_videos_activity,
+                inputs,
+                start_to_close_timeout=timedelta(minutes=10),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
 
 
 async def _execute_single_session_summary_workflow(inputs: SingleSessionSummaryInputs, workflow_id: str) -> None:
@@ -432,6 +433,7 @@ def _prepare_execution(
     stream: bool = False,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
+    video_validation_enabled: bool = False,
 ) -> tuple[Redis, str, str, SingleSessionSummaryInputs, str]:
     # Use shared identifier to be able to construct all the ids to check/debug
     # Using session id instead of random UUID to be able to check the data in Redis
@@ -458,6 +460,7 @@ def _prepare_execution(
         local_reads_prod=local_reads_prod,
         redis_key_base=redis_key_base,
         model_to_use=model_to_use,
+        video_validation_enabled=video_validation_enabled,
     )
     workflow_id = (
         f"session-summary:single:{'stream' if stream else 'direct'}:{session_id}:{user_id}:{shared_id}:{uuid.uuid4()}"
@@ -472,6 +475,7 @@ async def execute_summarize_session(
     model_to_use: str = SESSION_SUMMARIES_SYNC_MODEL,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
+    video_validation_enabled: bool = False,
 ) -> dict[str, Any]:
     """
     Start the direct summarization workflow (no streaming) and return the summary.
@@ -485,6 +489,7 @@ async def execute_summarize_session(
         model_to_use=model_to_use,
         extra_summary_context=extra_summary_context,
         local_reads_prod=local_reads_prod,
+        video_validation_enabled=video_validation_enabled,
     )
     # Wait for the workflow to complete
     await _execute_single_session_summary_workflow(inputs=session_input, workflow_id=workflow_id)
@@ -509,6 +514,7 @@ def execute_summarize_session_stream(
     model_to_use: str = SESSION_SUMMARIES_STREAMING_MODEL,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
+    video_validation_enabled: bool = False,
 ) -> Generator[str, None, None]:
     """
     Start the streaming workflow and yield summary state from the stream as it becomes available.
@@ -522,6 +528,7 @@ def execute_summarize_session_stream(
         model_to_use=model_to_use,
         extra_summary_context=extra_summary_context,
         local_reads_prod=local_reads_prod,
+        video_validation_enabled=video_validation_enabled,
     )
     # Connect to Temporal and start the workflow
     handle = asyncio.run(_start_single_session_summary_workflow_stream(inputs=session_input, workflow_id=workflow_id))

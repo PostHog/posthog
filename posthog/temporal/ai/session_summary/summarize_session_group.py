@@ -318,6 +318,7 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
                 model_to_use=inputs.model_to_use,
                 extra_summary_context=inputs.extra_summary_context,
                 local_reads_prod=inputs.local_reads_prod,
+                video_validation_enabled=inputs.video_validation_enabled,
             )
             session_inputs.append(single_session_input)
         # Fail the workflow if too many sessions failed to fetch
@@ -346,12 +347,13 @@ class SummarizeSessionGroupWorkflow(PostHogWorkflow):
             )
             # Validate session summary with videos and apply updates
             # TODO: Hide behind a flag
-            await temporalio.workflow.execute_activity(
-                validate_llm_single_session_summary_with_videos_activity,
-                inputs,
-                start_to_close_timeout=timedelta(minutes=10),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
+            if inputs.video_validation_enabled:
+                await temporalio.workflow.execute_activity(
+                    validate_llm_single_session_summary_with_videos_activity,
+                    inputs,
+                    start_to_close_timeout=timedelta(minutes=10),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
             # Keep track of processed summaries
             self._processed_single_summaries += 1
             self._current_status = (
@@ -699,6 +701,7 @@ async def execute_summarize_session_group(
     model_to_use: str = SESSION_SUMMARIES_SYNC_MODEL,
     extra_summary_context: ExtraSummaryContext | None = None,
     local_reads_prod: bool = False,
+    video_validation_enabled: bool = False,
 ) -> AsyncGenerator[
     tuple[SessionSummaryStreamUpdate, SessionSummaryStep, EnrichedSessionGroupSummaryPatternsList | str | dict], None
 ]:
@@ -719,6 +722,7 @@ async def execute_summarize_session_group(
         model_to_use=model_to_use,
         extra_summary_context=extra_summary_context,
         local_reads_prod=local_reads_prod,
+        video_validation_enabled=video_validation_enabled,
     )
     # Connect to Temporal and execute the workflow
     workflow_id = f"session-summary:group:{user_id}-{team.id}:{shared_id}:{uuid.uuid4()}"

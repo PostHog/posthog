@@ -61,6 +61,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         min_timestamp: datetime,
         max_timestamp: datetime,
         extra_summary_context: ExtraSummaryContext | None = None,
+        video_validation_enabled: bool = False,
     ) -> EnrichedSessionGroupSummaryPatternsList:
         """Helper function to consume the async generator and return a summary"""
         results: list[
@@ -73,6 +74,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             min_timestamp=min_timestamp,
             max_timestamp=max_timestamp,
             extra_summary_context=extra_summary_context,
+            video_validation_enabled=video_validation_enabled,
         ):
             results.append(update)
         if not results:
@@ -107,6 +109,14 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             raise exceptions.ValidationError("Session summaries are only supported in PostHog Cloud")
         if not posthoganalytics.feature_enabled("ai-session-summary", str(user.distinct_id)):
             raise exceptions.ValidationError("Session summaries are not enabled for this user")
+        # Check if the summaries should be validated with videos
+        video_validation_enabled = posthoganalytics.feature_enabled(
+            "max-session-summarization-video-validation",
+            str(user.distinct_id),
+            groups={"organization": str(self.team.organization_id)},
+            group_properties={"organization": {"id": str(self.team.organization_id)}},
+            send_feature_flag_events=False,
+        )
         # Validate input
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -127,6 +137,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 min_timestamp=min_timestamp,
                 max_timestamp=max_timestamp,
                 extra_summary_context=extra_summary_context,
+                video_validation_enabled=video_validation_enabled,
             )
             summary_title = "API generated"
             summary_content = generate_notebook_content_from_summary(
