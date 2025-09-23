@@ -346,11 +346,11 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                     "contextual_tools": {"search_session_recordings": {"current_filters": {"duration": ">"}}}
                 }
             }
-            node.config = config
+            node.config = RunnableConfig(configurable=config)
 
             node._get_model(
                 AssistantState(messages=[HumanMessage(content="show me long recordings")]),
-                config,
+                RunnableConfig(configurable=config),
             )
 
             # Verify bind_tools was called (contextual tools were processed)
