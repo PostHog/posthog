@@ -28,12 +28,15 @@ async def check_temporal_workflow_permissions_activity(params: dict[str, Any]) -
         @sync_to_async
         def check_permissions():
             try:
+                if not user_id:
+                    return {"allowed": False, "reason": "User ID required for tasks feature"}
+
                 team = Team.objects.get(id=team_id)
-                user = User.objects.get(id=user_id) if user_id else None
+                user = User.objects.get(id=user_id)
 
                 tasks_enabled = posthoganalytics.feature_enabled(
                     "tasks",
-                    user.distinct_id if user else f"team_{team_id}",
+                    user.distinct_id,
                     groups={"organization": str(team.organization.id)},
                     group_properties={"organization": {"id": str(team.organization.id)}},
                     only_evaluate_locally=False,
@@ -305,6 +308,7 @@ async def execute_agent_for_transition_activity(params: dict[str, Any]) -> dict[
     try:
         task_id = params["task_id"]
         team_id = params["team_id"]
+        user_id = params.get("user_id")
         transition_config = params["transition_config"]
         repo_info = params.get("repo_info")
 
@@ -312,14 +316,21 @@ async def execute_agent_for_transition_activity(params: dict[str, Any]) -> dict[
         from asgiref.sync import sync_to_async
 
         from posthog.models.team.team import Team
+        from posthog.models.user import User
 
         @sync_to_async
         def check_permissions():
             try:
+                if not user_id:
+                    logger.warning(f"No user_id provided for task {task_id} - tasks require authenticated user")
+                    return False
+
                 team = Team.objects.get(id=team_id)
+                user = User.objects.get(id=user_id)
+
                 return posthoganalytics.feature_enabled(
                     "tasks",
-                    f"team_{team_id}",
+                    user.distinct_id,
                     groups={"organization": str(team.organization.id)},
                     group_properties={"organization": {"id": str(team.organization.id)}},
                     only_evaluate_locally=False,
@@ -350,7 +361,7 @@ async def execute_agent_for_transition_activity(params: dict[str, Any]) -> dict[
                         "team_id": team_id,
                         "new_status": transition_config.get("to_stage_key"),
                         "previous_status": transition_config.get("from_stage_key"),
-                        "user_id": None,
+                        "user_id": user_id,
                     },
                     "repo_path": repo_info.get("repo_path") if repo_info else None,
                     "repository": repo_info.get("repository") if repo_info else None,
