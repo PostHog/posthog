@@ -286,11 +286,14 @@ def calculate_cohort_from_list(
     if team_id is None:
         team_id = cohort.team_id
 
-    batch_count = (
-        cohort.insert_users_by_list(items, team_id=team_id)
-        if id_type == "distinct_id"
-        else cohort.insert_users_list_by_uuid(items, team_id=team_id)
-    )
+    if id_type == "distinct_id":
+        batch_count = cohort.insert_users_by_list(items, team_id=team_id)
+    elif id_type == "person_id":
+        batch_count = cohort.insert_users_list_by_uuid(items, team_id=team_id)
+    elif id_type == "email":
+        batch_count = cohort.insert_users_by_email(items, team_id=team_id)
+    else:
+        raise ValueError(f"Unsupported id_type: {id_type}")
     logger.warn(
         "Cohort {}: {:,} items in {} batches from CSV completed in {:.2f}s".format(
             cohort.pk, len(items), batch_count, (time.time() - start_time)
