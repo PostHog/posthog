@@ -8,9 +8,9 @@ FROM debian:bookworm-slim
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
-    ca-certificates \
-    libpq5 \
-    postgresql-client \
+    ca-certificates=20230311+deb12u1 \
+    libpq5=15.14-0+deb12u1 \
+    postgresql-client=15+248+deb12u1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /usr/local/cargo/bin/sqlx /usr/local/bin/sqlx
