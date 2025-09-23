@@ -168,7 +168,7 @@ export function elementIsVisible(element: HTMLElement, cache: WeakMap<HTMLElemen
             return false
         }
 
-        // Check parent chain for display/visibility (with caching)
+        // Check parent chain for display/visibility
         let parent = element.parentElement
         while (parent) {
             // Check cache first
@@ -185,7 +185,6 @@ export function elementIsVisible(element: HTMLElement, cache: WeakMap<HTMLElemen
             const parentStyle = window.getComputedStyle(parent)
             const parentVisible = parentStyle.display !== 'none' && parentStyle.visibility !== 'hidden'
 
-            // Cache the result
             cache.set(parent, parentVisible)
 
             if (!parentVisible) {
