@@ -196,11 +196,11 @@ export const hogFunctionTestingLogic = kea<hogFunctionTestingLogicType>([
                     } catch (e: any) {
                         if (e?.data?.configuration?.filters?.non_field_errors) {
                             lemonToast.error(`Testing failed: ${e.data.configuration.filters.non_field_errors}`)
-                            return
+                        } else {
+                            lemonToast.error(`An unexpected server error occurred while testing the function: ${e}`)
                         }
-                        lemonToast.error(`An unexpected server error occurred while testing the function: ${e}`)
+                        return [...values.retries]
                     }
-
                     actions.removeLoadingRetry(eventId)
                     return [...values.retries]
                 },
