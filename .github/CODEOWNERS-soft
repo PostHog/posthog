@@ -25,7 +25,7 @@ plugin-server/src/cdp/ @PostHog/team-messaging
 
 # ClickHouse team owns Clickhouse migrations
 
-posthog/clickhouse/migrations/\*\* @PostHog/clickhouse
+posthog/clickhouse/migrations/** @PostHog/clickhouse
 
 # Web Analytics team owns web analytics code
 
@@ -43,7 +43,7 @@ dags/locations/web_analytics.py @PostHog/team-web-analytics
 
 # Revenue Analytics team owns revenue analytics stuff
 
-products/revenue_analytics/\*\* @PostHog/team-revenue-analytics
+products/revenue_analytics/** @PostHog/team-revenue-analytics
 
 # Feature Flags team
 
@@ -79,13 +79,13 @@ posthog/temporal/data_imports/** @PostHog/team-data-warehouse
 posthog/temporal/data_modeling/** @PostHog/team-data-warehouse
 posthog/warehouse/** @PostHog/team-data-warehouse
 products/data_warehouse/** @PostHog/team-data-warehouse
-frontend/src/scenes/data-warehouse/\*\* @PostHog/team-data-warehouse
+frontend/src/scenes/data-warehouse/** @PostHog/team-data-warehouse
 posthog/management/commands/generate_source_configs.py @PostHog/team-data-warehouse
 posthog/settings/data_warehouse.py @PostHog/team-data-warehouse
 
 # Team error tracking
 
-products/error_tracking/\*\* @PostHog/team-error-tracking
+products/error_tracking/** @PostHog/team-error-tracking
 posthog/models/error_tracking/ @PostHog/team-error-tracking
 posthog/api/error_tracking.py @PostHog/team-error-tracking
 posthog/hogql_queries/error_tracking/error_tracking_query_runner.py @PostHog/team-error-tracking
@@ -98,8 +98,8 @@ frontend/src/lib/components/RichContentEditor/ @daibhin
 
 # Own all .py files under session recordings
 
-posthog/session_recordings/**/\*.py @PostHog/team-replay
-ee/session_recordings/**/\*.py @PostHog/team-replay
+posthog/session_recordings/**/*.py @PostHog/team-replay
+ee/session_recordings/**/*.py @PostHog/team-replay
 
 # Own everything in mobile replay (all file types)
 
