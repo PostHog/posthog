@@ -56,6 +56,7 @@ import {
     NetworkCaptureSettings,
     ReplayAISettings,
     ReplayAuthorizedDomains,
+    ReplayDataRetentionSettings,
     ReplayGeneral,
     ReplayMaskingSettings,
 } from './environment/SessionRecordingSettings'
@@ -410,6 +411,18 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'AI recording summary',
                 component: <ReplayAISettings />,
                 flag: 'AI_SESSION_PERMISSIONS',
+            },
+            {
+                id: 'replay-retention',
+                title: (
+                    <>
+                        Data retention
+                        <LemonTag type="success" className="ml-1 uppercase">
+                            New
+                        </LemonTag>
+                    </>
+                ),
+                component: <ReplayDataRetentionSettings />,
             },
         ],
     },

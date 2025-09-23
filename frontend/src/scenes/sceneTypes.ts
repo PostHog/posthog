@@ -21,6 +21,7 @@ export enum Scene {
     Cohort = 'Cohort',
     Cohorts = 'Cohorts',
     CustomCss = 'CustomCss',
+    CustomerAnalytics = 'CustomerAnalytics',
     Dashboard = 'Dashboard',
     Dashboards = 'Dashboards',
     DataManagement = 'DataManagement',
@@ -117,6 +118,7 @@ export enum Scene {
     WebAnalyticsPageReports = 'WebAnalyticsPageReports',
     WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
     EmbeddedAnalytics = 'EmbeddedAnalytics',
+    QueryEndpoints = 'QueryEndpoints',
     Wizard = 'Wizard',
 }
 
@@ -199,8 +201,8 @@ export interface SceneConfig {
     projectBased?: boolean
     /** Set the scope of the activity (affects activity and discussion panel) */
     activityScope?: ActivityScope | string
-    /** Default docs path - what the docs side panel will open by default if this scene is active  */
-    defaultDocsPath?: string
+    /** Default docs path - what the docs side panel will open by default when this scene is active  */
+    defaultDocsPath?: string | (() => string) | (() => Promise<string>)
     /** Component import, used only in manifests */
     import?: () => Promise<any>
 }

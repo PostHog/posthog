@@ -245,12 +245,18 @@ class ConversionGoalProcessor:
         event_filter: ast.Expr
         if conversion_event:
             # For specific conversion events, we need both conversion and pageview logic
-            event_filter = ast.Or(
-                exprs=[
-                    self._build_conversion_event_filter(conversion_event, date_conditions),
-                    self._build_pageview_event_filter(date_conditions, utm_campaign_field, utm_source_field),
-                ]
-            )
+            if conversion_event == "$pageview":
+                # For pageview conversions, we only need attribution pageviews (with UTM data).
+                # No need for separate conversion filter since conversion IS the pageview.
+                event_filter = self._build_pageview_event_filter(date_conditions, utm_campaign_field, utm_source_field)
+            else:
+                # For non-pageview conversions, use both filters (no overlap possible)
+                event_filter = ast.Or(
+                    exprs=[
+                        self._build_conversion_event_filter(conversion_event, date_conditions),
+                        self._build_pageview_event_filter(date_conditions, utm_campaign_field, utm_source_field),
+                    ]
+                )
         elif self.goal.kind == "ActionsNode" and self.attribution_window_days > 0:
             # For ActionsNode with attribution, we need both action events and pageview events
             action_conditions = self.get_base_where_conditions()
@@ -862,7 +868,7 @@ class ConversionGoalProcessor:
         select_query = self.generate_cte_query(additional_conditions)
         return ast.Alias(alias=cte_name, expr=select_query)
 
-    def generate_join_clause(self) -> ast.JoinExpr:
+    def generate_join_clause(self, use_full_outer_join: bool = False) -> ast.JoinExpr:
         """Generate JOIN clause for this conversion goal"""
         cte_name = self.get_cte_name()
         alias = CONVERSION_GOAL_PREFIX_ABBREVIATION + str(self.index)
@@ -882,8 +888,9 @@ class ConversionGoalProcessor:
             ]
         )
 
+        join_type = "FULL OUTER JOIN" if use_full_outer_join else "LEFT JOIN"
         return ast.JoinExpr(
-            join_type="LEFT JOIN",
+            join_type=join_type,
             table=ast.Field(chain=[cte_name]),
             alias=alias,
             constraint=ast.JoinConstraint(expr=join_condition, constraint_type="ON"),
