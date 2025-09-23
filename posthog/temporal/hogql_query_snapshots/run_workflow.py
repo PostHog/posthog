@@ -38,7 +38,7 @@ class CreateSnapshotJobInputs:
 
 
 @temporalio.activity.defn
-async def create_snapshot_job_activity(inputs: CreateSnapshotJobInputs) -> str:
+async def create_snapshot_job_activity(inputs: CreateSnapshotJobInputs) -> tuple[str, bool]:
     bind_contextvars(team_id=inputs.team_id)
     logger = LOGGER.bind()
 
@@ -48,7 +48,12 @@ async def create_snapshot_job_activity(inputs: CreateSnapshotJobInputs) -> str:
     workflow_run_id = temporalio.activity.info().workflow_run_id
     saved_query = await aget_saved_query_by_id(saved_query_id=inputs.saved_query_id, team_id=inputs.team_id)
     job = await start_job_snapshot_run(team, workflow_id, workflow_run_id, saved_query)
-    return str(job.id)
+
+    # get table that's a snapshot table
+    snapshot_table = DeltaSnapshot(saved_query).get_delta_table()
+    snapshot_exists = snapshot_table is not None
+
+    return str(job.id), snapshot_exists
 
 
 @dataclasses.dataclass
@@ -279,7 +284,7 @@ class RunWorkflow(PostHogWorkflow):
     async def run(self, inputs: RunWorkflowInputs) -> None:
         """Run the workflow."""
 
-        job_id = await temporalio.workflow.execute_activity(
+        job_id, snapshot_exists = await temporalio.workflow.execute_activity(
             create_snapshot_job_activity,
             CreateSnapshotJobInputs(team_id=inputs.team_id, saved_query_id=inputs.saved_query_id),
             start_to_close_timeout=dt.timedelta(minutes=5),
@@ -288,14 +293,15 @@ class RunWorkflow(PostHogWorkflow):
             ),
         )
 
-        await temporalio.workflow.execute_activity(
-            create_backup_snapshot_job_activity,
-            CreateBackupSnapshotJobInputs(team_id=inputs.team_id, saved_query_id=inputs.saved_query_id),
-            start_to_close_timeout=dt.timedelta(minutes=5),
-            retry_policy=RetryPolicy(
-                maximum_attempts=1,
-            ),
-        )
+        if snapshot_exists:
+            await temporalio.workflow.execute_activity(
+                create_backup_snapshot_job_activity,
+                CreateBackupSnapshotJobInputs(team_id=inputs.team_id, saved_query_id=inputs.saved_query_id),
+                start_to_close_timeout=dt.timedelta(minutes=5),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=1,
+                ),
+            )
 
         finish_snapshot_job_inputs = FinishSnapshotJobInputs(
             team_id=inputs.team_id,

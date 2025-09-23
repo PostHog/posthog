@@ -15,15 +15,20 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.temporal.hogql_query_snapshots.backup import create_backup_object
 from posthog.temporal.hogql_query_snapshots.delta_snapshot import DeltaSnapshot
 from posthog.temporal.hogql_query_snapshots.run_workflow import (
+    CreateBackupSnapshotJobInputs,
     CreateSnapshotJobInputs,
     FinishSnapshotJobInputs,
+    RestoreFromBackupInputs,
     RunSnapshotActivityInputs,
     RunWorkflow,
     RunWorkflowInputs,
+    create_backup_snapshot_job_activity,
     create_snapshot_job_activity,
     finish_snapshot_job_activity,
+    restore_from_backup_activity,
     run_snapshot_activity,
     validate_snapshot_schema,
 )
@@ -597,6 +602,411 @@ async def test_snapshot_incremental_updates(ateam, saved_query, snapshots_worker
     historical_df = final_df[final_df["_ph_valid_until"].notna()]
     deleted_record_3 = historical_df[historical_df["id"] == 3]
     assert len(deleted_record_3) >= 1  # Should exist in historical records
+
+
+@pytest.mark.asyncio
+async def test_create_backup_snapshot_job_activity(ateam, saved_query, snapshots_worker):
+    """Test the create_backup_snapshot_job_activity creates a backup correctly."""
+
+    inputs = CreateBackupSnapshotJobInputs(
+        team_id=ateam.id,
+        saved_query_id=str(saved_query.id),
+    )
+
+    with patch("posthog.temporal.hogql_query_snapshots.run_workflow.create_backup_object") as mock_create_backup:
+        await create_backup_snapshot_job_activity(inputs)
+
+    # Verify backup creation was called with the correct saved query
+    mock_create_backup.assert_called_once()
+    called_saved_query = mock_create_backup.call_args[0][0]
+    assert called_saved_query.id == saved_query.id
+    assert called_saved_query.team_id == ateam.id
+
+
+@pytest.mark.asyncio
+async def test_restore_from_backup_activity(ateam, saved_query, snapshots_worker):
+    """Test the restore_from_backup_activity restores from backup correctly."""
+
+    inputs = RestoreFromBackupInputs(
+        team_id=ateam.id,
+        saved_query_id=str(saved_query.id),
+    )
+
+    with patch("posthog.temporal.hogql_query_snapshots.run_workflow.restore_from_backup") as mock_restore_backup:
+        await restore_from_backup_activity(inputs)
+
+    # Verify restore was called with the correct saved query
+    mock_restore_backup.assert_called_once()
+    called_saved_query = mock_restore_backup.call_args[0][0]
+    assert called_saved_query.id == saved_query.id
+    assert called_saved_query.team_id == ateam.id
+
+
+@pytest.mark.asyncio
+async def test_backup_lifecycle_workflow_failure_and_restore(ateam, saved_query, snapshots_worker, minio_client):
+    """Test that backup files are created and restored on workflow failure."""
+
+    # Track backup operations
+    backup_created = False
+    backup_restored = False
+    backup_cleared = False
+
+    def mock_create_backup(saved_query_arg):
+        nonlocal backup_created
+        backup_created = True
+
+        create_backup_object(saved_query_arg)
+
+    def mock_restore_backup(saved_query_arg):
+        nonlocal backup_restored
+        backup_restored = True
+        from posthog.temporal.hogql_query_snapshots.backup import restore_from_backup
+
+        restore_from_backup(saved_query_arg)
+
+    def mock_clear_backup(saved_query_arg):
+        nonlocal backup_cleared
+        backup_cleared = True
+
+        from posthog.temporal.hogql_query_snapshots.backup import clear_backup_object
+
+        clear_backup_object(saved_query_arg)
+
+    # Mock HogQL execution to fail
+    async def mock_hogql_table(query, *args, **kwargs):
+        result_data = pa.RecordBatch.from_pydict(
+            {
+                "id": [1, 2, 3],
+                "name": ["Event A", "Event B", "Event C"],
+                "created_at": [datetime.now(UTC)] * 3,
+                "_ph_merge_key": [1, 2, 3],
+                "_ph_row_hash": ["hash1", "hash2", "hash3"],
+                "_ph_snapshot_ts": [datetime.now(UTC)] * 3,
+            }
+        )
+        yield (
+            result_data,
+            [
+                ("id", "Uint8"),
+                ("name", "String"),
+                ("created_at", "DateTime64(6, 'UTC')"),
+                ("_ph_merge_key", "UInt64"),
+                ("_ph_row_hash", "String"),
+                ("_ph_snapshot_ts", "Nullable(DateTime64(6, 'UTC'))"),
+            ],
+        )
+
+    with patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table):
+        with patch("temporalio.activity.info") as mock_info:
+            with patch("posthog.temporal.hogql_query_snapshots.run_workflow.create_backup_object", mock_create_backup):
+                with patch("posthog.warehouse.models.table.DataWarehouseTable.get_columns") as mock_get_columns:
+                    with patch(
+                        "posthog.warehouse.models.datawarehouse_saved_query.DataWarehouseSavedQuery.get_columns"
+                    ) as mock_get_columns_saved_query:
+                        with patch(
+                            "posthog.temporal.hogql_query_snapshots.run_workflow.restore_from_backup",
+                            mock_restore_backup,
+                        ):
+                            with patch(
+                                "posthog.temporal.hogql_query_snapshots.run_workflow.clear_backup_object",
+                                mock_clear_backup,
+                            ):
+                                # Setup mocks
+                                mock_get_columns.return_value = {
+                                    "id": {"clickhouse": "UInt64", "hogql": "IntegerDatabaseField", "valid": True},
+                                    "name": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True},
+                                    "created_at": {
+                                        "clickhouse": "DateTime64(6, 'UTC')",
+                                        "hogql": "DateTimeDatabaseField",
+                                        "valid": True,
+                                    },
+                                    "_ph_merge_key": {
+                                        "clickhouse": "String",
+                                        "hogql": "StringDatabaseField",
+                                        "valid": True,
+                                    },
+                                    "_ph_row_hash": {
+                                        "clickhouse": "String",
+                                        "hogql": "StringDatabaseField",
+                                        "valid": True,
+                                    },
+                                    "_ph_snapshot_ts": {
+                                        "clickhouse": "DateTime64(6, 'UTC')",
+                                        "hogql": "DateTimeDatabaseField",
+                                        "valid": True,
+                                    },
+                                    "_ph_valid_until": {
+                                        "clickhouse": "Nullable(DateTime64(6, 'UTC'))",
+                                        "hogql": "DateTimeDatabaseField",
+                                        "valid": True,
+                                    },
+                                }
+                                mock_get_columns_saved_query.return_value = mock_get_columns.return_value
+
+                                mock_info.return_value.workflow_id = f"test-workflow-backup-success"
+                                mock_info.return_value.workflow_run_id = f"test-run-backup-success"
+
+                                workflow_id = str(uuid.uuid4())
+                                inputs = RunWorkflowInputs(
+                                    team_id=ateam.id,
+                                    saved_query_id=str(saved_query.id),
+                                )
+
+                                async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+                                    async with Worker(
+                                        activity_environment.client,
+                                        task_queue=settings.TEMPORAL_TASK_QUEUE,
+                                        workflows=[RunWorkflow],
+                                        activities=[
+                                            create_snapshot_job_activity,
+                                            create_backup_snapshot_job_activity,
+                                            run_snapshot_activity,
+                                            restore_from_backup_activity,
+                                            finish_snapshot_job_activity,
+                                        ],
+                                        workflow_runner=UnsandboxedWorkflowRunner(),
+                                    ):
+                                        await activity_environment.client.execute_workflow(
+                                            RunWorkflow.run,
+                                            inputs,
+                                            id=workflow_id,
+                                            task_queue=settings.TEMPORAL_TASK_QUEUE,
+                                            retry_policy=RetryPolicy(maximum_attempts=1),
+                                            execution_timeout=timedelta(minutes=5),
+                                        )
+
+    # Mock HogQL execution to fail
+    async def mock_failing_hogql_table(query, *args, **kwargs):
+        yield None, None
+
+    with patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_failing_hogql_table):
+        with patch("temporalio.activity.info") as mock_info:
+            with patch("posthog.temporal.hogql_query_snapshots.run_workflow.create_backup_object", mock_create_backup):
+                with patch("posthog.warehouse.models.table.DataWarehouseTable.get_columns") as mock_get_columns:
+                    with patch(
+                        "posthog.warehouse.models.datawarehouse_saved_query.DataWarehouseSavedQuery.get_columns"
+                    ) as mock_get_columns_saved_query:
+                        with patch(
+                            "posthog.temporal.hogql_query_snapshots.run_workflow.restore_from_backup",
+                            mock_restore_backup,
+                        ):
+                            with patch(
+                                "posthog.temporal.hogql_query_snapshots.run_workflow.clear_backup_object",
+                                mock_clear_backup,
+                            ):
+                                # Setup mocks
+                                mock_get_columns.return_value = {
+                                    "id": {"clickhouse": "UInt64", "hogql": "IntegerDatabaseField", "valid": True},
+                                    "name": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True},
+                                    "created_at": {
+                                        "clickhouse": "DateTime64(6, 'UTC')",
+                                        "hogql": "DateTimeDatabaseField",
+                                        "valid": True,
+                                    },
+                                    "_ph_merge_key": {
+                                        "clickhouse": "String",
+                                        "hogql": "StringDatabaseField",
+                                        "valid": True,
+                                    },
+                                    "_ph_row_hash": {
+                                        "clickhouse": "String",
+                                        "hogql": "StringDatabaseField",
+                                        "valid": True,
+                                    },
+                                    "_ph_snapshot_ts": {
+                                        "clickhouse": "DateTime64(6, 'UTC')",
+                                        "hogql": "DateTimeDatabaseField",
+                                        "valid": True,
+                                    },
+                                    "_ph_valid_until": {
+                                        "clickhouse": "Nullable(DateTime64(6, 'UTC'))",
+                                        "hogql": "DateTimeDatabaseField",
+                                        "valid": True,
+                                    },
+                                }
+                                mock_get_columns_saved_query.return_value = mock_get_columns.return_value
+
+                                mock_info.return_value.workflow_id = f"test-workflow-backup-fail"
+                                mock_info.return_value.workflow_run_id = f"test-run-backup-fail"
+
+                                workflow_id = str(uuid.uuid4())
+                                inputs = RunWorkflowInputs(
+                                    team_id=ateam.id,
+                                    saved_query_id=str(saved_query.id),
+                                )
+
+                                with pytest.raises(Exception):
+                                    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+                                        async with Worker(
+                                            activity_environment.client,
+                                            task_queue=settings.TEMPORAL_TASK_QUEUE,
+                                            workflows=[RunWorkflow],
+                                            activities=[
+                                                create_snapshot_job_activity,
+                                                create_backup_snapshot_job_activity,
+                                                run_snapshot_activity,
+                                                restore_from_backup_activity,
+                                                finish_snapshot_job_activity,
+                                            ],
+                                            workflow_runner=UnsandboxedWorkflowRunner(),
+                                        ):
+                                            await activity_environment.client.execute_workflow(
+                                                RunWorkflow.run,
+                                                inputs,
+                                                id=workflow_id,
+                                                task_queue=settings.TEMPORAL_TASK_QUEUE,
+                                                retry_policy=RetryPolicy(maximum_attempts=1),
+                                                execution_timeout=timedelta(minutes=5),
+                                            )
+
+    # Verify backup lifecycle on failure
+    assert backup_created, "Backup should have been created during workflow execution"
+    assert backup_restored, "Backup should have been restored after workflow failure"
+    assert backup_cleared, "Backup should have been cleared even after failure in finally block"
+
+    # Verify job was marked as failed
+    jobs = await sync_to_async(list)(
+        DataWarehouseSnapshotJob.objects.filter(team=ateam, config=saved_query.datawarehousesnapshotconfig)
+    )
+    assert len(jobs) == 2
+    job = jobs[1]
+    assert job.status == DataWarehouseSnapshotJob.Status.FAILED
+
+
+@pytest.mark.asyncio
+async def test_backup_lifecycle_multiple_workflow_runs(ateam, saved_query, snapshots_worker, minio_client):
+    """Test backup lifecycle across multiple workflow runs."""
+
+    # Mock the HogQL execution to return test data
+    async def mock_hogql_table(query, *args, **kwargs):
+        result_data = pa.RecordBatch.from_pydict(
+            {
+                "id": [1, 2, 3],
+                "name": ["Event A", "Event B", "Event C"],
+                "created_at": [datetime.now(UTC)] * 3,
+                "_ph_merge_key": [1, 2, 3],
+                "_ph_row_hash": ["hash1", "hash2", "hash3"],
+                "_ph_snapshot_ts": [datetime.now(UTC)] * 3,
+            }
+        )
+        yield (
+            result_data,
+            [
+                ("id", "Uint8"),
+                ("name", "String"),
+                ("created_at", "DateTime64(6, 'UTC')"),
+                ("_ph_merge_key", "UInt64"),
+                ("_ph_row_hash", "String"),
+                ("_ph_snapshot_ts", "Nullable(DateTime64(6, 'UTC'))"),
+            ],
+        )
+
+    # Track backup operations across runs
+    backup_operations = []
+
+    def mock_create_backup(saved_query_arg):
+        backup_operations.append("create")
+
+        create_backup_object(saved_query_arg)
+
+    def mock_clear_backup(saved_query_arg):
+        backup_operations.append("clear")
+
+        from posthog.temporal.hogql_query_snapshots.backup import clear_backup_object
+
+        clear_backup_object(saved_query_arg)
+
+    # Run workflow twice
+    for run_num in range(2):
+        with patch("posthog.temporal.data_modeling.run_workflow.hogql_table", mock_hogql_table):
+            with patch("temporalio.activity.info") as mock_info:
+                with patch("posthog.warehouse.models.table.DataWarehouseTable.get_columns") as mock_get_columns:
+                    with patch(
+                        "posthog.warehouse.models.datawarehouse_saved_query.DataWarehouseSavedQuery.get_columns"
+                    ) as mock_get_columns_saved_query:
+                        with patch(
+                            "posthog.temporal.hogql_query_snapshots.run_workflow.create_backup_object",
+                            mock_create_backup,
+                        ):
+                            with patch(
+                                "posthog.temporal.hogql_query_snapshots.run_workflow.clear_backup_object",
+                                mock_clear_backup,
+                            ):
+                                # Setup mocks
+                                mock_get_columns.return_value = {
+                                    "id": {"clickhouse": "UInt64", "hogql": "IntegerDatabaseField", "valid": True},
+                                    "name": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True},
+                                    "created_at": {
+                                        "clickhouse": "DateTime64(6, 'UTC')",
+                                        "hogql": "DateTimeDatabaseField",
+                                        "valid": True,
+                                    },
+                                    "_ph_merge_key": {
+                                        "clickhouse": "String",
+                                        "hogql": "StringDatabaseField",
+                                        "valid": True,
+                                    },
+                                    "_ph_row_hash": {
+                                        "clickhouse": "String",
+                                        "hogql": "StringDatabaseField",
+                                        "valid": True,
+                                    },
+                                    "_ph_snapshot_ts": {
+                                        "clickhouse": "DateTime64(6, 'UTC')",
+                                        "hogql": "DateTimeDatabaseField",
+                                        "valid": True,
+                                    },
+                                    "_ph_valid_until": {
+                                        "clickhouse": "Nullable(DateTime64(6, 'UTC'))",
+                                        "hogql": "DateTimeDatabaseField",
+                                        "valid": True,
+                                    },
+                                }
+                                mock_get_columns_saved_query.return_value = mock_get_columns.return_value
+
+                                mock_info.return_value.workflow_id = f"test-workflow-backup-multi-{run_num}"
+                                mock_info.return_value.workflow_run_id = f"test-run-backup-multi-{run_num}"
+
+                                workflow_id = str(uuid.uuid4())
+                                inputs = RunWorkflowInputs(
+                                    team_id=ateam.id,
+                                    saved_query_id=str(saved_query.id),
+                                )
+
+                                async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+                                    async with Worker(
+                                        activity_environment.client,
+                                        task_queue=settings.TEMPORAL_TASK_QUEUE,
+                                        workflows=[RunWorkflow],
+                                        activities=[
+                                            create_snapshot_job_activity,
+                                            create_backup_snapshot_job_activity,
+                                            run_snapshot_activity,
+                                            finish_snapshot_job_activity,
+                                        ],
+                                        workflow_runner=UnsandboxedWorkflowRunner(),
+                                    ):
+                                        await activity_environment.client.execute_workflow(
+                                            RunWorkflow.run,
+                                            inputs,
+                                            id=workflow_id,
+                                            task_queue=settings.TEMPORAL_TASK_QUEUE,
+                                            retry_policy=RetryPolicy(maximum_attempts=1),
+                                            execution_timeout=timedelta(minutes=5),
+                                        )
+
+    # Verify backup operations happened correctly for both runs
+    expected_operations = ["clear", "create", "clear"]
+    assert backup_operations == expected_operations, f"Expected {expected_operations}, got {backup_operations}"
+
+    # Verify both workflows completed successfully
+    jobs = await sync_to_async(list)(
+        DataWarehouseSnapshotJob.objects.filter(team=ateam, config=saved_query.datawarehousesnapshotconfig)
+    )
+    assert len(jobs) == 2
+    for job in jobs:
+        assert job.status == DataWarehouseSnapshotJob.Status.COMPLETED
+        assert job.error is None
 
 
 @pytest.mark.asyncio
