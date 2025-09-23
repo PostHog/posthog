@@ -43,12 +43,15 @@ const getFirstHeaderValue = (value: string | string[] | undefined): string | und
     return Array.isArray(value) ? value[0] : value
 }
 
-export const getCustomHttpResponse = (
-    result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>
-): {
+export type HogFunctionWebhookResult = {
     status: number
     body: Record<string, any> | string
-} | null => {
+    contentType?: string
+}
+
+export const getCustomHttpResponse = (
+    result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>
+): HogFunctionWebhookResult | null => {
     if (typeof result.execResult === 'object' && result.execResult && 'httpResponse' in result.execResult) {
         const httpResponse = result.execResult.httpResponse as Record<string, any>
         return {
@@ -121,6 +124,12 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
             }
         }
 
+        const query: Record<string, string> = {}
+        for (const [key, value] of Object.entries(req.query)) {
+            const firstValue = Array.isArray(value) ? value.join(',') : value
+            query[key] = String(firstValue)
+        }
+
         return {
             source: {
                 name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
@@ -141,9 +150,11 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                 url: '',
             },
             request: {
+                method: req.method,
                 headers,
                 ip,
                 body,
+                query,
                 stringBody: req.rawBody ?? '',
             },
         }
@@ -349,9 +360,13 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
 
     @instrumented('cdpSourceWebhooksConsumer.processWebhook')
     public async processWebhook(
-        webhookId: string,
+        identifier: string,
         req: ModifiedRequest
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        // NOTE: To simplify usage we allow setting a range of extensions for webhooks
+        // Currently we just ignore it
+        const [webhookId, _extension] = identifier.split('.')
+
         const [webhook, hogFunctionState] = await Promise.all([
             this.getWebhook(webhookId),
             this.hogWatcher.getCachedEffectiveState(webhookId),
