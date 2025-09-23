@@ -1,9 +1,9 @@
+import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect } from 'react'
 
 import { LemonButton, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { IconOpenInNew, IconPlayCircle } from 'lib/lemon-ui/icons'
@@ -12,8 +12,10 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { urls } from 'scenes/urls'
 
-import { NodeKind, SessionData } from '~/queries/schema/schema-general'
+import { SessionData } from '~/queries/schema/schema-general'
 import { ActivityTab, PropertyFilterType, PropertyOperator } from '~/types'
+
+import { sampledSessionsModalLogic } from './sampledSessionsModalLogic'
 
 interface SampledSessionsModalProps {
     isOpen: boolean
@@ -30,10 +32,9 @@ export function SampledSessionsModal({
     stepName,
     variant,
 }: SampledSessionsModalProps): JSX.Element {
-    const [recordingAvailability, setRecordingAvailability] = useState<Map<string, { hasRecording: boolean }>>(
-        new Map()
-    )
-    const [loading, setLoading] = useState(false)
+    const logic = sampledSessionsModalLogic({ sessionData })
+    const { recordingAvailability, recordingAvailabilityLoading } = useValues(logic)
+    const { setIsOpen } = useActions(logic)
 
     // Helper function to get events URL for a session ID
     const getEventsUrlForSession = (sessionId: string): string => {
@@ -52,50 +53,10 @@ export function SampledSessionsModal({
         return combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: eventsQuery }).url
     }
 
-    // Get all unique session IDs - memoized to prevent recreating on each render
-    const allSessionIds = useMemo(() => {
-        return Array.from(new Set(sessionData.map((s) => s.session_id)))
-    }, [sessionData])
-
-    // Check recording availability for sessions
+    // Sync isOpen state with logic
     useEffect(() => {
-        const checkRecordingAvailability = async (): Promise<void> => {
-            if (!isOpen || allSessionIds.length === 0) {
-                return
-            }
-
-            setLoading(true)
-            try {
-                const response = await api.recordings.list({
-                    kind: NodeKind.RecordingsQuery,
-                    session_ids: allSessionIds,
-                    date_from: '-90d',
-                    limit: allSessionIds.length,
-                })
-
-                const availabilityMap = new Map<string, { hasRecording: boolean }>()
-                response.results?.forEach((recording) => {
-                    availabilityMap.set(recording.id, {
-                        hasRecording: true,
-                    })
-                })
-                // Also add entries for sessions without recordings
-                allSessionIds.forEach((sessionId) => {
-                    if (!availabilityMap.has(sessionId)) {
-                        availabilityMap.set(sessionId, { hasRecording: false })
-                    }
-                })
-
-                setRecordingAvailability(availabilityMap)
-            } catch (error) {
-                console.error('Failed to check recording availability:', error)
-            } finally {
-                setLoading(false)
-            }
-        }
-
-        void checkRecordingAvailability()
-    }, [isOpen, allSessionIds])
+        setIsOpen(isOpen)
+    }, [isOpen, setIsOpen])
 
     const openSessionRecording = (sessionId: string, eventUuid: string): void => {
         sessionPlayerModalLogic.actions.openSessionPlayer({
@@ -141,7 +102,7 @@ export function SampledSessionsModal({
                 const sessionInfo = recordingAvailability.get(session.session_id)
                 const hasRecording = sessionInfo?.hasRecording || false
 
-                if (loading) {
+                if (recordingAvailabilityLoading) {
                     return <Spinner className="text-sm" />
                 }
 
@@ -174,7 +135,7 @@ export function SampledSessionsModal({
                         dataSource={sessionData}
                         size="small"
                         emptyState="No sessions for this step"
-                        loading={loading}
+                        loading={recordingAvailabilityLoading}
                     />
                 </div>
 
