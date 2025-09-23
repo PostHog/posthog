@@ -63,6 +63,8 @@ const dummyDataVisualizationLogicProps: DataVisualizationLogicProps = {
     query: globalQuery,
     setQuery: (setter) => {
         globalQuery = setter(globalQuery)
+        dummyDataVisualizationLogicProps.query = globalQuery
+        dataVisualizationLogic.build(dummyDataVisualizationLogicProps)
     },
     editMode: false,
     dataNodeCollectionId: 'new-test-SQL',
@@ -164,6 +166,8 @@ describe('seriesBreakdownLogic', () => {
             chartSettings: {
                 goalLines: undefined,
                 seriesBreakdownColumn: 'test_column',
+                xAxis: undefined,
+                yAxis: [],
             },
         })
     })
@@ -181,8 +185,8 @@ describe('seriesBreakdownLogic', () => {
         logic.mount()
 
         await expectLogic(logic).toMatchValues({
-            showSeriesBreakdown: true,
             selectedSeriesBreakdownColumn: 'test_column',
+            showSeriesBreakdown: true,
         })
 
         expect(globalQuery).toEqual({
