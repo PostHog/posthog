@@ -61,7 +61,8 @@ async def validate_llm_single_session_summary_with_videos_activity(
     # Store the updated summary in the database
     summary_row.summary = updated_summary.data
     summary_row.run_metadata = asdict(updated_run_metadata)
-    await summary_row.asave(update_fields=["summary", "run_metadata"])
+    # TODO: Enable back after testing, don't want to store updates to iterate on the logic first
+    # await summary_row.asave(update_fields=["summary", "run_metadata"])
 
     # Pick events that happened before/after the exception, if they fit within the video duration
     # TODO: Decide if I need it

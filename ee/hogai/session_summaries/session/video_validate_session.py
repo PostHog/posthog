@@ -170,7 +170,6 @@ class SessionSummaryVideoValidator:
     def _prepare_moment_input_from_summary_event(
         self, prompt: str, event: EnrichedKeyActionSerializer
     ) -> SessionMomentInput | None:
-        # TODO: Keep uuids for videos though
         event_id = event.data["event_id"]  # Using event id (hex) instead of uuid for simpler input/output
         ms_from_start = event.data.get("milliseconds_since_start")
         if ms_from_start is None:
@@ -216,7 +215,7 @@ class SessionSummaryVideoValidator:
     ) -> str:
         """Generate a prompt for validating a video"""
         template_dir = Path(__file__).parent / "templates" / "video-validation"
-        # Remove excessive content (UUIDs, URLs, etc.) from session summary to not feed LLM excessive info
+        # Remove excessive content (UUIDs, etc.) from session summary to not feed LLM excessive info
         mini_summary = IntermediateSessionSummarySerializer(data=self.summary.data)
         mini_summary.is_valid(raise_exception=True)
         # Keep only moment ids and descriptions to not feed LLM excessive info
