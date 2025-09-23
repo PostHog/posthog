@@ -515,14 +515,12 @@ class TaxonomyAgentToolkit:
                 results.append(TaxonomyErrorMessages.property_not_found(property_name, entity_name))
                 continue
 
-            # Get the result - either by index (for entity properties) or by lookup (for event properties)
             if is_indexed:
                 if i >= len(property_results):
                     results.append(TaxonomyErrorMessages.property_not_found(property_name, entity_name))
                     continue
                 prop_result = property_results[i]
             else:
-                # For event properties, find the result by property name
                 prop_result = next((r for r in property_results if r.property == property_name), None)
                 if prop_result is None:
                     results.append(TaxonomyErrorMessages.property_not_found(property_name, entity_name))
