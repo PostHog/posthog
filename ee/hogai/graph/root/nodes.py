@@ -342,8 +342,38 @@ class RootNode(RootNodeUIContextMixin):
             self._aget_core_memory_text(),
         )
 
+        # Add context messages on start of the conversation.
+        messages_to_replace: list[AssistantMessageUnion] = []
+        if self._is_first_turn(state) and (context_prompts := await self._get_context_prompts(state, config)):
+            context_messages = [
+                HumanMessage(content=prompt, id=str(uuid4()), visible=False) for prompt in context_prompts
+            ]
+            messages_to_replace = self._insert_messages_before_start(
+                state.messages, context_messages, start_id=state.start_id
+            )
+
+        # Calculate the initial window.
+        langchain_messages = self._construct_messages(
+            messages_to_replace, state.root_conversation_start_id, state.root_tool_calls_count
+        )
+        window_id = state.root_conversation_start_id
+
         # Summarize the conversation if it's too long.
-        updated_messages, conversation_history, window_id = await self._get_messages(state, config, tools)
+        if await self._should_summarize_conversation(state, tools, langchain_messages):
+            summarizer = AnthropicConversationSummarizer(team=self._team, user=self._user)
+            summary = await summarizer.summarize(state, config)
+            summary_message = HumanMessage(
+                content=ROOT_CONVERSATION_SUMMARY_PROMPT.format(summary=summary), id=str(uuid4()), visible=False
+            )
+
+            # Insert the summary message before the last human message
+            messages_to_replace = self._insert_messages_before_start(
+                messages_to_replace or state.messages, [summary_message], start_id=state.start_id
+            )
+
+            # Update window
+            window_id = self._find_new_window_id(messages_to_replace)
+            langchain_messages = self._construct_messages(messages_to_replace, window_id, state.root_tool_calls_count)
 
         # Build system prompt with conditional session summarization and insight search sections
         system_prompt_template = ROOT_SYSTEM_PROMPT
@@ -391,15 +421,15 @@ class RootNode(RootNodeUIContextMixin):
         # Mark the longest default prefix as cacheable
         add_cache_control(system_prompts[-1])
 
-        message = await self._get_model(state, tools).ainvoke(system_prompts + conversation_history, config)
+        message = await self._get_model(state, tools).ainvoke(system_prompts + langchain_messages, config)
         assistant_message = normalize_ai_anthropic_message(message)
 
-        return PartialAssistantState(
-            root_conversation_start_id=window_id,
-            messages=ReplaceMessages([*updated_messages, assistant_message])
-            if updated_messages
-            else [assistant_message],
-        )
+        new_messages: list[AssistantMessageUnion] = [assistant_message]
+        # Replace the messages with the new message window
+        if messages_to_replace:
+            new_messages = ReplaceMessages([*messages_to_replace, assistant_message])
+
+        return PartialAssistantState(root_conversation_start_id=window_id, messages=new_messages)
 
     async def get_reasoning_message(
         self, input: BaseState, default_message: Optional[str] = None
@@ -410,34 +440,6 @@ class RootNode(RootNodeUIContextMixin):
         if ui_context and (ui_context.dashboards or ui_context.insights):
             return ReasoningMessage(content="Calculating context")
         return None
-
-    async def _get_messages(
-        self, state: AssistantState, config: RunnableConfig, tools: list[type[BaseModel]]
-    ) -> tuple[list[AssistantMessageUnion], list[BaseMessage], str | None]:
-        max_messages: list[AssistantMessageUnion] = []
-        if self._is_first_turn(state):
-            context_prompts = await self._get_context_prompts(state, config)
-            if context_prompts:
-                max_messages = self._inject_context_messages(state, context_prompts)
-
-        langchain_messages = self._construct_messages(
-            max_messages, state.root_conversation_start_id, state.root_tool_calls_count
-        )
-        window_id = state.root_conversation_start_id
-
-        if await self._should_summarize_conversation(state, tools, langchain_messages):
-            summarizer = AnthropicConversationSummarizer(team=self._team, user=self._user)
-            summary = await summarizer.summarize(state, config)
-            max_messages.append(
-                HumanMessage(
-                    content=ROOT_CONVERSATION_SUMMARY_PROMPT.format(summary=summary), id=str(uuid4()), visible=False
-                )
-            )
-
-            window_id = self._find_new_window_id(max_messages)
-            langchain_messages = self._construct_messages(max_messages, window_id, state.root_tool_calls_count)
-
-        return max_messages, langchain_messages, window_id
 
     def _find_new_window_id(
         self, messages: list[AssistantMessageUnion], max_messages: int = 10, max_tokens: int = 1000
@@ -589,7 +591,7 @@ class RootNode(RootNodeUIContextMixin):
         return available_tools
 
     def _get_assistant_messages_in_window(
-        self, messages: list[AssistantMessageUnion], window_start_id: str | None = None
+        self, messages: Sequence[AssistantMessageUnion], window_start_id: str | None = None
     ) -> list[RootMessageUnion]:
         filtered_conversation = [message for message in messages if isinstance(message, RootMessageUnion)]
         if window_start_id is not None:
@@ -624,13 +626,15 @@ class RootNode(RootNodeUIContextMixin):
         human_messages = {message.content for message in state.messages if isinstance(message, HumanMessage)}
         return [prompt for prompt in context_prompts if prompt not in human_messages]
 
-    def _inject_context_messages(
-        self, state: AssistantState, context_prompts: list[str]
+    def _insert_messages_before_start(
+        self,
+        messages: Sequence[AssistantMessageUnion],
+        new_messages: Sequence[AssistantMessageUnion],
+        start_id: str | None = None,
     ) -> list[AssistantMessageUnion]:
-        human_messages = [HumanMessage(content=prompt, id=str(uuid4()), visible=False) for prompt in context_prompts]
-        # -1 to make the context messages appear before the start message
-        start_idx = find_start_message_idx(state.messages, state.start_id) - 1
-        return [*state.messages[:start_idx], *human_messages, *state.messages[start_idx:]]
+        # -1 to make the messages appear before the start message
+        start_idx = find_start_message_idx(messages, start_id) - 1
+        return [*messages[:start_idx], *new_messages, *messages[start_idx:]]
 
     def _construct_messages(
         self,
