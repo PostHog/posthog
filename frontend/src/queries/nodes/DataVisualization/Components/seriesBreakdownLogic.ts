@@ -49,10 +49,7 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
     props({ key: '' } as SeriesBreakdownLogicProps),
     connect(() => ({
         actions: [dataVisualizationLogic, ['clearAxis', 'setQuery']],
-        values: [
-            dataVisualizationLogic,
-            ['query', 'response', 'columns', 'selectedXAxis', 'selectedYAxis', 'chartSettings'],
-        ],
+        values: [dataVisualizationLogic, ['query', 'response', 'columns', 'selectedXAxis', 'selectedYAxis']],
     })),
     actions(({ values }) => ({
         addSeriesBreakdown: (columnName: string | null) => ({ columnName, response: values.response }),
@@ -60,14 +57,14 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
     })),
     selectors({
         selectedSeriesBreakdownColumn: [
-            (s) => [s.query, s.chartSettings],
-            (query, chartSettings): string | null => {
-                return query?.chartSettings?.seriesBreakdownColumn ?? chartSettings?.seriesBreakdownColumn ?? null
+            (s) => [s.query],
+            (query): string | null | undefined => {
+                return query?.chartSettings?.seriesBreakdownColumn
             },
         ],
         showSeriesBreakdown: [
             (s) => [s.selectedSeriesBreakdownColumn],
-            (selectedSeriesBreakdownColumn): boolean => !!selectedSeriesBreakdownColumn,
+            (selectedSeriesBreakdownColumn): boolean => selectedSeriesBreakdownColumn !== undefined,
         ],
         breakdownColumnValues: [
             (s) => [s.selectedSeriesBreakdownColumn, s.response, s.columns],
@@ -235,13 +232,15 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
             }))
         },
         deleteSeriesBreakdown: () => {
-            actions.setQuery((query) => ({
-                ...query,
-                chartSettings: {
-                    ...query.chartSettings,
-                    seriesBreakdownColumn: null,
-                },
-            }))
+            actions.setQuery((query) => {
+                return {
+                    ...query,
+                    chartSettings: {
+                        ...query.chartSettings,
+                        seriesBreakdownColumn: undefined,
+                    },
+                }
+            })
         },
         clearAxis: () => {
             actions.setQuery((query) => ({

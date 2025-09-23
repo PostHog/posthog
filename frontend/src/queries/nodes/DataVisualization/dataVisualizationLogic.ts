@@ -497,7 +497,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             {
                 _setQuery: (state, { node }) => node.chartSettings ?? state,
                 updateChartSettings: (state, { settings }) => {
-                    return { ...mergeObject(state, settings) }
+                    return { ...state, ...settings }
                 },
             },
         ],
