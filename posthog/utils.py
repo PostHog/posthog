@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo
 from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
+from django.db import ProgrammingError
 from django.db.utils import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from django.template.loader import get_template
@@ -531,12 +532,16 @@ async def initialize_self_capture_api_token():
     User = apps.get_model("posthog", "User")
     Team = apps.get_model("posthog", "Team")
 
-    user = (
-        await User.objects.filter(last_login__isnull=False)
-        .order_by("-last_login")
-        .select_related("current_team")
-        .afirst()
-    )
+    try:
+        user = (
+            await User.objects.filter(last_login__isnull=False)
+            .order_by("-last_login")
+            .select_related("current_team")
+            .afirst()
+        )
+    except ProgrammingError as e:
+        logger.warning(f"Failed to get user for self-capture, ignoring: {e}")
+        return
     # Get the current user's team (or first team in the instance) to set self capture configs
     team = None
     if user and getattr(user, "current_team", None):
