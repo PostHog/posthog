@@ -159,7 +159,9 @@ class GeminiProvider:
             yield f"data: {json.dumps({'type': 'error', 'error': f'Unexpected error'})}\n\n"
             return
 
-    def understand_video(self, video_bytes: bytes, mime_type: str, prompt: str) -> str | None:
+    def understand_video(
+        self, video_bytes: bytes, mime_type: str, prompt: str, trace_id: str | None = None
+    ) -> str | None:
         """
         Understand a video and return a summary using the provided prompt
         https://ai.google.dev/gemini-api/docs/video-understanding
@@ -183,6 +185,7 @@ class GeminiProvider:
                         Part(text=prompt),
                     ]
                 ),
+                posthog_trace_id=trace_id or str(uuid.uuid4()),
             )
             return response.text
         except APIError as e:

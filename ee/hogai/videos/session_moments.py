@@ -52,10 +52,11 @@ class SessionMomentOutput(SessionMomentInput):
 class SessionMomentsLLMAnalyzer:
     """Generate videos for Replay session events and analyze them with LLM"""
 
-    def __init__(self, session_id: str, team_id: int, user: User):
+    def __init__(self, session_id: str, team_id: int, user: User, trace_id: str | None = None):
         self.session_id = session_id
         self.team_id = team_id
         self.user = user
+        self.trace_id = trace_id
 
     async def analyze(
         self, moments_input: list[SessionMomentInput], expires_after_days: int, failed_moments_min_ratio: float
@@ -203,7 +204,7 @@ class SessionMomentsLLMAnalyzer:
                 f.write(video_bytes)
             provider = GeminiProvider(model_id=DEFAULT_VIDEO_UNDERSTANDING_MODEL)
             content = provider.understand_video(
-                video_bytes=video_bytes, mime_type=DEFAULT_EXPORT_MIME_TYPE, prompt=prompt
+                video_bytes=video_bytes, mime_type=DEFAULT_EXPORT_MIME_TYPE, prompt=prompt, trace_id=self.trace_id
             )
             if not content:
                 logger.warning(

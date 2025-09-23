@@ -1,5 +1,6 @@
 import copy
 import json
+import uuid
 from dataclasses import asdict, dataclass
 from math import ceil
 from pathlib import Path
@@ -7,7 +8,6 @@ from typing import Any, cast
 
 import yaml
 import structlog
-import temporalio
 from glom import (
     PathAccessError,
     assign as assign_value,
@@ -54,13 +54,17 @@ class SessionSummaryVideoValidator:
         run_metadata: dict[str, Any],
         team_id: int,
         user: User,
+        trace_id: str | None = None,
     ) -> None:
         self.session_id = session_id
         self.team_id = team_id
         self.user = user
         self.summary = summary
         self.run_metadata = run_metadata
-        self.moments_analyzer = SessionMomentsLLMAnalyzer(session_id=session_id, team_id=team_id, user=user)
+        self.trace_id = trace_id
+        self.moments_analyzer = SessionMomentsLLMAnalyzer(
+            session_id=session_id, team_id=team_id, user=user, trace_id=trace_id
+        )
 
     async def validate_session_summary_with_videos(
         self, model_to_use: str
@@ -255,14 +259,13 @@ class SessionSummaryVideoValidator:
             f.write(validation_prompt)
         # Call LLM with the validation prompt
         # TODO: Provide trace id as an argument
-        trace_id = temporalio.activity.info().workflow_id
         updates_raw = await call_llm(
             input_prompt=validation_prompt,
             user_key=self.user.id,
             session_id=self.session_id,
             model=model_to_use,
             system_prompt=system_prompt,
-            trace_id=trace_id,
+            trace_id=self.trace_id or str(uuid.uuid4()),
         )
         updates_content = updates_raw.choices[0].message.content
         if updates_content is None:
