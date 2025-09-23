@@ -1,5 +1,7 @@
+import { IconPerson } from '@posthog/icons'
+
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { IconExclamation } from 'lib/lemon-ui/icons'
+import { IconExclamation, IconRobot } from 'lib/lemon-ui/icons'
 import { isObject } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 
@@ -62,6 +64,22 @@ export function AIEventExpanded({ event }: { event: Record<string, any> }): JSX.
     )
 }
 
+const isHumanMessage = (message: Record<string, any>): boolean => {
+    return message.type === 'human' || message.role === 'user' || message.role === 'human'
+}
+
+const isAIMessage = (message: Record<string, any>): boolean => {
+    return (
+        (message.type === 'ai' || message.role === 'assistant' || message.role === 'ai') &&
+        !!message.content?.length &&
+        message.visible !== false
+    )
+}
+
+const isDisplayableAIMessage = (message: Record<string, any>): boolean => {
+    return isHumanMessage(message) || isAIMessage(message)
+}
+
 export function AIEventSummary({ event }: { event: Record<string, any> }): JSX.Element | null {
     if (event.properties.$ai_is_error) {
         return (
@@ -71,5 +89,47 @@ export function AIEventSummary({ event }: { event: Record<string, any> }): JSX.E
             </div>
         )
     }
-    return null
+
+    const inputMessages = (
+        (event.properties?.$ai_input_state?.messages as Record<string, any>[] | undefined) ??
+        (event.properties?.$ai_input as Record<string, any>[] | undefined) ??
+        []
+    ).filter(isDisplayableAIMessage)
+    const outputMessages = (
+        (event.properties?.$ai_output_state?.messages as Record<string, any>[] | undefined) ??
+        (event.properties?.$ai_output_choices as Record<string, any>[] | undefined) ??
+        []
+    ).filter(isDisplayableAIMessage)
+    const seen = new Set<string>()
+    const messageChain: Array<{ id: string; content: string; role: string }> = []
+
+    for (const m of [...inputMessages, ...outputMessages]) {
+        const role = m.role && !m.type ? (m.role === 'user' ? 'human' : 'ai') : m.type
+        const key = `${role}:${m.content}`
+
+        if (!seen.has(key)) {
+            seen.add(key)
+            messageChain.push({ id: m.id, content: m.content, role })
+        }
+    }
+
+    return (
+        <div className="hidden @sm:flex flex-col items-center gap-1 text-muted-alt">
+            {messageChain.map((m) => (
+                <div
+                    className={cn(
+                        'flex flex-row w-full items-center',
+                        isHumanMessage(m) ? 'justify-end' : 'justify-start'
+                    )}
+                    key={m.id}
+                >
+                    {isAIMessage(m) && <IconRobot className="mr-1 text-2xl" />}
+                    <div className="max-w-2/3 border rounded px-2 py-1 text-wrap text-sm bg-surface-primary">
+                        {m.content}
+                    </div>
+                    {isHumanMessage(m) && <IconPerson className="ml-1 text-2xl" />}
+                </div>
+            ))}
+        </div>
+    )
 }
