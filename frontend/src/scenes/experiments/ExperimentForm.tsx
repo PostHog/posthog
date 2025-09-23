@@ -157,7 +157,7 @@ const ExperimentFormFields = (): JSX.Element => {
                     <SceneSection
                         title="Experiment type"
                         description="Select your experiment setup, this cannot be changed once saved."
-                        className={cn('gap-y-0 mt-6')}
+                        className={cn('mt-6')}
                     >
                         <LemonRadio
                             value={experiment.type}
@@ -196,7 +196,7 @@ const ExperimentFormFields = (): JSX.Element => {
                     <SceneSection
                         title="Participant type"
                         description="Determines on what level you want to aggregate metrics. You can change this later, but flag values for users will change so you need to reset the experiment for accurate results."
-                        className={cn('gap-y-0 mt-6')}
+                        className={cn('mt-6')}
                     >
                         <LemonRadio
                             value={
