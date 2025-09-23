@@ -170,18 +170,9 @@ class BaseTableType(Type):
                 return VirtualTableType(table_type=self, field=name, virtual_table=field)
             if isinstance(field, ExpressionField):
                 return ExpressionFieldType(
-                    table_type=self,
-                    name=name,
-                    expr=field.expr,
-                    isolate_scope=field.isolate_scope or False,
-                    nullable=(field.nullable if field.nullable is not None else True),
-                    # we penalize the tables with not defined nullable fields
+                    table_type=self, name=name, expr=field.expr, isolate_scope=field.isolate_scope or False
                 )
-            return FieldType(
-                name=name,
-                table_type=self,
-                nullable=(field.nullable if field.nullable is not None else True),  # type: ignore[attr-defined]
-            )
+            return FieldType(name=name, table_type=self)
 
         raise QueryError(f"Field not found: {name}")
 
