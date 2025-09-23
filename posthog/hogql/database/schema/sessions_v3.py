@@ -215,9 +215,9 @@ def select_from_sessions_table_v3(
         "$entry_has_gclid": arg_min_merge_field("entry_has_gclid"),
         "$entry_has_fbclid": arg_min_merge_field("entry_has_fbclid"),
         # the count columns here do not come from the "count" columns in the raw table, instead aggregate the uniq columns
-        "$pageview_count": ast.Call(name="uniqMerge", args=[ast.Field(chain=[table_name, "pageview_uniq"])]),
-        "$screen_count": ast.Call(name="uniqMerge", args=[ast.Field(chain=[table_name, "screen_uniq"])]),
-        "$autocapture_count": ast.Call(name="uniqMerge", args=[ast.Field(chain=[table_name, "autocapture_uniq"])]),
+        "$pageview_count": ast.Call(name="uniqExactMerge", args=[ast.Field(chain=[table_name, "pageview_uniq"])]),
+        "$screen_count": ast.Call(name="uniqExactMerge", args=[ast.Field(chain=[table_name, "screen_uniq"])]),
+        "$autocapture_count": ast.Call(name="uniqExactMerge", args=[ast.Field(chain=[table_name, "autocapture_uniq"])]),
         "$page_screen_autocapture_count_up_to": ast.Call(
             name="uniqUpToMerge",
             params=[ast.Constant(value=1)],
