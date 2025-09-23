@@ -246,8 +246,8 @@ class ConversionGoalProcessor:
         if conversion_event:
             # For specific conversion events, we need both conversion and pageview logic
             if conversion_event == "$pageview":
-                # For pageview conversions, use only the pageview filter to prevent double-counting
-                # Otherwise, we would count the same pageview twice
+                # For pageview conversions, we only need attribution pageviews (with UTM data).
+                # No need for separate conversion filter since conversion IS the pageview.
                 event_filter = self._build_pageview_event_filter(date_conditions, utm_campaign_field, utm_source_field)
             else:
                 # For non-pageview conversions, use both filters (no overlap possible)
