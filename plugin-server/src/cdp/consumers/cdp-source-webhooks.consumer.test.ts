@@ -212,6 +212,22 @@ describe('SourceWebhooksConsumer', () => {
                 const body = Buffer.from(res.body).toString()
                 expect(body).toContain('GIF')
             })
+
+            it('should allow capturing an event using GET request with gif extension', async () => {
+                const res = await doGetRequest({
+                    webhookId: hogFunctionPixel.id + '.gif',
+                    body: {
+                        event: 'my-event',
+                        distinct_id: 'test-distinct-id',
+                    },
+                })
+                expect(res.status).toEqual(200)
+                expect(res.body).toBeInstanceOf(Buffer)
+                expect(res.headers['content-type']).toEqual('image/gif; charset=utf-8')
+                // parse body
+                const body = Buffer.from(res.body).toString()
+                expect(body).toContain('GIF')
+            })
         })
 
         describe('hog flow processing', () => {

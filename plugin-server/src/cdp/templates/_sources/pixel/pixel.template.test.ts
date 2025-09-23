@@ -10,6 +10,14 @@ describe('pixel template', () => {
         const fixedTime = DateTime.fromISO('2025-01-01T00:00:00Z').toJSDate()
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.getTime())
     })
+
+    const GOOD_RESPONSE = {
+        httpResponse: {
+            body: 'R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==',
+            status: 200,
+        },
+    }
+
     it('should respond with a 1x1 pixel', async () => {
         const response = await tester.invoke(
             {
@@ -50,14 +58,7 @@ describe('pixel template', () => {
             ]
         `
         )
-        expect(response.execResult).toMatchInlineSnapshot(`
-            {
-              "httpResponse": {
-                "body": "R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==",
-                "status": 200,
-              },
-            }
-        `)
+        expect(response.execResult).toEqual(GOOD_RESPONSE)
     })
 
     it('should respond with pixel even if event cannot be parsed', async () => {
@@ -80,13 +81,6 @@ describe('pixel template', () => {
         expect(response.error).toBeUndefined()
         expect(response.finished).toEqual(true)
         expect(response.capturedPostHogEvents).toEqual([])
-        expect(response.execResult).toMatchInlineSnapshot(`
-            {
-                "httpResponse": {
-                    "body": "R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==",
-                    "status": 200,
-                },
-            }
-        `)
+        expect(response.execResult).toEqual(GOOD_RESPONSE)
     })
 })

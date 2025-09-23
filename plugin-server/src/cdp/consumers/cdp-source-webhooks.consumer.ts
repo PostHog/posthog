@@ -360,9 +360,13 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
 
     @instrumented('cdpSourceWebhooksConsumer.processWebhook')
     public async processWebhook(
-        webhookId: string,
+        identifier: string,
         req: ModifiedRequest
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
+        // NOTE: To simplify usage we allow setting a range of extensions for webhooks
+        // Currently we just ignore it
+        const [webhookId, _extension] = identifier.split('.')
+
         const [webhook, hogFunctionState] = await Promise.all([
             this.getWebhook(webhookId),
             this.hogWatcher.getCachedEffectiveState(webhookId),
