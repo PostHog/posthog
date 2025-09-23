@@ -5,7 +5,7 @@ from posthog.temporal.ai.session_summary.activities.patterns import (
     extract_session_group_patterns_activity,
     split_session_summaries_into_chunks_for_patterns_extraction_activity,
 )
-from posthog.temporal.ai.session_summary.activities.videos import (
+from posthog.temporal.ai.session_summary.activities.video_validation import (
     validate_llm_single_session_summary_with_videos_activity,
 )
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs

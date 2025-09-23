@@ -21,7 +21,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.redis import get_client
 from posthog.sync import database_sync_to_async
-from posthog.temporal.ai.session_summary.activities.videos import (
+from posthog.temporal.ai.session_summary.activities.video_validation import (
     validate_llm_single_session_summary_with_videos_activity,
 )
 from posthog.temporal.ai.session_summary.state import (
@@ -342,7 +342,7 @@ class SummarizeSingleSessionWorkflow(PostHogWorkflow):
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
-        # Generate videos for blocking issues to check if they are valid
+        # Validate session summary with videos and apply updates
         await temporalio.workflow.execute_activity(
             validate_llm_single_session_summary_with_videos_activity,
             inputs,
