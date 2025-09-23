@@ -1,0 +1,31 @@
+- path: key_actions.0.events.5.abandonment
+  current_value: false
+  new_value: null
+- path: key_actions.0.events.5.confusion
+  current_value: false
+  new_value: null
+- path: key_actions.0.events.5.description
+  current_value: 'Encountered blocking error in error tracking: missing path in store'
+  new_value: null
+- path: key_actions.0.events.5.exception
+  current_value: blocking
+  new_value: null
+- path: segment_outcomes.0.success
+  current_value: false
+  new_value: null
+- path: segment_outcomes.0.summary
+  current_value: User explored multiple analytics features but was blocked by a technical
+      error in error tracking.
+  new_value: null
+- path: segments.0.name
+  current_value: Explored analytics features and session replay, encountered error
+      in error tracking
+  new_value: null
+- path: session_outcome.description
+  current_value: User actively explored analytics, session replay, and error tracking,
+      but a blocking error in error tracking prevented full feature use and likely disrupted
+      their workflow.
+  new_value: null
+- path: session_outcome.success
+  current_value: false
+  new_value: null

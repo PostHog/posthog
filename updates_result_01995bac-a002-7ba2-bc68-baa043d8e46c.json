@@ -1,0 +1,30 @@
+[
+    {
+        "path": "key_actions.0.events.5.description",
+        "new_value": "Viewed Error tracking feature (no exceptions shown)"
+    },
+    {
+        "path": "key_actions.0.events.5.exception",
+        "new_value": null
+    },
+    {
+        "path": "segment_outcomes.0.success",
+        "new_value": true
+    },
+    {
+        "path": "segment_outcomes.0.summary",
+        "new_value": "User explored analytics, error tracking, surveys, and session replay features."
+    },
+    {
+        "path": "segments.0.name",
+        "new_value": "Explored analytics, error tracking, surveys, and session replay features"
+    },
+    {
+        "path": "session_outcome.description",
+        "new_value": "User successfully explored analytics, error tracking, surveys, and session replay features without encountering blocking errors."
+    },
+    {
+        "path": "session_outcome.success",
+        "new_value": true
+    }
+]

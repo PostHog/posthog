@@ -1,0 +1,167 @@
+{
+    "key_actions": [
+        {
+            "events": [
+                {
+                    "abandonment": false,
+                    "confusion": false,
+                    "current_url": "http://localhost:8010/",
+                    "description": "User opted in and entered the application",
+                    "event": "$opt_in",
+                    "event_id": "d66f4f4c",
+                    "event_index": 0,
+                    "event_type": null,
+                    "event_uuid": "01995bac-a005-76d0-9e92-f8ae52cfc0d4",
+                    "exception": null,
+                    "milliseconds_since_start": 0,
+                    "session_id": "01995bac-a002-7ba2-bc68-baa043d8e46c",
+                    "timestamp": "2025-09-18T07:14:23.889000+00:00",
+                    "window_id": "01995bac-a002-7ba2-bc68-baa1a21f6b9a"
+                },
+                {
+                    "abandonment": false,
+                    "confusion": false,
+                    "current_url": "http://localhost:8010/project/2",
+                    "description": "Viewed main project dashboard and triggered multiple dashboard queries",
+                    "event": "$pageview",
+                    "event_id": "add68946",
+                    "event_index": 8,
+                    "event_type": null,
+                    "event_uuid": "01995bac-a475-7b2f-8ff6-1e4753cc622a",
+                    "exception": null,
+                    "milliseconds_since_start": 326,
+                    "session_id": "01995bac-a002-7ba2-bc68-baa043d8e46c",
+                    "timestamp": "2025-09-18T07:14:25.035000+00:00",
+                    "window_id": "01995bac-a002-7ba2-bc68-baa1a21f6b9a"
+                },
+                {
+                    "abandonment": false,
+                    "confusion": false,
+                    "current_url": "http://localhost:8010/project/2",
+                    "description": "Navigated to LLM analytics and product analytics sections",
+                    "event": "$autocapture",
+                    "event_id": "1147e01a",
+                    "event_index": 41,
+                    "event_type": "click",
+                    "event_uuid": "01995bac-acbb-7030-a21d-390f6ee3f0ac",
+                    "exception": null,
+                    "milliseconds_since_start": 2431,
+                    "session_id": "01995bac-a002-7ba2-bc68-baa043d8e46c",
+                    "timestamp": "2025-09-18T07:14:27.140000+00:00",
+                    "window_id": "01995bac-a002-7ba2-bc68-baa1a21f6b9a"
+                },
+                {
+                    "abandonment": false,
+                    "confusion": false,
+                    "current_url": "http://localhost:8010/project/2",
+                    "description": "Explored dashboards, LLM analytics, product analytics, SQL editor, and web analytics",
+                    "event": "$autocapture",
+                    "event_id": "2c97d09c",
+                    "event_index": 75,
+                    "event_type": "click",
+                    "event_uuid": "01995bac-bb06-748e-94ec-7ec96bbadcfc",
+                    "exception": null,
+                    "milliseconds_since_start": 6095,
+                    "session_id": "01995bac-a002-7ba2-bc68-baa043d8e46c",
+                    "timestamp": "2025-09-18T07:14:30.804000+00:00",
+                    "window_id": "01995bac-a002-7ba2-bc68-baa1a21f6b9a"
+                },
+                {
+                    "abandonment": false,
+                    "confusion": false,
+                    "current_url": "http://localhost:8010/project/2/web",
+                    "description": "Accessed session replay and error tracking features",
+                    "event": "$autocapture",
+                    "event_id": "a9f18137",
+                    "event_index": 105,
+                    "event_type": "click",
+                    "event_uuid": "01995bac-ccba-7c47-9af8-661a3e35e272",
+                    "exception": null,
+                    "milliseconds_since_start": 10624,
+                    "session_id": "01995bac-a002-7ba2-bc68-baa043d8e46c",
+                    "timestamp": "2025-09-18T07:14:35.333000+00:00",
+                    "window_id": "01995bac-a002-7ba2-bc68-baa1a21f6b9a"
+                },
+                {
+                    "abandonment": false,
+                    "confusion": false,
+                    "current_url": "http://localhost:8010/project/2/error_tracking",
+                    "description": "Encountered blocking error in error tracking: missing path in store",
+                    "event": "$exception",
+                    "event_id": "5e7fc9d4",
+                    "event_index": 113,
+                    "event_type": null,
+                    "event_uuid": "01995bac-cf44-7127-8c6b-60dfa839ee2d",
+                    "exception": "blocking",
+                    "milliseconds_since_start": 12386,
+                    "session_id": "01995bac-a002-7ba2-bc68-baa043d8e46c",
+                    "timestamp": "2025-09-18T07:14:37.095000+00:00",
+                    "window_id": "01995bac-a002-7ba2-bc68-baa1a21f6b9a"
+                },
+                {
+                    "abandonment": false,
+                    "confusion": false,
+                    "current_url": "http://localhost:8010/project/2/error_tracking",
+                    "description": "Navigated to surveys and showed product intent",
+                    "event": "$autocapture",
+                    "event_id": "739c2808",
+                    "event_index": 114,
+                    "event_type": "click",
+                    "event_uuid": "01995bac-d3e0-74ba-a35f-f964102c64d0",
+                    "exception": null,
+                    "milliseconds_since_start": 12449,
+                    "session_id": "01995bac-a002-7ba2-bc68-baa043d8e46c",
+                    "timestamp": "2025-09-18T07:14:37.158000+00:00",
+                    "window_id": "01995bac-a002-7ba2-bc68-baa1a21f6b9a"
+                },
+                {
+                    "abandonment": false,
+                    "confusion": false,
+                    "current_url": "http://localhost:8010/project/2/surveys",
+                    "description": "Returned to session replay, filtered recordings, and fetched updated list",
+                    "event": "$autocapture",
+                    "event_id": "33b6f4fc",
+                    "event_index": 117,
+                    "event_type": "click",
+                    "event_uuid": "01995bac-ddc4-720e-8fd7-9b0a21c452dd",
+                    "exception": null,
+                    "milliseconds_since_start": 14981,
+                    "session_id": "01995bac-a002-7ba2-bc68-baa043d8e46c",
+                    "timestamp": "2025-09-18T07:14:39.690000+00:00",
+                    "window_id": "01995bac-a002-7ba2-bc68-baa1a21f6b9a"
+                }
+            ],
+            "segment_index": 0
+        }
+    ],
+    "segment_outcomes": [
+        {
+            "segment_index": 0,
+            "success": false,
+            "summary": "User explored multiple analytics features but was blocked by a technical error in error tracking."
+        }
+    ],
+    "segments": [
+        {
+            "end_event_id": "d76f5d70",
+            "index": 0,
+            "meta": {
+                "abandonment_count": 0,
+                "confusion_count": 0,
+                "duration": 18,
+                "duration_percentage": 1.0,
+                "events_count": 130,
+                "events_percentage": 1.0,
+                "exception_count": 1,
+                "failure_count": 1,
+                "key_action_count": 8
+            },
+            "name": "Explored analytics features and session replay, encountered error in error tracking",
+            "start_event_id": "d66f4f4c"
+        }
+    ],
+    "session_outcome": {
+        "description": "User actively explored analytics, session replay, and error tracking, but a blocking error in error tracking prevented full feature use and likely disrupted their workflow.",
+        "success": false
+    }
+}
