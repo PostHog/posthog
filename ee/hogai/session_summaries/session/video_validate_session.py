@@ -239,15 +239,13 @@ class SessionSummaryVideoValidator:
         model_to_use: str,
     ) -> list[dict[str, str]]:
         # Generate prompt for video validation
-        # TODO: Fix - validation prompt now include lots of metadata, not only the prompt
         validation_prompt = self._generate_video_validation_prompt(
             description_results=description_results,
             fields_to_update=fields_to_update,
         )
+        # TODO: Remove after testing
         with open(f"validation_prompt_{self.session_id}.txt", "w") as f:
             f.write(validation_prompt)
-        # TODO: Revert after testing
-        # Temporary disabling to focus on the last part
         # Call LLM with the validation prompt
         trace_id = temporalio.activity.info().workflow_id
         updates_raw = await call_llm(
