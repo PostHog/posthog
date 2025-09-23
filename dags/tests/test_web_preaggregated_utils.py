@@ -248,9 +248,8 @@ class TestWebPreaggregatedUtils:
         assert "Partition validation failed after 1 attempts" in str(exc_info.value)
         assert "20240102" in str(exc_info.value)
 
-    @patch("dags.web_preaggregated_utils.sleep")
     @patch("dags.web_preaggregated_utils.sync_partitions_on_replicas")
-    def test_validate_partitions_on_all_hosts_retry_success(self, mock_sync, mock_sleep):
+    def test_validate_partitions_on_all_hosts_retry_success(self, mock_sync):
         """Test validation succeeds on retry after initial failure."""
         context = Mock()
         cluster = Mock()
@@ -270,18 +269,17 @@ class TestWebPreaggregatedUtils:
         # Set up side effect to return different results on each call
         cluster.map_hosts_by_roles.return_value.result.side_effect = [first_results, second_results]
 
-        # Should succeed on second attempt
+        # Should succeed on second attempt (tenacity handles retry internally)
         validate_partitions_on_all_hosts(
-            context, cluster, "test_table", ["20240101", "20240102"], max_retries=2, retry_delay=1
+            context, cluster, "test_table", ["20240101", "20240102"], max_retries=2, retry_delay=0
         )
 
-        # Verify retry behavior
-        mock_sleep.assert_called_once_with(1)
-        mock_sync.assert_called_once_with(context, cluster, "test_table")
+        # Verify sync was called once after first failure with validation disabled
+        mock_sync.assert_called_once_with(context, cluster, "test_table", validate_after_sync=False)
         context.log.info.assert_any_call("All hosts validated successfully for table test_table")
 
     def test_validate_partitions_on_all_hosts_with_query_error(self):
-        """Test validation handles query errors on hosts."""
+        """Test validation handles query errors on hosts - should fail immediately without retries."""
         context = Mock()
         cluster = Mock()
 
@@ -292,13 +290,14 @@ class TestWebPreaggregatedUtils:
         }
         cluster.map_hosts_by_roles.return_value.result.return_value = host_results
 
-        # Should raise Failure due to query error
+        # Should raise Failure immediately due to query error (no retries)
         with pytest.raises(Failure) as exc_info:
             validate_partitions_on_all_hosts(
-                context, cluster, "test_table", ["20240101", "20240102"], max_retries=1, retry_delay=0
+                context, cluster, "test_table", ["20240101", "20240102"], max_retries=3, retry_delay=0
             )
 
-        assert "Partition validation failed" in str(exc_info.value)
+        # Check that error message is about the query error, not about retries
+        assert "Error querying host host2: Connection timeout" in str(exc_info.value)
         context.log.error.assert_any_call("Error querying host host2: Connection timeout")
 
     def test_validate_partitions_on_all_hosts_empty_response(self):
@@ -323,36 +322,39 @@ class TestWebPreaggregatedUtils:
         context.log.warning.assert_any_call("No partition data returned from host host2")
 
     @patch("dags.web_preaggregated_utils.validate_partitions_on_all_hosts")
-    @patch("dags.web_preaggregated_utils.get_partitions")
-    def test_swap_partitions_from_staging_calls_validation(self, mock_get_partitions, mock_validate):
+    def test_swap_partitions_from_staging_calls_validation(self, mock_validate):
         """Test that swap_partitions_from_staging calls validation before swapping."""
+        from datetime import datetime
+
         context = Mock()
         cluster = Mock()
 
-        # Mock partitions found in staging table
-        mock_get_partitions.return_value = ["20240101", "20240102"]
+        # Mock partition_time_window to determine expected partitions
+        context.partition_time_window = (datetime(2024, 1, 1), datetime(2024, 1, 3))
 
         swap_partitions_from_staging(context, cluster, "target_table", "staging_table")
 
-        # Verify validation was called with correct parameters
+        # Verify validation was called with expected partitions from time window
         mock_validate.assert_called_once_with(context, cluster, "staging_table", ["20240101", "20240102"])
 
         # Verify replacement operations were called
         assert cluster.any_host.call_count == 2  # Once for each partition
 
     @patch("dags.web_preaggregated_utils.validate_partitions_on_all_hosts")
-    @patch("dags.web_preaggregated_utils.get_partitions")
-    def test_swap_partitions_from_staging_skips_validation_when_no_partitions(self, mock_get_partitions, mock_validate):
-        """Test that swap_partitions_from_staging skips validation when no partitions found."""
+    def test_swap_partitions_from_staging_fails_when_no_partition_window(self, mock_validate):
+        """Test that swap_partitions_from_staging fails when no partition_time_window provided."""
         context = Mock()
         cluster = Mock()
 
-        # Mock no partitions found in staging table
-        mock_get_partitions.return_value = []
+        # Mock no partition_time_window
+        context.partition_time_window = None
 
-        swap_partitions_from_staging(context, cluster, "target_table", "staging_table")
+        with pytest.raises(Failure) as exc_info:
+            swap_partitions_from_staging(context, cluster, "target_table", "staging_table")
 
-        # Verify validation was not called when no partitions
+        assert "partition_time_window is required" in str(exc_info.value)
+
+        # Verify validation was not called
         mock_validate.assert_not_called()
 
         # Verify no replacement operations were called
