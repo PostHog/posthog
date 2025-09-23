@@ -384,6 +384,8 @@ class ModelMigrator:
 
         used_tool = "Claude"
 
+        logger.info("🤖 Invoking %s for AI-assisted edit on %s", used_tool, file_path)
+
         try:
             raw_output = self._call_llm_cli("claude", prompt_with_instructions, original_content)
         except LLMLimitReachedError as limit_error:
@@ -456,7 +458,11 @@ class ModelMigrator:
             # Build AppConfig with optional admin registrations
             ready_method = ""
             if admin_registrations:
-                ready_imports = "from django.contrib import admin\n        from .admin import (\n"
+                ready_imports = (
+                    "# TODO: Hacky\n        "
+                    "_ = list(admin.site._registry)\n        "
+                    "from django.contrib import admin\n        from .admin import (\n"
+                )
                 for _model_name, admin_class in admin_registrations:
                     ready_imports += f"            {admin_class},\n"
                 ready_imports += "        )\n        from .models import (\n"
@@ -624,20 +630,11 @@ class {app_name.title()}Config(AppConfig):
 
         logger.info("✅ Created backend admin file: %s", new_admin_file)
 
-        # Create __init__.py in backend to enable admin auto-registration
+        # Create __init__.py in backend
         backend_init = backend_dir / "__init__.py"
-        if backend_init.exists():
-            with open(backend_init) as f:
-                init_content = f.read()
-        else:
+        if not backend_init.exists():
             init_content = ""
-
-        # Add admin import to auto-register when the app loads
-        if "from . import admin" not in init_content:
-            init_content += "\n# Auto-register admin classes\nfrom . import admin  # noqa: F401\n"
-            with open(backend_init, "w") as f:
-                f.write(init_content)
-            logger.info("✅ Updated backend __init__.py to auto-register admin classes")
+            f.write(init_content)
 
         # Remove the old admin files and update imports in admin __init__.py
         self._update_admin_init_after_move(admin_files_to_move, model_names, target_app)
@@ -695,8 +692,9 @@ class {app_name.title()}Config(AppConfig):
 
             # Remove the old admin files
             for admin_file, _filename in moved_files:
-                admin_file.unlink()
-                logger.info("🗑️  Removed old admin file: %s", admin_file)
+                if admin_file.exists():
+                    admin_file.unlink()
+                    logger.info("🗑️  Removed old admin file: %s", admin_file)
 
             logger.info("✅ Updated admin __init__.py after moving admin classes")
 
@@ -1054,7 +1052,7 @@ class {app_name.title()}Config(AppConfig):
             return False, "", ""
 
         # Find generated migration files
-        migration_dir = self.root_dir / "products" / target_app / "migrations"
+        migration_dir = self.root_dir / "products" / target_app / "backend" / "migrations"
         posthog_migration_dir = self.root_dir / "posthog" / "migrations"
 
         # Find the newest migration files
@@ -1121,14 +1119,13 @@ class {app_name.title()}Config(AppConfig):
                 "   - Replace <modelname1>, <modelname2>, etc. with ALL the lowercase model names being deleted in this migration.\n"
                 "   - Replace <target_app> with the lowercase app label of the new app (e.g. 'experiments').\n"
                 "   - There must be exactly one update_content_type function and it must loop over all models.\n\n"
-                "2. For every model that is currently being deleted in this migration:\n"
-                "   - Wrap the DeleteModel operation inside a SeparateDatabaseAndState.\n"
-                "   - Place DeleteModel ONLY in state_operations.\n"
+                "2. No model should actually be deleted in this migration:\n"
+                "   - Wrap ALL operations in a single migrations.SeparateDatabaseAndState block.\n"
                 "   - Place RunPython(update_content_type) ONLY in database_operations.\n"
-                "   - Do NOT include any RemoveField operations. Do NOT drop any database tables or columns.\n\n"
-                "3. Do not duplicate update_content_type. It must be defined once and referenced in every SeparateDatabaseAndState.\n\n"
+                "   - Do NOT drop any database tables or columns.\n\n"
+                "3. Do not duplicate update_content_type. It must be defined once and referenced in SeparateDatabaseAndState.\n\n"
                 "4. The final migration must:\n"
-                "   - Delete the models in state only (so Django no longer tracks them under 'posthog').\n"
+                "   - Delete and alter any fields and the models in state only (so Django no longer tracks them under 'posthog').\n"
                 "   - Keep the underlying database tables intact.\n"
                 "   - Update django_content_type rows so they point to the new app label.\n\n"
                 "5. Do not make ANY other changes. Keep dependencies, imports, and class Migration exactly as they are except for the required edits above.\n"
