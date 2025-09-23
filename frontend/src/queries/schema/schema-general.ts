@@ -1523,7 +1523,7 @@ export type RefreshType =
 export interface NamedQueryRequest {
     name?: string
     description?: string
-    query?: HogQLQuery
+    query?: HogQLQuery | InsightQueryNode
     is_active?: boolean
 }
 
@@ -1547,6 +1547,7 @@ export interface NamedQueryRunRequest {
     filters_override?: DashboardFilter
     variables_override?: Record<string, Record<string, any>>
     variables_values?: Record<string, any>
+    query_override?: Record<string, any>
 }
 
 export interface QueryRequest {

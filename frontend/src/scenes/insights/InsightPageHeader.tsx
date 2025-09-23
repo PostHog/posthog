@@ -2,7 +2,7 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import { IconInfo, IconPencil, IconShare, IconTrash, IconWarning } from '@posthog/icons'
+import { IconCode2, IconInfo, IconPencil, IconShare, IconTrash, IconWarning } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
@@ -31,18 +31,21 @@ import {
 } from 'lib/components/Sharing/templateLinkMessages'
 import { SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { isEmptyObject, isObject } from 'lib/utils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { getInsightDefinitionUrl } from 'lib/utils/insightLinks'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
+import { queryEndpointLogic } from 'scenes/data-warehouse/editor/output-pane-tabs/queryEndpointLogic'
 import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { insightCommandLogic } from 'scenes/insights/insightCommandLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -65,7 +68,7 @@ import {
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { tagsModel } from '~/models/tagsModel'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { HogQLQuery, InsightQueryNode, NodeKind } from '~/queries/schema/schema-general'
 import { isDataTableNode, isDataVisualizationNode, isEventsQuery, isHogQLQuery } from '~/queries/utils'
 import {
     AccessControlLevel,
@@ -103,11 +106,13 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     )
 
     // insightDataLogic
-    const { query, queryChanged, showQueryEditor, showDebugPanel, hogQL, exportContext, hogQLVariables } = useValues(
-        insightDataLogic(insightProps)
-    )
+    const { query, queryChanged, showQueryEditor, showDebugPanel, hogQL, exportContext, hogQLVariables, insightQuery } =
+        useValues(insightDataLogic(insightProps))
     const { toggleQueryEditorPanel, toggleDebugPanel } = useActions(insightDataLogic(insightProps))
     const { createStaticCohort } = useActions(exportsLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { createQueryEndpoint } = useActions(queryEndpointLogic({ tabId: 'qe-insight' }))
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
@@ -408,6 +413,29 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                     },
                                 ]}
                             />
+                        ) : null}
+
+                        {featureFlags[FEATURE_FLAGS.EMBEDDED_ANALYTICS] ? (
+                            <ButtonPrimitive
+                                onClick={() => {
+                                    {
+                                        query &&
+                                            createQueryEndpoint({
+                                                name: (
+                                                    defaultInsightName || Math.random().toString(36).substring(2, 15)
+                                                )
+                                                    .slice(0, 20)
+                                                    .replace(/\s+/g, '-'),
+                                                description: insight.description,
+                                                query: insightQuery as HogQLQuery | InsightQueryNode,
+                                            })
+                                    }
+                                }}
+                                menuItem
+                            >
+                                <IconCode2 />
+                                Create query endpoint
+                            </ButtonPrimitive>
                         ) : null}
 
                         {hogQL &&

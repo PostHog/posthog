@@ -16583,7 +16583,14 @@
                     "type": "string"
                 },
                 "query": {
-                    "$ref": "#/definitions/HogQLQuery"
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/HogQLQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/InsightQueryNode"
+                        }
+                    ]
                 }
             },
             "type": "object"
@@ -16597,6 +16604,9 @@
                 },
                 "filters_override": {
                     "$ref": "#/definitions/DashboardFilter"
+                },
+                "query_override": {
+                    "type": "object"
                 },
                 "refresh": {
                     "$ref": "#/definitions/RefreshType",

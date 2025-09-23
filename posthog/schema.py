@@ -9060,6 +9060,7 @@ class NamedQueryRunRequest(BaseModel):
         default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
     )
     filters_override: Optional[DashboardFilter] = None
+    query_override: Optional[dict[str, Any]] = None
     refresh: Optional[RefreshType] = Field(
         default=RefreshType.BLOCKING,
         description=(
@@ -11975,16 +11976,6 @@ class MaxRecordingUniversalFilters(BaseModel):
     )
 
 
-class NamedQueryRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: Optional[str] = None
-    is_active: Optional[bool] = None
-    name: Optional[str] = None
-    query: Optional[HogQLQuery] = None
-
-
 class PropertyGroupFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -13863,6 +13854,18 @@ class MultiVisualizationMessage(BaseModel):
     id: Optional[str] = None
     type: Literal["ai/multi_viz"] = "ai/multi_viz"
     visualizations: list[VisualizationItem]
+
+
+class NamedQueryRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+    name: Optional[str] = None
+    query: Optional[
+        Union[HogQLQuery, Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]]
+    ] = None
 
 
 class WebVitalsQuery(BaseModel):
