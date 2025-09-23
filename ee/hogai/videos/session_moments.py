@@ -78,7 +78,9 @@ class SessionMomentsLLMAnalyzer:
         )
         # Analyze videos with LLM
         results = await self._analyze_moment_videos_with_llm(
-            moment_id_to_asset_id=moment_id_to_asset_id, moment_id_to_moment=moment_id_to_moment
+            moment_id_to_asset_id=moment_id_to_asset_id,
+            moment_id_to_moment=moment_id_to_moment,
+            expires_after_days=expires_after_days,
         )
         return results
 
@@ -213,7 +215,10 @@ class SessionMomentsLLMAnalyzer:
             return err  # Let caller handle the error
 
     async def _analyze_moment_videos_with_llm(
-        self, moment_id_to_asset_id: dict[str, int], moment_id_to_moment: dict[str, SessionMomentInput]
+        self,
+        moment_id_to_asset_id: dict[str, int],
+        moment_id_to_moment: dict[str, SessionMomentInput],
+        expires_after_days: int,
     ) -> list[SessionMomentOutput]:
         """Send videos to LLM for validation and get analysis results"""
         tasks = {}
@@ -234,6 +239,8 @@ class SessionMomentsLLMAnalyzer:
             if not res:
                 continue
             moment = moment_id_to_moment[moment_id]
+            created_at = now()
+            expires_after = created_at + timedelta(days=expires_after_days)
             output = SessionMomentOutput(
                 moment_id=moment.moment_id,
                 timestamp_s=moment.timestamp_s,
@@ -241,6 +248,8 @@ class SessionMomentsLLMAnalyzer:
                 prompt=moment.prompt,
                 asset_id=moment_id_to_asset_id[moment_id],
                 video_description=res,
+                created_at=created_at,
+                expires_after=expires_after,
             )
             results.append(output)
         # No additional check for how many moments were analyzed as they can be limited by video size

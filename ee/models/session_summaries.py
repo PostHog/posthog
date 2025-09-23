@@ -27,6 +27,8 @@ class SessionSummaryVisualConfirmationResult:
     timestamp_s: int  # Timestamp of starting point in the video
     duration_s: int  # Duration of the video in seconds
     video_description: str  # What LLM found in the video
+    created_at: str  # When the video was created, ISO format
+    expires_after: str  # When the video will expire, ISO format
 
     @classmethod
     def from_session_moment_output(
@@ -39,6 +41,8 @@ class SessionSummaryVisualConfirmationResult:
             timestamp_s=session_moment_output.timestamp_s,
             duration_s=session_moment_output.duration_s,
             video_description=session_moment_output.video_description,
+            created_at=session_moment_output.created_at.isoformat(),
+            expires_after=session_moment_output.expires_after.isoformat(),
         )
 
 
