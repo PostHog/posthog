@@ -167,9 +167,6 @@ export function elementIsVisible(element: HTMLElement, cache: WeakMap<HTMLElemen
             cache.set(element, false)
             return false
         }
-        if (isInvisible) {
-            return false
-        }
 
         // Check parent chain for display/visibility
         let parent = element.parentElement
