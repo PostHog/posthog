@@ -83,7 +83,7 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
     })),
     selectors({
         breakdownColumnValues: [
-            (state) => [state.selectedSeriesBreakdownColumn, state.response, state.columns],
+            (s) => [s.selectedSeriesBreakdownColumn, s.response, s.columns],
             (breakdownColumn, response, columns): string[] => {
                 if (!response || breakdownColumn === null) {
                     return []
@@ -101,13 +101,13 @@ export const seriesBreakdownLogic = kea<seriesBreakdownLogicType>([
             },
         ],
         seriesBreakdownData: [
-            (state) => [
-                state.selectedSeriesBreakdownColumn,
-                state.breakdownColumnValues,
-                state.selectedYAxis,
-                state.selectedXAxis,
-                state.response,
-                state.columns,
+            (s) => [
+                s.selectedSeriesBreakdownColumn,
+                s.breakdownColumnValues,
+                s.selectedYAxis,
+                s.selectedXAxis,
+                s.response,
+                s.columns,
             ],
             (
                 selectedBreakdownColumn,

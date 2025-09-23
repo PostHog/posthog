@@ -633,7 +633,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         presetChartHeight: [
-            (state, props) => [props.key, state.dashboardId, state.activeSceneId],
+            (s, props) => [props.key, s.dashboardId, s.activeSceneId],
             (key, dashboardId, activeSceneId) => {
                 // Key for SQL editor based visiaulizations
                 const sqlEditorScene = activeSceneId === Scene.SQLEditor
@@ -651,7 +651,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             (cachedResults: AnyResponseType | null): boolean => !!cachedResults,
         ],
         yData: [
-            (state) => [state.selectedYAxis, state.response, state.columns],
+            (s) => [s.selectedYAxis, s.response, s.columns],
             (ySeries, response, columns): AxisSeries<number>[] => {
                 if (!response || ySeries === null || ySeries.length === 0) {
                     return [EmptyYAxisSeries]
@@ -707,7 +707,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         xData: [
-            (state) => [state.selectedXAxis, state.response, state.columns],
+            (s) => [s.selectedXAxis, s.response, s.columns],
             (xSeries, response, columns): AxisSeries<string> | null => {
                 if (!response || xSeries === null) {
                     return {
@@ -738,7 +738,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         tabularData: [
-            (state) => [state.tabularColumns, state.response],
+            (s) => [s.tabularColumns, s.response],
             (tabularColumns, response): TableDataCell<any>[][] => {
                 if (!response || tabularColumns === null) {
                     return []
@@ -815,7 +815,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             },
         ],
         tabularColumns: [
-            (state) => [state.tabularColumnSettings, state.response, state.columns],
+            (s) => [s.tabularColumnSettings, s.response, s.columns],
             (tabularColumnSettings, response, columns): AxisSeries<any>[] => {
                 if (!response) {
                     return []
@@ -834,14 +834,14 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         ],
         dataVisualizationProps: [() => [(_, props) => props], (props): DataVisualizationLogicProps => props],
         isTableVisualization: [
-            (state) => [state.visualizationType],
+            (s) => [s.visualizationType],
             (visualizationType): boolean =>
                 // BoldNumber relies on yAxis formatting so it's considered a table visualization
                 visualizationType === ChartDisplayType.ActionsTable ||
                 visualizationType === ChartDisplayType.BoldNumber,
         ],
         showTableSettings: [
-            (state) => [state.visualizationType],
+            (s) => [s.visualizationType],
             (visualizationType): boolean =>
                 visualizationType === ChartDisplayType.ActionsTable ||
                 visualizationType === ChartDisplayType.BoldNumber,
