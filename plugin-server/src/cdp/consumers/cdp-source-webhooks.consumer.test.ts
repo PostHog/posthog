@@ -90,9 +90,8 @@ describe('SourceWebhooksConsumer', () => {
             server.close()
         })
 
-        const doRequest = async (options: {
+        const doPostRequest = async (options: {
             webhookId?: string
-            method?: string
             headers?: Record<string, string>
             body?: Record<string, any>
         }) => {
@@ -101,6 +100,17 @@ describe('SourceWebhooksConsumer', () => {
                 .set('Content-Type', 'application/json')
                 .set(options.headers ?? {})
                 .send(options.body)
+        }
+
+        const doGetRequest = async (options: {
+            webhookId: string
+            headers?: Record<string, string>
+            body?: Record<string, any>
+        }) => {
+            return supertest(app)
+                .get(`/public/webhooks/${options.webhookId}`)
+                .set(options.headers ?? {})
+                .send()
         }
 
         const waitForBackgroundTasks = async () => {
@@ -117,7 +127,7 @@ describe('SourceWebhooksConsumer', () => {
 
         describe('hog function processing', () => {
             it('should 404 if the hog function does not exist', async () => {
-                const res = await doRequest({
+                const res = await doPostRequest({
                     webhookId: 'non-existent-hog-function-id',
                 })
                 expect(res.status).toEqual(404)
@@ -127,7 +137,7 @@ describe('SourceWebhooksConsumer', () => {
             })
 
             it('should capture an event using internal capture', async () => {
-                const res = await doRequest({
+                const res = await doPostRequest({
                     body: {
                         event: 'my-event',
                         distinct_id: 'test-distinct-id',
@@ -153,7 +163,7 @@ describe('SourceWebhooksConsumer', () => {
             })
 
             it('should log custom errors', async () => {
-                const res = await doRequest({
+                const res = await doPostRequest({
                     body: {
                         distinct_id: 'test-distinct-id',
                     },
@@ -170,7 +180,7 @@ describe('SourceWebhooksConsumer', () => {
             })
 
             it('should not receive sensitive headers', async () => {
-                await doRequest({
+                await doPostRequest({
                     headers: {
                         'x-forwarded-for': '127.0.0.1',
                         cookie: 'test=test',
@@ -194,8 +204,7 @@ describe('SourceWebhooksConsumer', () => {
             })
 
             it('should capture an event using GET request with the pixel template', async () => {
-                const res = await doRequest({
-                    method: 'GET',
+                const res = await doGetRequest({
                     webhookId: hogFunctionPixel.id,
                     body: {
                         event: 'my-event',
@@ -239,14 +248,14 @@ describe('SourceWebhooksConsumer', () => {
             })
 
             it('should 404 if the hog flow does not exist', async () => {
-                const res = await doRequest({
+                const res = await doPostRequest({
                     webhookId: 'non-existent-hog-flow-id',
                 })
                 expect(res.status).toEqual(404)
             })
 
             it('should invoke a workflow with the parsed inputs', async () => {
-                const res = await doRequest({
+                const res = await doPostRequest({
                     webhookId: hogFlow.id,
                     body: {
                         event: 'my-event',
@@ -265,7 +274,7 @@ describe('SourceWebhooksConsumer', () => {
             })
 
             it('should add logs and metrics', async () => {
-                const res = await doRequest({
+                const res = await doPostRequest({
                     webhookId: hogFlow.id,
                     body: {
                         event: 'my-event',
@@ -290,7 +299,7 @@ describe('SourceWebhooksConsumer', () => {
             })
 
             it('should add logs and metrics for a controlled failed hog flow', async () => {
-                const res = await doRequest({
+                const res = await doPostRequest({
                     webhookId: hogFlow.id,
                     body: {
                         event: 'my-event',
@@ -330,7 +339,7 @@ describe('SourceWebhooksConsumer', () => {
                     .build()
                 await insertHogFlow(hub.postgres, hogFlow)
 
-                const res = await doRequest({
+                const res = await doPostRequest({
                     webhookId: hogFlow.id,
                     body: {
                         event: 'my-event',
@@ -357,7 +366,7 @@ describe('SourceWebhooksConsumer', () => {
                     hogFunction,
                     HogWatcherState.degraded
                 )
-                const res = await doRequest({
+                const res = await doPostRequest({
                     body: {
                         event: 'my-event',
                         distinct_id: 'test-distinct-id',
@@ -375,7 +384,7 @@ describe('SourceWebhooksConsumer', () => {
                     hogFunction,
                     HogWatcherState.disabled
                 )
-                const res = await doRequest({})
+                const res = await doPostRequest({})
                 expect(res.status).toEqual(429)
                 expect(res.body).toEqual({
                     error: 'Disabled',

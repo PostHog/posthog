@@ -11,9 +11,17 @@ export const template: HogFunctionTemplate = {
     category: ['Custom'],
     code_language: 'hog',
     code: `
-
 if(inputs.debug) {
   print('Incoming request:', request.body)
+}
+
+if(request.method != 'GET') {
+  return {
+    'httpResponse': {
+      'status': 405,
+      'body': 'Method not allowed'
+    }
+  }
 }
 
 if(notEmpty(inputs.auth_header) and notEquals(inputs.auth_header, request.headers['authorization'])) {
