@@ -108,10 +108,6 @@ def drop_partitions_for_date_range(
 def get_expected_partitions_from_time_window(
     context: dagster.AssetExecutionContext,
 ) -> list[str]:
-    """Build list of expected partition IDs from the Dagster partition time window.
-
-    For daily partitions, returns a list like ['20240101', '20240102'] for the date range.
-    """
     if not context.partition_time_window:
         raise dagster.Failure("partition_time_window is required to determine expected partitions")
 
@@ -128,7 +124,10 @@ def get_expected_partitions_from_time_window(
 
 
 def sync_partitions_on_replicas(
-    context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, target_table: str, validate_after_sync: bool = True
+    context: dagster.AssetExecutionContext,
+    cluster: ClickhouseCluster,
+    target_table: str,
+    validate_after_sync: bool = True,
 ) -> None:
     context.log.info(f"Syncing replicas for {target_table} on all hosts")
     cluster.map_hosts_by_roles(
@@ -146,7 +145,6 @@ def sync_partitions_on_replicas(
 def _query_partitions_from_hosts(
     context: dagster.AssetExecutionContext, cluster: ClickhouseCluster, query: str
 ) -> dict:
-    """Execute partition query on all hosts and return results."""
     context.log.info(f"Executing partition validation query: {query}")
 
     def execute_query(client, query=query):
@@ -161,11 +159,6 @@ def _query_partitions_from_hosts(
 def _validate_host_partition_result(
     host_key: str, result, expected_partitions: list[str], context: dagster.AssetExecutionContext
 ) -> tuple[bool, list[str] | None]:
-    """Validate partition result from a single host.
-
-    Returns:
-        Tuple of (is_valid, missing_partitions)
-    """
     if result.error:
         # Query errors should fail immediately, not retry
         error_msg = f"Error querying host {host_key}: {result.error}"
@@ -196,11 +189,6 @@ def _get_missing_partitions_on_all_hosts(
     table_name: str,
     expected_partitions: list[str],
 ) -> dict[str, list[str]] | None:
-    """Check if all hosts have the expected partitions.
-
-    Returns:
-        None if all hosts valid, otherwise dict of missing partitions by host.
-    """
     query = f"""
         SELECT
             hostName() as host,
@@ -248,7 +236,6 @@ def validate_partitions_on_all_hosts(
         reraise=True,
     )
     def _validate_partitions_with_retry():
-        """Returns dict of missing partitions by host, or None if all valid."""
         attempt = (
             getattr(_validate_partitions_with_retry.retry.statistics.get("attempt_number", 1), "value", 1)
             if hasattr(_validate_partitions_with_retry, "retry")
@@ -297,6 +284,10 @@ def swap_partitions_from_staging(
     expected_partitions = get_expected_partitions_from_time_window(context)
     context.log.info(f"Swapping partitions {expected_partitions} from {staging_table} to {target_table}")
 
+    # Validate partitions exist on staging table before swapping
+    if expected_partitions:
+        validate_partitions_on_all_hosts(context, cluster, staging_table, expected_partitions)
+
     def replace_partition(client, pid):
         return client.execute(f"ALTER TABLE {target_table} REPLACE PARTITION '{pid}' FROM {staging_table}")
 
@@ -336,7 +327,6 @@ def recreate_staging_table(
     staging_table: str,
     replace_sql_func: Callable[[], str],
 ) -> None:
-    """Recreate staging table on all hosts using REPLACE TABLE."""
     context.log.info(f"Recreating staging table {staging_table}")
     # We generate a uuid with force_unique_zk_path=True, which we want to be unique per the cluster
     # so we must get the result statement string here instead of inside the lambda to run the

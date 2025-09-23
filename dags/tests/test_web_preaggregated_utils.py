@@ -173,7 +173,6 @@ class TestWebPreaggregatedUtils:
             assert web_job_timeout >= 600
 
     def test_recreate_staging_table_calls_sql_function_and_maps_to_hosts(self):
-        """Test that recreate_staging_table calls SQL function once and executes the same SQL on all hosts."""
         context = Mock()
         cluster = Mock()
 
@@ -200,7 +199,6 @@ class TestWebPreaggregatedUtils:
         cluster.map_hosts_by_roles.return_value.result.assert_called_once()
 
     def test_recreate_staging_table_logs_correct_table_name(self):
-        """Test that recreate_staging_table logs the correct staging table name."""
         context = Mock()
         cluster = Mock()
         mock_sql_func = Mock(return_value="CREATE TABLE test")
@@ -210,7 +208,6 @@ class TestWebPreaggregatedUtils:
         context.log.info.assert_called_once_with("Recreating staging table my_test_staging_table")
 
     def test_validate_partitions_on_all_hosts_success(self):
-        """Test successful validation when all hosts have expected partitions."""
         context = Mock()
         cluster = Mock()
 
@@ -228,7 +225,6 @@ class TestWebPreaggregatedUtils:
         context.log.info.assert_any_call("All hosts validated successfully for table test_table")
 
     def test_validate_partitions_on_all_hosts_missing_partitions(self):
-        """Test validation fails when hosts are missing partitions."""
         context = Mock()
         cluster = Mock()
 
@@ -250,7 +246,6 @@ class TestWebPreaggregatedUtils:
 
     @patch("dags.web_preaggregated_utils.sync_partitions_on_replicas")
     def test_validate_partitions_on_all_hosts_retry_success(self, mock_sync):
-        """Test validation succeeds on retry after initial failure."""
         context = Mock()
         cluster = Mock()
 
@@ -279,7 +274,6 @@ class TestWebPreaggregatedUtils:
         context.log.info.assert_any_call("All hosts validated successfully for table test_table")
 
     def test_validate_partitions_on_all_hosts_with_query_error(self):
-        """Test validation handles query errors on hosts - should fail immediately without retries."""
         context = Mock()
         cluster = Mock()
 
@@ -301,7 +295,6 @@ class TestWebPreaggregatedUtils:
         context.log.error.assert_any_call("Error querying host host2: Connection timeout")
 
     def test_validate_partitions_on_all_hosts_empty_response(self):
-        """Test validation handles empty responses from hosts."""
         context = Mock()
         cluster = Mock()
 
@@ -323,7 +316,6 @@ class TestWebPreaggregatedUtils:
 
     @patch("dags.web_preaggregated_utils.validate_partitions_on_all_hosts")
     def test_swap_partitions_from_staging_calls_validation(self, mock_validate):
-        """Test that swap_partitions_from_staging calls validation before swapping."""
         from datetime import datetime
 
         context = Mock()
@@ -342,7 +334,6 @@ class TestWebPreaggregatedUtils:
 
     @patch("dags.web_preaggregated_utils.validate_partitions_on_all_hosts")
     def test_swap_partitions_from_staging_fails_when_no_partition_window(self, mock_validate):
-        """Test that swap_partitions_from_staging fails when no partition_time_window provided."""
         context = Mock()
         cluster = Mock()
 
