@@ -595,7 +595,7 @@ class TaxonomyAgentToolkit:
             if isinstance(result, list):
                 result = result[0]  # TODO: This is temporary until we support parallel tool calls.
         elif tool_name == "retrieve_entity_properties":
-            # TODO:This is temporary until we support parallel tool calls.
+            # TODO: This is temporary until we support parallel tool calls.
             result = self.retrieve_entity_properties(tool_input.arguments.entity)[tool_input.arguments.entity]  # type: ignore
         elif tool_name == "retrieve_event_property_values":
             result = self.retrieve_event_or_action_property_values(

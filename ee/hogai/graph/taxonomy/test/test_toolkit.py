@@ -137,13 +137,13 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
     def test_retrieve_entity_properties_person(self):
         self._create_property_definition(PropertyDefinition.Type.PERSON, "email")
         result = self.toolkit.retrieve_entity_properties("person")
-        self.assertIn("email", result)
-        self.assertIn("String", result)
+        self.assertIn("email", result["person"])
+        self.assertIn("String", result["person"])
 
     def test_retrieve_entity_properties_session(self):
         result = self.toolkit.retrieve_entity_properties("session")
-        self.assertIn("$session_duration", result)
-        self.assertIn("properties", result)
+        self.assertIn("$session_duration", result["session"])
+        self.assertIn("properties", result["session"])
 
     def test_retrieve_entity_properties_group(self):
         create_group_type_mapping_without_created_at(
@@ -151,7 +151,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
         )
         self._create_property_definition(PropertyDefinition.Type.GROUP, "org_name", group_type_index=0)
         result = self.toolkit.retrieve_entity_properties("organization")
-        self.assertIn("org_name", result)
+        self.assertIn("org_name", result["organization"])
 
     @parameterized.expand(
         [
@@ -161,7 +161,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
     )
     def test_retrieve_entity_properties_edge_cases(self, entity, expected_content):
         result = self.toolkit.retrieve_entity_properties(entity)
-        self.assertIn(expected_content, result)
+        self.assertIn(expected_content, result[entity])
 
     def test_retrieve_multiple_entities_properties(self):
         """Test retrieving properties for multiple entities at once."""
@@ -201,7 +201,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
         """Test retrieving properties for a single entity."""
         result = self.toolkit.retrieve_entity_properties("person")
 
-        self.assertIn("Properties do not exist in the taxonomy for the entity person.", result)
+        self.assertIn("Properties do not exist in the taxonomy for the entity person.", result["person"])
         assert "person" in result
 
     @patch("ee.hogai.graph.taxonomy.toolkit.ActorsPropertyTaxonomyQueryRunner")
@@ -456,7 +456,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
             ("ask_user_for_help", {"request": "Help needed"}, "Help needed"),
         ]
     )
-    @patch.object(DummyToolkit, "retrieve_entity_properties", return_value="mocked")
+    @patch.object(DummyToolkit, "retrieve_entity_properties", return_value={"person": "mocked"})
     @patch.object(DummyToolkit, "retrieve_entity_property_values", return_value="mocked")
     @patch.object(DummyToolkit, "retrieve_event_or_action_properties", return_value="mocked")
     @patch.object(DummyToolkit, "retrieve_event_or_action_property_values", return_value="mocked")
