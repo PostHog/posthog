@@ -1179,6 +1179,7 @@ class ExperimentMetricOutlierHandling(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    ignore_zeros: Optional[bool] = None
     lower_bound_percentile: Optional[float] = None
     upper_bound_percentile: Optional[float] = None
 
@@ -12637,6 +12638,7 @@ class ExperimentMeanMetric(BaseModel):
     conversion_window: Optional[int] = None
     conversion_window_unit: Optional[FunnelConversionWindowTimeUnit] = None
     goal: Optional[ExperimentMetricGoal] = None
+    ignore_zeros: Optional[bool] = None
     kind: Literal["ExperimentMetric"] = "ExperimentMetric"
     lower_bound_percentile: Optional[float] = None
     metric_type: Literal["mean"] = "mean"
@@ -12652,6 +12654,7 @@ class ExperimentMeanMetricTypeProps(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    ignore_zeros: Optional[bool] = None
     lower_bound_percentile: Optional[float] = None
     metric_type: Literal["mean"] = "mean"
     source: Union[EventsNode, ActionsNode, ExperimentDataWarehouseNode]
