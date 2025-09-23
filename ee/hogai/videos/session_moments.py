@@ -167,7 +167,6 @@ class SessionMomentsLLMAnalyzer:
             asset = await ExportedAsset.objects.aget(id=asset_id)
             # Get content from either database or object storage
             if asset.content:
-                # TODO: Decide if the check is needed
                 # Content stored directly in database
                 return bytes(asset.content)
             elif asset.content_location:
