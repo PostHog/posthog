@@ -1537,15 +1537,18 @@ export const surveyLogic = kea<surveyLogicType>([
                     return SurveyQuestionBranchingType.NextQuestion
                 }
 
-                // If a value is mapped onto an integer, we're redirecting to a specific question
-                if (Number.isInteger(question.branching.responseValues[response])) {
-                    const nextQuestionIndex = question.branching.responseValues[response]
-                    return `${SurveyQuestionBranchingType.SpecificQuestion}:${nextQuestionIndex}`
+                const responseValue = question.branching.responseValues[response]
+
+                // If responseValue exists and is a number, it could be either:
+                // 1. A rating value (1, 2, 3, etc.) mapping to a question index
+                // 2. A choice index for SingleChoice questions mapping to a question index
+                if (typeof responseValue === 'number') {
+                    return `${SurveyQuestionBranchingType.SpecificQuestion}:${responseValue}`
                 }
 
-                // If any other value is present (practically only Confirmation message), return that value
-                if (question.branching?.responseValues?.[response]) {
-                    return question.branching.responseValues[response]
+                // If any other value is present (string values like "end", "next_question", etc.)
+                if (responseValue) {
+                    return responseValue
                 }
 
                 // No branching specified, default to Next question / Confirmation message
