@@ -46,28 +46,21 @@ export function FunnelBarVertical({ inCardView = false }: ChartParams): JSX.Elem
         1
     )
     // Calculate base bar width based on series count
-    const baseBarWidthPx =
-        seriesCount >= 60
-            ? 4
-            : seriesCount >= 20
-              ? 8
-              : seriesCount >= 12
-                ? 16
-                : seriesCount >= 10
-                  ? 20
-                  : seriesCount >= 8
-                    ? 24
-                    : seriesCount >= 6
-                      ? 32
-                      : seriesCount >= 5
-                        ? 40
-                        : seriesCount >= 4
-                          ? 48
-                          : seriesCount >= 3
-                            ? 64
-                            : seriesCount >= 2
-                              ? 96
-                              : 192
+    const widthLimits = [
+        { min: 60, width: 4 },
+        { min: 20, width: 8 },
+        { min: 12, width: 16 },
+        { min: 10, width: 20 },
+        { min: 8, width: 24 },
+        { min: 6, width: 32 },
+        { min: 5, width: 40 },
+        { min: 4, width: 48 },
+        { min: 3, width: 64 },
+        { min: 2, width: 96 },
+        { min: 0, width: 192 },
+    ]
+
+    const baseBarWidthPx = widthLimits.find(({ min }) => seriesCount >= min)?.width ?? 192
 
     // In card view, CSS will apply calc(var(--bar-width) / 2), so we need to compensate
     // by doubling the width we set so the final rendered width is appropriate
