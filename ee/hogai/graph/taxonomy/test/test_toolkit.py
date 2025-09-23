@@ -37,63 +37,63 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
         self.assertIsInstance(self.toolkit._team_group_types, list)
         self.assertIsInstance(self.toolkit._entity_names, list)
 
-    # @parameterized.expand(
-    #     [
-    #         ("person", ["person", "session"]),
-    #         ("session", ["person", "session"]),
-    #     ]
-    # )
-    # def test_entity_names_basic(self, entity, expected_base):
-    #     self.assertIn(entity, self.toolkit._entity_names)
-    #     for expected in expected_base:
-    #         self.assertIn(expected, self.toolkit._entity_names)
+    @parameterized.expand(
+        [
+            ("person", ["person", "session"]),
+            ("session", ["person", "session"]),
+        ]
+    )
+    def test_entity_names_basic(self, entity, expected_base):
+        self.assertIn(entity, self.toolkit._entity_names)
+        for expected in expected_base:
+            self.assertIn(expected, self.toolkit._entity_names)
 
-    # def test_entity_names_with_groups(self):
-    #     # Create group type mappings
-    #     for i, group_type in enumerate(["organization", "project"]):
-    #         create_group_type_mapping_without_created_at(
-    #             team=self.team, project_id=self.team.project_id, group_type_index=i, group_type=group_type
-    #         )
+    def test_entity_names_with_groups(self):
+        # Create group type mappings
+        for i, group_type in enumerate(["organization", "project"]):
+            create_group_type_mapping_without_created_at(
+                team=self.team, project_id=self.team.project_id, group_type_index=i, group_type=group_type
+            )
 
-    #     toolkit = DummyToolkit(self.team)
-    #     expected = ["person", "session", "organization", "project"]
-    #     self.assertEqual(toolkit._entity_names, expected)
+        toolkit = DummyToolkit(self.team)
+        expected = ["person", "session", "organization", "project"]
+        self.assertEqual(toolkit._entity_names, expected)
 
-    # @parameterized.expand(
-    #     [
-    #         ("$session_duration", True, "'30'\n- '146'\n- '2'\n- and many more distinct values"),
-    #         ("$channel_type", True, "Direct"),
-    #         ("nonexistent_property", False, "does not exist"),
-    #     ]
-    # )
-    # def test_retrieve_session_properties(self, property_name, should_contain_values, expected_content):
-    #     result = self.toolkit._retrieve_session_properties(property_name)
-    #     if should_contain_values:
-    #         self.assertIn(expected_content, result)
-    #     else:
-    #         self.assertIn(expected_content, result)
+    @parameterized.expand(
+        [
+            ("$session_duration", True, "'30'\n- '146'\n- '2'\n- and many more distinct values"),
+            ("$channel_type", True, "Direct"),
+            ("nonexistent_property", False, "does not exist"),
+        ]
+    )
+    def test_retrieve_session_properties(self, property_name, should_contain_values, expected_content):
+        result = self.toolkit._retrieve_session_properties(property_name)
+        if should_contain_values:
+            self.assertIn(expected_content, result)
+        else:
+            self.assertIn(expected_content, result)
 
-    # def test_enrich_props_with_descriptions(self):
-    #     props = [("$browser", "String"), ("custom_prop", "Numeric")]
-    #     enriched = self.toolkit._enrich_props_with_descriptions("event", props)
+    def test_enrich_props_with_descriptions(self):
+        props = [("$browser", "String"), ("custom_prop", "Numeric")]
+        enriched = self.toolkit._enrich_props_with_descriptions("event", props)
 
-    #     browser_prop = next((p for p in enriched if p[0] == "$browser"), None)
-    #     self.assertIsNotNone(browser_prop)
-    #     self.assertEqual(browser_prop[1], "String")
-    #     self.assertIsNotNone(browser_prop[2])
+        browser_prop = next((p for p in enriched if p[0] == "$browser"), None)
+        self.assertIsNotNone(browser_prop)
+        self.assertEqual(browser_prop[1], "String")
+        self.assertIsNotNone(browser_prop[2])
 
-    # @parameterized.expand(
-    #     [
-    #         ([], 0, False, "The property does not have any values"),
-    #         (["value1", "value2"], None, False, "- value1\n- value2\n- and many more distinct values"),
-    #         (["value1", "value2"], 5, False, "- value1\n- value2\n- and 3 more distinct values"),
-    #         (["string_val"], 1, True, '"string_val"'),
-    #         ([1.0, 2.0], 2, False, "'1'\n- '2'"),
-    #     ]
-    # )
-    # def test_format_property_values(self, sample_values, sample_count, format_as_string, expected_substring):
-    #     result = self.toolkit._format_property_values("test_property", sample_values, sample_count, format_as_string)
-    #     self.assertIn(expected_substring, result)
+    @parameterized.expand(
+        [
+            ([], 0, False, "The property does not have any values"),
+            (["value1", "value2"], None, False, "- value1\n- value2\n- and many more distinct values"),
+            (["value1", "value2"], 5, False, "- value1\n- value2\n- and 3 more distinct values"),
+            (["string_val"], 1, True, '"string_val"'),
+            ([1.0, 2.0], 2, False, "'1'\n- '2'"),
+        ]
+    )
+    def test_format_property_values(self, sample_values, sample_count, format_as_string, expected_substring):
+        result = self.toolkit._format_property_values("test_property", sample_values, sample_count, format_as_string)
+        self.assertIn(expected_substring, result)
 
     def _create_property_definition(self, prop_type, name="test_prop", group_type_index=None):
         """Helper to create property definitions"""

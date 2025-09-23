@@ -77,7 +77,7 @@ class TaxonomyAgentNode(
         ).bind_tools(
             self._toolkit.get_tools(),
             tool_choice="required",
-            parallel_tool_calls=True,
+            parallel_tool_calls=False,
         )
 
     def _get_default_system_prompts(self) -> list[str]:
