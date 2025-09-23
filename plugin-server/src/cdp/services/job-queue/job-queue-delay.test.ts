@@ -103,26 +103,34 @@ describe('CyclotronJobQueueDelay', () => {
 
         it.each([
             {
-                description: 'routes to returnTopic when scheduled time has passed',
+                scheduledTime: () => DateTime.now().plus({ hours: 24 }),
+                expectedTopic: 'cdp_cyclotron_delay-24h',
+            },
+            {
+                scheduledTime: () => DateTime.now().plus({ minutes: 60 }),
+                expectedTopic: 'cdp_cyclotron_delay-60m',
+            },
+            {
+                scheduledTime: () => DateTime.now().plus({ minutes: 20 }),
+                expectedTopic: 'cdp_cyclotron_delay-10m',
+            },
+            {
+                scheduledTime: () => DateTime.now().plus({ minutes: 10 }),
+                expectedTopic: 'cdp_cyclotron_hog',
+            },
+            {
                 scheduledTime: () => DateTime.now().minus({ minutes: 1 }),
                 expectedTopic: 'cdp_cyclotron_hog',
             },
             {
-                description: 'routes to returnTopic when scheduled time equals current time',
                 scheduledTime: () => DateTime.now(),
                 expectedTopic: 'cdp_cyclotron_hog',
             },
             {
-                description: 'routes back to delay queue when remaining delay exceeds maxDelayMs',
-                scheduledTime: () => DateTime.now().plus({ hours: 25 }),
-                expectedTopic: 'cdp_cyclotron_delay-10m',
-            },
-            {
-                description: 'routes to returnTopic when remaining delay fits within maxDelayMs',
-                scheduledTime: () => DateTime.now().plus({ minutes: 5 }),
+                scheduledTime: () => DateTime.now().minus({ minutes: 5 }),
                 expectedTopic: 'cdp_cyclotron_hog',
             },
-        ])('$description', async ({ scheduledTime, expectedTopic }) => {
+        ])('should route to $expectedTopic', async ({ scheduledTime, expectedTopic }) => {
             const returnTopic = 'cdp_cyclotron_hog'
             const mockMessage = {
                 key: Buffer.from('test-key'),
