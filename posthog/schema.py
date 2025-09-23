@@ -1195,6 +1195,13 @@ class ExperimentMetricOutlierHandling(BaseModel):
     upper_bound_percentile: Optional[float] = None
 
 
+class Status5(StrEnum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    PARTIAL = "partial"
+    FAILED = "failed"
+
+
 class ExperimentMetricType(StrEnum):
     FUNNEL = "funnel"
     MEAN = "mean"
@@ -1574,6 +1581,7 @@ class SessionTableVersion(StrEnum):
     AUTO = "auto"
     V1 = "v1"
     V2 = "v2"
+    V3 = "v3"
 
 
 class SessionsV2JoinMode(StrEnum):
@@ -2704,6 +2712,12 @@ class TimelineEntry(BaseModel):
     events: list[EventType]
     recording_duration_s: Optional[float] = Field(default=None, description="Duration of the recording in seconds.")
     sessionId: Optional[str] = Field(default=None, description="Session ID. None means out-of-session events")
+
+
+class DetailedResultsAggregationType(StrEnum):
+    TOTAL = "total"
+    AVERAGE = "average"
+    MEDIAN = "median"
 
 
 class TrendsFilterLegacy(BaseModel):
@@ -4130,6 +4144,7 @@ class MarketingAnalyticsSchemaField(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    isCurrency: bool
     required: bool
     type: list[MarketingAnalyticsSchemaFieldTypes]
 
@@ -5089,6 +5104,9 @@ class TrendsFilter(BaseModel):
     breakdown_histogram_bin_count: Optional[float] = None
     confidenceLevel: Optional[float] = None
     decimalPlaces: Optional[float] = None
+    detailedResultsAggregationType: Optional[DetailedResultsAggregationType] = Field(
+        default=None, description="detailed results table"
+    )
     display: Optional[ChartDisplayType] = ChartDisplayType.ACTIONS_LINE_GRAPH
     formula: Optional[str] = None
     formulaNodes: Optional[list[TrendsFormulaNode]] = Field(
@@ -9062,6 +9080,7 @@ class NamedQueryRunRequest(BaseModel):
         default=None, description="Client provided query ID. Can be used to retrieve the status or cancel the query."
     )
     filters_override: Optional[DashboardFilter] = None
+    query_override: Optional[dict[str, Any]] = None
     refresh: Optional[RefreshType] = Field(
         default=RefreshType.BLOCKING,
         description=(
@@ -11978,16 +11997,6 @@ class MaxRecordingUniversalFilters(BaseModel):
     )
 
 
-class NamedQueryRequest(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    description: Optional[str] = None
-    is_active: Optional[bool] = None
-    name: Optional[str] = None
-    query: Optional[HogQLQuery] = None
-
-
 class PropertyGroupFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -13446,6 +13455,20 @@ class ExperimentFunnelsQueryResponse(BaseModel):
     variants: list[ExperimentVariantFunnelsBaseStats]
 
 
+class ExperimentMetricTimeseries(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    computed_at: Optional[str] = None
+    created_at: str
+    errors: Optional[dict[str, str]] = None
+    experiment_id: float
+    metric_uuid: str
+    status: Status5
+    timeseries: Optional[dict[str, ExperimentQueryResponse]] = None
+    updated_at: str
+
+
 class ExperimentQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -13854,6 +13877,18 @@ class MultiVisualizationMessage(BaseModel):
     type: Literal["ai/multi_viz"] = "ai/multi_viz"
     visible: Optional[bool] = None
     visualizations: list[VisualizationItem]
+
+
+class NamedQueryRequest(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+    name: Optional[str] = None
+    query: Optional[
+        Union[HogQLQuery, Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]]
+    ] = None
 
 
 class WebVitalsQuery(BaseModel):
