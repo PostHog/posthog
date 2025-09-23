@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Automated model migration script for moving PostHog models into product apps.
-Uses bowler for refactoring and Claude Code CLI for intelligent migration editing.
+Uses LibCST for refactoring and intelligent migration editing.
 """
 
 import os
@@ -498,11 +498,12 @@ class {app_name.title()}Config(AppConfig):
 
         for admin_file, filename in admin_files_to_move:
             try:
-                with open(admin_file, "r") as f:
+                with open(admin_file) as f:
                     content = f.read()
 
                 # Parse the file to extract imports and classes
                 import ast
+
                 tree = ast.parse(content)
 
                 # Extract imports (excluding model imports which need to be updated)
@@ -549,11 +550,13 @@ class {app_name.title()}Config(AppConfig):
         for model_name in sorted(model_names):
             header.append(f"    {model_name},")
 
-        header.extend([
-            ")",
-            "",
-            "",
-        ])
+        header.extend(
+            [
+                ")",
+                "",
+                "",
+            ]
+        )
 
         # Combine everything
         final_content = "\n".join(header + combined_content)
@@ -566,7 +569,7 @@ class {app_name.title()}Config(AppConfig):
         # Create __init__.py in backend to enable admin auto-registration
         backend_init = backend_dir / "__init__.py"
         if backend_init.exists():
-            with open(backend_init, "r") as f:
+            with open(backend_init) as f:
                 init_content = f.read()
         else:
             init_content = ""
@@ -588,7 +591,7 @@ class {app_name.title()}Config(AppConfig):
         admin_init = self.root_dir / "posthog" / "admin" / "__init__.py"
 
         try:
-            with open(admin_init, "r") as f:
+            with open(admin_init) as f:
                 content = f.read()
 
             # Remove imports of moved admin classes
@@ -603,14 +606,14 @@ class {app_name.title()}Config(AppConfig):
 
             # Remove model imports that were moved
             # Pattern to match the import block from posthog.models
-            pattern = r'(from posthog\.models import \()(.*?)(\)\n)'
+            pattern = r"(from posthog\.models import \()(.*?)(\)\n)"
             match = re.search(pattern, content, re.DOTALL)
 
             if match:
                 import_start, import_content, import_end = match.groups()
 
                 # Filter out moved models
-                import_lines = [line.strip().rstrip(',') for line in import_content.strip().split('\n') if line.strip()]
+                import_lines = [line.strip().rstrip(",") for line in import_content.strip().split("\n") if line.strip()]
                 remaining_imports = []
 
                 for line in import_lines:
@@ -722,8 +725,8 @@ class {app_name.title()}Config(AppConfig):
         if updated_files > 0:
             logger.info("✅ Updated external references in %d files", updated_files)
 
-    def move_model_files_manually_then_bowler(self, source_files: list[str], target_app: str) -> bool:
-        """Move files manually first, then use bowler to update imports"""
+    def move_model_files_and_update_imports(self, source_files: list[str], target_app: str) -> bool:
+        """Move files manually first, then use LibCST to update imports"""
         logger.info("🔄 Moving %d model files...", len(source_files))
 
         target_dir = self.root_dir / "products" / target_app / "backend"
@@ -1115,11 +1118,11 @@ class {app_name.title()}Config(AppConfig):
         logger.info("📊 Performing comprehensive migration analysis...")
 
         migration_data = {
-            'model_names': set(),
-            'file_contents': {},
-            'admin_files': [],
-            'imports_to_update': {},
-            'external_references': []
+            "model_names": set(),
+            "file_contents": {},
+            "admin_files": [],
+            "imports_to_update": {},
+            "external_references": [],
         }
 
         # Parse all model files once
@@ -1136,33 +1139,32 @@ class {app_name.title()}Config(AppConfig):
 
             # Extract model classes from this file
             file_models = self._extract_models_from_content(content)
-            migration_data['model_names'].update(file_models)
+            migration_data["model_names"].update(file_models)
 
             # Store processed content
-            migration_data['file_contents'][source_file] = {
-                'content': content,
-                'models': file_models,
-                'path': source_path
+            migration_data["file_contents"][source_file] = {
+                "content": content,
+                "models": file_models,
+                "path": source_path,
             }
 
         # Find related admin files
-        migration_data['admin_files'] = self._find_admin_files(migration_data['model_names'])
+        migration_data["admin_files"] = self._find_admin_files(migration_data["model_names"])
 
         # Identify files that need import updates (using grep for efficiency)
-        migration_data['imports_to_update'] = self._find_files_needing_import_updates(
-            migration_data['model_names']
-        )
+        migration_data["imports_to_update"] = self._find_files_needing_import_updates(migration_data["model_names"])
 
         logger.info("📋 Analysis complete:")
-        logger.info("   Models found: %s", sorted(migration_data['model_names']))
-        logger.info("   Admin files: %d", len(migration_data['admin_files']))
-        logger.info("   Files needing updates: %d", len(migration_data['imports_to_update']))
+        logger.info("   Models found: %s", sorted(migration_data["model_names"]))
+        logger.info("   Admin files: %d", len(migration_data["admin_files"]))
+        logger.info("   Files needing updates: %d", len(migration_data["imports_to_update"]))
 
         return migration_data
 
     def _extract_models_from_content(self, content: str) -> set[str]:
         """Extract Django model class names from file content"""
         import ast
+
         model_names = set()
 
         try:
@@ -1171,13 +1173,14 @@ class {app_name.title()}Config(AppConfig):
                 if isinstance(node, ast.ClassDef):
                     # Check if this is likely a Django model
                     for base in node.bases:
-                        if (isinstance(base, ast.Attribute) and
-                            isinstance(base.value, ast.Name) and
-                            base.value.id == "models" and
-                            base.attr == "Model"):
+                        if (
+                            isinstance(base, ast.Attribute)
+                            and isinstance(base.value, ast.Name)
+                            and base.value.id == "models"
+                            and base.attr == "Model"
+                        ):
                             model_names.add(node.name)
-                        elif (isinstance(base, ast.Name) and
-                              base.id in ["Model", "AbstractBaseUser", "AbstractUser"]):
+                        elif isinstance(base, ast.Name) and base.id in ["Model", "AbstractBaseUser", "AbstractUser"]:
                             model_names.add(node.name)
         except SyntaxError:
             logger.warning("⚠️  Syntax error parsing content, skipping model extraction")
@@ -1215,18 +1218,20 @@ class {app_name.title()}Config(AppConfig):
             # Build relevant patterns
             relevant_patterns = [
                 "posthog.models.experiment",  # Direct module imports
-                "posthog.models import",      # General posthog.models imports
+                "posthog.models import",  # General posthog.models imports
             ]
 
             for pattern in relevant_patterns:
                 try:
                     result = subprocess.run(
                         ["grep", "-r", "-l", pattern, str(self.root_dir), "--include=*.py"],
-                        capture_output=True, text=True, timeout=10
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
                     )
                     if result.returncode == 0:
-                        for file_path in result.stdout.strip().split('\n'):
-                            if file_path and file_path.endswith('.py'):
+                        for file_path in result.stdout.strip().split("\n"):
+                            if file_path and file_path.endswith(".py"):
                                 files_to_update[file_path] = model_names
 
                 except subprocess.TimeoutExpired:
@@ -1249,23 +1254,25 @@ class {app_name.title()}Config(AppConfig):
 
         try:
             # 1. Update posthog/models/__init__.py (remove imports)
-            if not self._update_posthog_models_init_optimized(migration_data['model_names']):
+            if not self._update_posthog_models_init_optimized(migration_data["model_names"]):
                 return False
 
             # 2. Create combined models.py
-            if not self._create_combined_models_file(migration_data['file_contents'], target_models_py):
+            if not self._create_combined_models_file(migration_data["file_contents"], target_models_py):
                 return False
 
             # 3. Move admin files
-            if migration_data['admin_files']:
-                if not self._create_combined_admin_file(migration_data['admin_files'], target_dir, migration_data['model_names']):
+            if migration_data["admin_files"]:
+                if not self._create_combined_admin_file(
+                    migration_data["admin_files"], target_dir, migration_data["model_names"]
+                ):
                     logger.warning("⚠️  Admin file migration failed, but continuing...")
 
             # 4. Remove original model files
-            for file_data in migration_data['file_contents'].values():
-                if file_data['path'].exists():
-                    file_data['path'].unlink()
-                    logger.info("🗑️  Removed original: %s", file_data['path'])
+            for file_data in migration_data["file_contents"].values():
+                if file_data["path"].exists():
+                    file_data["path"].unlink()
+                    logger.info("🗑️  Removed original: %s", file_data["path"])
 
             logger.info("✅ Atomic file migration completed")
             return True
@@ -1288,8 +1295,10 @@ class {app_name.title()}Config(AppConfig):
 
             for line in lines:
                 # Skip lines that import any of our moved models
-                if any(f"from .{model_name.lower()}" in line.lower() or
-                       f"import {model_name}" in line for model_name in model_names):
+                if any(
+                    f"from .{model_name.lower()}" in line.lower() or f"import {model_name}" in line
+                    for model_name in model_names
+                ):
                     logger.info("🗑️  Removed import: %s", line.strip())
                     continue
                 filtered_lines.append(line)
@@ -1317,7 +1326,7 @@ class {app_name.title()}Config(AppConfig):
 
             # Process each file
             for source_file, file_data in file_contents.items():
-                content = file_data['content']
+                content = file_data["content"]
                 lines = content.split("\n")
 
                 combined_content.append(f"# === From {source_file} ===")
@@ -1378,11 +1387,13 @@ class {app_name.title()}Config(AppConfig):
             for model_name in sorted(model_names):
                 header.append(f"    {model_name},")
 
-            header.extend([
-                ")",
-                "",
-                "",
-            ])
+            header.extend(
+                [
+                    ")",
+                    "",
+                    "",
+                ]
+            )
 
             combined_content.extend(header)
 
@@ -1429,8 +1440,8 @@ class {app_name.title()}Config(AppConfig):
         """Single optimized LibCST pass for all import updates"""
         logger.info("🔄 Executing optimized import updates...")
 
-        model_names = migration_data['model_names']
-        files_to_update = migration_data['imports_to_update']
+        model_names = migration_data["model_names"]
+        files_to_update = migration_data["imports_to_update"]
 
         if not files_to_update:
             logger.info("✅ No import updates needed")
@@ -1502,12 +1513,12 @@ class {app_name.title()}Config(AppConfig):
         model_names = self._extract_class_names_from_files(source_files)
         logger.info("📋 Model classes found: %s", list(model_names))
 
-        # Step 4: Update posthog/models/__init__.py imports (before bowler to prevent circular imports)
+        # Step 4: Update posthog/models/__init__.py imports (before LibCST to prevent circular imports)
         if not self.update_posthog_models_init(source_files, target_app):
             return False
 
         # Step 5: Move model files and update imports with LibCST
-        if not self.move_model_files_manually_then_bowler(source_files, target_app):
+        if not self.move_model_files_and_update_imports(source_files, target_app):
             return False
 
         # Step 6: Update external file references to moved models
