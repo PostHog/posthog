@@ -50,6 +50,7 @@ from ee.hogai.graph.root.prompts import (
     ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT,
     ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT,
 )
+from ee.hogai.tool import retrieve_billing_information
 from ee.hogai.utils.tests import FakeChatAnthropic, FakeChatOpenAI
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 
@@ -180,7 +181,9 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
     async def test_node_reconstructs_conversation(self, mock_model):
         node = RootNode(self.team, self.user)
         state_1 = AssistantState(messages=[HumanMessage(content="Hello")])
-        result = await node._construct_and_update_messages_window(state_1, {})
+        result = node._construct_messages(
+            state_1.messages, state_1.root_conversation_start_id, state_1.root_tool_calls_count
+        )
         self.assertEqual(
             result[0],
             [
@@ -198,7 +201,9 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 HumanMessage(content="Generate trends"),
             ]
         )
-        result2 = await node._construct_and_update_messages_window(state_2, {})
+        result2 = node._construct_messages(
+            state_2.messages, state_2.root_conversation_start_id, state_2.root_tool_calls_count
+        )
         self.assertEqual(
             result2[0],
             [
@@ -231,7 +236,7 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 HumanMessage(content="Answer"),
             ]
         )
-        result = await node._construct_and_update_messages_window(state, {})
+        result = node._construct_messages(state.messages, state.root_conversation_start_id, state.root_tool_calls_count)
         self.assertEqual(
             result[0],
             [
@@ -280,7 +285,9 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
                 AssistantToolCallMessage(content="Answer for xyz1", tool_call_id="xyz1"),
             ]
         )
-        messages, _ = await node._construct_and_update_messages_window(state, {})
+        messages = node._construct_messages(
+            state.messages, state.root_conversation_start_id, state.root_tool_calls_count
+        )
 
         # Verify we get exactly 3 messages
         self.assertEqual(len(messages), 3)
@@ -343,10 +350,12 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             self.assertEqual(message.tool_calls, [])
 
             # Verify the hard limit message was added to the conversation
-            messages, _ = await node._construct_and_update_messages_window(state, {})
+            messages = node._construct_messages(
+                state.messages, state.root_conversation_start_id, state.root_tool_calls_count
+            )
             self.assertIn("iterations", messages[-1].content)
 
-    def test_node_gets_contextual_tool(self):
+    async def test_node_gets_contextual_tool(self):
         with patch("ee.hogai.graph.root.nodes.MaxChatAnthropic") as mock_chat_openai:
             mock_model = MagicMock()
             mock_model.get_num_tokens_from_messages.return_value = 100
@@ -354,15 +363,13 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
             mock_chat_openai.return_value = mock_model
 
             node = RootNode(self.team, self.user)
-
-            node._get_model(
-                AssistantState(messages=[HumanMessage(content="show me long recordings")]),
-                {
-                    "configurable": {
-                        "contextual_tools": {"search_session_recordings": {"current_filters": {"duration": ">"}}}
-                    }
-                },
+            state = AssistantState(messages=[HumanMessage(content="show me long recordings")])
+            config = RunnableConfig(
+                configurable={"contextual_tools": {"search_session_recordings": {"current_filters": {"duration": ">"}}}}
             )
+
+            tools = await node._get_tools(config)
+            node._get_model(state, tools)
 
             # Verify bind_tools was called (contextual tools were processed)
             mock_model.bind_tools.assert_called_once()
@@ -475,17 +482,17 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
 
     @parameterized.expand(
         [
-            # (membership_level, has_billing_context, should_add_billing_tool, expected_prompt)
-            [OrganizationMembership.Level.ADMIN, True, True, ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT],
-            [OrganizationMembership.Level.ADMIN, False, False, ROOT_BILLING_CONTEXT_ERROR_PROMPT],
-            [OrganizationMembership.Level.OWNER, True, True, ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT],
-            [OrganizationMembership.Level.OWNER, False, False, ROOT_BILLING_CONTEXT_ERROR_PROMPT],
-            [OrganizationMembership.Level.MEMBER, True, False, ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT],
-            [OrganizationMembership.Level.MEMBER, False, False, ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT],
+            # (membership_level, has_billing_context, should_add_billing_tool, has_access, expected_prompt)
+            [OrganizationMembership.Level.ADMIN, True, True, True, ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT],
+            [OrganizationMembership.Level.ADMIN, False, False, True, ROOT_BILLING_CONTEXT_ERROR_PROMPT],
+            [OrganizationMembership.Level.OWNER, True, True, True, ROOT_BILLING_CONTEXT_WITH_ACCESS_PROMPT],
+            [OrganizationMembership.Level.OWNER, False, False, True, ROOT_BILLING_CONTEXT_ERROR_PROMPT],
+            [OrganizationMembership.Level.MEMBER, True, False, False, ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT],
+            [OrganizationMembership.Level.MEMBER, False, False, False, ROOT_BILLING_CONTEXT_WITH_NO_ACCESS_PROMPT],
         ]
     )
     async def test_has_billing_access(
-        self, membership_level, has_billing_context, should_add_billing_tool, expected_prompt
+        self, membership_level, has_billing_context, should_add_billing_tool, has_access, expected_prompt
     ):
         # Set membership level
         membership = await self.user.organization_memberships.aget(organization=self.team.organization)
@@ -501,7 +508,10 @@ class TestRootNode(ClickhouseTestMixin, BaseTest):
         else:
             config = RunnableConfig(configurable={})
 
-        self.assertEqual(await node._get_billing_info(config), (should_add_billing_tool, expected_prompt))
+        tools = await node._get_tools(config)
+        self.assertEqual(retrieve_billing_information in tools, should_add_billing_tool)
+        self.assertEqual(await node._get_billing_prompt(config), expected_prompt)
+        self.assertEqual(await node._check_user_has_billing_access(), has_access)
 
     async def test_deduplicate_context_messages(self):
         """Test that context messages are deduplicated based on existing human message content"""
@@ -1245,7 +1255,7 @@ Query results: 42 events
         self.assertIsNone(result)
 
     @patch("posthoganalytics.feature_enabled")
-    def test_session_summarization_tool_included_with_feature_flag(self, mock_feature_enabled):
+    async def test_session_summarization_tool_included_with_feature_flag(self, mock_feature_enabled):
         """Test that session_summarization tool is included when feature flag is enabled"""
 
         def feature_enabled_side_effect(flag_name, *args, **kwargs):
@@ -1264,7 +1274,8 @@ Query results: 42 events
             node = RootNode(self.team, self.user)
             state = AssistantState(messages=[HumanMessage(content="summarize my sessions")])
 
-            node._get_model(state, {})
+            tools = await node._get_tools(RunnableConfig(configurable={}))
+            node._get_model(state, tools)
 
             self.assertEqual(mock_feature_enabled.call_count, 2)
 
@@ -1289,7 +1300,7 @@ Query results: 42 events
             self.assertIn("session_summarization", tool_names)
 
     @patch("posthoganalytics.feature_enabled")
-    def test_session_summarization_tool_excluded_without_feature_flag(self, mock_feature_enabled):
+    async def test_session_summarization_tool_excluded_without_feature_flag(self, mock_feature_enabled):
         """Test that session_summarization tool is excluded when feature flag is disabled"""
         mock_feature_enabled.return_value = False
         with patch("ee.hogai.graph.root.nodes.MaxChatAnthropic") as mock_chat_openai:
@@ -1301,7 +1312,8 @@ Query results: 42 events
             node = RootNode(self.team, self.user)
             state = AssistantState(messages=[HumanMessage(content="summarize my sessions")])
 
-            node._get_model(state, {})
+            tools = await node._get_tools(RunnableConfig(configurable={}))
+            node._get_model(state, tools)
 
             self.assertEqual(mock_feature_enabled.call_count, 2)
             session_summarization_calls = [
@@ -1324,7 +1336,7 @@ Query results: 42 events
             self.assertNotIn("session_summarization", tool_names)
 
     @patch("posthoganalytics.feature_enabled")
-    def test_insight_search_tool_included_with_feature_flag(self, mock_feature_enabled):
+    async def test_insight_search_tool_included_with_feature_flag(self, mock_feature_enabled):
         """Test that search_insights tool is included when feature flag is enabled"""
 
         def feature_enabled_side_effect(flag_name, *args, **kwargs):
@@ -1343,7 +1355,8 @@ Query results: 42 events
             node = RootNode(self.team, self.user)
             state = AssistantState(messages=[HumanMessage(content="search for insights")])
 
-            node._get_model(state, {})
+            tools = await node._get_tools(RunnableConfig(configurable={}))
+            node._get_model(state, tools)
 
             self.assertEqual(mock_feature_enabled.call_count, 2)
             # Find the call for insight search flag
@@ -1367,7 +1380,7 @@ Query results: 42 events
             self.assertIn("search_insights", tool_names)
 
     @patch("posthoganalytics.feature_enabled")
-    def test_insight_search_tool_excluded_without_feature_flag(self, mock_feature_enabled):
+    async def test_insight_search_tool_excluded_without_feature_flag(self, mock_feature_enabled):
         """Test that search_insights tool is excluded when feature flag is disabled"""
         mock_feature_enabled.return_value = False
         with patch("ee.hogai.graph.root.nodes.MaxChatAnthropic") as mock_chat_openai:
@@ -1379,7 +1392,8 @@ Query results: 42 events
             node = RootNode(self.team, self.user)
             state = AssistantState(messages=[HumanMessage(content="search for insights")])
 
-            node._get_model(state, {})
+            tools = await node._get_tools(RunnableConfig(configurable={}))
+            node._get_model(state, tools)
 
             self.assertEqual(mock_feature_enabled.call_count, 2)
 

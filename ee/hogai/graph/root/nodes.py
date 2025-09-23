@@ -548,10 +548,7 @@ class RootNode(RootNodeUIContextMixin):
         if self._is_hard_limit_reached(state.root_tool_calls_count):
             return base_model
 
-        return base_model.bind_tools(
-            tools,
-            parallel_tool_calls=False,
-        )
+        return base_model.bind_tools(tools, parallel_tool_calls=False)
 
     async def _get_tools(self, config: RunnableConfig) -> list[type[BaseModel]]:
         from ee.hogai.tool import (
@@ -679,24 +676,22 @@ class RootNode(RootNodeUIContextMixin):
     async def _should_summarize_conversation(
         self, state: AssistantState, tools: list[type[BaseModel]], messages: list[BaseMessage]
     ) -> bool:
-        """
-        If we simply trim the conversation on N tokens, the cache will be invalidated for every new message after that
-        limit leading to increased latency. Instead, when we hit the limit, we trim the conversation to N/2 tokens, so
-        the cache invalidates only for the next generation.
-        """
-        model = self._get_model(state, tools)
-
         # Avoid summarizing the conversation if there is only two human messages.
         human_messages = [message for message in messages if isinstance(message, LangchainHumanMessage)]
         if len(human_messages) <= 2:
             return False
 
+        token_count = await self._get_token_count(state, messages, tools)
+        return token_count > self.CONVERSATION_WINDOW_SIZE
+
+    async def _get_token_count(
+        self, state: AssistantState, messages: list[BaseMessage], tools: list[type[BaseModel]]
+    ) -> int:
         # Contains an async method in get_num_tokens_from_messages
-        token_count = await database_sync_to_async(model.get_num_tokens_from_messages, thread_sensitive=False)(
+        model = self._get_model(state, tools)
+        return await database_sync_to_async(model.get_num_tokens_from_messages, thread_sensitive=False)(
             messages, thinking=self.THINKING_CONFIG
         )
-
-        return token_count > self.CONVERSATION_WINDOW_SIZE
 
     def _get_conversation_window(self, messages: list[T], start_id: str) -> list[T]:
         for idx, message in enumerate(messages):
