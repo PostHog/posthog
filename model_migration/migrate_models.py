@@ -121,7 +121,7 @@ class ImportTransformer(cst.CSTTransformer):
         for i, stmt in enumerate(body):
             if isinstance(stmt, cst.SimpleStatementLine):
                 for substmt in stmt.body:
-                    if isinstance(substmt, (cst.ImportFrom, cst.Import)):
+                    if isinstance(substmt, cst.ImportFrom | cst.Import):
                         last_import_idx = i
                         break
 
@@ -493,7 +493,6 @@ class {app_name.title()}Config(AppConfig):
 
         # Create backend/admin.py by combining all related admin files
         admin_imports = set()
-        admin_classes = []
         combined_content = []
 
         for admin_file, filename in admin_files_to_move:
@@ -598,7 +597,7 @@ class {app_name.title()}Config(AppConfig):
             import re
 
             # Find admin class imports that need to be removed
-            for admin_file, filename in moved_files:
+            for _admin_file, filename in moved_files:
                 # Convert filename to likely admin class name
                 admin_class_name = filename.replace(".py", "").replace("_", "").title() + "Admin"
                 # Remove the import line
@@ -636,7 +635,7 @@ class {app_name.title()}Config(AppConfig):
                 f.write(content)
 
             # Remove the old admin files
-            for admin_file, filename in moved_files:
+            for admin_file, _filename in moved_files:
                 admin_file.unlink()
                 logger.info("🗑️  Removed old admin file: %s", admin_file)
 
@@ -951,7 +950,8 @@ class {app_name.title()}Config(AppConfig):
             content = f.read()
 
         # Check if already added
-        if f'"products.{target_app}.backend"' in content:
+        app_config_path = f'"products.{target_app}.backend.apps.{target_app.title()}Config"'
+        if app_config_path in content:
             logger.info("✅ App %s already in settings", target_app)
             return True
 
@@ -961,7 +961,7 @@ class {app_name.title()}Config(AppConfig):
         def replacement(match):
             apps_content = match.group(2)
             # Add new app before the closing bracket
-            return f'{match.group(1)}{apps_content}    "products.{target_app}.backend",\n{match.group(3)}'
+            return f"{match.group(1)}{apps_content}    {app_config_path},\n{match.group(3)}"
 
         new_content = re.sub(pattern, replacement, content, flags=re.DOTALL)
 
@@ -1195,15 +1195,15 @@ class {app_name.title()}Config(AppConfig):
         if not admin_admins_dir.exists():
             return admin_files
 
-        for model_name in model_names:
-            potential_files = [
-                f"{model_name.lower()}_admin.py",
-                f"{model_name}_admin.py",
-            ]
-            for potential_file in potential_files:
-                admin_file = admin_admins_dir / potential_file
-                if admin_file.exists():
-                    admin_files.append((admin_file, potential_file))
+        # Search for all admin files that might be related to these models
+        for admin_file in admin_admins_dir.glob("*admin.py"):
+            admin_filename = admin_file.name
+            # Check if any model name appears in the filename
+            for model_name in model_names:
+                model_lower = model_name.lower()
+                if model_lower in admin_filename.lower():
+                    admin_files.append((admin_file, admin_filename))
+                    break
 
         return admin_files
 
