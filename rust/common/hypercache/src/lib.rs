@@ -52,13 +52,6 @@ const HYPERCACHE_COUNTER_NAME: &str = "posthog_hypercache_get_from_cache";
 /// Sentinel value used in Redis to indicate that a cache key exists but has no data
 const HYPER_CACHE_EMPTY_VALUE: &str = "__missing__";
 
-/// When Django writes to the Redis cache, it automatically adds the cache version to the key.
-/// If we ever change the cache version (I hope we don't), this gives us the ability to quickly
-/// update this service to read the correct cache version.
-fn get_django_cache_version() -> String {
-    std::env::var("DJANGO_CACHE_VERSION").unwrap_or_else(|_| "1".to_string())
-}
-
 /// Cache key type matching Django's KeyType = Team | str | int
 #[derive(Debug)]
 pub enum KeyType {
@@ -143,10 +136,11 @@ pub struct HyperCacheConfig {
     pub namespace: String,
     pub value: String,
     pub token_based: bool,
+    pub django_cache_version: String,
 }
 
 impl HyperCacheConfig {
-    /// Create config with explicit settings
+    /// Create config with explicit settings (defaults django_cache_version to "1")
     pub fn new(namespace: String, value: String, s3_region: String, s3_bucket: String) -> Self {
         Self {
             s3_bucket,
@@ -157,13 +151,35 @@ impl HyperCacheConfig {
             namespace,
             value,
             token_based: false,
+            django_cache_version: "1".to_string(),
         }
     }
 
-    /// Generate cache key for Redis (includes Django's posthog:1: prefix)
+    /// Create config with custom django cache version
+    pub fn with_django_cache_version(
+        namespace: String,
+        value: String,
+        s3_region: String,
+        s3_bucket: String,
+        django_cache_version: String,
+    ) -> Self {
+        Self {
+            s3_bucket,
+            s3_region,
+            s3_endpoint: None,
+            redis_timeout: Duration::from_millis(500),
+            s3_timeout: Duration::from_secs(3),
+            namespace,
+            value,
+            token_based: false,
+            django_cache_version,
+        }
+    }
+
+    /// Generate cache key for Redis (includes Django's posthog:version: prefix)
     pub fn get_redis_cache_key(&self, key: &KeyType) -> String {
         let base_key = self.get_base_cache_key(key);
-        format!("posthog:{}:{}", get_django_cache_version(), base_key)
+        format!("posthog:{}:{}", self.django_cache_version, base_key)
     }
 
     /// Generate cache key for S3 (no prefix, matches Django's object_storage keys)
@@ -439,7 +455,7 @@ mod tests {
                 let key_owned = key.to_string();
                 Box::pin(async move { Err(S3Error::NotFound(key_owned)) })
             });
-            return Arc::new(mock_s3);
+            Arc::new(mock_s3)
         }
 
         #[cfg(not(feature = "mock-client"))]
@@ -481,6 +497,26 @@ mod tests {
         assert_eq!(config.s3_endpoint, None);
         assert_eq!(config.namespace, "test_namespace");
         assert_eq!(config.value, "test_value");
+        assert_eq!(config.django_cache_version, "1"); // Default value
+    }
+
+    #[test]
+    fn test_hypercache_config_with_custom_django_cache_version() {
+        let config = HyperCacheConfig::with_django_cache_version(
+            "test_namespace".to_string(),
+            "test_value".to_string(),
+            "eu-west-1".to_string(),
+            "custom-bucket".to_string(),
+            "3".to_string(),
+        );
+        assert_eq!(config.django_cache_version, "3");
+
+        // Test that cache keys use the custom version
+        let redis_key = config.get_redis_cache_key(&KeyType::string("123"));
+        assert_eq!(
+            redis_key,
+            "posthog:3:cache/teams/123/test_namespace/test_value"
+        );
     }
 
     #[test]
