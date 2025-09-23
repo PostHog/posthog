@@ -1,7 +1,6 @@
 name: Update Bot IPs
 
 on:
-    pull_request:
     schedule:
         # Run daily at 2 AM UTC
         - cron: '0 2 * * *'
@@ -55,9 +54,10 @@ jobs:
 
                       This is an automated update that runs daily.
                   base: master
-                  branch: update-bot-ips
                   delete-branch: true
                   labels: |
                       automated
                       bot-ips
                       dependencies
+                  reviewers:
+                      - PostHog/team-messaging
