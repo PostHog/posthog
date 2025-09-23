@@ -349,9 +349,7 @@ class TaxonomyAgentToolkit:
                     team=self._team,
                     type=PropertyDefinition.Type.GROUP,
                     group_type_index__in=entity_to_group_index.values(),
-                ).values_list("name", "property_type", "group_type_index")[
-                    : max_properties * len(entity_to_group_index.values())
-                ]
+                ).values_list("name", "property_type", "group_type_index")[:max_properties]
 
                 # Group results by entity
                 for entity in group_entities:
