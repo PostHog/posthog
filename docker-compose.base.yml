@@ -155,7 +155,7 @@ services:
         restart: on-failure
         environment:
             KAFKA_CLUSTERS_0_NAME: local
-            KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+            KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: localhost:9092
             KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://kafka:8081
             DYNAMIC_CONFIG_ENABLED: 'true'
 
