@@ -1,4 +1,5 @@
 import { arrayMove } from '@dnd-kit/sortable'
+import equal from 'fast-deep-equal'
 import {
     BuiltLogic,
     actions,
@@ -200,7 +201,6 @@ export const sceneLogic = kea<sceneLogicType>([
             tabId,
             params,
         }),
-        setLoadedSceneLogic: (logic: BuiltLogic) => ({ logic }),
         reloadBrowserDueToImportError: true,
 
         newTab: (href?: string | null) => ({ href }),
@@ -354,14 +354,6 @@ export const sceneLogic = kea<sceneLogicType>([
                 }),
             },
         ],
-        loadedSceneLogics: [
-            {} as Record<string, BuiltLogic>,
-            {
-                setLoadedSceneLogic: (state, { logic }) => {
-                    return { ...state, [logic.pathString]: logic }
-                },
-            },
-        ],
         loadingScene: [
             null as string | null,
             {
@@ -374,6 +366,12 @@ export const sceneLogic = kea<sceneLogicType>([
             { persist: true },
             {
                 reloadBrowserDueToImportError: () => new Date().valueOf(),
+            },
+        ],
+        lastSetScenePayload: [
+            {} as Record<string, any>,
+            {
+                setScene: (_, { sceneId, sceneKey, tabId, params }) => ({ sceneId, sceneKey, tabId, params }),
             },
         ],
     }),
@@ -642,8 +640,24 @@ export const sceneLogic = kea<sceneLogicType>([
                 router.actions.replace(pathname.replace(/(\/+)$/, ''), search, hash)
             }
         },
-        setScene: ({ tabId, sceneId, exportedScene, params, scrollToTop }, _, __, previousState) => {
-            posthog.capture('$pageview')
+        setScene: ({ tabId, sceneKey, sceneId, exportedScene, params, scrollToTop }, _, __, previousState) => {
+            const {
+                sceneId: lastSceneId,
+                sceneKey: lastSceneKey,
+                tabId: lastTabId,
+                params: lastParams,
+            } = selectors.lastSetScenePayload(previousState)
+
+            // Do not trigger a new pageview event when only the hashParams change
+            if (
+                lastSceneId !== sceneId ||
+                lastSceneKey !== sceneKey ||
+                lastTabId !== tabId ||
+                !equal(lastParams.params, params.params) ||
+                JSON.stringify(lastParams.searchParams) !== JSON.stringify(params.searchParams) // `equal` crashes here
+            ) {
+                posthog.capture('$pageview')
+            }
 
             // if we clicked on a link, scroll to top
             const previousScene = selectors.sceneId(previousState)
@@ -660,7 +674,6 @@ export const sceneLogic = kea<sceneLogicType>([
                 const builtLogicProps = { tabId, ...exportedScene?.paramsToProps?.(params) }
                 const builtLogic = exportedScene?.logic(builtLogicProps)
                 cache.mountedTabLogic[tabId] = builtLogic.mount()
-                actions.setLoadedSceneLogic(builtLogic) // persist the logic for TURBO MODE
             }
         },
         openScene: ({ tabId, sceneId, sceneKey, params, method }) => {

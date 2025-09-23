@@ -188,6 +188,22 @@
             }
         },
         {
+            "name": "Backend (Attach to bin/start)",
+            "type": "debugpy",
+            "request": "attach",
+            "connect": {
+                "host": "localhost",
+                "port": 5678
+            },
+            "pathMappings": [
+                {
+                    "localRoot": "${workspaceFolder}",
+                    "remoteRoot": "${workspaceFolder}"
+                }
+            ],
+            "justMyCode": false
+        },
+        {
             "name": "Pytest: Current File",
             "type": "debugpy",
             "request": "launch",

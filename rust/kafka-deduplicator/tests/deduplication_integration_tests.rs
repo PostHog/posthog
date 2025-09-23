@@ -277,7 +277,7 @@ async fn test_basic_deduplication() -> Result<()> {
     // Create the service using the same abstraction as production
     println!("Creating Kafka Deduplicator service...");
     let liveness = HealthRegistry::new("test_liveness");
-    let mut service = KafkaDeduplicatorService::new(config, liveness)?;
+    let mut service = KafkaDeduplicatorService::new(config, liveness).await?;
     service.initialize().await?;
     println!("Service initialized");
 
@@ -385,7 +385,7 @@ async fn test_deduplication_with_different_events() -> Result<()> {
 
     // Create and initialize the service
     let liveness = HealthRegistry::new("test_liveness");
-    let mut service = KafkaDeduplicatorService::new(config, liveness)?;
+    let mut service = KafkaDeduplicatorService::new(config, liveness).await?;
     service.initialize().await?;
 
     // Produce events with same distinct_id but different event names

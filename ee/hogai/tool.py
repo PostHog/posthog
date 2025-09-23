@@ -16,6 +16,7 @@ import products
 
 from ee.hogai.graph.mixins import AssistantContextMixin
 from ee.hogai.utils.types import AssistantState
+from ee.hogai.utils.types.base import InsightQuery
 
 
 # Lower casing matters here. Do not change it.
@@ -40,6 +41,9 @@ class search_insights(BaseModel):
     """
     Search through existing insights to find matches based on the user's query.
     Use this tool when users ask to find, search for, or look up existing insights.
+    IMPORTANT: NEVER CALL THIS TOOL IF THE USER ASKS TO CREATE A DASHBOARD.
+    Only use this tool when users ask to find, search for, or look up insights.
+    If the user asks to create a dashboard, use the `create_dashboard` tool instead.
     """
 
     search_query: str = Field(
@@ -105,6 +109,26 @@ class session_summarization(BaseModel):
             - and similar
           * If there's not enough context to generated the summary name - keep it an empty string ("")
         """
+    )
+
+
+class create_dashboard(BaseModel):
+    """
+    Create a dashboard with insights based on the user's request.
+    Use this tool when users ask to create, build, or make a new dashboard with insights.
+    This tool will search for existing insights that match the user's requirements so no need to call `search_insights` tool.
+    or create new insights if none are found, then combine them into a dashboard.
+    Do not call this tool if the user only asks to find, search for, or look up existing insights and does not ask to create a dashboard.
+    If you decided to use this tool, there is no need to call `search_insights` tool beforehand. The tool will search for existing insights that match the user's requirements and create new insights if none are found.
+    """
+
+    search_insights_queries: list[InsightQuery] = Field(
+        description="A list of insights to be included in the dashboard. Include all the insights that the user mentioned."
+    )
+    dashboard_name: str = Field(
+        description=(
+            "The name of the dashboard to be created based on the user request. It should be short and concise as it will be displayed as a header in the dashboard tile."
+        )
     )
 
 

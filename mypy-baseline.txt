@@ -1079,6 +1079,7 @@ posthog/warehouse/api/external_data_source.py:0: error: Incompatible return valu
 posthog/warehouse/api/lineage.py:0: error: Item "None" of "Any | None" has no attribute "__iter__" (not iterable)  [union-attr]
 posthog/warehouse/api/lineage.py:0: error: Item "None" of "Any | None" has no attribute "__iter__" (not iterable)  [union-attr]
 posthog/warehouse/api/table.py:0: error: Item "None" of "Any | None" has no attribute "keys"  [union-attr]
+posthog/warehouse/api/table.py:0: error: Item "Sequence[Any]" of "Any | Sequence[Any]" has no attribute "name"  [union-attr]
 posthog/warehouse/api/table.py:0: error: Unsupported target for indexed assignment ("Any | None")  [index]
 posthog/warehouse/api/table.py:0: error: Value of type "Any | None" is not indexable  [index]
 posthog/warehouse/api/table.py:0: error: Value of type "Any | None" is not indexable  [index]
