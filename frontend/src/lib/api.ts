@@ -1432,7 +1432,10 @@ export class ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('data_color_themes').addPathComponent(id)
     }
 
-    public addProductIntent(): ApiRequest {
+    public addProductIntent(teamId?: TeamType['id']): ApiRequest {
+        if (teamId != null) {
+            return this.environmentsDetail(teamId).addPathComponent('add_product_intent')
+        }
         return this.environments().current().addPathComponent('add_product_intent')
     }
 
@@ -3928,8 +3931,8 @@ const api = {
     },
 
     productIntents: {
-        async update(data: ProductIntentProperties): Promise<TeamType> {
-            return await new ApiRequest().addProductIntent().update({ data })
+        async update(data: ProductIntentProperties, teamId?: TeamType['id']): Promise<TeamType> {
+            return await new ApiRequest().addProductIntent(teamId).update({ data })
         },
     },
 

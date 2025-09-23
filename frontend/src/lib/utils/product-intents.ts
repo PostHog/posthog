@@ -76,8 +76,11 @@ export type ProductIntentProperties = {
     metadata?: ProductIntentMetadata
 }
 
-export function addProductIntent(properties: ProductIntentProperties): Promise<TeamType | null> {
-    return api.productIntents.update(properties)
+export function addProductIntent(
+    properties: ProductIntentProperties,
+    teamId?: TeamType['id']
+): Promise<TeamType | null> {
+    return api.productIntents.update(properties, teamId)
 }
 
 export type ProductCrossSellProperties = {
@@ -87,15 +90,21 @@ export type ProductCrossSellProperties = {
     metadata?: ProductIntentMetadata
 }
 
-export function addProductIntentForCrossSell(properties: ProductCrossSellProperties): Promise<TeamType | null> {
-    return api.productIntents.update({
-        product_type: properties.to,
-        intent_context: properties.intent_context,
-        metadata: {
-            ...properties.metadata,
-            from: properties.from,
-            to: properties.to,
-            type: 'cross_sell',
+export function addProductIntentForCrossSell(
+    properties: ProductCrossSellProperties,
+    teamId?: TeamType['id']
+): Promise<TeamType | null> {
+    return api.productIntents.update(
+        {
+            product_type: properties.to,
+            intent_context: properties.intent_context,
+            metadata: {
+                ...properties.metadata,
+                from: properties.from,
+                to: properties.to,
+                type: 'cross_sell',
+            },
         },
-    })
+        teamId
+    )
 }

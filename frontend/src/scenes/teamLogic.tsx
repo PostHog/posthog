@@ -182,9 +182,10 @@ export const teamLogic = kea<teamLogicType>([
                 /**
                  * If adding a product intent that also represents regular product usage, see explainer in posthog.models.product_intent.product_intent.py.
                  */
-                addProductIntent: async (properties: ProductIntentProperties) => await addProductIntent(properties),
+                addProductIntent: async (properties: ProductIntentProperties) =>
+                    await addProductIntent(properties, values.currentTeamId ?? undefined),
                 addProductIntentForCrossSell: async (properties: ProductCrossSellProperties) =>
-                    await addProductIntentForCrossSell(properties),
+                    await addProductIntentForCrossSell(properties, values.currentTeamId ?? undefined),
                 recordProductIntentOnboardingComplete: async ({ product_type }: { product_type: ProductKey }) =>
                     await api.update(`api/environments/${values.currentTeamId}/complete_product_onboarding`, {
                         product_type,
