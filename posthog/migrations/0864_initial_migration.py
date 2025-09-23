@@ -22,6 +22,24 @@ def update_content_type(apps, schema_editor):
             pass
 
 
+def reverse_content_type(apps, schema_editor):
+    ContentType = apps.get_model("contenttypes", "ContentType")
+    for model in [
+        "webexperiment",
+        "experiment",
+        "experimentholdout",
+        "experimentmetricresult",
+        "experimentsavedmetric",
+        "experimenttosavedmetric",
+    ]:
+        try:
+            ct = ContentType.objects.get(app_label="experiments", model=model)
+            ct.app_label = "posthog"
+            ct.save()
+        except ContentType.DoesNotExist:
+            pass
+
+
 class Migration(migrations.Migration):
     dependencies = [
         ("experiments", "0001_initial_migration"),
@@ -31,7 +49,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.SeparateDatabaseAndState(
             database_operations=[
-                migrations.RunPython(update_content_type),
+                migrations.RunPython(update_content_type, reverse_content_type),
             ],
             state_operations=[
                 migrations.RemoveField(
