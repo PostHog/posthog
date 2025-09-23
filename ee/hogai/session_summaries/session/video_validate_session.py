@@ -23,7 +23,11 @@ from ee.hogai.session_summaries.constants import (
     VALIDATION_VIDEO_DURATION,
 )
 from ee.hogai.session_summaries.llm.call import call_llm
-from ee.hogai.session_summaries.session.output_data import EnrichedKeyActionSerializer, SessionSummarySerializer
+from ee.hogai.session_summaries.session.output_data import (
+    EnrichedKeyActionSerializer,
+    IntermediateSessionSummarySerializer,
+    SessionSummarySerializer,
+)
 from ee.hogai.session_summaries.utils import load_custom_template
 from ee.hogai.videos.session_moments import SessionMomentInput, SessionMomentOutput, SessionMomentsLLMAnalyzer
 from ee.models.session_summaries import SessionSummaryRunMeta, SessionSummaryVisualConfirmationResult
@@ -160,7 +164,7 @@ class SessionSummaryVideoValidator:
         fields_to_update_mapping = dict(sorted(fields_to_update_mapping.items(), key=lambda x: x[0]))
         fields_to_update = list(fields_to_update_mapping.values())
         with open(f"fields_to_update_{self.session_id}.yml", "w") as f:
-            yaml.dump(fields_to_update, f, allow_unicode=True, sort_keys=False)
+            yaml.dump([asdict(x) for x in fields_to_update], f, allow_unicode=True, sort_keys=False)
         return events_to_validate, fields_to_update
 
     def _prepare_moment_input_from_summary_event(
@@ -212,13 +216,18 @@ class SessionSummaryVideoValidator:
     ) -> str:
         """Generate a prompt for validating a video"""
         template_dir = Path(__file__).parent / "templates" / "video-validation"
+        # Remove excessive content (UUIDs, URLs, etc.) from session summary to not feed LLM excessive info
+        mini_summary = IntermediateSessionSummarySerializer(data=self.summary.data)
+        mini_summary.is_valid(raise_exception=True)
+        # Keep only moment ids and descriptions to not feed LLM excessive info
+        moment_descriptions = {dr.moment_id: dr.video_description for dr in description_results}
+        # Load data into the prompt
         prompt = load_custom_template(
             template_dir,
             "validation-prompt.djt",
             {
-                # TODO: Provide only an intermediate version of summary.
-                "ORIGINAL_SUMMARY": json.dumps(self.summary.data),
-                "VALIDATION_RESULTS": json.dumps([asdict(x) for x in description_results]),
+                "ORIGINAL_SUMMARY": json.dumps(mini_summary.data),
+                "VALIDATION_RESULTS": json.dumps(moment_descriptions),
                 "FIELDS_TO_UPDATE": yaml.dump(
                     [asdict(x) for x in fields_to_update], allow_unicode=True, sort_keys=False
                 ),
