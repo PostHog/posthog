@@ -39,6 +39,8 @@ from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.utils.helpers import filter_and_merge_messages, find_last_message_of_type
 from ee.hogai.utils.markdown import remove_markdown
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
+from ee.hogai.utils.types.base import AssistantNodeName
+from ee.hogai.utils.types.composed import MaxNodeName
 from ee.models.assistant import CoreMemory
 
 from .parsers import MemoryCollectionCompleted, compressed_memory_parser, raise_memory_updated
@@ -125,6 +127,10 @@ class MemoryOnboardingShouldRunMixin(AssistantNode):
 
 
 class MemoryOnboardingNode(MemoryInitializerContextMixin, MemoryOnboardingShouldRunMixin):
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.MEMORY_ONBOARDING
+
     def run(self, state: AssistantState, config: RunnableConfig) -> Optional[PartialAssistantState]:
         core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
         core_memory.change_status_to_pending()
@@ -171,6 +177,10 @@ class MemoryInitializerNode(MemoryInitializerContextMixin, AssistantNode):
     """
     Scrapes the product description from the given origin or app bundle IDs.
     """
+
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.MEMORY_INITIALIZER
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
@@ -230,6 +240,10 @@ class MemoryInitializerInterruptNode(AssistantNode):
     Prompts the user to confirm or reject the scraped memory.
     """
 
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.MEMORY_INITIALIZER_INTERRUPT
+
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         raise NodeInterrupt(
             AssistantMessage(
@@ -251,6 +265,10 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
     """
     Prompts the user to give more information about the product, feature, business, etc.
     """
+
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         human_message = find_last_message_of_type(state.messages, HumanMessage)
@@ -309,6 +327,10 @@ class MemoryOnboardingEnquiryNode(AssistantNode):
 
 
 class MemoryOnboardingEnquiryInterruptNode(AssistantNode):
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.MEMORY_ONBOARDING_ENQUIRY_INTERRUPT
+
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         last_assistant_message = find_last_message_of_type(state.messages, AssistantMessage)
         if not state.onboarding_question:
@@ -319,6 +341,10 @@ class MemoryOnboardingEnquiryInterruptNode(AssistantNode):
 
 
 class MemoryOnboardingFinalizeNode(AssistantNode):
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.MEMORY_ONBOARDING_FINALIZE
+
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         core_memory, _ = CoreMemory.objects.get_or_create(team=self._team)
         # Compress the question/answer memory before saving it
@@ -374,6 +400,10 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
     """
     The Memory Collector manages the core memory of the agent. Core memory is a text containing facts about a user's company and product. It helps the agent save and remember facts that could be useful for insight generation or other agentic functions requiring deeper context about the product.
     """
+
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.MEMORY_COLLECTOR
 
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState | None:
         if self.should_run_onboarding_at_start(state) != "continue":
@@ -466,6 +496,10 @@ class MemoryCollectorNode(MemoryOnboardingShouldRunMixin):
 
 
 class MemoryCollectorToolsNode(AssistantNode):
+    @property
+    def node_name(self) -> MaxNodeName:
+        return AssistantNodeName.MEMORY_COLLECTOR_TOOLS
+
     def run(self, state: AssistantState, config: RunnableConfig) -> PartialAssistantState:
         node_messages = state.memory_collection_messages
         if not node_messages:

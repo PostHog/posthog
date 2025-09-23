@@ -83,17 +83,24 @@ export class CyclotronJobQueueKafka {
 
                 cdpJobSizeKb.observe(value.length / 1024)
 
+                const headers: Record<string, string> = {
+                    // NOTE: Later we should remove hogFunctionId as it is no longer used
+                    hogFunctionId: x.functionId,
+                    functionId: x.functionId,
+                    teamId: x.teamId.toString(),
+                }
+
+                if (x.queueScheduledAt && x.state?.returnTopic) {
+                    headers.queueScheduledAt = x.queueScheduledAt.toString()
+                    headers.returnTopic = `cdp_cyclotron_${x.state.returnTopic}`
+                }
+
                 await producer
                     .produce({
                         value: Buffer.from(value),
                         key: Buffer.from(x.id),
                         topic: `cdp_cyclotron_${x.queue}`,
-                        headers: {
-                            // NOTE: Later we should remove hogFunctionId as it is no longer used
-                            hogFunctionId: x.functionId,
-                            functionId: x.functionId,
-                            teamId: x.teamId.toString(),
-                        },
+                        headers,
                     })
                     .catch((e) => {
                         logger.error('🔄', 'Error producing kafka message', {

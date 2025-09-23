@@ -175,31 +175,31 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     group: {
         icon: <IconPeople />,
     },
-    insight_funnel: {
+    'insight/funnels': {
         icon: <IconFunnels />,
         iconColor: ['var(--color-insight-funnel-light)'],
     },
-    insight_trend: {
+    'insight/trends': {
         icon: <IconTrends />,
         iconColor: ['var(--color-insight-trends-light)'],
     },
-    insight_retention: {
+    'insight/retention': {
         icon: <IconRetention />,
         iconColor: ['var(--color-insight-retention-light)'],
     },
-    insight_user_path: {
+    'insight/paths': {
         icon: <IconUserPaths />,
         iconColor: ['var(--color-insight-user-paths-light)', 'var(--color-user-paths-dark)'],
     },
-    insight_lifecycle: {
+    'insight/lifecycle': {
         icon: <IconLifecycle />,
         iconColor: ['var(--color-insight-lifecycle-light)'],
     },
-    insight_stickiness: {
+    'insight/stickiness': {
         icon: <IconStickiness />,
         iconColor: ['var(--color-insight-stickiness-light)'],
     },
-    insight_hogql: {
+    'insight/hog': {
         icon: <IconHogQL />,
         iconColor: ['var(--color-insight-sql-light)'],
     },

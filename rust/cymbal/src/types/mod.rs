@@ -10,7 +10,7 @@ use crate::fingerprinting::{
     Fingerprint, FingerprintBuilder, FingerprintComponent, FingerprintRecordPart,
 };
 use crate::frames::releases::{ReleaseInfo, ReleaseRecord};
-use crate::frames::{Frame, RawFrame};
+use crate::frames::{Frame, FrameId, RawFrame};
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct Mechanism {
@@ -320,14 +320,14 @@ impl OutputErrProps {
 }
 
 impl Stacktrace {
-    pub fn resolve(&self, lookup_table: &HashMap<String, Frame>) -> Option<Self> {
+    pub fn resolve(&self, team_id: i32, lookup_table: &HashMap<FrameId, Frame>) -> Option<Self> {
         let Stacktrace::Raw { frames } = self else {
             return Some(self.clone());
         };
 
         let mut resolved_frames = Vec::with_capacity(frames.len());
         for frame in frames {
-            match lookup_table.get(&frame.frame_id()) {
+            match lookup_table.get(&frame.frame_id(team_id)) {
                 Some(resolved_frame) => resolved_frames.push(resolved_frame.clone()),
                 None => return None,
             }

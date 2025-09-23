@@ -12,7 +12,6 @@ import {
     TabsPrimitiveList,
     TabsPrimitiveTrigger,
 } from 'lib/ui/TabsPrimitive/TabsPrimitive'
-import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -56,7 +55,7 @@ export function ErrorTrackingScene(): JSX.Element {
                         <TabsPrimitive
                             value={activeTab}
                             onValueChange={setActiveTab}
-                            className="border rounded bg-white"
+                            className="border rounded bg-surface-primary"
                         >
                             <TabsPrimitiveList className="border-b">
                                 <TabsPrimitiveTrigger value="issues" className="px-2 py-1 cursor-pointer">
@@ -77,7 +76,7 @@ export function ErrorTrackingScene(): JSX.Element {
                     </div>
                 ) : (
                     <div>
-                        <div className="border rounded bg-white p-2">
+                        <div className="border rounded bg-surface-primary p-2">
                             <IssuesFilters />
                         </div>
                         <IssuesList />
@@ -136,9 +135,8 @@ const Header = (): JSX.Element => {
 }
 
 const IngestionStatusCheck = (): JSX.Element | null => {
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
     return (
-        <LemonBanner type="warning" className={cn(!newSceneLayout && 'mb-4')}>
+        <LemonBanner type="warning">
             <p>
                 <strong>No Exception events have been detected!</strong>
             </p>

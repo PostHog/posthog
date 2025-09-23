@@ -17,6 +17,7 @@ import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { getClampedFunnelStepRange } from 'scenes/funnels/funnelUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { AggregationType } from 'scenes/insights/views/InsightsTable/insightsTableDataLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
@@ -114,6 +115,9 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         setTimedOutQueryId: (id: string | null) => ({ id }),
         setIsIntervalManuallySet: (isIntervalManuallySet: boolean) => ({ isIntervalManuallySet }),
         toggleFormulaMode: true,
+        setDetailedResultsAggregationType: (detailedResultsAggregationType: AggregationType) => ({
+            detailedResultsAggregationType,
+        }),
     }),
 
     reducers({
@@ -225,6 +229,14 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         goalLines: [(s) => [s.querySource], (q) => (isTrendsQuery(q) || isFunnelsQuery(q) ? getGoalLines(q) : null)],
         insightFilter: [(s) => [s.querySource], (q) => (q ? filterForQuery(q) : null)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],
+        detailedResultsAggregationType: [
+            (s) => [s.querySource],
+            (querySource): AggregationType | undefined => {
+                if (isTrendsQuery(querySource)) {
+                    return querySource.trendsFilter?.detailedResultsAggregationType as AggregationType | undefined
+                }
+            },
+        ],
         funnelsFilter: [(s) => [s.querySource], (q) => (isFunnelsQuery(q) ? q.funnelsFilter : null)],
         retentionFilter: [(s) => [s.querySource], (q) => (isRetentionQuery(q) ? q.retentionFilter : null)],
         pathsFilter: [(s) => [s.querySource], (q) => (isPathsQuery(q) ? q.pathsFilter : null)],
@@ -566,6 +578,12 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         // insight filter properties
         updateDisplay: ({ display }) => {
             actions.updateInsightFilter({ display })
+        },
+
+        setDetailedResultsAggregationType: ({ detailedResultsAggregationType }) => {
+            actions.updateInsightFilter({
+                detailedResultsAggregationType: detailedResultsAggregationType,
+            })
         },
 
         // data loading side effects i.e. displaying loading screens for queries with longer duration

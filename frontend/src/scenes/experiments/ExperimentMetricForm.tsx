@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
@@ -17,7 +16,9 @@ import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { performQuery } from '~/queries/query'
 import {
+    ExperimentFunnelMetricStep,
     ExperimentMetric,
+    ExperimentMetricSource,
     ExperimentMetricType,
     NodeKind,
     isExperimentFunnelMetric,
@@ -100,7 +101,6 @@ export function ExperimentMetricForm({
     const allowedMathTypes = getAllowedMathTypes(metric.metric_type)
     const [eventCount, setEventCount] = useState<number | null>(null)
     const [isLoading, setIsLoading] = useState(false)
-    const newSceneLayout = useFeatureFlag('NEW_SCENE_LAYOUT')
 
     const getEventTypeLabel = (): string => {
         if (isExperimentMeanMetric(metric)) {
@@ -125,8 +125,39 @@ export function ExperimentMetricForm({
     }
 
     const handleMetricTypeChange = (newMetricType: ExperimentMetricType): void => {
+        // Extract current sources from the existing metric to preserve selections
+        let sources: ExperimentMetricSource[] = []
+
+        if (isExperimentMeanMetric(metric)) {
+            sources = [metric.source]
+        } else if (isExperimentFunnelMetric(metric)) {
+            sources = metric.series
+        } else if (isExperimentRatioMetric(metric)) {
+            sources = [metric.numerator]
+            if (metric.denominator) {
+                sources.push(metric.denominator)
+            }
+        }
+
+        const newMetric = getDefaultExperimentMetric(newMetricType)
+
+        // Apply the existing sources to the new metric type to preserve selections
+        if (sources.length > 0 && sources[0]) {
+            if (newMetricType === ExperimentMetricType.MEAN && isExperimentMeanMetric(newMetric)) {
+                newMetric.source = sources[0]
+            } else if (newMetricType === ExperimentMetricType.FUNNEL && isExperimentFunnelMetric(newMetric)) {
+                // Funnel metrics only support EventsNode and ActionsNode, not DataWarehouseNode
+                newMetric.series = sources.filter(
+                    (s): s is ExperimentFunnelMetricStep =>
+                        s && (s.kind === NodeKind.EventsNode || s.kind === NodeKind.ActionsNode)
+                )
+            } else if (newMetricType === ExperimentMetricType.RATIO && isExperimentRatioMetric(newMetric)) {
+                newMetric.numerator = sources[0]
+            }
+        }
+
         handleSetMetric({
-            ...getDefaultExperimentMetric(newMetricType),
+            ...newMetric,
             // Keep the current uuid and name
             uuid: metric.uuid,
             name: metric.name,
@@ -170,10 +201,9 @@ export function ExperimentMetricForm({
     const hideDeleteBtn = (_: any, index: number): boolean => index === 0
 
     return (
-        <SceneContent forceNewSpacing>
-            <SceneSection title="Shared metric type" hideTitleAndDescription={!newSceneLayout} className="max-w-prose">
+        <SceneContent>
+            <SceneSection title="Shared metric type" className="max-w-prose">
                 <div>
-                    {!newSceneLayout && <LemonLabel className="mb-1">Type</LemonLabel>}
                     <LemonRadio
                         data-attr="metrics-selector"
                         value={metric.metric_type}
@@ -183,9 +213,7 @@ export function ExperimentMetricForm({
                 </div>
             </SceneSection>
             <SceneDivider />
-            <SceneSection title="Metric" hideTitleAndDescription={!newSceneLayout} className="max-w-prose">
-                {!newSceneLayout && <LemonLabel className="mb-1">Metric</LemonLabel>}
-
+            <SceneSection title="Metric" className="max-w-prose">
                 {isExperimentMeanMetric(metric) && (
                     <>
                         <ActionFilter
@@ -307,8 +335,7 @@ export function ExperimentMetricForm({
                 )}
             </SceneSection>
             <SceneDivider />
-            <SceneSection title="Goal" hideTitleAndDescription={!newSceneLayout} className="max-w-prose">
-                {!newSceneLayout && <LemonLabel className="mb-1">Goal</LemonLabel>}
+            <SceneSection title="Goal" className="max-w-prose">
                 <div className="flex flex-col gap-1">
                     <LemonSelect<ExperimentMetricGoal>
                         value={metric.goal || ExperimentMetricGoal.Increase}
@@ -340,7 +367,6 @@ export function ExperimentMetricForm({
             )}
             <SceneSection
                 title="Recent activity"
-                hideTitleAndDescription={!newSceneLayout}
                 className="max-w-prose"
                 titleHelper={
                     <div className="flex flex-col gap-2">
@@ -361,32 +387,6 @@ export function ExperimentMetricForm({
                     </div>
                 }
             >
-                {!newSceneLayout && (
-                    <LemonLabel
-                        className="mb-1"
-                        info={
-                            <div className="flex flex-col gap-2">
-                                <div>This shows recent activity for your selected metric over the past 2 weeks.</div>
-                                <div>
-                                    It's a quick health check to ensure your tracking is working properly, so that
-                                    you'll receive accurate results when your experiment starts.
-                                </div>
-                                <div>
-                                    If you see zero activity, double-check that this metric is being tracked properly in
-                                    your application. Head to{' '}
-                                    <Link target="_blank" className="font-semibold" to={urls.insightNew()}>
-                                        Product analytics
-                                        <IconOpenInNew fontSize="18" />
-                                    </Link>{' '}
-                                    to do a detailed analysis of the events received so far.
-                                </div>
-                            </div>
-                        }
-                    >
-                        Recent activity
-                    </LemonLabel>
-                )}
-
                 <div className="border rounded p-4 bg-bg-light">
                     {isLoading ? (
                         <div className="flex items-center gap-2">

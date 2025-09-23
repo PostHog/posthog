@@ -10,6 +10,7 @@ from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
 from ee.hogai.graph import AssistantGraph
 from ee.hogai.graph.session_summaries.nodes import _SessionSearch
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantNodeName, AssistantState
+from ee.hogai.utils.yaml import load_yaml_from_raw_llm_content
 from ee.models.assistant import Conversation
 
 from ..base import MaxPublicEval
@@ -324,10 +325,9 @@ async def eval_filter_query_generation(filter_query_tester, pytestconfig):
 @pytest.fixture
 def yaml_fix_tester():
     """Test that load_yaml_from_raw_llm_content fixes malformed YAML."""
-    from ee.hogai.graph.session_summaries.parsers import load_yaml_from_raw_llm_content
 
     def test(malformed_yaml: str) -> dict | list:
-        return load_yaml_from_raw_llm_content(malformed_yaml)
+        return load_yaml_from_raw_llm_content(malformed_yaml, final_validation=True)
 
     return test
 
@@ -345,17 +345,20 @@ async def eval_yaml_fixing(yaml_fix_tester, pytestconfig):
                 input='key: "value with missing quote',
                 expected={"key": "value with missing quote"},
             ),
-            # Mixed symbols in the elements
+            # Mixed symbols in list items with malformed quotes
             EvalCase(
                 input="""
-- key: value's with extra quote
-- another_key: 'quoted string'
-- one_more_key: ```some code```
+- item: 'value's with apostrophe'
+  description: "unclosed quote here
+- item: "double quoted "value" inside"
+  description: "some text with ```backticks around it```, maybe code"
 """,
                 expected=[
-                    {"key": "value's with extra quote"},
-                    {"another_key": "quoted string"},
-                    {"one_more_key": "some code"},
+                    {"description": "unclosed quote here", "item": "value's with apostrophe"},
+                    {
+                        "description": "some text with ```backticks around it```, maybe code",
+                        "item": 'double quoted "value" inside',
+                    },
                 ],
             ),
             # Mixed indentation (tabs and spaces)

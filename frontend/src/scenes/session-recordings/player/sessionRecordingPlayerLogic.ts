@@ -25,7 +25,7 @@ import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-type
 import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { now } from 'lib/dayjs'
+import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { clamp, downloadFile, findLastIndex, objectsEqual, uuid } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -415,13 +415,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         deleteRecording: true,
         openExplorer: true,
         takeScreenshot: true,
-        getClip: (format: ExporterFormat, duration: number = 5) => ({ format, duration }),
+        getClip: (format: ExporterFormat, duration: number = 5, filename?: string) => ({ format, duration, filename }),
         exportRecording: (
             format: ExporterFormat,
             timestamp: number = 0,
             mode: SessionRecordingPlayerMode = SessionRecordingPlayerMode.Screenshot,
-            duration: number = 5
-        ) => ({ format, timestamp, mode, duration }),
+            duration: number = 5,
+            filename?: string
+        ) => ({ format, timestamp, mode, duration, filename }),
         closeExplorer: true,
         openHeatmap: true,
         setExplorerProps: (props: SessionRecordingPlayerExplorerProps | null) => ({ props }),
@@ -450,6 +451,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         markViewed: (delay?: number) => ({ delay }),
         setWasMarkedViewed: (wasMarkedViewed: boolean) => ({ wasMarkedViewed }),
         setShowingClipParams: (showingClipParams: boolean) => ({ showingClipParams }),
+        setIsHovering: (isHovering: boolean) => ({ isHovering }),
+        allowPlayerChromeToHide: true,
     }),
     reducers(({ props }) => ({
         showingClipParams: [
@@ -709,6 +712,22 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 setSimilarRecordings: (_, { results }) => results,
             },
         ],
+        isHovering: [
+            false,
+            {
+                setIsHovering: (_, { isHovering }) => isHovering,
+            },
+        ],
+        forceShowPlayerChrome: [
+            true,
+            {
+                setIsHovering: (state, { isHovering }) => (isHovering ? false : state),
+                allowPlayerChromeToHide: () => {
+                    return false
+                    return false
+                },
+            },
+        ],
     })),
     selectors({
         // Prop references for use by other logics
@@ -962,10 +981,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     return null
                 }
                 const snapshot = snapshots[currIndex]
-                return {
+
+                const resolution = {
                     width: snapshot.data?.['width'],
                     height: snapshot.data?.['height'],
                 }
+
+                // For video export: expose resolution via global variable
+                if (typeof window !== 'undefined') {
+                    ;(window as any).__POSTHOG_RESOLUTION__ = resolution
+                }
+
+                return resolution
             },
             {
                 resultEqualityCheck: (prev, next) => {
@@ -973,6 +1000,39 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     // stops PlayerMeta from re-rendering on every player position
                     return objectsEqual(prev, next)
                 },
+            },
+        ],
+        hoverFlagIsEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => {
+                return featureFlags[FEATURE_FLAGS.REPLAY_HOVER_UI] === 'test'
+            },
+        ],
+        hoverModeIsEnabled: [
+            (s) => [s.logicProps, s.isCommenting, s.hoverFlagIsEnabled, s.showingClipParams],
+            (logicProps, isCommenting, hoverFlagIsEnabled, showingClipParams): boolean => {
+                return (
+                    hoverFlagIsEnabled &&
+                    logicProps.mode === SessionRecordingPlayerMode.Standard &&
+                    !isCommenting &&
+                    !showingClipParams
+                )
+            },
+        ],
+        showPlayerChrome: [
+            (s) => [s.hoverModeIsEnabled, s.isHovering, s.forceShowPlayerChrome],
+            (hoverModeIsEnabled, isHovering, forceShowPlayerChrome): boolean => {
+                if (!hoverModeIsEnabled) {
+                    // we always show the UI in non-hover mode
+                    return true
+                }
+
+                // we default to showing the UI until a timer hides it
+                // or the user has hovered over the player
+                if (forceShowPlayerChrome) {
+                    return true
+                }
+                return isHovering
             },
         ],
     }),
@@ -1588,7 +1648,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 height: parseFloat(iframe.height),
             })
         },
-        exportRecording: ({ format, timestamp = 0, mode = SessionRecordingPlayerMode.Screenshot, duration = 5 }) => {
+        exportRecording: ({
+            format,
+            timestamp = 0,
+            mode = SessionRecordingPlayerMode.Screenshot,
+            duration = 5,
+            filename = '',
+        }) => {
             actions.setPause()
             const iframe = values.rootFrame?.querySelector('iframe')
             if (!iframe) {
@@ -1600,7 +1666,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 width: iframe?.width ? Number(iframe.width) : 1400,
                 height: iframe?.height ? Number(iframe.height) : 600,
                 css_selector: '.replayer-wrapper',
-                filename: `replay-${values.sessionRecordingId}`,
+                filename: filename || `replay-${values.sessionRecordingId}-${dayjs().format('YYYY-MM-DD-HH-mm')}`,
             })
         },
         takeScreenshot: async () => {
@@ -1608,13 +1674,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const timestamp = Math.max(0, getCurrentPlayerTime(values.logicProps) - 1)
             actions.exportRecording(ExporterFormat.PNG, timestamp, SessionRecordingPlayerMode.Screenshot)
         },
-        getClip: async ({ format, duration = 5 }) => {
+        getClip: async ({ format, duration = 5, filename }) => {
             // Center the clip around current time, minus 1 second offset for player start
             const timestamp = Math.max(
                 0,
                 Math.floor(getCurrentPlayerTime(values.logicProps) - 1 - Math.floor(duration / 2))
             )
-            actions.exportRecording(format, timestamp, SessionRecordingPlayerMode.Screenshot, duration)
+            actions.exportRecording(format, timestamp, SessionRecordingPlayerMode.Screenshot, duration, filename)
         },
         exportRecordingToVideoFile: async () => {
             const duration = values.sessionPlayerData?.durationMs

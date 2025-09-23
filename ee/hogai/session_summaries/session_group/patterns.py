@@ -13,6 +13,7 @@ from ee.hogai.session_summaries.constants import FAILED_PATTERNS_ENRICHMENT_MIN_
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import SingleSessionSummaryLlmInputs
 from ee.hogai.session_summaries.utils import logging_session_ids
+from ee.hogai.utils.yaml import load_yaml_from_raw_llm_content
 
 logger = structlog.get_logger(__name__)
 

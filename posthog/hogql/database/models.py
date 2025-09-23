@@ -114,6 +114,13 @@ class BooleanDatabaseField(DatabaseField):
         return BooleanType(nullable=self.is_nullable())
 
 
+class UUIDDatabaseField(DatabaseField):
+    def get_constant_type(self) -> "ConstantType":
+        from posthog.hogql.ast import UUIDType
+
+        return UUIDType(nullable=self.is_nullable())
+
+
 class ExpressionField(DatabaseField):
     expr: Expr
     # Pushes the parent table type to the scope when resolving any child fields
@@ -273,6 +280,7 @@ class FunctionCallTable(Table):
     """
 
     name: str
+    requires_args: bool = True
     min_args: Optional[int] = None
     max_args: Optional[int] = None
 
