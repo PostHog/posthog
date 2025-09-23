@@ -31,13 +31,13 @@ export function getDefaultConfig(): PluginsServerConfig {
         DATABASE_READONLY_URL: '',
         PLUGIN_STORAGE_DATABASE_URL: '',
         PERSONS_DATABASE_URL: isTestEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
+            ? 'postgres://posthog:posthog@localhost:5432/test_persons'
             : isDevEnv()
               ? 'postgres://posthog:posthog@localhost:5432/posthog'
               : '',
         PERSONS_READONLY_DATABASE_URL: '',
         PERSONS_MIGRATION_DATABASE_URL: isTestEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/test_posthog_persons_migration'
+            ? 'postgres://posthog:posthog@localhost:5432/test_persons_migration'
             : isDevEnv()
               ? 'postgres://posthog:posthog@localhost:5432/posthog_persons_migration'
               : '',

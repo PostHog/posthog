@@ -1367,7 +1367,7 @@ describe('PostgresPersonRepository', () => {
 
         async function getAllHashKeyOverrides(): Promise<any> {
             const result = await hub.db.postgres.query(
-                PostgresUse.COMMON_WRITE,
+                PostgresUse.PERSONS_READ,
                 'SELECT feature_flag_key, hash_key, person_id FROM posthog_featureflaghashkeyoverride',
                 [],
                 ''

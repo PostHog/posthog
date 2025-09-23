@@ -83,6 +83,21 @@ services:
         # They are only for DEV and should not be used in production.
         command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000 -c max_prepared_transactions=10
 
+    persons_db:
+        extends:
+            file: docker-compose.base.yml
+            service: db
+        ports:
+            - '5434:5432'
+        environment:
+            POSTGRES_USER: posthog
+            POSTGRES_DB: posthog_persons
+            POSTGRES_PASSWORD: posthog
+
+        volumes:
+            - persons-db:/var/lib/postgresql/data
+        command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000 -c max_prepared_transactions=10
+
     redis:
         extends:
             file: docker-compose.base.yml
@@ -263,3 +278,5 @@ networks:
 
 volumes:
     redpanda-data:
+    persons-db:
+        driver: local
