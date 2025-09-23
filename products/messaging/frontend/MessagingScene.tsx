@@ -159,8 +159,12 @@ export function MessagingScene(): JSX.Element {
 
     return (
         <SceneContent className="messaging">
-            <SceneTitleSection name="Messaging" resourceType={{ type: 'messaging' }} />
-            <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} />
+            <SceneTitleSection
+                name="Messaging"
+                resourceType={{ type: 'messaging' }}
+                description="Create automated workflows triggered by PostHog events to onboard, retain, and re-engage your users."
+            />
+            <LemonTabs activeKey={currentTab} tabs={tabs} onChange={setCurrentTab} sceneInset />
         </SceneContent>
     )
 }
