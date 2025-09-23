@@ -94,7 +94,7 @@ static DATETIME_PREFIX_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     ).unwrap()
 });
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord, Deserialize, Serialize)]
 pub enum PropertyParentType {
     Event = 1,
     Person = 2,
@@ -135,7 +135,7 @@ impl fmt::Display for PropertyValueType {
 }
 
 // The grouptypemapping table uses i32's, but we get group types by name, so we have to resolve them before DB writes, sigh
-#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Deserialize, Serialize)]
 pub enum GroupType {
     Unresolved(String),
     Resolved(String, i32),
@@ -150,9 +150,11 @@ impl GroupType {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Deserialize, Serialize)]
 pub struct PropertyDefinition {
+    #[serde(deserialize_with = "deserialize_string_or_i32")]
     pub team_id: i32,
+    #[serde(deserialize_with = "deserialize_string_or_i64")]
     pub project_id: i64,
     pub name: String,
     pub is_numerical: bool,
@@ -164,18 +166,22 @@ pub struct PropertyDefinition {
     pub query_usage_30_day: Option<i64>,      // Deprecated
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Deserialize, Serialize)]
 pub struct EventDefinition {
     pub name: String,
+    #[serde(deserialize_with = "deserialize_string_or_i32")]
     pub team_id: i32,
+    #[serde(deserialize_with = "deserialize_string_or_i64")]
     pub project_id: i64,
     pub last_seen_at: DateTime<Utc>, // Always floored to our update rate for last_seen, so this Eq derive is safe for deduping
 }
 
 // Derived hash since these are keyed on all fields in the DB
-#[derive(Clone, Debug, Hash, Eq, PartialEq, PartialOrd, Ord)]
+#[derive(Clone, Debug, Hash, Eq, PartialEq, PartialOrd, Ord, Deserialize, Serialize)]
 pub struct EventProperty {
+    #[serde(deserialize_with = "deserialize_string_or_i32")]
     pub team_id: i32,
+    #[serde(deserialize_with = "deserialize_string_or_i64")]
     pub project_id: i64,
     pub event: String,
     pub property: String,

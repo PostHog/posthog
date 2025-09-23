@@ -8,7 +8,7 @@
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
-  HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1)))) 
+  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_1)s), person.version), plus(now64(6, %(hogql_val_2)s), toIntervalDay(1))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS persons LEFT JOIN (
   SELECT extended_properties.string_prop AS string_prop, extended_properties.int_prop AS int_prop, extended_properties.bool_prop AS bool_prop, string_prop AS persons__extended_properties___string_prop 
   FROM s3(%(hogql_val_3_sensitive)s, %(hogql_val_6_sensitive)s, %(hogql_val_7_sensitive)s, %(hogql_val_4)s, %(hogql_val_5)s) AS extended_properties) AS persons__extended_properties ON equals(persons.persons___properties___email, persons__extended_properties.persons__extended_properties___string_prop) 
@@ -51,13 +51,13 @@
   FROM person_distinct_id_overrides 
   WHERE equals(person_distinct_id_overrides.team_id, 420) 
   GROUP BY person_distinct_id_overrides.distinct_id 
-  HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) 
+  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) LEFT JOIN (
   SELECT argMax(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), %(hogql_val_1)s), person.version) AS properties___tickets, person.id AS id 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
-  HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_2)s), person.version), plus(now64(6, %(hogql_val_3)s), toIntervalDay(1)))) 
+  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_2)s), person.version), plus(now64(6, %(hogql_val_3)s), toIntervalDay(1))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id) 
   WHERE equals(events.team_id, 420) 
   LIMIT 50000
@@ -81,13 +81,13 @@
   FROM person_distinct_id_overrides 
   WHERE equals(person_distinct_id_overrides.team_id, 420) 
   GROUP BY person_distinct_id_overrides.distinct_id 
-  HAVING equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0) 
+  HAVING ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0) 
   SETTINGS optimize_aggregation_in_order=1) AS events__override ON equals(events.distinct_id, events__override.distinct_id) LEFT JOIN (
   SELECT argMax(parseDateTime64BestEffortOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, %(hogql_val_0)s), ''), 'null'), '^"|"$', ''), 6, %(hogql_val_1)s), person.version) AS properties___provided_timestamp, person.id AS id 
   FROM person 
   WHERE equals(person.team_id, 420) 
   GROUP BY person.id 
-  HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_2)s), person.version), plus(now64(6, %(hogql_val_3)s), toIntervalDay(1)))) 
+  HAVING and(ifNull(equals(argMax(person.is_deleted, person.version), 0), 0), ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_2)s), person.version), plus(now64(6, %(hogql_val_3)s), toIntervalDay(1))), 0)) 
   SETTINGS optimize_aggregation_in_order=1) AS events__person ON equals(if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id), events__person.id) 
   WHERE equals(events.team_id, 420) 
   LIMIT 50000

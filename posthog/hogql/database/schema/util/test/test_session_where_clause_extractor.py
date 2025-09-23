@@ -351,7 +351,7 @@ FROM
         sessions.session_id,
         sessions.session_id) AS sessions
 WHERE
-    greater(sessions.`$start_timestamp`, %(hogql_val_3)s)
+    ifNull(greater(sessions.`$start_timestamp`, %(hogql_val_3)s), 0)
 LIMIT 50000\
 """
         )
@@ -489,7 +489,7 @@ FROM
     GROUP BY
         person_distinct_id_overrides.distinct_id
     HAVING
-        equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0)
+        ifNull(equals(argMax(person_distinct_id_overrides.is_deleted, person_distinct_id_overrides.version), 0), 0)
     SETTINGS optimize_aggregation_in_order=1) AS e__override ON equals(e.distinct_id, e__override.distinct_id)
     LEFT JOIN (SELECT
         dateDiff(%(hogql_val_0)s, min(toTimeZone(sessions.min_timestamp, %(hogql_val_1)s)), max(toTimeZone(sessions.max_timestamp, %(hogql_val_2)s))) AS `$session_duration`,

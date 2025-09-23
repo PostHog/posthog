@@ -969,6 +969,7 @@ DatabaseSchemaTable: TypeAlias = (
 
 def serialize_database(
     context: HogQLContext,
+    include_only: Optional[set[str]] = None,
 ) -> dict[str, DatabaseSchemaTable]:
     from posthog.warehouse.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
@@ -985,6 +986,9 @@ def serialize_database(
     # PostHog tables
     posthog_tables = context.database.get_posthog_tables()
     for table_key in posthog_tables:
+        if include_only and table_key not in include_only:
+            continue
+
         field_input: dict[str, Any] = {}
         table = context.database.get_table(table_key)
         if isinstance(table, FunctionCallTable):
@@ -999,6 +1003,9 @@ def serialize_database(
     # System tables
     system_tables = context.database.get_system_tables()
     for table_key in system_tables:
+        if include_only and table_key not in include_only:
+            continue
+
         system_field_input: dict[str, Any] = {}
         table = context.database.get_table(table_key)
         if isinstance(table, FunctionCallTable):
@@ -1082,6 +1089,9 @@ def serialize_database(
         else:
             table_key = warehouse_table.name
 
+        if include_only and table_key not in include_only:
+            continue
+
         field_input = {}
         table = context.database.get_table(table_key)
         if isinstance(table, Table):
@@ -1116,6 +1126,9 @@ def serialize_database(
     # Process views using prefetched data
     views_dict = {view.name: view for view in all_views}
     for view_name in views:
+        if include_only and view_name not in include_only:
+            continue
+
         view: Table | TableGroup | None = getattr(context.database, view_name, None)
         if view is None:
             continue
