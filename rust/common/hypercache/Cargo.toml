@@ -21,3 +21,7 @@ serde-pickle = "1.2.0"
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
+
+[dev-dependencies]
+mockall = { workspace = true }
+common-hypercache = { path = ".", features = ["mock-client"] }

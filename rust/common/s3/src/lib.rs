@@ -2,14 +2,13 @@
 //!
 //! This crate provides a simple wrapper around AWS S3 operations
 //! that enables testing with mocks and consistent error handling across services.
-//!
-//! Follows the common-redis pattern: trait-based design with manual mock implementation
-//! that's always available for testing.
 
 use async_trait::async_trait;
 use aws_sdk_s3::Client as AwsS3SdkClient;
-use std::collections::HashMap;
 use thiserror::Error;
+
+#[cfg(feature = "mock-client")]
+use mockall::automock;
 
 #[derive(Error, Debug, Clone, PartialEq, Eq)]
 pub enum S3Error {
@@ -35,6 +34,7 @@ impl From<std::string::FromUtf8Error> for S3Error {
 
 /// S3 client trait that both real and mock implementations use
 #[async_trait]
+#[cfg_attr(feature = "mock-client", automock)]
 pub trait S3Client: Send + Sync {
     /// Get an object from S3 as a UTF-8 string
     async fn get_string(&self, bucket: &str, key: &str) -> Result<String, S3Error>;
@@ -85,77 +85,12 @@ impl S3Client for S3Impl {
     }
 }
 
-/// Mock S3 client for testing - always available, no conditional compilation needed
-#[derive(Clone, Default)]
-pub struct MockS3Client {
-    get_string_responses: HashMap<String, Result<String, S3Error>>,
-}
-
-impl MockS3Client {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Set up a response for get_string() - takes bucket and key as separate parameters for easier testing
-    pub fn get_string_ret(
-        mut self,
-        bucket: &str,
-        key: &str,
-        response: Result<String, S3Error>,
-    ) -> Self {
-        let cache_key = format!("{bucket}:{key}");
-        self.get_string_responses.insert(cache_key, response);
-        self
-    }
-}
-
-#[async_trait]
-impl S3Client for MockS3Client {
-    async fn get_string(&self, bucket: &str, key: &str) -> Result<String, S3Error> {
-        let cache_key = format!("{bucket}:{key}");
-        match self.get_string_responses.get(&cache_key) {
-            Some(response) => response.clone(),
-            None => Err(S3Error::NotFound(key.to_string())),
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_mock_s3_client_get_string_success() {
-        let client = MockS3Client::new().get_string_ret(
-            "test-bucket",
-            "test-key",
-            Ok("test-content".to_string()),
-        );
-
-        let result = client.get_string("test-bucket", "test-key").await;
-        assert_eq!(result.unwrap(), "test-content");
-    }
-
-    #[tokio::test]
-    async fn test_mock_s3_client_get_string_not_found() {
-        let client = MockS3Client::new().get_string_ret(
-            "test-bucket",
-            "test-key",
-            Err(S3Error::NotFound("test-key".to_string())),
-        );
-
-        let result = client.get_string("test-bucket", "test-key").await;
-        assert!(matches!(result, Err(S3Error::NotFound(_))));
-    }
-
-    #[tokio::test]
-    async fn test_mock_s3_client_default_not_found() {
-        let client = MockS3Client::new();
-
-        // Should return NotFound for any key not explicitly configured
-        let result = client.get_string("test-bucket", "nonexistent-key").await;
-        assert!(matches!(result, Err(S3Error::NotFound(_))));
-    }
+    // Integration tests in tests/integration_tests.rs verify real S3/MinIO functionality
+    // Unit tests here use the auto-generated MockS3Client from #[automock]
 
     #[tokio::test]
     async fn test_s3_error_from_utf8_error() {

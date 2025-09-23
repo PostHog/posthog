@@ -33,10 +33,12 @@ use aws_sdk_s3::Client as AwsS3SdkClient;
 use common_compression::{decompress_zstd, CompressionError};
 use common_metrics::inc;
 use common_redis::Client as RedisClient;
-#[cfg(test)]
+#[cfg(all(test, feature = "mock-client"))]
 use common_s3::MockS3Client;
 use common_s3::{S3Client, S3Error, S3Impl};
 use common_types::{TeamId, TeamIdentifier};
+#[cfg(all(test, feature = "mock-client"))]
+use mockall::predicate;
 use serde_json::Value;
 use std::sync::Arc;
 use std::time::Duration;
@@ -427,9 +429,32 @@ mod tests {
         )
     }
 
+    #[cfg(test)]
     fn create_dummy_s3_client() -> Arc<dyn S3Client + Send + Sync> {
-        // Create a dummy mock S3 client for tests that don't actually use S3
-        Arc::new(MockS3Client::new())
+        #[cfg(feature = "mock-client")]
+        {
+            // Create a dummy mock S3 client for tests that don't actually use S3
+            let mut mock_s3 = MockS3Client::new();
+            mock_s3.expect_get_string().returning(|_, key| {
+                let key_owned = key.to_string();
+                Box::pin(async move { Err(S3Error::NotFound(key_owned)) })
+            });
+            return Arc::new(mock_s3);
+        }
+
+        #[cfg(not(feature = "mock-client"))]
+        {
+            // Create a real S3 client when mock-client feature is not enabled
+            use aws_config::BehaviorVersion;
+            use aws_sdk_s3::config::Region;
+
+            let config = aws_sdk_s3::Config::builder()
+                .behavior_version(BehaviorVersion::latest())
+                .region(Region::new("us-east-1"))
+                .build();
+            let s3_client = AwsS3SdkClient::from_conf(config);
+            Arc::new(S3Impl::new(s3_client))
+        }
     }
 
     fn create_test_reader_with_mocks(
@@ -729,6 +754,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[cfg(feature = "mock-client")]
     async fn test_get_with_source_redis_miss_s3_hit() {
         let team_key = KeyType::string("123");
         let test_data = json!({"key": "value", "nested": {"data": "test"}});
@@ -747,11 +773,21 @@ mod tests {
         let mut mock_redis = MockRedisClient::new();
         mock_redis = mock_redis.get_ret(&expected_cache_key, Err(CustomRedisError::NotFound));
         // S3 returns data
-        let mock_s3 = Arc::new(MockS3Client::new().get_string_ret(
-            "test-bucket",
-            &expected_s3_key,
-            Ok(test_data_str.clone()),
-        ));
+        let mut mock_s3 = MockS3Client::new();
+        mock_s3
+            .expect_get_string()
+            .with(
+                predicate::eq("test-bucket"),
+                predicate::eq(expected_s3_key.clone()),
+            )
+            .returning({
+                let test_data_str = test_data_str.clone();
+                move |_, _| {
+                    let data = test_data_str.clone();
+                    Box::pin(async move { Ok(data) })
+                }
+            });
+        let mock_s3 = Arc::new(mock_s3);
 
         let reader = HyperCacheReader {
             redis_client: Arc::new(mock_redis) as Arc<dyn RedisClient + Send + Sync>,
