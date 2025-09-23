@@ -56,7 +56,7 @@ function convertExperimentResultToFunnelSteps(
     const variants = experiment.parameters?.feature_flag_variants || []
 
     const allResults = [result.baseline, ...(result.variant_results || [])]
-    const numSteps = result.baseline.step_counts?.length || 0
+    const numSteps = (result.baseline.step_counts?.length || 0) + 1
     const funnelSteps: FunnelStepWithNestedBreakdown[] = []
 
     for (let stepIndex = 0; stepIndex < numSteps; stepIndex++) {
