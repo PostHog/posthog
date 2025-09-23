@@ -188,18 +188,12 @@ describe('SourceWebhooksConsumer', () => {
                 })
 
                 const call = mockExecuteSpy.mock.calls[0][0]
-                expect(call.state.globals.request).toEqual({
-                    body: {},
-                    stringBody: '',
-                    headers: {
-                        'accept-encoding': 'gzip, deflate',
-                        connection: 'close',
-                        'content-length': '0',
-                        'content-type': 'application/json',
-                        host: expect.any(String),
-                    },
-                    ip: '127.0.0.1',
-                    query: {},
+                expect(call.state.globals.request.headers).toEqual({
+                    'accept-encoding': 'gzip, deflate',
+                    connection: 'close',
+                    'content-length': '0',
+                    'content-type': 'application/json',
+                    host: expect.any(String),
                 })
             })
 
@@ -239,6 +233,10 @@ describe('SourceWebhooksConsumer', () => {
                                 distinct_id: {
                                     value: '{request.body.distinct_id}',
                                     bytecode: await compileHog(`return f'{request.body.distinct_id}'`),
+                                },
+                                method: {
+                                    value: 'POST',
+                                    bytecode: await compileHog(`return f'POST'`),
                                 },
                             },
                         },

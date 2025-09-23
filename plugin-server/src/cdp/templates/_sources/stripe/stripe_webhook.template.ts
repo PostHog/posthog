@@ -11,7 +11,7 @@ export const template: HogFunctionTemplate = {
     category: ['Revenue', 'Payment'],
     code_language: 'hog',
     code: `
-if(request.method != 'GET') {
+if(request.method != 'POST') {
   return {
     'httpResponse': {
       'status': 405,

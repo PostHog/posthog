@@ -25,6 +25,7 @@ describe('incoming webhook template', () => {
             },
             {
                 request: {
+                    method: 'POST',
                     body: {
                         eventName: 'the event',
                         rootLevel: 'rootLevelValue',
@@ -70,6 +71,7 @@ describe('incoming webhook template', () => {
             },
             {
                 request: {
+                    method: 'POST',
                     body: {
                         eventName: 'the event',
                     },
@@ -103,6 +105,7 @@ describe('incoming webhook template', () => {
             },
             {
                 request: {
+                    method: 'POST',
                     body: {
                         eventName: 'the event',
                     },
@@ -132,6 +135,7 @@ describe('incoming webhook template', () => {
             },
             {
                 request: {
+                    method: 'POST',
                     body: {
                         eventName: 'the event',
                     },

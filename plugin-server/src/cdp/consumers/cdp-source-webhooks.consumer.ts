@@ -150,6 +150,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase {
                 url: '',
             },
             request: {
+                method: req.method,
                 headers,
                 ip,
                 body,
