@@ -163,7 +163,10 @@ export function elementIsVisible(element: HTMLElement, cache: WeakMap<HTMLElemen
         }
         const style = window.getComputedStyle(element)
         const isInvisible = style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity) === 0
-        cache.set(element, !isInvisible)
+        if (isInvisible) {
+            cache.set(element, false)
+            return false
+        }
         if (isInvisible) {
             return false
         }
