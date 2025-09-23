@@ -330,7 +330,6 @@ def get_context_for_template(
     request: HttpRequest,
     context: Optional[dict] = None,
     team_for_public_context: Optional["Team"] = None,
-    template_name: Optional[str] = None,
 ) -> dict:
     if context is None:
         context = {}
@@ -346,23 +345,18 @@ def get_context_for_template(
     if settings.DEBUG and not settings.TEST:
         context["debug"] = True
         context["git_branch"] = get_git_branch()
-        # Add vite dev scripts for development only when explicitly using Vite
-        if not settings.E2E_TESTING and os.environ.get("POSTHOG_USE_VITE"):
-            # Choose the correct entry point based on template
-            entry_point = "src/index.tsx"
-            if template_name == "exporter.html":
-                entry_point = "src/exporter/index.tsx"
-            context["vite_dev_scripts"] = f"""
+        # Add vite dev scripts for development
+        context["vite_dev_scripts"] = """
         <script type="module">
             import RefreshRuntime from 'http://localhost:8234/@react-refresh'
             RefreshRuntime.injectIntoGlobalHook(window)
-            window.$RefreshReg$ = () => {{}}
+            window.$RefreshReg$ = () => {}
             window.$RefreshSig$ = () => (type) => type
             window.__vite_plugin_react_preamble_installed__ = true
         </script>
         <!-- Vite development server -->
         <script type="module" src="http://localhost:8234/@vite/client"></script>
-        <script type="module" src="http://localhost:8234/{entry_point}"></script>"""
+        <script type="module" src="http://localhost:8234/src/index.tsx"></script>"""
 
     context["js_posthog_ui_host"] = ""
 

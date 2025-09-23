@@ -305,9 +305,11 @@ export const FEATURE_FLAGS = {
     ADVANCED_ACTIVITY_LOGS: 'advanced-activity-logs', // owner: @yasen-posthog #team-platform-features
     SIMPLIFIED_PRELAUNCH_CHECKLIST: 'simplified-prelaunch-checklist', // owner: @jurajmajerik #team-experiments
     HOW_TO_READ_METRICS_EXPLANATION: 'how-to-read-metrics-explanation', // owner: @jurajmajerik #team-experiments
+    EXPERIMENT_TIMESERIES: 'experiment-timeseries', // owner: @jurajmajerik #team-experiments
     DASHBOARD_TILE_OVERRIDES: 'dashboard-tile-overrides', // owner: @gesh #team-product-analytics
     REPLAY_HOVER_UI: 'replay-hover-ui', // owner: @pauldambra #team-replay
     RECORDINGS_PLAYER_EVENT_PROPERTY_EXPANSION: 'recordings-player-event-property-expansion', // owner: @pauldambra #team-replay
+    REPLAY_X_LLM_ANALYTICS_CONVERSATION_VIEW: 'replay-x-llm-analytics-conversation-view', // owner: @pauldambra #team-replay
 } as const
 export type FeatureFlagKey = (typeof FEATURE_FLAGS)[keyof typeof FEATURE_FLAGS]
 

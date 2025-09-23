@@ -17,7 +17,7 @@ import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dat
 import { DataModelingJob, DataWarehouseSyncInterval, LineageNode, OrNever } from '~/types'
 
 import { multitabEditorLogic } from '../multitabEditorLogic'
-import { UpstreamGraph } from './graph/UpstreamGraph'
+import { UpstreamGraph } from '../sidebar/graph/UpstreamGraph'
 import { infoTabLogic } from './infoTabLogic'
 
 interface QueryInfoProps {

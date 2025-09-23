@@ -14,6 +14,7 @@ dependencies = [
     "brotli==1.1.0",
     "celery==5.3.4",
     "celery-redbeat==2.1.1",
+    "certifi==2025.8.3",
     "clickhouse-connect==0.8.17",
     "clickhouse-driver==0.2.9",
     "clickhouse-pool==0.5.3",
