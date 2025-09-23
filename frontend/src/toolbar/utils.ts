@@ -154,16 +154,53 @@ export function inBounds(min: number, value: number, max: number): number {
     return Math.max(min, Math.min(max, value))
 }
 
-export function elementIsVisible(element: HTMLElement): boolean {
+export function elementIsVisible(element: HTMLElement, cache: WeakMap<HTMLElement, boolean>): boolean {
     try {
+        // Fast path: check element's own styles first
+        const alreadyCached = cache.get(element)
+        if (alreadyCached !== undefined) {
+            return alreadyCached
+        }
         const style = window.getComputedStyle(element)
+        const isInvisible = style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity) === 0
+        cache.set(element, !isInvisible)
+        if (isInvisible) {
+            return false
+        }
+
+        // Check parent chain for display/visibility (with caching)
+        let parent = element.parentElement
+        while (parent) {
+            // Check cache first
+            const cached = cache.get(parent)
+            if (cached !== undefined) {
+                if (!cached) {
+                    return false
+                }
+                // If cached as visible, skip to next parent
+                parent = parent.parentElement
+                continue
+            }
+
+            const parentStyle = window.getComputedStyle(parent)
+            const parentVisible = parentStyle.display !== 'none' && parentStyle.visibility !== 'hidden'
+
+            // Cache the result
+            cache.set(parent, parentVisible)
+
+            if (!parentVisible) {
+                return false
+            }
+            parent = parent.parentElement
+        }
+
+        // Check if element has actual rendered dimensions
+        const rect = element.getBoundingClientRect()
         return (
-            style.display !== 'none' &&
-            style.visibility !== 'hidden' &&
-            parseFloat(style.opacity) !== 0 &&
-            style.height !== '0px' &&
-            style.width !== '0px' &&
-            (element.parentElement ? elementIsVisible(element.parentElement) : true)
+            rect.width > 0 ||
+            rect.height > 0 ||
+            // Some elements might be 0x0 but still visible (e.g., inline elements with content)
+            element.getClientRects().length > 0
         )
     } catch {
         // if we can't get the computed style, we'll assume the element is visible
@@ -201,7 +238,9 @@ export function getAllClickTargets(
         .filter((e) => e)
     const uniqueElements = Array.from(new Set(selectedElements)) as HTMLElement[]
 
-    return uniqueElements.filter(elementIsVisible)
+    // Create a shared cache for this batch of visibility checks
+    const visibilityCache = new WeakMap<HTMLElement, boolean>()
+    return uniqueElements.filter((el) => elementIsVisible(el, visibilityCache))
 }
 
 export function stepMatchesHref(step: ActionStepType, href: string): boolean {
