@@ -5,9 +5,9 @@ import { createContext, useContext, useLayoutEffect, useRef, useState } from 're
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 
+import { StepBarLabels } from '~/scenes/funnels/FunnelBarVertical/StepBarLabels'
 import { ChartParams } from '~/types'
 
-import { StepBarLabels } from '../../../funnels/FunnelBarVertical/StepBarLabels'
 import { useFunnelChartData } from './FunnelChart'
 import { useFunnelTooltip } from './FunnelTooltip'
 import { StepBars } from './StepBars'
