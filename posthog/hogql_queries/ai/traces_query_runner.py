@@ -119,14 +119,13 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 ) AS first_person,
                 round(
                     CASE
-                        -- Contingency FIRST: if all latency events are generations, sum them all
+                        -- If all events with latency are generations, sum them all
                         WHEN countIf(toFloat(properties.$ai_latency) > 0 AND event != '$ai_generation') = 0
                              AND countIf(toFloat(properties.$ai_latency) > 0 AND event = '$ai_generation') > 0
                         THEN sumIf(toFloat(properties.$ai_latency),
                                    event = '$ai_generation' AND toFloat(properties.$ai_latency) > 0
                              )
-
-                        -- Fallback: existing logic (root + direct children)
+                        -- Otherwise sum the direct children of the trace
                         ELSE sumIf(toFloat(properties.$ai_latency),
                                    properties.$ai_parent_id IS NULL
                                    OR toString(properties.$ai_parent_id) = toString(properties.$ai_trace_id)
