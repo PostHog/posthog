@@ -111,8 +111,9 @@ class RootNode(AssistantNode):
         # Add context messages on start of the conversation.
         updated_messages: Sequence[AssistantMessageUnion] = []
         messages_changed = False
-        if self._is_first_turn(state):
-            updated_messages = await self.context_manager.aget_state_messages_with_context(state)
+        if self._is_first_turn(state) and (
+            updated_messages := await self.context_manager.aget_state_messages_with_context(state)
+        ):
             # Check if context was actually added by comparing lengths
             messages_changed = len(updated_messages) != len(state.messages)
             state.messages = updated_messages
@@ -416,12 +417,7 @@ class RootNode(AssistantNode):
         if len(human_messages) < 3:
             return None
 
-        # Contains an async method in get_num_tokens_from_messages
-        token_count = await database_sync_to_async(model.get_num_tokens_from_messages, thread_sensitive=False)(
-            window, thinking=self.THINKING_CONFIG
-        )
-
-        if token_count > self.CONVERSATION_WINDOW_SIZE:
+        if await self._has_reached_token_limit(model, window):
             trimmed_window: list[BaseMessage] = trim_messages(
                 window,
                 token_counter=model,
@@ -440,6 +436,13 @@ class RootNode(AssistantNode):
                 if len(window) > 1 and isinstance(window[-2], LangchainAIMessage):
                     return window[-2].id
         return None
+
+    async def _has_reached_token_limit(self, model: Any, window: list[BaseMessage]) -> bool:
+        # Contains an async method in get_num_tokens_from_messages
+        token_count = await database_sync_to_async(model.get_num_tokens_from_messages, thread_sensitive=False)(
+            window, thinking=self.THINKING_CONFIG
+        )
+        return token_count > self.CONVERSATION_WINDOW_SIZE
 
     def _get_conversation_window(self, messages: list[T], start_id: str) -> list[T]:
         for idx, message in enumerate(messages):

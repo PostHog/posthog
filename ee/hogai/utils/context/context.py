@@ -335,7 +335,7 @@ class AssistantContextManager(AssistantContextMixin):
 
     def _deduplicate_context_messages(self, state: BaseStateWithMessages, context_prompts: list[str]) -> list[str]:
         """Naive deduplication of context messages by content."""
-        human_messages = {message.content for message in state.messages if isinstance(message, HumanMessage)}
+        human_messages = {message.content for message in state.messages if isinstance(message, ContextMessage)}
         return [prompt for prompt in context_prompts if prompt not in human_messages]
 
     def get_contextual_tools(self) -> dict[str, dict[str, Any]]:

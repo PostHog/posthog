@@ -75,6 +75,7 @@ from ee.hogai.utils.types import (
     AssistantState,
     PartialAssistantState,
 )
+from ee.hogai.utils.types.base import ReplaceMessages
 from ee.models.assistant import Conversation, CoreMemory
 
 from ..assistant import Assistant
@@ -1440,7 +1441,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
     async def test_merges_messages_with_same_id(self):
         """Test that messages with the same ID are merged into one."""
-        message_id = str(uuid4())
+        message_ids = [str(uuid4()), str(uuid4())]
 
         # Create a simple graph that will return messages with the same ID but different content
         first_content = "First version of message"
@@ -1453,7 +1454,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
             def __call__(self, state):
                 self.call_count += 1
                 content = first_content if self.call_count == 1 else updated_content
-                return {"messages": [AssistantMessage(id=message_id, content=content)]}
+                return {"messages": [AssistantMessage(id=message_ids[self.call_count - 1], content=content)]}
 
         updater = MessageUpdatingNode()
         graph = (
@@ -1468,13 +1469,13 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         # First run should add the message with initial content
         output, _ = await self._run_assistant_graph(graph, conversation=self.conversation)
         self.assertEqual(len(output), 2)  # Human message + AI message
-        self.assertEqual(cast(AssistantMessage, output[1][1]).id, message_id)
+        self.assertEqual(cast(AssistantMessage, output[1][1]).id, message_ids[0])
         self.assertEqual(cast(AssistantMessage, output[1][1]).content, first_content)
 
         # Second run should update the message with new content
         output, _ = await self._run_assistant_graph(graph, conversation=self.conversation)
         self.assertEqual(len(output), 2)  # Human message + AI message
-        self.assertEqual(cast(AssistantMessage, output[1][1]).id, message_id)
+        self.assertEqual(cast(AssistantMessage, output[1][1]).id, message_ids[1])
         self.assertEqual(cast(AssistantMessage, output[1][1]).content, updated_content)
 
         # Verify the message was actually replaced, not duplicated
@@ -1482,7 +1483,7 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
         messages = snapshot.values["messages"]
 
         # Count messages with our test ID
-        messages_with_id = [msg for msg in messages if msg.id == message_id]
+        messages_with_id = [msg for msg in messages if msg.id == message_ids[1]]
         self.assertEqual(len(messages_with_id), 1, "There should be exactly one message with the test ID")
         self.assertEqual(
             messages_with_id[0].content,
@@ -2124,3 +2125,44 @@ class TestAssistant(ClickhouseTestMixin, NonAtomicBaseTest):
 
         # Verify the message ID is in the streamed_update_ids set
         self.assertIn(message_id, assistant._streamed_update_ids)
+
+    async def test_init_or_update_state_adds_existing_message_ids_to_streamed_set(self):
+        """Test that _init_or_update_state adds existing message IDs to _streamed_update_ids."""
+        # Create messages with IDs that should be tracked
+        message_id_1 = str(uuid4())
+        message_id_2 = str(uuid4())
+        call_count = [0]
+
+        # Create a simple graph that returns messages with IDs
+        def create_messages_with_ids(_):
+            if call_count[0] == 0:
+                return PartialAssistantState(
+                    messages=[
+                        AssistantMessage(id=message_id_1, content="Message 1"),
+                    ]
+                )
+            else:
+                return PartialAssistantState(
+                    messages=ReplaceMessages(
+                        [
+                            AssistantMessage(id=message_id_1, content="Message 1"),
+                            AssistantMessage(id=message_id_2, content="Message 2"),
+                        ]
+                    )
+                )
+
+        graph = (
+            AssistantGraph(self.team, self.user)
+            .add_node(AssistantNodeName.ROOT, create_messages_with_ids)
+            .add_edge(AssistantNodeName.START, AssistantNodeName.ROOT)
+            .add_edge(AssistantNodeName.ROOT, AssistantNodeName.END)
+            .compile()
+        )
+
+        output, _ = await self._run_assistant_graph(graph, message="First run", conversation=self.conversation)
+        self.assertEqual(len(output), 1)
+        self.assertEqual(cast(AssistantMessage, output[0][1]).id, message_id_1)
+
+        output, _ = await self._run_assistant_graph(graph, message="Second run", conversation=self.conversation)
+        self.assertEqual(len(output), 1)
+        self.assertEqual(cast(AssistantMessage, output[0][1]).id, message_id_2)
