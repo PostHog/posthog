@@ -161,6 +161,7 @@ class ModelMigrator:
 
         self.config = self.load_config()
         # Bowler doesn't need project initialization
+        self._admin_classes_for_registration: list[tuple[str, str]] = []
 
     def load_config(self) -> dict:
         """Load migration configuration and normalize status flags."""
@@ -423,7 +424,7 @@ class ModelMigrator:
 
         return True
 
-    def create_django_app_config(self, app_name: str) -> bool:
+    def create_django_app_config(self, app_name: str, admin_registrations: list[tuple[str, str]] | None = None) -> bool:
         """Create Django app configuration in backend/"""
         app_dir = self.root_dir / "products" / app_name
         backend_dir = app_dir / "backend"
@@ -452,13 +453,36 @@ class ModelMigrator:
         # Create backend/apps.py
         apps_py = backend_dir / "apps.py"
         if not apps_py.exists():
+            # Build AppConfig with optional admin registrations
+            ready_method = ""
+            if admin_registrations:
+                ready_imports = "from django.contrib import admin\n        from .admin import (\n"
+                for _model_name, admin_class in admin_registrations:
+                    ready_imports += f"            {admin_class},\n"
+                ready_imports += "        )\n        from .models import (\n"
+                for model_name, _admin_class in admin_registrations:
+                    ready_imports += f"            {model_name},\n"
+                ready_imports += "        )"
+
+                ready_registrations = ""
+                for model_name, admin_class in admin_registrations:
+                    ready_registrations += f"        admin.site.register({model_name}, {admin_class})\n"
+
+                ready_method = f"""
+    def ready(self):
+        # Import and register admin classes when Django is ready
+        {ready_imports}
+
+        # Register admin classes
+{ready_registrations.rstrip()}"""
+
             app_config_content = f"""from django.apps import AppConfig
 
 
 class {app_name.title()}Config(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "products.{app_name}.backend"
-    label = "{app_name}"
+    label = "{app_name}"{ready_method}
 """
             with open(apps_py, "w") as f:
                 f.write(app_config_content)
@@ -470,6 +494,7 @@ class {app_name.title()}Config(AppConfig):
         """Move Django admin classes to the product backend folder"""
         admin_admins_dir = self.root_dir / "posthog" / "admin" / "admins"
         backend_dir = self.root_dir / "products" / target_app / "backend"
+        self._admin_classes_for_registration = []
 
         if not admin_admins_dir.exists():
             logger.warning("⚠️  Admin admins directory not found: %s", admin_admins_dir)
@@ -478,9 +503,17 @@ class {app_name.title()}Config(AppConfig):
         # Find admin files that might be related to our models
         admin_files_to_move = []
 
+        def to_snake_case(name: str) -> str:
+            """Convert CamelCase to snake_case"""
+            import re
+
+            return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
+
         # Common naming patterns for admin files
         for model_name in model_names:
+            snake_name = to_snake_case(model_name)
             potential_files = [
+                f"{snake_name}_admin.py",
                 f"{model_name.lower()}_admin.py",
                 f"{model_name}_admin.py",
             ]
@@ -489,6 +522,18 @@ class {app_name.title()}Config(AppConfig):
                 if admin_file.exists():
                     admin_files_to_move.append((admin_file, potential_file))
 
+        # Also use glob pattern to catch any other related admin files
+        import glob
+
+        for model_name in model_names:
+            snake_name = to_snake_case(model_name)
+            # Look for files that contain the model name
+            pattern = str(admin_admins_dir / f"*{snake_name}*admin*.py")
+            for found_file in glob.glob(pattern):
+                found_path = Path(found_file)
+                if found_path.exists() and (found_path, found_path.name) not in admin_files_to_move:
+                    admin_files_to_move.append((found_path, found_path.name))
+
         if not admin_files_to_move:
             logger.info("✅ No admin files found to move")
             return True
@@ -496,6 +541,7 @@ class {app_name.title()}Config(AppConfig):
         # Create backend/admin.py by combining all related admin files
         admin_imports = set()
         combined_content = []
+        admin_classes = []
 
         for admin_file, filename in admin_files_to_move:
             try:
@@ -515,6 +561,9 @@ class {app_name.title()}Config(AppConfig):
                             admin_imports.add(ast.unparse(node))
                     elif isinstance(node, ast.Import):
                         admin_imports.add(ast.unparse(node))
+                    elif isinstance(node, ast.ClassDef) and node.name.endswith("Admin"):
+                        # Extract admin class names for registration
+                        admin_classes.append(node.name)
 
                 # Add the content (we'll fix imports later)
                 combined_content.append(f"# From {filename}")
@@ -559,7 +608,15 @@ class {app_name.title()}Config(AppConfig):
             ]
         )
 
-        # Combine everything
+        # Store admin classes for AppConfig generation (don't add registrations to admin.py)
+        if admin_classes:
+            for admin_class in sorted(set(admin_classes)):
+                # Map admin class to model name (remove "Admin" suffix)
+                model_name = admin_class.replace("Admin", "")
+                if model_name in model_names:
+                    self._admin_classes_for_registration.append((model_name, admin_class))
+
+        # Combine everything (no registrations in admin.py)
         final_content = "\n".join(header + combined_content)
 
         with open(new_admin_file, "w") as f:
@@ -1027,13 +1084,21 @@ class {app_name.title()}Config(AppConfig):
 
         if target_migration:
             target_prompt = (
-                "Please edit the Django migration at {path} to follow the proven pattern from "
-                "products/batch_exports/migrations/0001_initial.py:\n\n"
-                "1. Wrap the entire set of operations in migrations.SeparateDatabaseAndState\n"
-                "2. Place every schema/state operation (CreateModel, AddConstraint, AddField, etc.) inside the state_operations list so nothing remains at the top level\n"
-                "3. Leave database_operations as an empty list containing only the comment '# No database operations - table already exists with this name'\n"
-                "4. Keep the existing db_table configuration\n"
-                "5. Do NOT add managed=False - keep the model normally managed"
+                "Please edit the Django migration at {path} to follow the exact proven pattern from "
+                "products/batch_exports/migrations/0001_initial.py. Make the migration look structurally identical to that file, "
+                "with only model names and fields differing:\n\n"
+                "1. Wrap ALL operations in a single migrations.SeparateDatabaseAndState block.\n"
+                "   - Do not leave any operations at the top level.\n\n"
+                "2. Place every schema/state operation (CreateModel, AddConstraint, AddField, AlterField, etc.) "
+                "inside the state_operations list.\n\n"
+                "3. The database_operations list must contain exactly one element: the comment "
+                "'# No database operations - table already exists with this name'. "
+                "Do not add any RunSQL, RunPython, or other operations.\n\n"
+                "4. Preserve the existing db_table configuration so the model continues using the original table.\n\n"
+                "5. Do NOT set managed=False. Keep the model fully managed (managed=True is implicit).\n\n"
+                "6. Do NOT introduce any changes not present in the original migration (dependencies, imports, or extra operations).\n\n"
+                "In summary: the final migration must mirror products/batch_exports/migrations/0001_initial.py in structure, "
+                "with only the model definitions differing."
             ).format(path=target_migration)
 
             if not self._apply_llm_edit(Path(target_migration), target_prompt):
@@ -1042,19 +1107,31 @@ class {app_name.title()}Config(AppConfig):
 
         if posthog_migration:
             posthog_prompt = (
-                "Please edit the Django migration at {path} as follows:\n\n"
-                "1. Introduce an update_content_type helper exactly as shown below and insert it near the top of the file:\n"
+                "You are given a Django migration file at {path}. Edit it EXACTLY as follows:\n\n"
+                "1. At the top of the file, immediately after the imports, insert ONE helper function:\n"
                 "   def update_content_type(apps, schema_editor):\n"
-                '       ContentType = apps.get_model("contenttypes", "ContentType")\n'
-                "       try:\n"
-                '           content_type = ContentType.objects.get(app_label="posthog", model="<modelname>")\n'
-                '           content_type.app_label = "<target_app>"\n'
-                "           content_type.save()\n"
-                "       except ContentType.DoesNotExist:\n"
-                "           pass\n\n"
-                "2. Wrap the DeleteModel in SeparateDatabaseAndState placing DeleteModel in state_operations and"
-                " RunPython(update_content_type) in database_operations\n"
-                "3. Replace <modelname> and <target_app> with the correct values for this migration"
+                "       ContentType = apps.get_model('contenttypes', 'ContentType')\n"
+                "       for model in ['<modelname1>', '<modelname2>', '<modelname3>']:\n"
+                "           try:\n"
+                "               ct = ContentType.objects.get(app_label='posthog', model=model)\n"
+                "               ct.app_label = '<target_app>'\n"
+                "               ct.save()\n"
+                "           except ContentType.DoesNotExist:\n"
+                "               pass\n\n"
+                "   - Replace <modelname1>, <modelname2>, etc. with ALL the lowercase model names being deleted in this migration.\n"
+                "   - Replace <target_app> with the lowercase app label of the new app (e.g. 'experiments').\n"
+                "   - There must be exactly one update_content_type function and it must loop over all models.\n\n"
+                "2. For every model that is currently being deleted in this migration:\n"
+                "   - Wrap the DeleteModel operation inside a SeparateDatabaseAndState.\n"
+                "   - Place DeleteModel ONLY in state_operations.\n"
+                "   - Place RunPython(update_content_type) ONLY in database_operations.\n"
+                "   - Do NOT include any RemoveField operations. Do NOT drop any database tables or columns.\n\n"
+                "3. Do not duplicate update_content_type. It must be defined once and referenced in every SeparateDatabaseAndState.\n\n"
+                "4. The final migration must:\n"
+                "   - Delete the models in state only (so Django no longer tracks them under 'posthog').\n"
+                "   - Keep the underlying database tables intact.\n"
+                "   - Update django_content_type rows so they point to the new app label.\n\n"
+                "5. Do not make ANY other changes. Keep dependencies, imports, and class Migration exactly as they are except for the required edits above.\n"
             ).format(path=posthog_migration)
 
             if not self._apply_llm_edit(Path(posthog_migration), posthog_prompt):
@@ -1494,28 +1571,30 @@ class {app_name.title()}Config(AppConfig):
             if not self.create_backend_structure(target_app):
                 return False
 
-        # Step 2: Create Django app configuration
-        if not self.create_django_app_config(target_app):
-            return False
-
-        # Step 3: Extract model class names early (before files are moved/deleted)
+        # Step 2: Extract model class names early (before files are moved/deleted)
         model_names = self._extract_class_names_from_files(source_files)
         logger.info("📋 Model classes found: %s", list(model_names))
 
-        # Step 4: Update posthog/models/__init__.py imports (before LibCST to prevent circular imports)
+        # Step 3: Update posthog/models/__init__.py imports (before LibCST to prevent circular imports)
         if not self.update_posthog_models_init(source_files, target_app):
             return False
 
-        # Step 5: Move model files and update imports with LibCST
+        # Step 4: Move model files and update imports with LibCST
         if not self.move_model_files_and_update_imports(source_files, target_app):
             return False
 
-        # Step 6: Update external file references to moved models
+        # Step 5: Update external file references to moved models
         self._update_external_references_to_moved_models(model_names, target_app)
 
-        # Step 7: Move Django admin classes to product backend
+        # Step 6: Move Django admin classes to product backend
         if not self.move_admin_classes(model_names, target_app):
             logger.warning("⚠️  Admin class migration failed, but continuing...")
+
+        admin_registrations = getattr(self, "_admin_classes_for_registration", [])
+
+        # Step 7: Create Django app configuration (register admin classes when available)
+        if not self.create_django_app_config(target_app, admin_registrations):
+            return False
 
         # Step 8: Update settings
         if not self.update_settings(target_app):
@@ -1535,11 +1614,11 @@ class {app_name.title()}Config(AppConfig):
         if not success:
             return False
 
-        # Step 7: Edit migrations with Claude
+        # Step 10: Edit migrations with Claude
         if not self.edit_migrations_with_claude(target_migration, posthog_migration):
             return False
 
-        # Step 8: Test
+        # Step 11: Test
         if not self.run_tests(target_app):
             return False
 
