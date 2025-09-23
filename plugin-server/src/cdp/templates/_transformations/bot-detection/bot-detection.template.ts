@@ -66,8 +66,7 @@ let known_bot_filter_list := ['bot', 'crawler', 'spider', 'feedfetcher-google',
 let userAgentProperty := inputs.userAgent
 
 // Check if user agent property exists in event
-// We treat missing user agent as bot traffic
-if (empty(event.properties[userAgentProperty])) {
+if (empty(event.properties[userAgentProperty]) and inputs.keepUndefinedUseragent == 'No') {
     return null
 }
 
@@ -75,8 +74,7 @@ if (empty(event.properties[userAgentProperty])) {
 let user_agent := event.properties[userAgentProperty]
 
 // Check for empty string
-// We treat empty user agent as bot traffic
-if (user_agent == '') {
+if (user_agent == '' and inputs.keepUndefinedUseragent == 'No') {
     return null
 }
 
@@ -344,6 +342,20 @@ return event
             default: '',
             secret: false,
             required: false,
+        },
+        {
+            key: 'keepUndefinedUseragent',
+            type: 'choice',
+            label: 'Keep events where the useragent is not set?',
+            description:
+                'Some events such as server-side events may not have a useragent property, choose if you want to keep these events',
+            default: 'Yes',
+            secret: false,
+            required: false,
+            choices: [
+                { value: 'Yes', label: 'Yes' },
+                { value: 'No', label: 'No' },
+            ],
         },
     ],
 }

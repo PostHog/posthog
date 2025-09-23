@@ -38,6 +38,7 @@ export interface RichContentEditorType {
     destroy: () => void
     getMarks: (type: string) => { id: string; pos: number }[]
     setMark: (id: string) => void
+    getMentions: () => number[]
     isActive: (name: string, attributes?: {}) => boolean
     deleteRange: (range: EditorRange) => EditorCommands
     insertContent: (content: JSONContent) => void
@@ -49,4 +50,5 @@ export interface RichContentEditorType {
     hasChildOfType: (node: RichContentNode, type: string) => boolean
     scrollToSelection: () => void
     scrollToPosition: (position: number) => void
+    clear: () => void
 }

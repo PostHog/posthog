@@ -42,6 +42,7 @@ import { NotebookNodeQuery } from '../Nodes/NotebookNodeQuery'
 import { NotebookNodeRecording } from '../Nodes/NotebookNodeRecording'
 import { NotebookNodeReplayTimestamp } from '../Nodes/NotebookNodeReplayTimestamp'
 import { NotebookNodeSurvey } from '../Nodes/NotebookNodeSurvey'
+import { NotebookNodeTaskCreate } from '../Nodes/NotebookNodeTaskCreate'
 import { FloatingSuggestions } from '../Suggestions/FloatingSuggestions'
 import { insertionSuggestionsLogic } from '../Suggestions/insertionSuggestionsLogic'
 import { NotebookEditor } from '../types'
@@ -135,6 +136,7 @@ export function Editor(): JSX.Element {
                 MentionsExtension,
                 NotebookNodePersonFeed,
                 NotebookNodeMap,
+                NotebookNodeTaskCreate,
                 Section,
                 SectionSummary,
                 SectionContent,

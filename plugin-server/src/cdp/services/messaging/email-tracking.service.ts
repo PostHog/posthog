@@ -192,7 +192,7 @@ export class EmailTrackingService {
 
             const event = req.body as MailjetWebhookEvent
 
-            const { functionId, invocationId } = parseEmailTrackingCode(event.CustomID || '') || {}
+            const { functionId, invocationId } = parseEmailTrackingCode(event.Payload || '') || {}
             const category = EVENT_TYPE_TO_CATEGORY[event.event]
 
             if (!category) {

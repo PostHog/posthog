@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -45,16 +46,20 @@ const mockQueryWithFilters: DataTableNode = {
 describe('dataTableSavedFiltersLogic', () => {
     let logic: ReturnType<typeof dataTableSavedFiltersLogic.build>
     let mockSetQuery: jest.Mock
+    let mockRouterPush: jest.SpyInstance
 
     beforeEach(() => {
         initKeaTests()
         localStorage.clear()
         mockSetQuery = jest.fn()
         ;(uuidv4 as jest.Mock).mockImplementation(() => 'test-uuid')
+
+        mockRouterPush = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
     })
 
     afterEach(() => {
         logic?.unmount()
+        mockRouterPush?.mockRestore()
     })
 
     describe('with unique key', () => {
@@ -243,15 +248,27 @@ describe('dataTableSavedFiltersLogic', () => {
                 logic.actions.createSavedFilter('Test Filter')
                 const savedFilter = logic.values.savedFilters[0]
 
+                mockRouterPush.mockClear()
+
                 logic.actions.applySavedFilter(savedFilter)
 
                 expect(mockSetQuery).toHaveBeenCalledWith(savedFilter.query)
                 expectLogic(logic).toMatchValues({
                     appliedSavedFilter: savedFilter,
                 })
+
+                expect(mockRouterPush).toHaveBeenCalledWith(
+                    router.values.location.pathname,
+                    expect.objectContaining({
+                        saved_filter_id: savedFilter.id,
+                    })
+                )
             })
 
-            it('should set newly created filter as applied', () => {
+            it('should set newly created filter as applied and update URL', () => {
+                // Reset the mock to clear any previous calls
+                mockRouterPush.mockClear()
+
                 logic.actions.createSavedFilter('New Filter')
 
                 const savedFilter = logic.values.savedFilters[0]
@@ -264,6 +281,71 @@ describe('dataTableSavedFiltersLogic', () => {
                 expect(appliedFilter).toBe(savedFilter) // Same reference, not a duplicate
                 expect(appliedFilter?.id).toBe(savedFilter.id) // Same UUID
                 expect(appliedFilter?.createdAt).toBe(savedFilter.createdAt) // Same timestamp
+
+                expect(mockRouterPush).toHaveBeenCalledWith(
+                    router.values.location.pathname,
+                    expect.objectContaining({
+                        saved_filter_id: savedFilter.id,
+                    })
+                )
+            })
+
+            describe('deleteSavedFilter', () => {
+                it('should update URL when deleting the currently applied filter', () => {
+                    // Create and apply a filter
+                    logic.actions.createSavedFilter('Filter to Delete')
+                    const filter = logic.values.savedFilters[0]
+                    logic.actions.setAppliedSavedFilter(filter)
+
+                    // Clear previous calls from createSavedFilter
+                    mockRouterPush.mockClear()
+
+                    logic.actions.deleteSavedFilter(filter.id)
+
+                    // Should remove saved_filter_id from URL
+                    expect(mockRouterPush).toHaveBeenCalledWith(router.values.location.pathname, {})
+                })
+
+                it('should NOT update URL when deleting a non-applied filter', () => {
+                    // Create two filters
+                    logic.actions.createSavedFilter('Applied Filter')
+                    const appliedFilter = logic.values.savedFilters[0]
+                    ;(uuidv4 as jest.Mock).mockImplementation(() => 'other-filter-id')
+                    logic.actions.createSavedFilter('Other Filter')
+                    const otherFilter = logic.values.savedFilters[1]
+
+                    // Apply the first filter (setAppliedSavedFilter doesn't trigger URL update)
+                    logic.actions.setAppliedSavedFilter(appliedFilter)
+
+                    // Clear previous calls from createSavedFilter (called twice)
+                    mockRouterPush.mockClear()
+
+                    // Delete the non-applied filter
+                    logic.actions.deleteSavedFilter(otherFilter.id)
+
+                    // Should not update URL
+                    expect(mockRouterPush).not.toHaveBeenCalled()
+                    // Applied filter should remain unchanged
+                    expectLogic(logic).toMatchValues({
+                        appliedSavedFilter: appliedFilter,
+                    })
+                })
+
+                it('should handle deleting when no filter is applied', () => {
+                    logic.actions.createSavedFilter('Filter 1')
+                    const filter = logic.values.savedFilters[0]
+
+                    // Ensure no filter is applied (setAppliedSavedFilter doesn't trigger URL update)
+                    logic.actions.setAppliedSavedFilter(null)
+
+                    // Clear previous calls from createSavedFilter
+                    mockRouterPush.mockClear()
+
+                    logic.actions.deleteSavedFilter(filter.id)
+
+                    // Should not crash and should not update URL
+                    expect(mockRouterPush).not.toHaveBeenCalled()
+                })
             })
         })
 

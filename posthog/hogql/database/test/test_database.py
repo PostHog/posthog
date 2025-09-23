@@ -19,7 +19,15 @@ from posthog.schema import (
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import create_hogql_database, serialize_database
-from posthog.hogql.database.models import ExpressionField, FieldTraverser, LazyJoin, StringDatabaseField, Table
+from posthog.hogql.database.models import (
+    DANGEROUS_NoTeamIdCheckTable,
+    ExpressionField,
+    FieldTraverser,
+    LazyJoin,
+    LazyTable,
+    StringDatabaseField,
+    Table,
+)
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
@@ -712,7 +720,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         sql = "select id from persons"
         query = print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
-            "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))"
+            "less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))"
             in query
         ), query
 
@@ -730,7 +738,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         sql = "select person.id from events"
         query = print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
-            "ifNull(less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))"
+            "less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))"
             in query
         ), query
 
@@ -1082,3 +1090,15 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         print_ast(parse_select("SELECT events.distinct_id FROM subscriptions"), context, dialect="clickhouse")
+
+    def test_team_id_on_all_tables(self):
+        db = create_hogql_database(team=self.team)
+
+        tables = db.get_all_tables()
+        for table_name in tables:
+            table = db.get_table(table_name)
+            assert table is not None
+            assert isinstance(table, Table)
+            if isinstance(table, LazyTable | DANGEROUS_NoTeamIdCheckTable):
+                continue
+            assert "team_id" in table.fields, f"Table {table_name} must have a team_id column"

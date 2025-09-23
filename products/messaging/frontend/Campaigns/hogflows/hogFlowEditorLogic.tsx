@@ -32,7 +32,8 @@ import { getSmartStepPath } from './steps/SmartEdge'
 import { StepViewNodeHandle } from './steps/types'
 import type { HogFlow, HogFlowAction, HogFlowActionNode } from './types'
 
-const getEdgeId = (edge: HogFlow['edges'][number]): string => `${edge.from}->${edge.to} ${edge.index ?? ''}`.trim()
+const getEdgeId = (edge: HogFlow['edges'][number]): string =>
+    `${edge.from}->${edge.to} ${edge.type} ${edge.index ?? ''}`.trim()
 
 export const HOG_FLOW_EDITOR_MODES = ['build', 'test', 'metrics', 'logs'] as const
 export type HogFlowEditorMode = (typeof HOG_FLOW_EDITOR_MODES)[number]
@@ -259,6 +260,17 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             try {
                 const edges: Edge[] = hogFlow.edges.map((edge) => {
                     const isOnlyEdgeForNode = hogFlow.edges.filter((e) => e.from === edge.from).length === 1
+                    const edgeSourceAction = hogFlow.actions.find((action) => action.id === edge.from)
+                    const branchResourceName = () => {
+                        switch (edgeSourceAction?.type) {
+                            case 'wait_until_condition':
+                                return 'condition'
+                            case 'random_cohort_branch':
+                                return `cohort #${(edge.index || 0) + 1}`
+                            default:
+                                return `condition #${(edge.index || 0) + 1}`
+                        }
+                    }
 
                     return {
                         // Only these values are set by the user
@@ -281,7 +293,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                                 ? undefined
                                 : edge.type === 'continue'
                                   ? `No match`
-                                  : `If condition #${(edge.index || 0) + 1} matches`,
+                                  : `If ${branchResourceName()} matches`,
                         },
                         labelShowBg: false,
                         targetHandle: `target_${edge.to}`,
@@ -497,6 +509,8 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 // Finally the continue edge
                 newEdges.push({
                     ...edgeToBeReplaced,
+                    index: undefined,
+                    type: 'continue',
                     from: newAction.id,
                 })
 

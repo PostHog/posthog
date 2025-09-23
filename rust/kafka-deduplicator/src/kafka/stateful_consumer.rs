@@ -8,6 +8,7 @@ use tokio::sync::oneshot;
 use tokio::time::timeout;
 use tracing::{debug, error, info};
 
+use crate::kafka::metrics_consts::KAFKA_CONSUMER_AVAILABLE_PERMITS;
 use crate::kafka::types::Partition;
 
 use super::message::AckableMessage;
@@ -122,7 +123,7 @@ impl StatefulKafkaConsumer {
                     stats.publish_metrics();
 
                     // Also publish semaphore permit metrics from the tracker
-                    metrics::gauge!("kafka_consumer_available_permits")
+                    metrics::gauge!(KAFKA_CONSUMER_AVAILABLE_PERMITS)
                         .set(available_permits as f64);
 
                     info!("Metrics published successfully");
