@@ -21,16 +21,16 @@ export const getDelayQueue = (_queueScheduledAt: DateTime): CyclotronJobQueueKin
     //     return 'delay_60m'
     // }
 
-    return 'delay_10m' // Force everything to the 10m queue for now
+    return 'delay-10m' // Force everything to the 10m queue for now
 }
 
 export const getDelayByQueue = (queue: CyclotronJobQueueKind): number => {
     switch (queue) {
-        case 'delay_24h':
+        case 'delay-24h':
             return 24 * 60 * 60 * 1000 // 24 hours
-        case 'delay_60m':
+        case 'delay-60m':
             return 60 * 60 * 1000 // 1 hour
-        case 'delay_10m':
+        case 'delay-10m':
             return 10 * 60 * 1000 // 10 minutes
         default:
             throw new Error(`Invalid queue: ${queue}`)

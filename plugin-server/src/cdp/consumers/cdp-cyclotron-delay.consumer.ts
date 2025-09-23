@@ -16,9 +16,9 @@ export class CdpCyclotronDelayConsumer extends CdpConsumerBase {
 
     constructor(hub: Hub) {
         super(hub)
-        this.queue = isDevEnv() ? 'delay_10m' : hub.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND
+        this.queue = isDevEnv() ? 'delay-10m' : hub.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND
 
-        if (!['delay_10m', 'delay_60m', 'delay_24h'].includes(this.queue)) {
+        if (!['delay-10m', 'delay-60m', 'delay-24h'].includes(this.queue)) {
             throw new Error(`Invalid cyclotron job queue kind: ${this.queue}`)
         }
 

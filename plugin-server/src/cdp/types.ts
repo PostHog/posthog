@@ -227,9 +227,9 @@ export const CYCLOTRON_INVOCATION_JOB_QUEUES = [
     'hog',
     'hog_overflow',
     'hogflow',
-    'delay_10m',
-    'delay_60m',
-    'delay_24h',
+    'delay-10m',
+    'delay-60m',
+    'delay-24h',
 ] as const
 export type CyclotronJobQueueKind = (typeof CYCLOTRON_INVOCATION_JOB_QUEUES)[number]
 
