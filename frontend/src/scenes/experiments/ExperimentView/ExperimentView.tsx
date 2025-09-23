@@ -15,6 +15,7 @@ import { ExperimentMetricModal } from '../Metrics/ExperimentMetricModal'
 import { LegacyMetricModal } from '../Metrics/LegacyMetricModal'
 import { MetricSourceModal } from '../Metrics/MetricSourceModal'
 import { SharedMetricModal } from '../Metrics/SharedMetricModal'
+import { experimentMetricModalLogic } from '../Metrics/experimentMetricModalLogic'
 import { MetricsViewLegacy } from '../MetricsView/legacy/MetricsViewLegacy'
 import { VariantDeltaTimeseries } from '../MetricsView/legacy/VariantDeltaTimeseries'
 import { Metrics } from '../MetricsView/new/Metrics'
@@ -27,7 +28,6 @@ import {
     ResultsQuery,
 } from '../components/ResultsBreakdown'
 import { experimentLogic } from '../experimentLogic'
-import { modalsLogic } from '../modalsLogic'
 import {
     appendMetricToOrderingArray,
     isLegacyExperiment,
@@ -199,11 +199,10 @@ const VariantsTab = (): JSX.Element => {
 }
 
 export function ExperimentView(): JSX.Element {
-    const { experimentLoading, experimentId, experiment, usesNewQueryRunner, editingPrimaryMetricUuid } =
-        useValues(experimentLogic)
-    const { restoreUnmodifiedExperiment, setExperiment, updateExperimentMetrics } = useActions(experimentLogic)
+    const { experimentLoading, experimentId, experiment, usesNewQueryRunner } = useValues(experimentLogic)
+    const { setExperiment, updateExperimentMetrics } = useActions(experimentLogic)
 
-    const { closePrimaryMetricModal, closeSecondaryMetricModal } = useActions(modalsLogic)
+    const { closeExperimentMetricModal } = useActions(experimentMetricModalLogic)
 
     const [activeTabKey, setActiveTabKey] = useState<string>('metrics')
 
@@ -244,63 +243,49 @@ export function ExperimentView(): JSX.Element {
                         ]}
                     />
 
-                    <MetricSourceModal experimentId={experimentId} isSecondary={true} />
-                    <MetricSourceModal experimentId={experimentId} isSecondary={false} />
+                    <MetricSourceModal isSecondary={true} />
+                    <MetricSourceModal isSecondary={false} />
 
                     {usesNewQueryRunner ? (
                         <>
                             <ExperimentMetricModal
                                 experimentId={experimentId}
-                                isSecondary={false}
-                                onSave={() => {
+                                onSave={(metric, context) => {
                                     const newOrderingArray = appendMetricToOrderingArray(
                                         experiment,
-                                        editingPrimaryMetricUuid || '',
-                                        false
+                                        metric.uuid || '',
+                                        context.type === 'secondary'
                                     )
+
                                     setExperiment({
-                                        primary_metrics_ordered_uuids: newOrderingArray,
+                                        [context.field]: [...experiment[context.field], metric],
+                                        [context.orderingField]: newOrderingArray,
                                     })
+
                                     updateExperimentMetrics()
-                                    closePrimaryMetricModal()
+                                    closeExperimentMetricModal()
                                 }}
-                                onDelete={() => {
+                                onDelete={(metric, context) => {
                                     //bail if we don't delete a metric
-                                    //this should be a parameter of onDelete
-                                    // onClick={onDelete(metricUuid)}
-                                    if (!editingPrimaryMetricUuid) {
+                                    if (!metric.uuid) {
                                         return
                                     }
 
                                     const newOrderingArray = removeMetricFromOrderingArray(
                                         experiment,
-                                        editingPrimaryMetricUuid,
-                                        false
-                                    )
-                                    const newMetrics = experiment.metrics.filter(
-                                        (m) => m.uuid !== editingPrimaryMetricUuid
+                                        metric.uuid,
+                                        context.type === 'secondary'
                                     )
 
+                                    const newMetrics = experiment[context.field].filter((m) => m.uuid !== metric.uuid)
+
                                     setExperiment({
-                                        metrics: newMetrics,
-                                        primary_metrics_ordered_uuids: newOrderingArray,
+                                        [context.field]: newMetrics,
+                                        [context.orderingField]: newOrderingArray,
                                     })
+
                                     updateExperimentMetrics()
-                                    closePrimaryMetricModal()
-                                }}
-                                onClose={() => {
-                                    restoreUnmodifiedExperiment()
-                                    closePrimaryMetricModal()
-                                }}
-                            />
-                            <ExperimentMetricModal
-                                experimentId={experimentId}
-                                isSecondary={true}
-                                onSave={() => {}}
-                                onDelete={() => {}}
-                                onClose={() => {
-                                    restoreUnmodifiedExperiment()
-                                    closeSecondaryMetricModal()
+                                    closeExperimentMetricModal()
                                 }}
                             />
                             <ExposureCriteriaModal />
