@@ -100,9 +100,9 @@ export const hogFunctionSourceWebhookTestLogic = kea<hogFunctionSourceWebhookTes
                           .join(' ')
                     : ''
 
-                return `curl -X POST ${headers} \\
+                return `curl -X ${testInvocation.method} ${headers} \\
   -d '${testInvocation.body}' \\
-  ${publicWebhooksHostOrigin()}/public/webhooks/${props.id ?? 'unknown'}`
+  ${publicWebhooksHostOrigin()}/public/webhooks/${props.id ?? 'unknown'}${testInvocation.query ? `?${testInvocation.query}` : ''}`
             },
         ],
     }),
