@@ -359,6 +359,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
     @patch("ee.hogai.graph.taxonomy.toolkit.EventTaxonomyQueryRunner")
     def test_retrieve_event_or_action_property_values(self, mock_runner_class):
         self._create_property_definition(PropertyDefinition.Type.EVENT, "$browser")
+        self._create_property_definition(PropertyDefinition.Type.EVENT, "$device_type")
 
         mock_response = self._create_mock_taxonomy_response(
             property="$browser", sample_values=["Chrome", "Firefox"], sample_count=2
@@ -377,6 +378,7 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, BaseTest):
     def test_retrieve_event_or_action_property_values_multiple(self, mock_runner_class):
         self._create_property_definition(PropertyDefinition.Type.EVENT, "$browser")
         self._create_property_definition(PropertyDefinition.Type.EVENT, "$device_type")
+
         mock_response = EventTaxonomyItem(property="$browser", sample_values=["Chrome", "Firefox"], sample_count=2)
         mock_response2 = EventTaxonomyItem(property="$device_type", sample_values=["Mobile", "Desktop"], sample_count=2)
 
