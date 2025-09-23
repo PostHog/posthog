@@ -94,7 +94,7 @@
         ],
         "*.{md,mdx}": [
             "prettier --write",
-            "markdownlint-cli2 --fix --config .config/.markdownlint-cli2.jsonc"
+            "pnpm exec markdownlint-cli2 --fix --config .config/.markdownlint-cli2.jsonc"
         ]
     },
     "browserslist": {
